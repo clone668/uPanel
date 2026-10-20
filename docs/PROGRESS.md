@@ -1671,6 +1671,15 @@ exitcode=0x8b），重启后 `/tmp` 清空、`/etc/upanel/upanel.json` 又被截
 reader 覆盖）；受限容器/无 `/proc` 环境；`go test -race`（宿主与 VM 都没开 cgo）；浏览器证据
 （首页属 P04.4）；采集间隔可配置（本轮固定 5000 ms，`interval_ms` 已随响应返回）。
 
+**交付去向**：代码与证据已推送到 <https://github.com/clone668/uPanel>，代码提交
+`32ca37a2ed4bff7fdbac1a81a19bb08fca6dd0ea`（90 个文件 / +7771 −35），本条记录随紧随其后的
+文档提交入库。证据目录 `docs/evidence/P04/2026-10-20-p04.1/` 含宿主闸门输出、两台 VM 环境、
+二进制 sha256 对照（`cross-build-sha256.txt`、`vm-sha256-2404.txt`、`vm-sha256-2204.txt`）、
+`runall-*.txt`、`p04-1-*.txt`、`native-*.txt`、逐脚本日志（`vm-logs-2404/`、`vm-logs-2204/`）、
+`commands.log` 与 `result.md`。新增的 `tests/integration/p04-1-system-acceptance.sh`、
+`tests/fixtures/` 与 `scripts/run-native-tests.sh` 的夹具逻辑随代码一起入库，换台机器重建一次
+验收环境就能一键重跑。
+
 ## 6. 未决问题与范围变更
 
 未批准任何范围变更。DECISIONS.md 第 8 节记录 Q1—Q80；P03.3 新增六条：Q67（阶段与事件必须同事务，
