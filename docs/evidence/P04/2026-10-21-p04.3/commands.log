@@ -1,0 +1,95 @@
+# P04.3 实际执行的命令（按时间顺序）
+
+环境：开发宿主 Windows 11 + Go 1.27.3 + Node v22.23.3（`/h/Code/.toolchains/node-v22.23.3-win-x64`）；
+验收 VM：`upanel-2404`（24.04.5 / 6.8.0-147 / smartctl 7.4 / NFS 服务端）、
+`upanel-2204`（22.04.5 / 5.15.0-198 / smartctl 7.2 / 本轮新装 NFS 服务端）、
+`upanel-smart`（24.04.5 / 6.8.0-147 / smartctl 7.4 / QEMU NVMe 4 GiB，无 NFS 服务端）。
+每次都是删掉 `/var/tmp/upanel-accept-p04-3` 从干净状态重跑。
+
+## 1. 宿主闸门
+
+```
+$ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 sh -c 'for c in upanel-web upanel-agent upanelctl; do
+    go build -trimpath -o bin/linux-amd64/$c ./cmd/$c || exit 1; done'
+exit=0
+
+$ go build ./...                       exit=0
+$ go vet ./...                         exit=0
+$ gofmt -l .                           无输出（本轮先修掉 smart_test.go 的 CRLF 行尾）
+$ go test ./... -count=1 -v            exit=0
+    --- PASS 568（含子测试 744）/ --- FAIL 0 / --- SKIP 6 / ok 包 20
+    输出：go-test-verbose.txt、汇总：go-test.txt
+$ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go test -c -trimpath -o bin/linux-amd64/storage.test ./internal/storage/
+$ sha256sum bin/linux-amd64/storage.test
+    0454c41d16417fd1197c3e0bf97745d9b6420c398fc12cde0fa0205356ef07ea
+$ PATH=/h/Code/.toolchains/node-v22.23.3-win-x64:/c/Program Files/Go/bin:$PATH sh scripts/check.sh
+    PASS 12 / FAIL 0 / NOT RUN 0（明细见 check.txt；openapi-lint valid，9 warnings）
+```
+
+第一次 `sh scripts/check.sh` 是在默认 PATH 下跑的，`node -v` 是 v24.15.0，
+`node-version` 一项 FAIL（期望 v22.23.3）。按 `.nvmrc` 换成锁定工具链后 12/0/0。
+这条失败是宿主工具链问题，不是产品缺陷，但如实记在这里。
+
+## 2. 上传与运行（每台 VM）
+
+```
+$ scp -i <key> -P <port> bin/linux-amd64/{upanel-agent,upanel-web,upanelctl} upanel@127.0.0.1:/tmp/
+$ ssh ... 'sudo mv /tmp/upanel-* /tmp/upanel-bin/ && sudo chmod 0755 /tmp/upanel-bin/upanel-*'
+    # 注意：/tmp/upanel-bin 是 root 所有，直接 scp 到该目录会 Permission denied；先落 /tmp 再 sudo mv。
+$ scp -i <key> -P <port> tests/integration/p04-3-storage-health-acceptance.sh upanel@127.0.0.1:/tmp/p04-3.sh
+$ ssh ... 'sudo rm -rf /var/tmp/upanel-accept-p04-3;
+           sudo sh -c "setsid nohup env BIN_DIR=/tmp/upanel-bin sh /tmp/p04-3.sh >/tmp/p043-run5.log 2>&1 </dev/null &"'
+```
+
+脚本在 VM 内做的事：建 `upanel-web` 账号（没有就建）、起代理（root）、起 Web（upanel-web，端口 19447）、
+本机 NFS 自导出并 `hard,timeo=600,retrans=2,ro` 挂到 `/mnt/upanel-nfs`、停/启 `nfs-server`、
+每台盘各跑一次 `smartctl -j -H -A -i` 做交叉验证。跑完 `umount`、恢复服务、删自己的临时目录。
+
+## 3. 原生测试二进制（三台 VM，同一份交叉编译产物）
+
+```
+$ ssh ... 'sudo cp -a .../tests/fixtures/. /tmp/upanel-bin/fixtures/   # 夹具跟着二进制走
+           cd /tmp && /tmp/upanel-bin/storage.test -test.count=1 -test.v'
+2404: PASS 103 / SKIP 0 / FAIL 0        -> native-storage-2404.txt
+2204: PASS 103 / SKIP 0 / FAIL 0        -> native-storage-2204.txt
+smart: PASS 103 / SKIP 0 / FAIL 0       -> native-storage-smart.txt
+```
+
+夹具没跟着上传时，`collector_*` 这几个用例会以“定位夹具失败”报 5—6 条 FAIL
+（第一次就踩到了，因为二进制放在了 `/tmp/upanel-bin/` 而夹具没放 `/tmp/upanel-bin/fixtures/`）。
+那不是产品缺陷，是上传缺件；补上夹具后 103/0。
+
+## 4. `go test -race`（只有 VM 能做：宿主没有 gcc/cgo）
+
+```
+$ ssh 2204 'sudo apt-get install -y build-essential; sudo tar -C /usr/local -xzf /tmp/go.tgz'
+    gcc 11.4.0 / go1.27.3 linux/amd64
+$ scp go.mod go.sum internal cmd web/dist tests/fixtures migrations api deploy -> /var/tmp/upanel-race
+$ ssh 2204 'cd /var/tmp/upanel-race && sudo env CGO_ENABLED=1 \
+      GOMODCACHE=/home/upanel/go/pkg/mod GOCACHE=/home/upanel/.cache/go-build \
+      /usr/local/go/bin/go test -race -count=1 ./...'
+```
+
+三次，按发现的问题递进：
+
+| 次 | 命令 | 结果 | 说明 |
+|---|---|---|---|
+| 1 | 以 `upanel` 用户跑 `./internal/...` | 11 个包 ok，7 个包 `[setup failed]` | 源码树缺 `migrations/` 目录（我打包时漏了），不是产品问题 |
+| 2 | root 跑 `./...` | 21 ok + `cmd/upanel-web` 3 条 FAIL（`mock 模式只能绑定 127.0.0.1:18881，当前配置为 127.0.0.1:19447`） | 机器上留着验收脚本写的 `/etc/upanel/upanel.json`，而 `cmd/upanel-web` 的用例没传 `--config` 会读它 → **测试依赖机器状态**，本轮修掉（Q103） |
+| 3 | 同上，源码带 `testRun` 修复 | 19 个包 ok、1 个包 FAIL（`TestDefaultPasswordParamsTiming`，-race 把 Argon2id 放到 2.03 秒）、0 条 `WARNING: DATA RACE` | `race-final-2204.txt`；同一条件下 `cmd/upanel-web` 已全绿 |
+
+非 root、`/etc/upanel` 有配置这两种情况都会让结果漂移，所以最终结论只取第三次（root + 已修复 + 干净源码树）。
+`TestDefaultPasswordParamsTiming` 在 `-race` 下必失败：Argon2id 单次校验被放慢到 1.79 秒，
+用例的时间上界是 1 秒；不带 `-race` 时同一用例 0.6 秒通过（`go test -count=1 -run TestDefaultPasswordParamsTiming ./internal/auth/` → ok）。
+这是竞态检测器放大的时间开销，不是竞态，也不是产品变慢。
+
+## 5. 本轮踩到的环境问题（与产品无关，但影响证据）
+
+1. `upanel-2404` 在第二次全量验收跑到 NFS 段时 guest 内核 panic：
+   `systemd[1]: segfault ... Kernel panic - not syncing: Attempted to kill init! exitcode=0x0000008b`。
+   重启 VM 后 `/tmp` 被清空，二进制/脚本/夹具全部重新上传并按 sha256 核对一致，然后从干净状态重跑。
+2. `upanel-smart` 在同一时段也 panic 了一次（同样是 `Attempted to kill init`，uptime 5032 秒），
+   发生在它的验收跑完之后。重启后补跑原生测试二进制（103/0）。
+3. 这两台 VM 之前都 panic 过（PROGRESS 里已记过），属 QEMU/WHPX 环境问题，不记作产品缺陷。
+4. `pkill -TERM -f "sh /tmp/p04-3.sh"` 会连带杀掉自己的 ssh 会话（命令行里含同样的模式），
+   要用 `for p in $(pgrep -f "^sh /tmp/p04-3.sh"); do sudo kill -TERM $p; done`。

@@ -95,6 +95,30 @@ type Topology struct {
 
 	Nodes []Device `json:"nodes"`
 	Edges []Edge   `json:"edges"`
+	// NetworkMounts 是没有块设备的网络挂载（NFS/CIFS/sshfs……）。
+	//
+	// 它们没法挂到某个 Device 上——远端机器不在本机 sysfs 里——所以独立列出。
+	// PLAN.md 第 8 节要的就是这个形态：网络挂载单独显示可达性与容量，
+	// 不去推断远端硬件健康，也不和本地盘的容量混在一起。
+	NetworkMounts []NetworkMount `json:"network_mounts"`
+}
+
+// NetworkMount 是一个没有块设备支撑的网络挂载点。
+type NetworkMount struct {
+	Path     string `json:"path"`
+	Source   string `json:"source"`
+	FSType   string `json:"fstype"`
+	ReadOnly bool   `json:"read_only"`
+	// Reachable 是对“远端还能不能用”的结论：
+	//   - true：容量读到了；
+	//   - false：查询明确失败（超时、statfs 报错）；
+	//   - null：还没查过（代理刚启动、刚挂上，容量缓存里没有）。
+	// 不能用 false 表示“不知道”：那会让界面把刚挂上的盘显示成断开。
+	Reachable *bool `json:"reachable"`
+	// Capacity 与设备挂载点同义：读不到就是 null，不是 0。
+	Capacity *Capacity `json:"capacity"`
+	// CapacityError 说明 capacity 为什么是 null（含“多久之后才会重试”）。
+	CapacityError string `json:"capacity_error,omitempty"`
 }
 
 // Device 是一个块设备节点（含分区与逻辑设备）。
@@ -146,8 +170,18 @@ type Device struct {
 	// Protection 是系统盘保护判断。它跟着设备走，列表页也能直接显示“受保护”标记。
 	Protection Protection `json:"protection"`
 
+	// Io 是这块设备自己的 I/O 计数与速率（/proc/diskstats 里它那一行）。
+	// P04.3 起填充；读不到 /proc/diskstats 时为 null。
+	// 每个设备只报自己的计数，从不相加——分区的 I/O 已经包含在整盘里。
+	Io *IOStats `json:"io"`
+
 	// CollectedAt 是这块设备信息所属的采集时间，与快照的 CollectedAt 相同。
 	CollectedAt time.Time `json:"collected_at"`
+
+	// counters 是本次采集读到的原始计数，只用于算下一次的速率。
+	// 不导出、不入 JSON：它是宿主的内部状态，不该成为契约的一部分。
+	counters    DiskCounters
+	hasCounters bool
 }
 
 // Protection 是系统盘保护判断的结果。
@@ -185,6 +219,12 @@ type Mount struct {
 	ReadOnly bool `json:"read_only"`
 	// Capacity 只在挂载点 statfs 成功时存在；失败时是 null，而不是 0。
 	Capacity *Capacity `json:"capacity"`
+	// CapacityError 说明为什么 capacity 是 null。
+	//
+	// 网络挂载不可达时这里是超时说明（含“多久之后才会重试”）。
+	// 空字符串表示这一次没有报错——但 capacity 仍可能是 null（例如挂载点刚出现、
+	// 容量还没采到）。界面不能把 null 当成“磁盘满了”。
+	CapacityError string `json:"capacity_error,omitempty"`
 }
 
 // Capacity 是文件系统的容量与 inode 使用情况。

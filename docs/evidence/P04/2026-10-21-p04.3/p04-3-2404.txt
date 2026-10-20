@@ -1,0 +1,107 @@
+== 0. 环境 ==
+PASS  验收脚本以 root 运行
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  python3 可用于解析响应
+PASS  Web 账号 upanel-web 存在
+PASS  本机有 smartctl（/usr/sbin/smartctl）：可以做真机交叉验证
+PASS  本机有 NFS 工具（可以做不可达网络挂载实验）
+
+== 1. 配置校验：超范围直接拒绝启动 ==
+PASS  smart_interval_minutes=3 被拒绝并指出 5—60
+PASS  smart_interval_minutes=61 被拒绝
+PASS  network_capacity_timeout_seconds=0 被拒绝并指出 1—60
+PASS  smartctl_path 不是绝对路径被拒绝
+PASS  smartctl_path 含 '?' 被拒绝
+PASS  network_capacity_timeout_seconds=61 被拒绝
+
+== 2. 启动代理（SMART 15 分钟、网络容量超时 2 秒） ==
+PASS  代理密钥文件已存在（沿用上一轮）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  代理在 10 秒内开始应答（capabilities 200）
+PASS  capabilities 200
+PASS  仍不报告任何写动作
+
+== 3. health：闭集、来源、不支持与温度 ==
+PASS  所有 health.status 都在闭集内
+PASS  分区/loop/rom 的 health 是 unsupported
+PASS  unsupported 都带可读理由
+PASS  health.source 在 {smartctl, sysfs, none} 内
+PASS  温度没有 0 °C：要么 null 要么 > 0
+PASS  非物理盘不带温度
+PASS  每块物理盘都完成了至少一次 SMART 采集（checked_at 非空）
+PASS  API 的健康结论与 smartctl 自身输出逐盘一致
+NOTRUN  NVMe 真实 healthy: 本机没有可读出 healthy 的 NVMe（QEMU SCSI 盘 smart_support.available=false）
+
+== 4. SMART 节奏：15 分钟内不重复探测，也不在 5 秒循环里碰盘 ==
+PASS  13 秒内拓扑确实在刷新（5 秒节奏）
+PASS  13 秒内 SMART 的 checked_at 不变（15 分钟节奏）
+PASS  5 秒扫描循环里没有启动 smartctl
+
+== 5. diskstats：自己的那一行、速率、null 语义 ==
+PASS  每台设备的计数与 /proc/diskstats 自己那一行对得上（且是十进制字符串）
+
+== 6. io 变化不改变 snapshot_version ==
+PASS  11 秒后 snapshot_version 不变（io 不进指纹）
+PASS  期间 io 确实变化了，而版本没变（证明 io 不参与指纹）
+
+== 7. statfs helper 入口只接受一个绝对路径 ==
+PASS  helper 对 / 返回 0
+PASS  helper 输出带容量
+PASS  helper 输出里的总容量是十进制字符串
+PASS  helper 拒绝非法参数 ''
+PASS  helper 拒绝非法参数 'relative/path'
+PASS  helper 拒绝非法参数 '/ /'
+
+== 8. 不可达网络挂载：超时、隔离、不影响拓扑 ==
+PASS  在本机挂起一条 hard NFS4 挂载（statfs 会无限重试）
+PASS  NFS 挂载在快照里可见且容量可读
+PASS  NFS 挂载的 fstype 是 nfs4（决定走隔离通道）
+PASS  网络挂载没有被塞进某台盘的 filesystem.mounts
+PASS  读到容量时 reachable 为 true
+NOTE  已停掉本机 NFS 服务：现在对 /mnt/upanel-nfs 做 statfs 会挂在内核里
+PASS  停服后 120 秒内容量变成 null（缓存过期后重查超时）
+PASS  停服后挂载点仍可见
+PASS  停服后容量为 null（不是 0，也不是旧数字）
+PASS  停服后 reachable 为 false（明确的不可达，不是不知道）
+PASS  capacity_error 说明是超时
+PASS  capacity_error 说明多久之后才重试
+PASS  卡住的网络挂载没有拖住 5 秒扫描（collected_at 仍在前进）
+PASS  其余设备的 io 仍然完整（采集没有被一起拖死）
+PASS  隔离生效：整个停服期间最多只有 1 个 statfs 子进程
+PASS  init-admin 退出码
+PASS  statfs 卡住期间 Web 起得来（http://127.0.0.1:19447）
+PASS  NFS 卡住时登录仍然 200
+PASS  登录耗时 332 毫秒（< 5000，没有被 statfs 拖住）
+PASS  登录的那一刻网络挂载仍不可达（不是卡点已过）
+NOTE  已停掉 Web（第 9 段会用同一份数据库重新启动）
+PASS  NFS 恢复后容量在隔离到期后自动回来
+NOTE  已卸载 NFS 挂载并恢复 NFS 服务
+
+== 9. Web 透传（权限 V、字段原样） ==
+PASS  重复 init-admin 被拒绝（不覆盖已有管理员）
+PASS  Web 以 upanel-web 身份在 http://127.0.0.1:19447 启动
+PASS  未登录读设备列表 401
+PASS  管理员登录 200
+PASS  viewer 读设备列表 200（权限 V）
+PASS  Web 返回的每台设备都带 io 字段（可为 null）
+PASS  Web 没有改写 health
+PASS  Web 返回的 io 字节字段是字符串
+PASS  Web 返回的挂载点容量字段存在（可为 null）
+PASS  viewer 读拓扑 200（权限 V）
+PASS  Web 拓扑里有 network_mounts 列表（没有也是 []，不是 null）
+PASS  拓扑里的网络挂载字段完整
+
+== 10. 没有 smartctl 时：unknown，不是 healthy ==
+PASS  配置了不存在的 smartctl_path 时，物理盘仍是 unknown
+PASS  unknown 带说明而不是空
+PASS  分区仍然是 unsupported（不是 unknown）
+PASS  恢复默认配置后代理重新启动
+
+== 11. 日志卫生 ==
+PASS  代理日志里没有命令行回显与私钥
+
+通过 77 项，失败 0 项，未执行 1 项
+未执行项： | NVMe 真实 healthy

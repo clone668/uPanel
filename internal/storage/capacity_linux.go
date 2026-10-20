@@ -3,29 +3,18 @@
 package storage
 
 import (
-	"context"
 	"fmt"
 	"syscall"
-	"time"
 )
-
-// Capacity 读取挂载点容量与 inode 使用情况。
-func (OSCapacityReader) Capacity(ctx context.Context, mountPath string) (*Capacity, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	cap, err := statfsCapacity(mountPath)
-	if err != nil {
-		return nil, err
-	}
-	cap.CollectedAt = time.Now().UTC()
-	return cap, nil
-}
 
 // statfsCapacity 用 statfs 读出总容量、可用容量与 inode 使用情况。
 //
 // 取的是**非特权**可用容量（f_bavail，即普通用户能写的空间），不是 f_bfree：
 // 界面上说“还能用多少”应当与 df 的口径一致，否则用户会以为写 5% 预留空间也不算满。
+//
+// 这个函数**没有超时**：它是阻塞的系统调用。本地文件系统上这是微秒级操作，
+// 但网络挂载上它可能卡在不可中断的内核 I/O 里——那正是它只能被本地挂载直接调用、
+// 网络挂载必须走 capacity.go 里隔离子进程的原因。
 func statfsCapacity(mountPath string) (*Capacity, error) {
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(mountPath, &st); err != nil {

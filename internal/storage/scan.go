@@ -162,6 +162,12 @@ func Scan(ctx context.Context, root Root) (*Topology, error) {
 		})
 	}
 
+	// 没有块设备的网络挂载：独立列进快照（PLAN.md 第 8 节）。
+	//
+	// tmpfs、proc、cgroup 之类同样没有块设备，但它们和磁盘管理无关，不进拓扑；
+	// 这里只收网络文件系统，判断依据是 fstype 而不是挂载点路径写法。
+	networkMounts := selectNetworkMounts(mounts, byDev)
+
 	swaps := readSwaps(joinPath(root.Proc, "swaps"))
 	swapByDev := map[string]*SwapUsage{}
 	for _, sw := range swaps {
@@ -259,12 +265,13 @@ func Scan(ctx context.Context, root Root) (*Topology, error) {
 	edges = dedupeEdges(edges)
 
 	topo := &Topology{
-		Status:      StatusOK,
-		CollectedAt: now,
-		Nodes:       list,
-		Edges:       edges,
+		Status:        StatusOK,
+		CollectedAt:   now,
+		Nodes:         list,
+		Edges:         edges,
+		NetworkMounts: networkMounts,
 	}
-	version, err := snapshotVersion(list, edges)
+	version, err := snapshotVersion(list, edges, networkMounts)
 	if err != nil {
 		return nil, err
 	}
@@ -306,15 +313,11 @@ func readDevice(sysRoot, dir, name, kind string, now time.Time) *Device {
 		Kind:        kind,
 		Name:        name,
 		CollectedAt: now,
-		// 健康在 P04.2 一律 unknown：SMART/NVMe 解析属 P04.3。
-		// 这里绝不能写 healthy —— 那是 P04.3 采集成功后的结论。
-		Health: Health{
-			Status:             HealthUnknown,
-			TemperatureCelsius: nil,
-			Source:             "none",
-			CheckedAt:          nil,
-			Details:            strPtr("SMART/NVMe 尚未采集（P04.3）"),
-		},
+		// 健康在 P04.3 由 SMART 采集填充（见 collector.go 的 healthLoop）。
+		// 扫描阶段只给出“按设备类型讲得通的缺省值”：物理盘是 unknown（还没问 SMART），
+		// 分区/回环/逻辑设备是 unsupported（它们本来就没有独立的 SMART）。
+		// 这里绝不能写 healthy —— 那是采集成功后的结论。
+		Health:       defaultHealth(kind),
 		Capabilities: []Capability{},
 	}
 
@@ -371,7 +374,58 @@ func readDevice(sysRoot, dir, name, kind string, now time.Time) *Device {
 
 	// 重新分类：dm 是 LVM/crypt 还是别的，看 dm/uuid；md 看 md-present。
 	dev.Kind = classifyKind(dir, name, kind, removable, dev.ReadOnly)
+	// 健康占位跟着**实际类型**走：dm/md/loop 在顶层枚举时都是 disk，
+	// 但重新分类后它们没有独立的 SMART，占位要改成 unsupported。
+	dev.Health = defaultHealth(dev.Kind)
 	return dev
+}
+
+// defaultHealth 给出设备在“还没问过 SMART”时的健康占位。
+//
+// 关键是区分两种“不知道”：
+//   - 物理盘：SMART 是能读的，只是还没读 → unknown，采集完成后会被真实结果替换；
+//   - 分区/回环/光驱/逻辑设备：它们本身没有 SMART → unsupported。
+//
+// 这两种都不能写成 healthy，也不能互相顶替：把分区标成 unknown 会让人以为采集出了问题，
+// 把分区标成 healthy 更糟——那是在替一块盘的健康下结论。
+func defaultHealth(kind string) Health {
+	switch kind {
+	case KindDisk:
+		return Health{
+			Status:    HealthUnknown,
+			Source:    "smartctl",
+			CheckedAt: nil,
+			Details:   strPtr("SMART 采集尚未完成"),
+		}
+	case KindPartition:
+		return Health{
+			Status:    HealthUnsupported,
+			Source:    "none",
+			CheckedAt: nil,
+			Details:   strPtr("分区没有独立的健康信息，请查看它所在的物理盘"),
+		}
+	case KindLoop:
+		return Health{
+			Status:    HealthUnsupported,
+			Source:    "none",
+			CheckedAt: nil,
+			Details:   strPtr("回环设备没有硬件健康信息"),
+		}
+	case KindROM:
+		return Health{
+			Status:    HealthUnsupported,
+			Source:    "none",
+			CheckedAt: nil,
+			Details:   strPtr("光驱没有 SMART 健康信息"),
+		}
+	default:
+		return Health{
+			Status:    HealthUnsupported,
+			Source:    "none",
+			CheckedAt: nil,
+			Details:   strPtr("逻辑设备不直接提供 SMART，健康取决于它下面的物理盘"),
+		}
+	}
 }
 
 // classifyKind 依据 sysfs 的结构信号判断设备类型。
@@ -755,11 +809,12 @@ func linkRank(link string) int {
 //
 // 指纹只由**内容**决定，所以先把两类“会自己变但不是内容”的字段清掉：
 //   - 每个节点上的 collected_at（每 5 秒一次扫描都会变）；
-//   - 挂载点容量（由 Collector 后填，statfs 每次都可能不同）。
+//   - 挂载点容量（由 Collector 后填，statfs 每次都可能不同）；
+//   - 网络挂载的可达性与容量（同样是后填的观测值，不是配置内容）。
 //
-// 不清掉这两样，“内容没变版本就不变”不成立，预检会把一次没有任何变化的写操作判成
+// 不清掉这几样，“内容没变版本就不变”不成立，预检会把一次没有任何变化的写操作判成
 // “拓扑已改变”，或者反过来把真正的变化混在噪声里看不出来。
-func snapshotVersion(nodes []Device, edges []Edge) (string, error) {
+func snapshotVersion(nodes []Device, edges []Edge, networkMounts []NetworkMount) (string, error) {
 	normalized := make([]Device, len(nodes))
 	for i, n := range nodes {
 		n.CollectedAt = time.Time{}
@@ -769,16 +824,25 @@ func snapshotVersion(nodes []Device, edges []Edge) (string, error) {
 			fs.Mounts = make([]Mount, len(n.Filesystem.Mounts))
 			for j, m := range n.Filesystem.Mounts {
 				m.Capacity = nil
+				m.CapacityError = ""
 				fs.Mounts[j] = m
 			}
 			n.Filesystem = &fs
 		}
 		normalized[i] = n
 	}
+	normalizedNetwork := make([]NetworkMount, len(networkMounts))
+	for i, nm := range networkMounts {
+		nm.Capacity = nil
+		nm.CapacityError = ""
+		nm.Reachable = nil
+		normalizedNetwork[i] = nm
+	}
 	payload := struct {
-		Nodes []Device `json:"nodes"`
-		Edges []Edge   `json:"edges"`
-	}{Nodes: normalized, Edges: edges}
+		Nodes         []Device       `json:"nodes"`
+		Edges         []Edge         `json:"edges"`
+		NetworkMounts []NetworkMount `json:"network_mounts"`
+	}{Nodes: normalized, Edges: edges, NetworkMounts: normalizedNetwork}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("storage: 计算拓扑版本失败: %w", err)
@@ -819,3 +883,30 @@ func pick(s string) *string {
 }
 
 func strPtr(s string) *string { return &s }
+
+// selectNetworkMounts 从挂载表里挑出**没有块设备**的网络挂载。
+//
+// byDev 是 major:minor → 设备名。挂载点能找到块设备，说明它是本地文件系统，
+// 容量归那台设备的 filesystem.mounts；找不到才是“远端的东西”，
+// 例如 NFS 的 0:xx 伪设备号——远端机器不在本机 sysfs 里，没有块设备可挂。
+//
+// 只收网络文件系统：tmpfs、proc、cgroup 同样没有块设备，但它们与磁盘管理无关。
+// 路径去重是因为同一路径可能被绑定挂载多次，容量只该查一次。
+func selectNetworkMounts(mounts []mountRecord, byDev map[string]string) []NetworkMount {
+	out := []NetworkMount{}
+	seen := map[string]bool{}
+	for _, m := range mounts {
+		if byDev[m.majorMinor] != "" || !IsNetworkFS(m.fstype) || seen[m.path] {
+			continue
+		}
+		seen[m.path] = true
+		out = append(out, NetworkMount{
+			Path:     m.path,
+			Source:   m.source,
+			FSType:   m.fstype,
+			ReadOnly: m.readOnly,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}

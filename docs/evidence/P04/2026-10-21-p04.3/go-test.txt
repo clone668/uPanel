@@ -1,0 +1,15 @@
+$ go test ./... -count=1 -v   # 输出见 go-test-verbose.txt
+exit=0
+--- PASS（顶层）: 568
+--- PASS（含子测试）: 744
+--- FAIL: 0
+--- SKIP: 6
+ok 包数: 20
+
+跳过的用例（宿主 Windows 不具备条件：符号链接权限、/proc、root 属主目录）:
+--- SKIP: TestOpenRejectsNonRootOwnedDir (0.00s)
+--- SKIP: TestRunStatfsHelperSucceedsOnRealPath (0.00s)
+--- SKIP: TestReadDiskLinksUsesSymlinkTarget (0.00s)
+--- SKIP: TestFindSmartctlConfiguredPath (0.00s)
+--- SKIP: TestOpenTightensDatabaseFileMode (0.00s)
+--- SKIP: TestSyscmdHelper (0.00s)

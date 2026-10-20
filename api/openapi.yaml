@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: uPanel API
-  version: 0.0.0-p04.2
+  version: 0.0.0-p04.3
   summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
   description: |
     uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。
@@ -2272,7 +2272,7 @@ components:
         一次扫描的完整块设备拓扑（GET /storage/topology）。nodes 与 edges 是同一份快照：
         节点里的 protection 与边永远一致，不会出现“某个分区被标成系统盘的一部分，
         但它到磁盘的边却不在”。
-      required: [status, snapshot_version, collected_at, interval_ms, nodes, edges]
+      required: [status, snapshot_version, collected_at, interval_ms, nodes, edges, network_mounts]
       properties:
         status:
           type: string
@@ -2302,6 +2302,46 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/StorageEdge'
+        network_mounts:
+          type: array
+          description: |
+            没有块设备支撑的网络挂载（NFS/CIFS/SSHFS…）。它们不进 nodes（挂载点的
+            major:minor 在内核里没有对应块设备），但 PLAN.md 第 8 节要求“网络挂载独立
+            显示可达性和容量”，所以单独列出。按 path 去重并排序；内容（path/source/
+            fstype/read_only）参与 snapshot_version，容量与可达性不参与。
+          items:
+            $ref: '#/components/schemas/StorageNetworkMount'
+
+    StorageNetworkMount:
+      type: object
+      additionalProperties: false
+      description: |
+        一条网络挂载。reachable 只有三种取值，含义固定：true=容量读到了；
+        false=**确定失败**（statfs 超时或报错，此时 capacity_error 说明原因与重试间隔）；
+        null=还没查过（刚启动/刚挂上，缓存里没有）。不能拿 false 表示“不知道”。
+      required: [path, source, fstype, read_only, reachable, capacity]
+      properties:
+        path:
+          type: string
+        source:
+          type: string
+        fstype:
+          type: string
+        read_only:
+          type: boolean
+          description: 来自挂载选项里的 ro。
+        reachable:
+          oneOf:
+            - type: boolean
+            - type: 'null'
+        capacity:
+          oneOf:
+            - $ref: '#/components/schemas/StorageCapacity'
+            - type: 'null'
+        capacity_error:
+          type: string
+          maxLength: 500
+          description: 读不到容量时的原因（说明超了多久、多久之后才重试）；能读到时不出现。
 
     StorageDeviceList:
       type: object

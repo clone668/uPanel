@@ -1,0 +1,20 @@
+== hostname: upanel-2404
+Ubuntu 24.04.5 LTS
+Linux upanel-2404 6.8.0-147-generic #147-Ubuntu SMP PREEMPT_DYNAMIC Thu Sep 24 11:33:16 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+smartctl 7.4 2023-08-01 r5530 [x86_64-linux-6.8.0-147-generic] (local build)
+Python 3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]
+NAME     SIZE ROTA TYPE TRAN SERIAL           MODEL
+fd0        4K    1 disk                       
+sda       40G    1 disk      UPANEL-SYS-40G   QEMU HARDDISK
+├─sda1    39G    1 part                       
+├─sda14    4M    1 part                       
+├─sda15  106M    1 part                       
+└─sda16  913M    1 part                       
+sdb        8G    1 disk      UPANEL-DATA-A-8G QEMU HARDDISK
+sdc        4G    1 disk      UPANEL-DATA-B-4G QEMU HARDDISK
+sdd        4G    1 disk      UPANEL-DATA-C-4G QEMU HARDDISK
+== exportfs: /usr/sbin/exportfs
+== sha256:
+ba1bbc5cf50c0e40e3a1ec1a1fc2c0aa4558cd154e5e7ed11aa41c7645b9bad5  /tmp/upanel-bin/upanel-agent
+6b6910258f8694b4ce1f72f5d6f27552efb3af12715af969fc45c850b3f30595  /tmp/upanel-bin/upanel-web
+793b40296c1644f6f61ef5a6d7bf2d2e29433e3c3c58aace2486004ede442185  /tmp/upanel-bin/upanelctl

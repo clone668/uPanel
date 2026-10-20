@@ -1,0 +1,108 @@
+{
+  "json_format_version": [
+    1,
+    0
+  ],
+  "smartctl": {
+    "version": [
+      7,
+      4
+    ],
+    "pre_release": false,
+    "svn_revision": "5530",
+    "platform_info": "x86_64-linux-6.8.0-147-generic",
+    "build_info": "(local build)",
+    "argv": [
+      "smartctl",
+      "-j",
+      "-i",
+      "-H",
+      "-A",
+      "/dev/nvme0n1"
+    ],
+    "exit_status": 0
+  },
+  "local_time": {
+    "time_t": 1792523423,
+    "asctime": "Tue Oct 20 19:10:23 2026 UTC"
+  },
+  "device": {
+    "name": "/dev/nvme0n1",
+    "info_name": "/dev/nvme0n1",
+    "type": "nvme",
+    "protocol": "NVMe"
+  },
+  "model_name": "QEMU NVMe Ctrl",
+  "serial_number": "UPANEL-SMART-NVME",
+  "firmware_version": "11.1.0",
+  "nvme_pci_vendor": {
+    "id": 6966,
+    "subsystem_id": 6900
+  },
+  "nvme_ieee_oui_identifier": 5395456,
+  "nvme_controller_id": 0,
+  "nvme_version": {
+    "string": "1.4",
+    "value": 66560
+  },
+  "nvme_number_of_namespaces": 256,
+  "nvme_namespaces": [
+    {
+      "id": 1,
+      "size": {
+        "blocks": 8388608,
+        "bytes": 4294967296
+      },
+      "capacity": {
+        "blocks": 8388608,
+        "bytes": 4294967296
+      },
+      "utilization": {
+        "blocks": 8388608,
+        "bytes": 4294967296
+      },
+      "formatted_lba_size": 512
+    }
+  ],
+  "user_capacity": {
+    "blocks": 8388608,
+    "bytes": 4294967296
+  },
+  "logical_block_size": 512,
+  "smart_support": {
+    "available": true,
+    "enabled": true
+  },
+  "smart_status": {
+    "passed": true,
+    "nvme": {
+      "value": 0
+    }
+  },
+  "nvme_smart_health_information_log": {
+    "critical_warning": 0,
+    "temperature": 50,
+    "available_spare": 0,
+    "available_spare_threshold": 0,
+    "percentage_used": 0,
+    "data_units_read": 30,
+    "data_units_written": 0,
+    "host_reads": 677,
+    "host_writes": 0,
+    "controller_busy_time": 0,
+    "power_cycles": 0,
+    "power_on_hours": 0,
+    "unsafe_shutdowns": 0,
+    "media_errors": 0,
+    "num_err_log_entries": 0,
+    "warning_temp_time": 0,
+    "critical_comp_time": 0
+  },
+  "temperature": {
+    "current": 50
+  },
+  "power_cycle_count": 0,
+  "power_on_time": {
+    "hours": 0
+  }
+}

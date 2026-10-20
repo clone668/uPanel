@@ -34,6 +34,16 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	// 容量 Helper 模式（P04.3）：重新执行自己，在一个可以被父进程放弃的子进程里
+	// 对网络挂载做一次 statfs。必须在解析配置、打开数据库之前处理：
+	// helper 不碰任何状态，只做一次系统调用就把结果打到 stdout。
+	//
+	// 它只有一条固定路径：一个参数（挂载点的绝对路径），不读文件内容，不返回目录项，
+	// 因此不是“万能命令执行入口”（PLAN.md 第 4 节）。
+	if len(args) >= 1 && args[0] == storage.StatfsHelperFlag {
+		return storage.RunStatfsHelper(args[1:])
+	}
+
 	fs := flag.NewFlagSet(program, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
@@ -196,8 +206,28 @@ func run(args []string, stdout, stderr io.Writer) int {
 	collector := monitoring.NewCollector(monitoring.Options{Logger: logger})
 
 	// 存储拓扑采集（P04.2）：5 秒扫描一次 /sys、/proc 与 /dev/disk，容量按 30 秒缓存，
-	// storage.topology 查询只读最近一次快照。全部只读，不执行任何外部命令。
-	storageCollector := storage.NewCollector(storage.Options{Logger: logger})
+	// storage.topology 查询只读最近一次快照。全部只读。
+	// P04.3 起额外：每 5 秒读 /proc/diskstats 算速率，按 15 分钟（可配 5—60）读 SMART，
+	// 网络挂载容量走隔离子进程——不执行任何改变系统状态的命令。
+	storageOpts := storage.Options{
+		Logger:                 logger,
+		HealthInterval:         cfg.Agent.Storage.SmartInterval(),
+		NetworkCapacityTimeout: cfg.Agent.Storage.NetworkCapacityTimeout(),
+	}
+	if cfg.Agent.Storage.SmartEnabled {
+		if path, ok := storage.FindSmartctl(cfg.Agent.Storage.SmartctlPath); ok {
+			storageOpts.Prober = &storage.SmartProber{Path: path}
+			logger.Info("已启用 SMART 采集", "smartctl", path,
+				"interval", cfg.Agent.Storage.SmartInterval().String())
+		} else {
+			logger.Warn("未找到 smartctl，物理盘健康将保持 unknown",
+				"hint", "安装 smartmontools，或在 agent.storage.smartctl_path 指定绝对路径",
+				"configured", cfg.Agent.Storage.SmartctlPath)
+		}
+	} else {
+		logger.Info("SMART 采集已在配置中关闭")
+	}
+	storageCollector := storage.NewCollector(storageOpts)
 
 	// 动作登记表：生产表当前为空（真实动作随 P07 起逐项登记）。
 	// 验收表只能靠显式参数启用，且动作全部以 acceptance. 开头、不读写任何系统资源。

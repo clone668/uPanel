@@ -1,0 +1,81 @@
+== hostname: upanel-2204
+Ubuntu 22.04.5 LTS
+Linux upanel-2204 5.15.0-198-generic #208-Ubuntu SMP Fri Sep 4 10:22:38 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+smartctl 7.2 2020-12-30 r5155 [x86_64-linux-5.15.0-198-generic] (local build)
+Python 3.10.12 (main, Aug 31 2026, 10:18:17) [GCC 11.4.0]
+NAME      SIZE ROTA TYPE TRAN SERIAL           MODEL
+fd0         4K    1 disk                       
+loop0   115.2M    1 loop                       
+loop1    44.7M    1 loop                       
+loop2      74M    1 loop                       
+sda        40G    1 disk      UPANEL-SYS-40G   QEMU HARDDISK
+├─sda1   39.9G    1 part                       
+├─sda14     4M    1 part                       
+└─sda15   106M    1 part                       
+sdb         8G    1 disk      UPANEL-DATA-A-8G QEMU HARDDISK
+sdc         4G    1 disk      UPANEL-DATA-B-4G QEMU HARDDISK
+sdd         4G    1 disk      UPANEL-DATA-C-4G QEMU HARDDISK
+== exportfs: /usr/sbin/exportfs
+== sha256:
+5948ccbb4e672d3557d4ee3855b2980a0717940352a99f3444e7337f89901f7f  /tmp/upanel-bin/accept-agent-file.log
+81a5d8e9a70bb188c07aa1574c1a5356fe777c3f948eae2ad421c468bd60f7bb  /tmp/upanel-bin/accept-agent-noroot.log
+127316b5e99b377a3a484fb3dce897f3bbb1e98f0b6e06eef81f0ddb8094d539  /tmp/upanel-bin/accept-agent.log
+37c5aed9a47d969240addffe7c2818188a1cbf029cc05ff58ff2ab0914269fd6  /tmp/upanel-bin/accept-config-db.json
+6d0629a7741e5d499c38bc880796369507ea7a0d923f7023d9ecf8ba0bc6ecf1  /tmp/upanel-bin/accept-config-mock.json
+ffebc3717b1f09c7acc519dfba82e304a5c02f3e89bacfb921c7f61c99bf2e3b  /tmp/upanel-bin/accept-config-nodb.json
+58720e8e34280c83bb3b78725f6d4df5859cbb17dc3f5602ab78840df893e8fe  /tmp/upanel-bin/accept-config.json
+49039b96e1ef56f871b2847c8c8d5ffdaa420e475497214208dce2ba9f5ebb73  /tmp/upanel-bin/accept-migrate-1.json
+8945ad87c46ac74dd9ebd24820cef8ea57f8665272f94c5aded4665830adbe80  /tmp/upanel-bin/accept-migrate-1.log
+4284fb4d72913fbbdac32bc579894ddc3c824fd04085262646f5f1bdcd6179c7  /tmp/upanel-bin/accept-migrate-2.json
+5f97a0ded05673405a4d7d738d68761cedc1f9845933a987f4b3083acf11c18b  /tmp/upanel-bin/accept-migrate-2.log
+c1d273fb04d08311dac49520a65bcec95697f6344942be0add3ea07a0fd64b4f  /tmp/upanel-bin/accept-migrate-badfile.log
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  /tmp/upanel-bin/accept-migrate-badfile.out
+e658a64124a854c31105974e664ee399b4eff4797c025c52eacfb0167e08a898  /tmp/upanel-bin/accept-mock-bad.log
+a8a28b28b1ed9dc164fc6f005b3ca5b531bc887286cef9bd278097e3398a8800  /tmp/upanel-bin/accept-mock.log
+2d8a759b96e2edd5c997e1b1e7af80dcc9c2c13d431ea67d6e45e7e36493cc21  /tmp/upanel-bin/accept-p01-1.db
+dcdd1fa5612cf6d099e4a85f8323bfdfdf4c56ce0b912d6d71c6e91455e3ab54  /tmp/upanel-bin/accept-p01-4-asset.headers
+e297bf74e3e9382e24da62256e4c7c4d16b9c9d6a4aaba7e7eb7600405e5b089  /tmp/upanel-bin/accept-p01-4-asset.js
+f63c37c6790277fa1807164ff66c1d8dcfd9caa8bdadbc46f8630a4ea08f2256  /tmp/upanel-bin/accept-p01-4-health.headers
+1425744a7261f70c7452af7eb2f0e966d4c6cf4ff9eefe4210c59d090e62c6f8  /tmp/upanel-bin/accept-p01-4-health.json
+43106d263036b25749edb3787ab9fcdc26e4124597ab055db8f79315d8a86277  /tmp/upanel-bin/accept-p01-4-index-2.headers
+cee9335c1002c5a116fa7802ec847ac80822f5a1754a742aaa3189fc8cab24d8  /tmp/upanel-bin/accept-p01-4-index.headers
+a89393de09b6a306846be20451679e655467cda28fb894ed33823e05b16594b5  /tmp/upanel-bin/accept-p01-4-index.html
+0af4f03d44bd719b5b76a3a5604923eac4aa3e0661bf77d540002eb5343a8cdd  /tmp/upanel-bin/accept-p01-4-migrate-mock.log
+6ff40f7c2f30a84037731f0301e190730fc62099ddc36001267362f21adad805  /tmp/upanel-bin/accept-p01-4-missing.body
+e0c1a99284b9975d6255de907f196181d21dcac278792b4329e1c4bcb923673b  /tmp/upanel-bin/accept-p01-4-missing.headers
+df8ec27ccfb0de73e0b57ce17f1431267e976abcfa3c793420066e362672b33f  /tmp/upanel-bin/accept-p01-4-mock-bad.json
+e658a64124a854c31105974e664ee399b4eff4797c025c52eacfb0167e08a898  /tmp/upanel-bin/accept-p01-4-mock-bad.log
+e658a64124a854c31105974e664ee399b4eff4797c025c52eacfb0167e08a898  /tmp/upanel-bin/accept-p01-4-mock-wild.log
+b75236dc3f1a5025fe0419791f6b5a09487c64ecd48937d88d8a80019c8a62ee  /tmp/upanel-bin/accept-p01-4-mock.json
+0d15ef9370d35042e3dfaeb52385121023fabebfec067e3ca02b2768e3e5943d  /tmp/upanel-bin/accept-p01-4-post-health.headers
+1b9730b7be2361b54f86dfa783841406c73c8a2942f6734c5b957ad4aa3fa15d  /tmp/upanel-bin/accept-p01-4-post-root.body
+8709105389a5a47a0e6967653a7eec49de8aeb5766a84cd5ac1661e49b49c4ba  /tmp/upanel-bin/accept-p01-4-post-root.headers
+8bc7db6499b15ba0b1dc1e38e6c6fb82252e7469bae82f1ac44f053175119ad6  /tmp/upanel-bin/accept-p01-4-prod-wild.log
+686b9f528bf618d1d664489d0b2c92ad63a2b30db0052f08e58d928fa3fde19e  /tmp/upanel-bin/accept-p01-4-prod.headers
+8dd99bfbe2151b9057c3977dda97f837ce5e0edeef01890e3e3aa10c5e41f90f  /tmp/upanel-bin/accept-p01-4-prod.html
+93460b4ddf97bc53b8337d3ac73e66ca8b6092ca6bbe25bead8243b0b597dac8  /tmp/upanel-bin/accept-p01-4-prod.json
+887370e14577fce1f0a8054ade1826a6dc2ab14210c4d98c70a0dc2dec92833b  /tmp/upanel-bin/accept-p01-4-spa.headers
+fe40eaf8f8686cfd5e1ba401016d6fcdd14aab8ea420c159a35c7c52f12eb1f0  /tmp/upanel-bin/accept-p01-4-spa.html
+8fe1d1b35e9666267bde6c82bd694f071ccacd65873eecffc60e8cdf4455668f  /tmp/upanel-bin/accept-p01-4-sys-migrate.log
+0901fd887434bbc7c683cbfabd3db619d1f8d9f546ff7386bae64b24e93808cc  /tmp/upanel-bin/accept-p01-4-sys.json
+a619117d62f6946cfae786d1d9ff3035f758b4b3923c5d7c011b666b81579ab3  /tmp/upanel-bin/accept-p01-4-systemctl-enable.log
+451094946f937ae749a4dbef8a0232a3659523e129b94ff7d6a6699aaa5eaac3  /tmp/upanel-bin/accept-p01-4-systemd.headers
+e0dc39c77d66916a43af018f98676c7ea23bf6ce39aed3b01d5f3f68e43363d8  /tmp/upanel-bin/accept-p01-4-systemd.html
+13efd82029fdd092bf786b0e3679a0e826d6e10ae581571800f746d27e584864  /tmp/upanel-bin/accept-p01-4-traversal.body
+49a7bd27d3f72d68414d78b271532ff0230c262ede948ed9c1169c86c16a83f7  /tmp/upanel-bin/accept-p01-4-unknown-post.headers
+16a9a997f87ef92e29698ab2d68b8645388ef1e6cc140d5a1f90442894f4af77  /tmp/upanel-bin/accept-p01-4-unknown-post.json
+48a9c3b812b05bcbaeb472ce00838a6550eaa44d9f52a3ea7444c1fefc4f97a3  /tmp/upanel-bin/accept-p01-4-unknown.headers
+967bf200e0a32bf8d73c47903bf70f1ef0ae772e7bdb748251086e84c13e5131  /tmp/upanel-bin/accept-p01-4-unknown.json
+e79ae104ac621d8710365bff5b3c5a9fb39c3274fbf2cec9e01db64a16f1f0c0  /tmp/upanel-bin/accept-p01-4-web-mock.log
+488170fb2f4fb86a7acb8cad899e18b4e52ae9535f8b683436bcdedfb8460737  /tmp/upanel-bin/accept-p01-4-web-prod.log
+8bc7db6499b15ba0b1dc1e38e6c6fb82252e7469bae82f1ac44f053175119ad6  /tmp/upanel-bin/accept-prod-nonloopback.log
+ce2943ed6ca75059b7b49780ecfe3e4b374fa3caa36393e2d812ff728764afd1  /tmp/upanel-bin/accept-prod.log
+9bee0a43c9310b7e3b83b4df76917b4f6c75b7ed80df51d787564540ebdf517e  /tmp/upanel-bin/accept-web-db.log
+e49a846198c76a7be8940c8f02b5af6cdc248e6a34ea19bc873dc1f0a578d084  /tmp/upanel-bin/accept-web-locked-dir.log
+4a1abf67473f76d80f9eb5b2395dbd9101121fc1cff164132885dc7e65148546  /tmp/upanel-bin/accept-web-missing-dir.log
+a3d1da1b3ba60399729773f2082fd50c4a9945989906910d8b159de2ca0a798f  /tmp/upanel-bin/bad-config.json
+sha256sum: /tmp/upanel-bin/fixtures: Is a directory
+sha256sum: /tmp/upanel-bin/tests: Is a directory
+ba1bbc5cf50c0e40e3a1ec1a1fc2c0aa4558cd154e5e7ed11aa41c7645b9bad5  /tmp/upanel-bin/upanel-agent
+6b6910258f8694b4ce1f72f5d6f27552efb3af12715af969fc45c850b3f30595  /tmp/upanel-bin/upanel-web
+793b40296c1644f6f61ef5a6d7bf2d2e29433e3c3c58aace2486004ede442185  /tmp/upanel-bin/upanelctl

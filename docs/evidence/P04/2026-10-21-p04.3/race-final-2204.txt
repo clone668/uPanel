@@ -1,0 +1,28 @@
+ok  	upanel/cmd/upanel-agent	1.017s
+ok  	upanel/cmd/upanel-web	1.208s
+ok  	upanel/cmd/upanelctl	4.696s
+ok  	upanel/internal/agent	18.259s
+ok  	upanel/internal/agentclient	1.231s
+ok  	upanel/internal/agentstore	5.653s
+ok  	upanel/internal/api	273.668s
+ok  	upanel/internal/audit	1.899s
+--- FAIL: TestDefaultPasswordParamsTiming (4.22s)
+    password_test.go:173: 单次 Argon2id 校验耗时 2.030333513s
+    password_test.go:178: 校验耗时 2.030333513s 过长，需重新基准
+FAIL
+FAIL	upanel/internal/auth	232.072s
+ok  	upanel/internal/config	1.016s
+ok  	upanel/internal/httpx	1.009s
+ok  	upanel/internal/logging	1.011s
+ok  	upanel/internal/monitoring	1.024s
+ok  	upanel/internal/operations	11.552s
+ok  	upanel/internal/platform	1.008s
+ok  	upanel/internal/storage	1.478s
+ok  	upanel/internal/store	1.712s
+ok  	upanel/internal/syscmd	4.367s
+?   	upanel/internal/testsupport	[no test files]
+ok  	upanel/internal/version	1.018s
+ok  	upanel/internal/webui	1.018s
+?   	upanel/migrations	[no test files]
+?   	upanel/migrations/agentdb	[no test files]
+FAIL

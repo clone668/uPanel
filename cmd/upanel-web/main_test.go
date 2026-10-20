@@ -14,9 +14,35 @@ import (
 	"upanel/migrations"
 )
 
+// testRun 调用 run，但在用例没显式给 --config 时补一份空配置（{}）。
+//
+// 为什么需要它：不传 --config 时 run 会读平台的默认路径（Linux 上是
+// /etc/upanel/upanel.json）。真机上装过面板（或跑过验收脚本）之后该文件存在，
+// 用例的结果就取决于机器状态——P04.3 验收时真的踩到了：mock 模式端口被读成
+// 验收脚本留下的 19447，三条启动失败用例的退出码与 stderr 全变。
+// 这里用 t.TempDir() 里的空配置把用例变成隔离的，产品代码一行没改。
+func testRun(t *testing.T, args []string, out, errOut *bytes.Buffer) int {
+	t.Helper()
+	hasConfig := false
+	for _, a := range args {
+		if a == "--config" || strings.HasPrefix(a, "--config=") {
+			hasConfig = true
+			break
+		}
+	}
+	if !hasConfig {
+		p := filepath.Join(t.TempDir(), "config.json")
+		if err := os.WriteFile(p, []byte("{}"), 0o600); err != nil {
+			t.Fatalf("写临时配置失败: %v", err)
+		}
+		args = append(args, "--config", p)
+	}
+	return run(args, out, errOut)
+}
+
 func TestVersionFlag(t *testing.T) {
 	var out, errOut bytes.Buffer
-	if code := run([]string{"--version"}, &out, &errOut); code != 0 {
+	if code := testRun(t, []string{"--version"}, &out, &errOut); code != 0 {
 		t.Fatalf("退出码 = %d，stderr = %q", code, errOut.String())
 	}
 	if !strings.Contains(out.String(), "upanel-web") {
@@ -29,14 +55,14 @@ func TestVersionFlag(t *testing.T) {
 
 func TestUnknownFlag(t *testing.T) {
 	var out, errOut bytes.Buffer
-	if code := run([]string{"--nope"}, &out, &errOut); code != 2 {
+	if code := testRun(t, []string{"--nope"}, &out, &errOut); code != 2 {
 		t.Fatalf("退出码 = %d，期望 2", code)
 	}
 }
 
 func TestPositionalArgumentsRejected(t *testing.T) {
 	var out, errOut bytes.Buffer
-	if code := run([]string{"serve"}, &out, &errOut); code != 2 {
+	if code := testRun(t, []string{"serve"}, &out, &errOut); code != 2 {
 		t.Fatalf("退出码 = %d，期望 2", code)
 	}
 	if !strings.Contains(errOut.String(), "位置参数") {
@@ -47,7 +73,7 @@ func TestPositionalArgumentsRejected(t *testing.T) {
 func TestMissingExplicitConfigExitsWithConfigError(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "absent.json")
 	var out, errOut bytes.Buffer
-	if code := run([]string{"--config", missing}, &out, &errOut); code != 2 {
+	if code := testRun(t, []string{"--config", missing}, &out, &errOut); code != 2 {
 		t.Fatalf("退出码 = %d，期望 2", code)
 	}
 	if !strings.Contains(errOut.String(), "配置错误") {
@@ -57,7 +83,7 @@ func TestMissingExplicitConfigExitsWithConfigError(t *testing.T) {
 
 func TestInvalidModeRejected(t *testing.T) {
 	var out, errOut bytes.Buffer
-	if code := run([]string{"--mode", "demo"}, &out, &errOut); code != 2 {
+	if code := testRun(t, []string{"--mode", "demo"}, &out, &errOut); code != 2 {
 		t.Fatalf("退出码 = %d，期望 2", code)
 	}
 	if !strings.Contains(errOut.String(), "web.mode") {
@@ -72,7 +98,7 @@ func TestBadConfigFileRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer
-	if code := run([]string{"--config", path, "--mode", "mock"}, &out, &errOut); code != 2 {
+	if code := testRun(t, []string{"--config", path, "--mode", "mock"}, &out, &errOut); code != 2 {
 		t.Fatalf("退出码 = %d，期望 2（mock 不得绑定非回环地址）", code)
 	}
 	if !strings.Contains(errOut.String(), "18881") {
@@ -85,7 +111,7 @@ func TestProductionRefusesNonLoopbackBeforeTLS(t *testing.T) {
 	// 在此之前 production 绑定非回环地址必须直接失败，而不是把明文管理界面暴露出去。
 	for _, addr := range []string{"0.0.0.0:9443", "192.0.2.10:9443", "[::]:9443"} {
 		var out, errOut bytes.Buffer
-		code := run([]string{"--mode", "production", "--listen", addr}, &out, &errOut)
+		code := testRun(t, []string{"--mode", "production", "--listen", addr}, &out, &errOut)
 		if code != 2 {
 			t.Fatalf("%s: 退出码 = %d，期望 2（stderr=%q）", addr, code, errOut.String())
 		}
@@ -97,7 +123,7 @@ func TestProductionRefusesNonLoopbackBeforeTLS(t *testing.T) {
 
 func TestDBFlagMustBeAbsolute(t *testing.T) {
 	var out, errOut bytes.Buffer
-	code := run([]string{"--mode", "mock", "--db", "data/upanel.db"}, &out, &errOut)
+	code := testRun(t, []string{"--mode", "mock", "--db", "data/upanel.db"}, &out, &errOut)
 	if code != 2 {
 		t.Fatalf("退出码 = %d，期望 2（stderr=%q）", code, errOut.String())
 	}
@@ -114,7 +140,7 @@ func TestMissingDatabasePathRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--config", cfg}, &out, &errOut)
+	code := testRun(t, []string{"--config", cfg}, &out, &errOut)
 	if code != 2 {
 		t.Fatalf("退出码 = %d，期望 2（stderr=%q）", code, errOut.String())
 	}
@@ -127,7 +153,7 @@ func TestDatabaseOpenFailureRefusesStart(t *testing.T) {
 	// 目录不存在：store.Open 不负责创建数据目录，必须拒绝启动而不是继续跑。
 	missing := filepath.Join(t.TempDir(), "absent", "upanel.db")
 	var out, errOut bytes.Buffer
-	code := run([]string{"--mode", "mock", "--db", missing}, &out, &errOut)
+	code := testRun(t, []string{"--mode", "mock", "--db", missing}, &out, &errOut)
 	if code != 1 {
 		t.Fatalf("退出码 = %d，期望 1（stderr=%q）", code, errOut.String())
 	}
@@ -165,7 +191,7 @@ func TestMigrationFailureRefusesStart(t *testing.T) {
 	}
 
 	var out, errOut bytes.Buffer
-	code := run([]string{"--mode", "mock", "--db", dbPath}, &out, &errOut)
+	code := testRun(t, []string{"--mode", "mock", "--db", dbPath}, &out, &errOut)
 	if code != 1 {
 		t.Fatalf("退出码 = %d，期望 1（stderr=%q）", code, errOut.String())
 	}

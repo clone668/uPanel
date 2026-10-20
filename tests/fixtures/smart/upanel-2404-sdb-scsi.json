@@ -1,0 +1,71 @@
+{
+  "json_format_version": [
+    1,
+    0
+  ],
+  "smartctl": {
+    "version": [
+      7,
+      4
+    ],
+    "pre_release": false,
+    "svn_revision": "5530",
+    "platform_info": "x86_64-linux-6.8.0-147-generic",
+    "build_info": "(local build)",
+    "argv": [
+      "smartctl",
+      "-j",
+      "-i",
+      "-H",
+      "-A",
+      "/dev/sdb"
+    ],
+    "exit_status": 0
+  },
+  "local_time": {
+    "time_t": 1792524517,
+    "asctime": "Tue Oct 20 19:28:37 2026 UTC"
+  },
+  "device": {
+    "name": "/dev/sdb",
+    "info_name": "/dev/sdb",
+    "type": "scsi",
+    "protocol": "SCSI"
+  },
+  "scsi_vendor": "QEMU",
+  "scsi_product": "QEMU HARDDISK",
+  "scsi_model_name": "QEMU QEMU HARDDISK",
+  "scsi_revision": "2.5+",
+  "scsi_version": "SPC-3",
+  "user_capacity": {
+    "blocks": 16777216,
+    "bytes": 8589934592
+  },
+  "logical_block_size": 512,
+  "scsi_lb_provisioning": {
+    "name": "thin provisioned",
+    "value": 2,
+    "management_enabled": {
+      "name": "LBPME",
+      "value": -1
+    },
+    "read_zeros": {
+      "name": "LBPRZ",
+      "value": 0
+    }
+  },
+  "rotation_rate": 0,
+  "serial_number": "UPANEL-DATA-A-8G",
+  "device_type": {
+    "scsi_terminology": "Peripheral Device Type [PDT]",
+    "scsi_value": 0,
+    "name": "disk"
+  },
+  "smart_support": {
+    "available": false
+  },
+  "temperature": {
+    "current": 0,
+    "drive_trip": 0
+  }
+}

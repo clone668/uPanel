@@ -10,7 +10,13 @@
     "web_user": "upanel-web",
     "socket_group": "upanel-web",
     "database_path": "/var/lib/upanel-agent/agent.db",
-    "secret_key_path": "/etc/upanel/agent.key"
+    "secret_key_path": "/etc/upanel/agent.key",
+    "storage": {
+      "smart_enabled": true,
+      "smart_interval_minutes": 15,
+      "smartctl_path": "",
+      "network_capacity_timeout_seconds": 10
+    }
   },
   "database": {
     "path": "/var/lib/upanel/upanel.db",

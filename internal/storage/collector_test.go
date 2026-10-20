@@ -10,28 +10,81 @@ import (
 )
 
 // fakeCaps 是一个可控的容量读取器：记录被问过的挂载点，可以按需返回错误。
+//
+// fsTypes 记下每次查询声明的文件系统类型：网络挂载要交给隔离查询，
+// 这个字段让测试能验证“文件系统类型确实传下去了”。
 type fakeCaps struct {
-	mu    sync.Mutex
-	calls []string
-	err   error
-	cap   *Capacity
+	mu      sync.Mutex
+	calls   []string
+	fsTypes map[string]string
+	err     error
+	errFor  map[string]error
+	hangs   map[string]bool
+	cap     *Capacity
 }
 
-func (f *fakeCaps) Capacity(_ context.Context, mountPath string) (*Capacity, error) {
+func (f *fakeCaps) Capacity(ctx context.Context, mountPath, fsType string) (*Capacity, error) {
+	f.mu.Lock()
+	f.calls = append(f.calls, mountPath)
+	if f.fsTypes == nil {
+		f.fsTypes = map[string]string{}
+	}
+	f.fsTypes[mountPath] = fsType
+	err := f.err
+	if e, ok := f.errFor[mountPath]; ok {
+		err = e
+	}
+	capv := f.cap
+	f.mu.Unlock()
+
+	if err != nil {
+		return nil, err
+	}
+	if capv == nil {
+		return nil, ErrCapacityUnavailable
+	}
+	if f.hangOn(ctx, mountPath) {
+		return nil, ErrCapacityTimeout
+	}
+	c := *capv
+	return &c, nil
+}
+
+// hangOn 模拟一个永远不返回的远端：只有 ctx 结束才放手。
+func (f *fakeCaps) hangOn(ctx context.Context, mountPath string) bool {
+	f.mu.Lock()
+	hang := f.hangs[mountPath]
+	f.mu.Unlock()
+	if !hang {
+		return false
+	}
+	<-ctx.Done()
+	return true
+}
+
+// fsTypeOf 返回某个挂载点被查询时报给读取器的文件系统类型。
+func (f *fakeCaps) fsTypeOf(mountPath string) string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls = append(f.calls, mountPath)
-	if f.err != nil {
-		return nil, f.err
-	}
-	c := *f.cap
-	return &c, nil
+	return f.fsTypes[mountPath]
 }
 
 func (f *fakeCaps) count() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.calls)
+}
+
+func (f *fakeCaps) countFor(mountPath string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, p := range f.calls {
+		if p == mountPath {
+			n++
+		}
+	}
+	return n
 }
 
 // clock 是可控时钟，用来验证 5 秒扫描与 30 秒容量缓存。

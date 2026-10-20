@@ -228,6 +228,69 @@ partition_table 的 partitions 来自 sysfs（内核当前认定的分区），�
 
 filesystem.type/uuid/label 在未挂载时为 null，本阶段不调用 blkid，不靠猜。
 
+### 6.2 附加字段（P04.3 起）
+
+P04.3 再增加两个字段，同样是补充而不是替代：Device 的必需字段一个都不能少，老客户端看到多出来的键不影响渲染。
+
+| 字段 | 类型 | 语义 |
+|---|---|---|
+| io | 对象或 null | 这台设备**自己**在 `/proc/diskstats` 里那一行的计数与速率；读不到 `/proc/diskstats` 时为 null |
+| filesystem.mounts[].capacity_error | 字符串，无错时不出现 | capacity 为 null 的原因（人可读），例如查询超时与“多久之后才会重试” |
+
+io 的字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| sampled_at | RFC3339 UTC | 这次读计数的时刻 |
+| read_bytes_total / write_bytes_total | 非负十进制字符串 | 开机以来的累计字节数（扇区 × 512） |
+| reads_total / writes_total | 非负十进制字符串 | 开机以来的累计完成次数 |
+| rate | 对象或 null | 相邻两次采样之间的速率；null 表示本次没有可用窗口 |
+
+rate 的字段：interval_ms（整数）、read_bytes_per_second / write_bytes_per_second（非负十进制字符串）、
+read_iops / write_iops（number，保留两位小数）、read_latency_ms / write_latency_ms（number 或 null）。
+
+io 的硬规则：
+
+- **只报自己那一行的计数，从不相加。** 分区的 I/O 已经包含在整盘里，dm/LVM 的 I/O 又与底层盘重复；把 nodes 的 io 加总就是双重计数（PLAN 第 8 节）。
+- rate 为 **null** 的三种情况：首次采样（没有上一个窗口）；任一计数变小（内核重启、换盘、32 位回绕、同名新设备）；采样窗口为 0/负或超过采集间隔的 3 倍（进程被挂起、机器休眠）。这些都是“算不出来”，不能填 0。
+- rate 为 **0** 是真结论：这一窗口确实没有任何 I/O。平均延迟只在对应完成次数 > 0 时给出，否则为 null——“没有样本”不等于“等了 0 毫秒”。
+- 扇区固定按 **512 字节** 换算（内核在这个接口里不用设备逻辑扇区大小），拿 `logical_sector_bytes` 去乘会算错 4K 盘。
+- io **不参与** `snapshot_version`：版本只由拓扑内容决定（P07 预检用它判断状态是否变化），速率每 5 秒都在变，放进去会让预检永远过期。
+
+health 在 P04.3 的取值与来源：
+
+- 只有拿到明确的通过结论才是 `healthy`（`smart_status.passed=true`，或 NVMe 健康日志存在且没有任何 Critical Warning 位）。
+- 物理盘读不到 SMART 时是 `unknown` 并写清原因（未安装 smartctl、超时、打不开设备、输出无法解析）。
+- 分区、loop、rom 恒为 `unsupported` 并带 details：它们没有独立的 SMART，这是“没有这个功能”，不是“功能坏了”，也不是 `unknown`。
+- `health.source` 取 `sysfs`（只看 sysfs 就判断为休眠，未调用 smartctl）、`smartctl`、`none`（本机没有可用采集手段）。
+- 采集节奏 15 分钟，可配置 5—60 分钟；**不为读健康而唤醒磁盘**：先读 sysfs 的电源状态，休眠即跳过，非休眠时对非 NVMe 设备再加 `-n standby` 让 smartctl 在最后一刻放弃。
+- smartctl 的退出状态是**位掩码**（1 命令行、2 打开失败/低功耗、4 SMART 命令失败、8 DISK FAILING、16 预失效当前、32 预失效历史、64 错误日志、128 自检日志）。失效与预失效为 `critical`，历史位与日志位为 `warning`，命令失败与打开失败为 `unknown`。
+
+网络挂载在快照里的位置（P04.3 起）：`Topology` 增加 `network_mounts` 数组，与 `nodes`/`edges` 平级。
+
+| 字段 | 类型 | 语义 |
+|---|---|---|
+| path | 字符串 | 挂载点绝对路径。 |
+| source | 字符串 | mountinfo 里的挂载来源（如 `10.0.0.5:/export`、`//host/share`）。 |
+| fstype | 字符串 | 文件系统类型，判定隔离通道的唯一依据。 |
+| read_only | 布尔 | 来自挂载选项里的 `ro`。 |
+| reachable | 布尔或 null | `true` 读到容量；`false` 查询明确失败；`null` 还没查过。 |
+| capacity | 对象或 null | 与设备挂载点的 capacity 同结构、同语义（读不到就是 null）。 |
+| capacity_error | 字符串，无错时不出现 | capacity 为什么是 null。 |
+
+- 只收**没有块设备**的网络挂载：NFS/CIFS 的 major:minor 是伪设备号，`/sys/dev/block` 里没有对应设备，因此它们不可能挂到某台盘下面。tmpfs、proc、cgroup 同样没有块设备但与磁盘管理无关，**不**进拓扑。
+- 路径去重、按路径排序；同一次快照里同一路径只出现一次。
+- 身份字段（path、source、fstype、read_only）参与 `snapshot_version`；`reachable`/`capacity`/`capacity_error` 是观测值，不参与。
+- 它们与设备挂载点共用同一份 30 秒容量缓存、同一条隔离通道、同一个 5 分钟隔离期。
+- `reachable` 为 `false` 表示“查询明确失败”，不能用它表示“还没查过”——那会让刚挂上的盘显示成断开。
+
+网络挂载的容量查询（不可达时不得影响其它数据）：
+
+- 判断依据是 `fstype`（nfs/nfs4/cifs/smb3/smbfs/fuse.sshfs/9p/ceph/glusterfs/afs/davfs），不是挂载点路径写法。
+- 网络挂载的 statfs 在**隔离子进程**里执行（代理二进制的 `--statfs-helper` 模式：只 statfs 一个绝对路径，不读文件内容），父进程最多等 10 秒（可配 1—60 秒），并发上限 2。
+- 超时后该挂载点在 5 分钟内**不再重试**（可能还挂在不可中断的内核 I/O 里的子进程杀不掉，不能每 30 秒再派一个），期间 capacity 为 null、capacity_error 说明解禁时间。
+- 本地挂载直接 statfs，不走子进程，不因为网络配置而变慢。
+
 ## 7. 共享契约
 
 GET /shares、GET /shares/:id、GET /shares/:id/connections、GET /share-accounts：admin。viewer 只在首页看到共享数量和健康摘要。

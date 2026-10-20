@@ -28,8 +28,11 @@ type DiskReader interface {
 }
 
 // CapacityReader 读取挂载点的容量。失败时返回错误，调用方保留 null。
+//
+// fsType 来自挂载表：本地文件系统可以就地 statfs，网络文件系统必须走隔离通道
+// （见 capacity.go），否则一次不可达的 NFS 就能把采集循环卡死。
 type CapacityReader interface {
-	Capacity(ctx context.Context, mountPath string) (*Capacity, error)
+	Capacity(ctx context.Context, mountPath, fsType string) (*Capacity, error)
 }
 
 // Root 是采集的输入根：真实运行时指向 /sys、/proc、/dev，测试时指向夹具目录。
@@ -71,14 +74,28 @@ func (r Root) timeout() time.Duration {
 }
 
 // SystemRoot 返回指向真实系统的 Root。
+//
+// 网络挂载的容量查询通过重新执行本进程（helper 模式）隔离，网络一断也只有
+// 子进程会挂住，采集循环照常走。
 func SystemRoot() Root {
 	return Root{
 		Sys:         "/sys",
 		Proc:        "/proc",
 		Disks:       OSDiskReader{Dev: "/dev", Timeout: DefaultDiskReadTimeout},
-		Caps:        OSCapacityReader{},
+		Caps:        &OSCapacityReader{Helper: selfStatfsHelper()},
 		ReadTimeout: DefaultDiskReadTimeout,
 	}
+}
+
+// selfStatfsHelper 返回指向本进程可执行文件的容量 Helper。
+// 取不到自身路径时返回 nil：那时网络挂载容量一律为 null，而不是退回直接 statfs
+// 把采集循环置于风险之中。
+func selfStatfsHelper() StatfsRunner {
+	exe, err := os.Executable()
+	if err != nil || !filepath.IsAbs(exe) {
+		return nil
+	}
+	return ExecStatfsHelper{Path: exe}
 }
 
 // readFile 读取一个 sysfs/procfs 属性文件，去掉首尾空白。
@@ -217,10 +234,6 @@ func (o OSDiskReader) ReadDisk(ctx context.Context, name string) ([]byte, error)
 		return buf[:res.n], nil
 	}
 }
-
-// OSCapacityReader 用 statfs 读容量。方法按平台分开实现：
-// 只有 Linux 上有 statfs；其它平台返回 ErrCapacityUnavailable，容量留 null。
-type OSCapacityReader struct{}
 
 // round1 保留一位小数。容量百分比按一位小数展示，避免 33.33333% 这类噪声。
 func round1(v float64) float64 {

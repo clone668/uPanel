@@ -371,14 +371,29 @@ func TestIdentityHonestOnPhysicalMachine(t *testing.T) {
 	}
 }
 
-// TestHealthNeverClaimsHealthy 钉住 P04.2 的健康语义：
-// 没有采集 SMART 之前，健康只能是 unknown，不能是 healthy。
+// TestHealthNeverClaimsHealthy 钉住健康语义（P04.2 起，P04.3 扩展）：
+//
+//   - 物理盘在任何采集发生之前只能是 unknown，不能是 healthy；
+//   - 分区、loop、rom 这类设备没有独立的 SMART，只能是 unsupported 并写清原因；
+//   - 温度没读到就是 null，不是 0。
 func TestHealthNeverClaimsHealthy(t *testing.T) {
 	topo, _ := scanFixture(t, "storage-2404")
 	for _, d := range topo.Nodes {
-		if d.Health.Status != HealthUnknown {
-			t.Errorf("%s: Health.Status = %q，P04.2 还没采集 SMART，只能是 %q",
-				d.ID, d.Health.Status, HealthUnknown)
+		switch d.Kind {
+		case KindDisk:
+			if d.Health.Status != HealthUnknown {
+				t.Errorf("%s 是物理盘：Health.Status = %q，扫描本身不读 SMART，只能是 %q",
+					d.ID, d.Health.Status, HealthUnknown)
+			}
+		default:
+			if d.Health.Status != HealthUnsupported {
+				t.Errorf("%s（%s）: Health.Status = %q，没有独立 SMART 的设备只能是 %q",
+					d.ID, d.Kind, d.Health.Status, HealthUnsupported)
+			}
+			if d.Health.Details == nil || *d.Health.Details == "" {
+				t.Errorf("%s（%s）: unsupported 必须给出原因，否则界面只能显示一个空状态",
+					d.ID, d.Kind)
+			}
 		}
 		if d.Health.TemperatureCelsius != nil {
 			t.Errorf("%s: TemperatureCelsius = %v，没采集就必须是 null 而不是 0",
@@ -541,7 +556,7 @@ func TestSnapshotVersionIgnoresTimeAndCapacity(t *testing.T) {
 		}
 		fs.Mounts[0].Capacity = &Capacity{TotalBytes: 123456789, CollectedAt: fixedNow}
 	}
-	again, err := snapshotVersion(second.Nodes, second.Edges)
+	again, err := snapshotVersion(second.Nodes, second.Edges, second.NetworkMounts)
 	if err != nil {
 		t.Fatalf("计算指纹失败: %v", err)
 	}
@@ -561,7 +576,7 @@ func TestSnapshotVersionIgnoresTimeAndCapacity(t *testing.T) {
 		moved[i].Filesystem = &fs
 		break
 	}
-	changed, err := snapshotVersion(moved, second.Edges)
+	changed, err := snapshotVersion(moved, second.Edges, second.NetworkMounts)
 	if err != nil {
 		t.Fatalf("计算指纹失败: %v", err)
 	}

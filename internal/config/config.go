@@ -46,6 +46,16 @@ const (
 	minShutdownTimeoutSeconds = 1
 	maxShutdownTimeoutSeconds = 120
 	defaultShutdownSeconds    = 10
+
+	// SMART 采集间隔的允许范围（PLAN.md 第 8 节：5—60 分钟，默认 15）。
+	minSmartIntervalMinutes     = 5
+	maxSmartIntervalMinutes     = 60
+	defaultSmartIntervalMinutes = 15
+
+	// 网络挂载容量查询时限（秒）。PLAN.md 第 8 节要求超时后标记 unavailable。
+	minNetworkCapacityTimeoutSeconds     = 1
+	maxNetworkCapacityTimeoutSeconds     = 60
+	defaultNetworkCapacityTimeoutSeconds = 10
 )
 
 // Config 是配置文件根结构。Web 与代理共用同一份文件，各自只读取自己的段。
@@ -86,6 +96,33 @@ type Agent struct {
 	// SecretKeyPath 是本机秘密密钥文件的绝对路径（CONTRACTS.md 14.2，root:root 0600）。
 	// Linux 默认 /etc/upanel/agent.key；非 Linux 没有默认值。
 	SecretKeyPath string `json:"secret_key_path"`
+	// Storage 是存储采集的节奏与工具路径（P04.3）。
+	Storage Storage `json:"storage"`
+}
+
+// Storage 是存储采集相关配置（PLAN.md 第 8 节：SMART 每 15 分钟，允许配置 5—60 分钟）。
+type Storage struct {
+	// SmartEnabled 控制是否读取 SMART/NVMe 健康。默认开启；
+	// 关掉之后物理盘健康一律 unknown，不会被写成 healthy。
+	SmartEnabled bool `json:"smart_enabled"`
+	// SmartIntervalMinutes 是 SMART 采集间隔（分钟，5—60，默认 15）。
+	SmartIntervalMinutes int `json:"smart_interval_minutes"`
+	// SmartctlPath 是 smartctl 的绝对路径；留空时在 /usr/sbin、/usr/bin 等固定目录里查找。
+	// 显式给出却找不到时不会退回自动查找——配置写错了要能看出来。
+	SmartctlPath string `json:"smartctl_path"`
+	// NetworkCapacityTimeoutSeconds 是网络挂载容量查询的时限（秒，1—60，默认 10）。
+	// 网络挂载的 statfs 在隔离子进程里执行，超时后该挂载点会被隔离 5 分钟不再重试。
+	NetworkCapacityTimeoutSeconds int `json:"network_capacity_timeout_seconds"`
+}
+
+// SmartInterval 返回 SMART 采集间隔。
+func (s Storage) SmartInterval() time.Duration {
+	return time.Duration(s.SmartIntervalMinutes) * time.Minute
+}
+
+// NetworkCapacityTimeout 返回网络挂载容量查询的时限。
+func (s Storage) NetworkCapacityTimeout() time.Duration {
+	return time.Duration(s.NetworkCapacityTimeoutSeconds) * time.Second
 }
 
 // Database 是 Web 侧 SQLite 配置（PLAN.md 第 3、4 节）。
@@ -118,6 +155,11 @@ func Defaults() Config {
 			WebUser:                AgentWebUser,
 			DatabasePath:           defaultAgentDatabasePath(),
 			SecretKeyPath:          defaultAgentSecretKeyPath(),
+			Storage: Storage{
+				SmartEnabled:                  true,
+				SmartIntervalMinutes:          defaultSmartIntervalMinutes,
+				NetworkCapacityTimeoutSeconds: defaultNetworkCapacityTimeoutSeconds,
+			},
 		},
 		Database: Database{
 			Path:                    defaultDatabasePath(),
@@ -284,6 +326,32 @@ func (a Agent) Validate() error {
 		}
 		if strings.ContainsAny(item.value, "?#") {
 			return fmt.Errorf("%s 不能包含 '?' 或 '#'，当前为 %q", item.field, item.value)
+		}
+	}
+	return a.Storage.Validate()
+}
+
+// Validate 校验存储采集段。
+//
+// 范围来自 PLAN.md 第 8 节：SMART 允许配置为 5—60 分钟。超出范围直接报错，
+// 而不是悄悄钳制——运维以为设成了 1 分钟，界面却每 15 分钟才更新，那更难查。
+func (s Storage) Validate() error {
+	if s.SmartIntervalMinutes < minSmartIntervalMinutes || s.SmartIntervalMinutes > maxSmartIntervalMinutes {
+		return fmt.Errorf("agent.storage.smart_interval_minutes 必须在 %d—%d 之间，当前为 %d",
+			minSmartIntervalMinutes, maxSmartIntervalMinutes, s.SmartIntervalMinutes)
+	}
+	if s.NetworkCapacityTimeoutSeconds < minNetworkCapacityTimeoutSeconds ||
+		s.NetworkCapacityTimeoutSeconds > maxNetworkCapacityTimeoutSeconds {
+		return fmt.Errorf("agent.storage.network_capacity_timeout_seconds 必须在 %d—%d 之间，当前为 %d",
+			minNetworkCapacityTimeoutSeconds, maxNetworkCapacityTimeoutSeconds,
+			s.NetworkCapacityTimeoutSeconds)
+	}
+	if s.SmartctlPath != "" {
+		if !path.IsAbs(s.SmartctlPath) {
+			return fmt.Errorf("agent.storage.smartctl_path 必须是 POSIX 绝对路径，当前为 %q", s.SmartctlPath)
+		}
+		if strings.ContainsAny(s.SmartctlPath, "?#") {
+			return fmt.Errorf("agent.storage.smartctl_path 不能包含 '?' 或 '#'，当前为 %q", s.SmartctlPath)
 		}
 	}
 	return nil

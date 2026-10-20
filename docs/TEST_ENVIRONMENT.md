@@ -243,3 +243,30 @@ node H:\Code\vms\upanel-2404\serve-seed.js 8899
 - 宿主：16 逻辑处理器 / 63.9 GiB 物理内存；两台 VM 各 4 GiB / 2 vCPU，可同时运行（实测 RSS 755 MB / 878 MB）。
 - 同一时间只运行**当前验收所需**的 VM；破坏性用例前必须关机重建数据盘（第 4 节）。
 - 便携 QEMU 与 VM 文件均不入库；换机或清理时直接删除 `H:\Code\vms` 与 `H:\Code\.toolchains\qemu` 即可。
+
+### 8.6 VM-E（NVMe / SMART 验收机，2026-10-21 创建）
+
+P04.3 需要一块**能读出真实 SMART 结论**的盘。两台既有 VM 都是纯 QEMU SCSI（`smart_support.available=false`、
+没有 `smart_status`、温度字段是 0），只能证明“不支持”这条分支，证明不了 healthy。因此新建第四台 VM。
+
+| 项 | 值 |
+|---|---|
+| 名称 | `upanel-smart` |
+| 系统 | Ubuntu 24.04.5 LTS，内核 `6.8.0-147-generic` |
+| 平台 | QEMU（便携版，与 VM-A/VM-B 同一套脚本） |
+| 端口 | `127.0.0.1:2224` → guest 22 |
+| 密钥 | `H:\Code\vms\upanel-smart\id_ed25519` |
+| 启动 | `powershell -NoProfile -File H:\Code\vms\launch-vm-smart.ps1` |
+| 磁盘布局 | `sda` 40 GiB（SCSI，系统盘）+ `nvme0n1` 4 GiB（QEMU NVMe 控制器） |
+| 账号 | `upanel`（免密 sudo），与 VM-A/VM-B 一致 |
+
+实测结论（`tests/fixtures/smart/upanel-smart-nvme0n1.json` 是这台机器的真实输出）：
+
+- NVMe：`smart_status.passed=true`、`critical_warning=0`、`temperature.current=50`、`smart_support.available=true`。
+  这是本阶段唯一能真机证实“healthy + 真实温度”的来源。
+- SCSI 系统盘（`sda`）：`smart_support.available=false`，没有 `smart_status`，温度 0 → 产品必须报 `unsupported`。
+- **ATA/SATA 盘无法在这台机器上验证**：给 guest 挂 `ide-hd` 会让固件阶段卡死（连内核都起不来），
+  所以 ATA 分支的解析只有合成输入单测（`internal/storage/smart_test.go` 里的 `synthetic()`）。
+- 休眠盘同样造不出来：SCSI 忽略 `-s standby,now`，NVMe 的 `runtime_status` 报 `unsupported`，
+  `sleeping` 与 `-n standby` 只有单测覆盖，验收脚本内标 NOT RUN。
+- 与 VM-B 一样安装 `smartmontools 7.4`；`nfs-kernel-server` 只在 VM-B 上装（P04.3 的不可达挂载实验在那儿做）。

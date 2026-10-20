@@ -129,6 +129,56 @@ cookie；Firefox/Safari 尚未实测。**目前还没有登录页面**（前端�
 接口），所以浏览器侧没有任何证据：登录、再认证与账号管理目前只能通过 API/脚本操作。命令行验证用
 `tests/smoke/p02-1-auth-smoke.sh` 与 `tests/smoke/p02-2-account-smoke.sh`。
 
+### 3.2 存储采集的配置（P04.3 起）
+
+代理侧的存储采集在 `agent.storage` 下，全部有默认值，只在要改的时候写进配置：
+
+```json
+{
+  "agent": {
+    "storage": {
+      "smart_enabled": true,
+      "smart_interval_minutes": 15,
+      "smartctl_path": "",
+      "network_capacity_timeout_seconds": 10
+    }
+  }
+}
+```
+
+| 键 | 默认 | 范围 | 说明 |
+| --- | --- | --- | --- |
+| `smart_enabled` | `true` | 布尔 | 关闭后物理盘健康一律 `unknown`（不是 `healthy`） |
+| `smart_interval_minutes` | `15` | 5—60 | SMART 采集节奏。**超出范围是启动错误**，不会悄悄钳制到边界 |
+| `smartctl_path` | 空 | 绝对路径 | 留空则在 `/usr/sbin`、`/usr/bin`、`/sbin`、`/bin` 里查找。显式写错不会退回自动查找——配置写错了要能看出来 |
+| `network_capacity_timeout_seconds` | `10` | 1—60 | 网络挂载（NFS/CIFS…）容量查询的时限；超时后该挂载点隔离 5 分钟不再重试 |
+
+几条运行时事实，排查时会用到：
+
+- 没有装 `smartmontools` 时物理盘健康是 `unknown` 并写清原因（`details`），不是 `healthy`，
+  面板也不会因此报错。装好之后最多等一个 `smart_interval_minutes` 才会看到结论。
+- 健康采集跑在**独立 goroutine** 上（15 分钟一次），拓扑仍是 5 秒一次：一块慢盘最多拖住它自己那次探测，
+  不会让 5 秒循环跟着变慢。
+- 网络挂载的容量在隔离子进程里查（代理二进制的 `--statfs-helper <绝对路径>` 模式，只 statfs、不读文件内容）。
+  手动试一下：`sudo /usr/local/bin/upanel-agent --statfs-helper /` 输出一行 JSON；参数不是恰好一个绝对路径时
+  退出码 2。
+- 速率（`io.rate`）在代理启动后的第一次采样是 `null`，计数器归零/换盘/采集被挂起过也是 `null`。
+  `null` 是“算不出来”，`0` 是“这段时间确实没有 I/O”，两者不能混用。
+
+P04.3 的 Linux 验收脚本（必须 root、不依赖 Go 工具链）：
+
+```sh
+# 宿主交叉编译后拷进 VM
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 sh -c 'for c in upanel-web upanel-agent upanelctl; do
+  go build -trimpath -o bin/linux-amd64/$c ./cmd/$c || exit 1; done'
+
+# VM 内
+sudo BIN_DIR=/tmp/upanel-bin sh tests/integration/p04-3-storage-health-acceptance.sh
+```
+
+它会临时起代理与 Web（端口 19447）、在本机挂一条 `hard` NFS4 挂载做“不可达网络挂载”实验，
+跑完恢复现场。要跳过 5 分钟隔离期那一步（约 6 分钟）用 `WAIT_QUARANTINE=0`，那一项会记 NOT RUN。
+
 ---
 
 ## 4. 前端开发
