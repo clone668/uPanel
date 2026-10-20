@@ -1449,8 +1449,10 @@ panic 三次，都是 `Attempted to kill init! exitcode=0x8b`）。重启后 `/t
 - 代理/Web 同时重启时的对账收敛（P03.4 的范围）尚未验证。
 
 **交付去向**：代码与证据已推送到 <https://github.com/clone668/uPanel>，`refs/heads/main` =
-本地 `HEAD` = `a396881735d614d4f4ca7a2302dd3da1cb75cde6`（74 个文件 / +7758 −100），工作区干净。
-本轮新增的验收设施（`tests/integration/run-all.sh`、`scripts/run-native-tests.sh`）随代码一起入库，
+本地 `HEAD` 同一个 sha，工作区干净。P03.3 的代码与证据提交是
+`a396881735d614d4f4ca7a2302dd3da1cb75cde6`（74 个文件 / +7758 −100），本行随后的文档补充提交
+把 `main` 推到 `22d3f30`，两者都已核对。本轮新增的验收设施
+（`tests/integration/run-all.sh`、`scripts/run-native-tests.sh`）随代码一起入库，
 换机后重建一次 VM 就能一键重跑全量回归。
 
 ## 6. 未决问题与范围变更
