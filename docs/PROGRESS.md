@@ -1944,6 +1944,14 @@ diskstats 的区间对账是真读 `/proc/diskstats` 而不是复用被测输出
 （`Attempted to kill init! exitcode=0x0000008b`，与之前几次同款）。重启后 `/tmp` 被清空，
 二进制/脚本/夹具全部重传并核 sha256（三台 VM 上三个入口二进制哈希逐个相同），再从干净状态重跑。
 
+**交付去向**：代码与证据已推送到 <https://github.com/clone668/uPanel>，提交
+`9a1c089c27218ee1ab8c96e1df8c391095aa8ef1`（54 个文件 / +8912 −128），本条记录随紧随其后的文档提交入库。
+证据目录 `docs/evidence/P04/2026-10-21-p04.3/` 含宿主闸门（`host-gates.txt`、`go-test.txt`、
+`go-test-verbose.txt`、`check.txt`）、三台 VM 环境与验收输出（`env-*.txt`、`p04-3-*.txt`）、
+原生 `storage.test`（`native-storage-*.txt`）、`-race` 两轮（`race-2204.txt` 为被污染的首次运行、
+`race-final-2204.txt` 为修复 Q103 后的复跑）、`commands.log` 与 `result.md`。
+浏览器渲染仍无证据：页面属 P04.4。
+
 
 ## 6. 未决问题与范围变更
 
