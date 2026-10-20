@@ -4,12 +4,17 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
 
-// decodeErrorCode 取出错误信封里的 code。
-func decodeErrorCode(t *testing.T, body []byte) string {
+// decodeErrorEnvelope 取出错误信封里的 code 与 message。
+//
+// 断言必须看字段，不能看整个响应体：响应体里有随机 request_id，
+// 里面碰巧出现 "4242" 的概率虽小（约 0.04%），但一次就足以把 CI 判成失败，
+// 而泄漏与否跟随机串毫无关系（真发生过一次，见 DECISIONS Q78）。
+func decodeErrorEnvelope(t *testing.T, body []byte) (code, message string) {
 	t.Helper()
 	var env struct {
 		Error struct {
@@ -20,7 +25,14 @@ func decodeErrorCode(t *testing.T, body []byte) string {
 	if err := json.Unmarshal(body, &env); err != nil {
 		t.Fatalf("响应不是合法 JSON: %v（%s）", err, body)
 	}
-	return env.Error.Code
+	return env.Error.Code, env.Error.Message
+}
+
+// decodeErrorCode 取出错误信封里的 code。
+func decodeErrorCode(t *testing.T, body []byte) string {
+	t.Helper()
+	code, _ := decodeErrorEnvelope(t, body)
+	return code
 }
 
 func TestGateRejectsRequestWithoutPeerIdentity(t *testing.T) {
@@ -66,9 +78,13 @@ func TestGateDeniesOtherUIDs(t *testing.T) {
 		if rec.Code != http.StatusForbidden {
 			t.Fatalf("UID %d: 状态码 = %d，期望 403", uid, rec.Code)
 		}
-		// 错误信息里不能带上允许的 UID 等内部细节。
-		if body := rec.Body.String(); strings.Contains(body, "4242") {
-			t.Fatalf("UID %d: 错误响应泄漏了允许的 UID: %s", uid, body)
+		// 错误信息里不能带上允许的 UID 等内部细节（只看 message 字段，不看整个响应体）。
+		code, message := decodeErrorEnvelope(t, rec.Body.Bytes())
+		if code != "FORBIDDEN" {
+			t.Fatalf("UID %d: 错误码 = %q，期望 FORBIDDEN", uid, code)
+		}
+		if strings.Contains(message, "4242") || strings.Contains(message, strconv.Itoa(int(uid))) {
+			t.Fatalf("UID %d: 错误信息泄漏了内部 UID: %s", uid, message)
 		}
 	}
 }

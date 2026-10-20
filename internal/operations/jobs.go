@@ -317,12 +317,18 @@ func (s *Service) SubmitJob(ctx context.Context, in SubmitInput) (Job, error) {
 		at := in.ReauthAt.UTC().Format(time.RFC3339)
 		actor.ReauthAt = &at
 	}
-	agentOp, err := s.agent.CreateOperation(ctx, agentclient.OperationInput{
-		OperationID:  operationID,
-		PreflightRef: agentRef,
-		Confirmation: in.Confirmation,
-		Actor:        actor,
-	})
+	// 登记“正在提交”，再调代理（P03.4）。窗口内任何对账都不许下 NOT_FOUND 结论：
+	// 代理还没收到这条操作，不代表它不会在执行；把在途动作记成失败是最坏的一种错。
+	agentOp, err := func() (agentclient.Operation, error) {
+		s.beginSubmit(jobID)
+		defer s.endSubmit(jobID)
+		return s.agent.CreateOperation(ctx, agentclient.OperationInput{
+			OperationID:  operationID,
+			PreflightRef: agentRef,
+			Confirmation: in.Confirmation,
+			Actor:        actor,
+		})
+	}()
 	if err != nil {
 		return s.handleSubmitFailure(ctx, jobID, operationID, in, err)
 	}
@@ -398,40 +404,20 @@ func (s *Service) GetJob(ctx context.Context, userID int64, jobID string) (Job, 
 }
 
 // reconcile 用代理视图刷新任务；代理不可用时如实返回本地状态。
+//
+// 判定逻辑与后台扫描共用同一份（reconcileOne）：两条路径对“代理说 NOT_FOUND”的结论
+// 必须一致，否则同一条任务会因为“被读”还是“被扫”得到不同的终态。
 func (s *Service) reconcile(ctx context.Context, job Job) Job {
-	if isTerminalStatus(job.Status) && !job.NeedsSync {
+	outcome := s.reconcileOne(ctx, job)
+	if outcome == outcomeSettled || outcome == outcomeInflight || outcome == outcomeDeferred {
 		return job
 	}
-	if s.agent == nil {
-		return job
-	}
-	op, err := s.agent.GetOperation(ctx, job.OperationID)
+	refreshed, err := s.readJobUnscoped(ctx, job.ID)
 	if err != nil {
-		var agentErr *agentclient.Error
-		switch {
-		case errors.As(err, &agentErr) && agentErr.Code == "NOT_FOUND":
-			// 代理没有这条操作：提交可能根本没到达。不重试，也不能假装它在跑。
-			errJSON, _ := json.Marshal(map[string]any{
-				"code":    "AGENT_UNAVAILABLE",
-				"message": "代理没有这条操作记录（提交可能未到达），请重新预检后再提交",
-			})
-			failed, ferr := s.markJobFailed(ctx, job.ID, "unconfirmed", errJSON, s.now().UTC())
-			if ferr != nil {
-				s.logger.Error("标记任务未确认失败", "job_id", job.ID, "error", ferr)
-				return job
-			}
-			return failed
-		default:
-			// 代理暂不可用/协议违约：如实保留当前状态与待对账标记。
-			return job
-		}
-	}
-	synced, err := s.syncFromAgent(ctx, job.ID, op)
-	if err != nil {
-		s.logger.Error("任务对账失败", "job_id", job.ID, "operation_id", job.OperationID, "error", err)
+		s.logger.Error("对账后重读任务失败", "job_id", job.ID, "error", err)
 		return job
 	}
-	return synced
+	return refreshed
 }
 
 // ListJobs 返回该用户最近的任务摘要。

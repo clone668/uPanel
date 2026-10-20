@@ -1,0 +1,11 @@
+# 变异测试 2：把 needs_sync 分流写死成“永远当结果未知”，看测试能不能抓到
+$ sed -i '301s/if job.NeedsSync {/if false {/' internal/operations/reconcile.go   # 永远走 interrupted 分支
+$ go test ./internal/operations/ -run 'TestSweepPendingMarksUnconfirmedWhenAgentNeverSawOperation|TestSweepPendingMarksUnknownResultInterrupted' -count=1 -v
+=== RUN   TestSweepPendingMarksUnconfirmedWhenAgentNeverSawOperation
+    reconcile_test.go:134: 对账统计 = {Scanned:1 Advanced:0 Deferred:0 Unconfirmed:0 Unknown:1 Failed:0 SkippedInflight:0}，期望 unconfirmed=1
+--- FAIL: TestSweepPendingMarksUnconfirmedWhenAgentNeverSawOperation (0.09s)
+=== RUN   TestSweepPendingMarksUnknownResultInterrupted
+--- PASS: TestSweepPendingMarksUnknownResultInterrupted (0.07s)
+FAIL
+FAIL	upanel/internal/operations	1.001s
+FAIL

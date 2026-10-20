@@ -1,0 +1,129 @@
+== 1. mock 模式：二进制自带前端 ==
+PASS    web-reports-embedded-frontend
+PASS    web-reports-embedded-source
+PASS    web-listens-loopback-18881
+PASS    index-status-200
+PASS    index-content-type-html
+PASS    index-cache-control-no-store
+PASS    index-nosniff
+PASS    index-frame-deny
+PASS    index-referrer-policy
+PASS    index-coop
+PASS    index-has-mount-point
+PASS    index-injects-mock-mode
+PASS    csp-script-src-self
+PASS    csp-script-src-same-origin-only
+PASS    csp-default-src-self
+PASS    csp-object-src-none
+PASS    csp-frame-ancestors-none
+PASS    csp-mock-nonce-present
+PASS    index-inline-script-uses-csp-nonce
+PASS    csp-nonce-rotates-per-response
+
+== 2. 静态资源、SPA 回退与 404 边界 ==
+PASS    hashed-asset-status-200
+PASS    hashed-asset-content-type-js
+PASS    hashed-asset-immutable-cache
+PASS    hashed-asset-nonempty
+PASS    hashed-asset-name-hashed
+PASS    spa-fallback/storage-status-200
+PASS    spa-fallback/storage-html
+PASS    spa-fallback/storage-content-type
+PASS    spa-fallback/settings/network-status-200
+PASS    spa-fallback/settings/network-html
+PASS    spa-fallback/settings/network-content-type
+PASS    missing-asset-status-404
+PASS    missing-asset-not-index
+PASS    traversal/../../etc/passwd-no-leak
+PASS    traversal/../../etc/passwd-spa-only
+PASS    traversal/assets/../../../etc/passwd-no-leak
+PASS    traversal/assets/../../../etc/passwd-spa-only
+PASS    traversal/static/..%2f..%2fetc%2fpasswd-no-leak
+PASS    traversal/static/..%2f..%2fetc%2fpasswd-spa-only
+
+== 3. 同源 API 与未知路径 ==
+PASS    api-health-status-200
+PASS    api-health-envelope
+PASS    api-health-request-id-body
+PASS    api-health-not-html
+PASS    api-health-request-id-header
+PASS    unknown-api/api-status-404
+PASS    unknown-api/api-code
+PASS    unknown-api/api-json
+PASS    unknown-api/api-not-index
+PASS    unknown-api/api/-status-404
+PASS    unknown-api/api/-code
+PASS    unknown-api/api/-json
+PASS    unknown-api/api/-not-index
+PASS    unknown-api/api/v1/unknown-status-404
+PASS    unknown-api/api/v1/unknown-code
+PASS    unknown-api/api/v1/unknown-json
+PASS    unknown-api/api/v1/unknown-not-index
+PASS    unknown-api/api/v1/health/unknown-status-404
+PASS    unknown-api/api/v1/health/unknown-code
+PASS    unknown-api/api/v1/health/unknown-json
+PASS    unknown-api/api/v1/health/unknown-not-index
+PASS    unknown-api/api/v2/health/live-status-404
+PASS    unknown-api/api/v2/health/live-code
+PASS    unknown-api/api/v2/health/live-json
+PASS    unknown-api/api/v2/health/live-not-index
+PASS    unknown-api-post-status-404
+PASS    unknown-api-post-not-index
+
+== 4. 方法限制、监听面与非 root ==
+PASS    post-root-status-405
+PASS    post-root-allow-header
+PASS    post-health-status-405
+PASS    post-health-allow-header
+PASS    mock-listens-127.0.0.1-18881
+PASS    mock-does-not-listen-wildcard
+PASS    production-port-not-open-in-mock
+PASS    acceptance-runs-as-non-root
+PASS    web-process-not-root
+PASS    web-process-user-is-runner
+PASS    mock-refuses-wildcard-exit2
+PASS    mock-refuses-wildcard-message
+PASS    mock-config-refuses-wildcard-exit2
+PASS    mock-graceful-shutdown
+
+== 5. production 模式 ==
+PASS    production-index-status-200
+PASS    production-injects-production-mode
+PASS    production-does-not-inject-mock
+PASS    production-api-health
+PASS    production-unknown-api-404
+PASS    production-listens-127.0.0.1-9443
+PASS    production-does-not-open-mock-port
+PASS    production-refuses-non-loopback-exit2
+PASS    production-refuses-non-loopback-message
+PASS    production-graceful-shutdown
+
+== 6. systemd 单元模板 ==
+PASS    systemd-unit-present
+PASS    unit-user-not-root
+PASS    unit-execstart-web
+PASS    unit-hardening-nnp
+PASS    unit-hardening-protect-system
+PASS    unit-hardening-protect-home
+PASS    unit-state-directory
+PASS    unit-no-root-user
+
+== 7. 真实 systemd 安装与启动 ==
+PASS    systemd-user-exists
+PASS    systemd-migrate-as-service-user-exit0
+PASS    systemd-analyze-verify-exit0
+PASS    systemd-service-active
+PASS    systemd-service-serves-index-200
+PASS    systemd-service-injects-production
+PASS    systemd-mainpid-reports
+PASS    systemd-service-runs-as-upanel-web
+PASS    systemd-service-not-pid1
+PASS    systemd-unit-user-property
+PASS    systemd-db-file-present
+PASS    systemd-db-owner
+PASS    systemd-db-mode-inaccessible-to-others
+PASS    systemd-service-stopped-inactive
+PASS    systemd-port-released-after-stop
+PASS    systemd-unit-removed-after-test
+
+通过: 114  失败: 0  未执行: 0

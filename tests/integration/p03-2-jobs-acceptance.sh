@@ -486,8 +486,15 @@ code=$(api "$WORK/admin.jar" "$ADMIN_CSRF" POST "$JOBS_PATH" \
   "{\"preflight_id\":\"$WRONG_PF\",\"confirmation_phrase\":\"PROBE ZZZZZZ\"}" "wrong-phrase-key")
 expect_eq "短语不符返回 400" "400" "$code"
 expect_contains "短语不符的错误码" "CONFIRMATION_MISMATCH" "$(cat "$WORK/resp.json")"
+# 断言要指名这一条任务：幂等键 → job_id → 状态。
+# 早先这里写的是 “ORDER BY created_at DESC LIMIT 1”，created_at 只有秒级精度，
+# 同一秒里还有别的任务时（对账推进、上一条用例的收尾）取到的是哪一行并不确定，
+# 于是“任务到底是 queued 还是 failed”被判成了另一条任务的状态（P03.4 回归时实发一次）。
+WRONG_JOB=$(dbq "$WEB_DB" "SELECT job_id FROM idempotency_keys WHERE key = 'wrong-phrase-key'")
 expect_eq "短语不符留下一条 failed 任务（拒绝也要留痕）" "failed" \
-  "$(dbq "$WEB_DB" "SELECT status FROM jobs ORDER BY created_at DESC LIMIT 1")"
+  "$(dbq "$WEB_DB" "SELECT status FROM jobs WHERE id = '$WRONG_JOB'")"
+expect_contains "被拒任务的错误码记在 error_json 里" "CONFIRMATION_MISMATCH" \
+  "$(dbq "$WEB_DB" "SELECT error_json FROM jobs WHERE id = '$WRONG_JOB'")"
 
 echo
 echo "== 7. Web 退出后任务继续执行，恢复后仍能找到原 operation =="

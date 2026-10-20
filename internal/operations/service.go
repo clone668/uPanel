@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"upanel/internal/agentclient"
@@ -87,6 +88,16 @@ type Service struct {
 	agent  Agent
 	logger *slog.Logger
 	now    func() time.Time
+
+	// sweepMu 让对账扫描串行化：后台循环与显式调用不能同时扫，否则两条路径
+	// 会各自向代理要一遍同样的操作，还会互相把对方刚写的 updated_at 当成新变化。
+	sweepMu sync.Mutex
+	// inflight 记录“已经落库、代理调用还没返回”的任务（P03.4）。
+	//
+	// 用途只有一个：对账看到代理说 NOT_FOUND 时，先看这条任务是不是正躺在提交途中。
+	// 提交还没返回就断言“代理没这条操作”，会把一个正在执行的格式化动作记成失败。
+	inflightMu sync.Mutex
+	inflight   map[string]int
 }
 
 // New 构造服务。db 与 logger 必须非空；agent 允许为空（mock 模式或未配置 socket 时，
@@ -102,7 +113,13 @@ func New(db *store.DB, agent Agent, logger *slog.Logger, opts Options) (*Service
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{db: db, agent: agent, logger: logger, now: now}, nil
+	return &Service{
+		db:       db,
+		agent:    agent,
+		logger:   logger,
+		now:      now,
+		inflight: make(map[string]int),
+	}, nil
 }
 
 // Target 是预检绑定的目标。

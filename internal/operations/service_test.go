@@ -43,6 +43,10 @@ type fakeAgent struct {
 	events    []agentclient.OperationEvent
 	eventsErr error
 
+	// P03.4：opHook 在 CreateOperation 里被调用，用来把“提交卡在代理调用中”这个窗口
+	// 变成可复现的测试时序（提交与对账并发那条用例需要它）。nil 表示不卡。
+	opHook func()
+
 	opCalls     []agentclient.OperationInput
 	getCalls    []string
 	cancelCalls []string
@@ -59,6 +63,9 @@ func (f *fakeAgent) CreatePreflight(_ context.Context, in agentclient.PreflightI
 
 func (f *fakeAgent) CreateOperation(_ context.Context, in agentclient.OperationInput) (agentclient.Operation, error) {
 	f.opCalls = append(f.opCalls, in)
+	if f.opHook != nil {
+		f.opHook()
+	}
 	if f.opErr != nil {
 		return agentclient.Operation{}, f.opErr
 	}

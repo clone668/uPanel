@@ -287,6 +287,22 @@ CSRF 令牌与口令。
 **两台验收 VM 上均已通过（24.04.5 与 22.04.5 各 73 项 / 0 失败，见
 `docs/evidence/P03/2026-10-20-p03.3/`）。**
 
+重启对账与“结果未知”（P03.4）同样**必须 root**（脚本要 `kill -9` 代理、重建代理库）：
+
+```sh
+# VM 内
+sudo BIN_DIR=/tmp/upanel-bin sh tests/integration/p03-4-reconcile-acceptance.sh   # 78 项断言
+```
+
+它验证：生产动作登记表为空（不带 `-acceptance-actions` 时 `acceptance.probe` 预检被拒）、
+同一个幂等键十次提交与并发提交都只产生一个 job 与一次代理执行、同键不同请求 409、
+**Web 重启后重放同一个键拿回原 job 而不重新执行**、提交没到达（代理从未见过这条操作）由
+**启动扫描**判为 `failed`/`unconfirmed`/`AGENT_UNAVAILABLE`、代理 `kill -9` 后遗留操作被代理
+标 `interrupted` 且 Web 同步为 `interrupted`（`cancellable=0`，不重放）、**代理侧记录被删**时
+结果为 `interrupted`/`unknown_result`/`OPERATION_INTERRUPTED` 而不是 `failed`、终态不回退、
+没有“重试”接口、启动对账在日志里留痕且日志不含口令与 CSRF。脚本用 `--max-time 60` 兜住每个
+请求，卡住的响应会超时而不是把整轮验收挂死。
+
 完整回归用一条命令跑完（**按脚本头声明的身份调度**，跑前清理残留进程与 `/run/upanel`）：
 
 ```sh
@@ -294,11 +310,17 @@ CSRF 令牌与口令。
 BIN_DIR=/tmp/upanel-bin sh tests/integration/run-all.sh
 BIN_DIR=/tmp/upanel-bin sh tests/integration/run-all.sh p03-3-events    # 只跑指定几个
 sudo BIN_DIR=/tmp/upanel-bin sh tests/run-native-tests.sh               # VM 内核上的 Go 测试二进制
+LOG_DIR=/var/tmp/my-logs BIN_DIR=/tmp/upanel-bin sh tests/integration/run-all.sh   # 换日志目录
 ```
+
+> 逐脚本日志默认写到 `/var/tmp/upanel-logs/`（目录由脚本自己创建并 `chmod 0777`，可用 `LOG_DIR`
+> 覆盖），**不再写 `/tmp/upanel-accept-<name>.log`**：`/tmp` 有粘滞位，上一次以 root 建的同名
+> 文件会让这次的 `runuser`/`setpriv` 进程写不进去，于是脚本全跑通了、重定向却失败、退出码变成 2，
+> 看起来像环境不满足（24.04 上真发生过两次）。
 
 > 身份不要凭感觉给：`p01-1`/`p01-2`/`p01-4`/`p02-1`/`p02-2` 必须以**非 root** 运行
 > （脚本自己用 sudo 做特权部分，并断言 Web 不以 root 跑、库文件属主是运行者），
-> `p02-3`/`p02-4`/`p03-1`/`p03-2`/`p03-3` 必须以 **root** 运行（代理只能在 root 下启动）。
+> `p02-3`/`p02-4`/`p03-1`/`p03-2`/`p03-3`/`p03-4` 必须以 **root** 运行（代理只能在 root 下启动）。
 > 用 root 跑 `p01-2` 不会报“身份错”，而是会在“数据库目录不可写必须拒绝启动”那条上一直等
 > ——root 绕过目录权限，进程永远不退（DECISIONS Q71）。
 

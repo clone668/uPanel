@@ -1,0 +1,105 @@
+== 0. 环境
+PASS  验收脚本以 root 运行
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  python3 可用于查库与解析 JSON
+PASS  Web 账号 upanel-web 存在
+
+== 1. 启动代理（生产登记表）与 Web ==
+PASS  -init-key 生成代理密钥
+PASS  代理（不带 -acceptance-actions）启动
+PASS  init-admin 退出码
+PASS  Web 以 upanel-web 身份在 http://127.0.0.1:19446 启动
+
+== 2. 生产登记表为空：验收动作只在显式启用时存在 ==
+PASS  管理员登录 200
+PASS  密码再认证 200
+PASS  生产模式拒绝验收动作 → 400
+PASS  拒绝码是 VALIDATION_ERROR
+PASS  拒绝原因写的是动作未登记
+PASS  代理以 -acceptance-actions 重启（验收动作显式启用）
+PASS  启用验收动作后预检 200
+
+== 3. 重复提交：十次同一个键，一次执行 ==
+PASS  十次提交都返回 202
+PASS  十次提交产生一个任务
+PASS  十次提交只让代理收到一次操作
+
+== 4. 并发提交同一个键：仍然一个任务 ==
+PASS  并发用例的预检 200
+PASS  五路并发提交只产生一个任务 id
+PASS  并发各路都拿到同一个任务 id
+PASS  五路并发只让代理收到一次操作
+
+== 5. 同一个键配不同请求 → 409 ==
+PASS  同键不同请求 → 409
+PASS  同键不同请求的错误码
+PASS  冲突没有产生新任务
+
+== 6. Web 重启后重放同一个键：原任务、不重新执行 ==
+PASS  Web 重启成功
+PASS  重启后重新登录 200
+PASS  重启后再认证 200
+PASS  重启后重放同一个键 202
+PASS  重启后重放拿回原任务
+PASS  重启后重放没有新增任务
+PASS  重启后重放没有让代理收到新操作
+
+== 7. 提交没到达：代理恢复后由启动扫描判为 failed/unconfirmed ==
+PASS  提交前预检 200
+PASS  代理不可用时提交仍受理（202）
+PASS  任务留在 queued
+PASS  任务带待对账标记
+PASS  代理恢复启动
+PASS  Web 重启（触发启动对账）
+PASS  启动扫描把未到达的提交判为 failed
+PASS  失败步骤是 unconfirmed
+PASS  错误码指出提交可能未到达
+PASS  启动对账在日志里留了扫描记录
+PASS  再次登录 200
+
+== 8. 代理崩溃：遗留操作标 interrupted，Web 同步为 interrupted 且不重放 ==
+PASS  崩溃用例预检 200
+PASS  崩溃用例提交 202
+PASS  任务进入 running
+NOTE  代理被 kill -9（模拟崩溃，来不及写任何收尾）
+PASS  代理崩溃后重启
+PASS  代理侧遗留操作被标 interrupted
+PASS  Web 重启（触发启动对账）
+PASS  Web 启动扫描把任务同步为 interrupted
+PASS  崩溃后的任务不再可取消
+PASS  错误码是 OPERATION_INTERRUPTED
+PASS  对账没有重新提交（代理操作数不变）
+
+== 9. 终态不回退、不可取消、没有重试接口 ==
+PASS  再次登录 200
+PASS  取消 interrupted 任务 → 409
+PASS  再读一次仍是 interrupted
+PASS  没有“重试”接口
+PASS  没有“继续”接口
+
+== 10. 代理侧记录丢失：结果未知必须是 interrupted，而不是 failed ==
+PASS  丢失用例预检 200
+PASS  丢失用例提交 202
+PASS  丢失用例进入 running（代理已确认过这条操作）
+PASS  同步过的任务不再带待对账标记
+PASS  代理以空库重启（模拟代理侧记录丢失）
+PASS  空库里确实没有这条操作
+NOTE  等待后台对账扫描（每 30 秒一次，最多等 45 秒）
+PASS  后台扫描把“代理查不到”的任务判为 interrupted
+PASS  步骤写的是 unknown_result
+PASS  错误体指出结果未知
+PASS  错误体要求先核对实际状态
+PASS  结果未知没有被写成 failed
+PASS  对账同样没有重新提交
+
+== 11. 日志：启动对账有记录，且不含口令与 CSRF ==
+PASS  Web 日志里有“开始任务对账”
+PASS  Web 日志里有扫描结果
+PASS  扫描结果带未确认计数
+PASS  Web 日志不含登录口令
+PASS  Web 日志不含 CSRF 令牌
+PASS  代理日志不含登录口令
+
+通过 78 项，失败 0 项

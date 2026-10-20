@@ -76,7 +76,7 @@ VM 内核原生测试二进制 169 个用例 0 FAIL，二进制 sha256 与宿主
 
 ## 1. 当前任务
 
-- 当前阶段：P03（预检、任务、幂等、对账）—— **in_progress**（P03.1、P03.2 均已 passed；P03.3—P03.4 未开始）。
+- 当前阶段：P03（预检、任务、幂等、对账）—— **passed**（P03.1—P03.4 全部 passed）。
 - 已完成子任务：P00.1—P00.3、**P01.1**—**P01.4**、**P02.1**（首个管理员、密码哈希、登录、
   退出、会话轮换、CSRF、Origin、限速；无默认密码）、**P02.2**（admin/viewer、账号管理、
   最后管理员保护、再认证、脱敏 DTO、审计事件起步）、**P02.3**（代理 Unix socket + SO_PEERCRED
@@ -85,11 +85,16 @@ VM 内核原生测试二进制 169 个用例 0 FAIL，二进制 sha256 与宿主
   120 秒期限、用户/会话/动作/规范化参数/状态版本绑定、再认证与确认短语策略、公开预检 DTO）、
   **P03.2**（持久 jobs、`Idempotency-Key` 幂等链、`operation_id` 去重、代理执行记录与事件、
   资源锁与排队上限、取消规则、先落库再提交与按 `operation_id` 对账；两台 VM 各 101 项断言通过，
-  VM 内核原生 169 用例全绿）。
-- 下一子任务：**P03.3**（SSE 事件流、断线重连、日志限额、任务中心、状态机和错误详情）。
-  P03.2 只返回了 `events_url` 地址，流式推送本身还没实现，P03.3 要把它做成真的可用。
-- 下游是否可继续：**是**，但任何系统写操作仍需等到 P03（预检/任务/幂等/对账）整体通过之后；
-  P03.1/P03.2 只交付了“预检 + 接受并追踪任务”，**生产登记表仍为空，一个真实写动作都没有**。
+  VM 内核原生 169 用例全绿）、**P03.3**（SSE 事件流与断线续传、`event: gap`、日志环容量、
+  代理事件镜像、任务中心与错误详情、最小登录页与路由守卫；两台 VM 各 73 项断言，
+  抓并修掉 Q67 的原子性缺陷）、**P03.4**（启动 + 每 30 秒的对账循环、只查不跑、提交在途不判定、
+  `NOT_FOUND` 按 `needs_sync` 分流为 `failed`/`unconfirmed` 与 `interrupted`/`unknown_result`、
+  幂等记录到期清理、验收注册表约束变成断言；两台 VM 各 78 项断言，原生测试 360 用例全绿）。
+- 下一子任务：**P04**（首页和存储只读）。P03 的整体交付是“预检 → 接受 → 执行 → 可查 →
+  重启/崩溃后说得清”，**但生产登记表仍然为空**：没有任何真实系统写动作，P04 才开始接
+  真实的系统数据采集（需要 VM 真实块设备的只读存储信息）。
+- 下游是否可继续：**是**；但任何系统写操作必须走 P03 建成的链路（预检 → 任务 → 幂等 → 对账），
+  不允许绕过。
 - 当前版本：未发布。
 - 当前无阻塞。遗留（不阻塞）：VM-C（LVM 根，P04 前需要）、VM-D（SMB 客户端，P08/P14 前需要）；
   验收 VM 内未安装 Go/Node 工具链（DECISIONS Q9）；systemd 真实托管形态已在 P02.3 的两台 VM
@@ -122,7 +127,7 @@ VM 内核原生测试二进制 169 个用例 0 FAIL，二进制 sha256 与宿主
 | P00 | 基线和验收环境 | **passed** | P00.1/P00.2/P00.3 完成；VM-A(22.04)/VM-B(24.04) 已创建并核验，序列号与隔离证据齐全。`docs/evidence/P00/2026-10-20/`（VM-C/VM-D 未建，不属 P00 验收项） |
 | P01 | 最小可运行骨架 | **passed** | P01.1 骨架/配置/日志/健康检查、P01.2 SQLite 迁移/事务/错误码/request_id/Gin 路由、P01.3 前端骨架/路由/中文导航/统一 API 客户端/七状态组件/mock 横幅、P01.4 前端嵌入二进制/mock 与 production 配置/systemd 单元/本地启动文档，均有宿主 + 两台 VM 证据；P01.4 各 VM 114 项断言通过。证据 `docs/evidence/P01/2026-10-20*/` |
 | P02 | 认证、权限、审计、代理 | **passed** | P02.1 **passed**：users/sessions 表、Argon2id、登录/退出/会话轮换/CSRF/Origin/限速、`upanelctl init-admin`（无默认密码），证据 `docs/evidence/P02/2026-10-20-p02.1/`（宿主 38 项 + 两台 VM 各 58 项断言）。P02.2 **passed**：admin/viewer 边界、账号增删改查（脱敏 DTO + 分页 + 乐观并发）、最后管理员保护、5 分钟再认证、追加式审计表，证据 `docs/evidence/P02/2026-10-20-p02.2/`（宿主 81 项 + 两台 VM 各 99 项断言，P02.1 回归各 58 项）。P02.3 **passed**：代理 socket 与 SO_PEERCRED UID 边界、固定登记表（生产为空）、结构化只读查询、命令执行器超时/输出上限、systemd 真实托管，证据 `docs/evidence/P02/2026-10-20-p02.3/`（两台 VM 各 84 项断言 + VM 内核原生 28 + 9 个用例，P02.2 回归各 99 项）。P02.4 **passed**：审计跟随业务事务（被拒绝请求独立记 failure 行）、日志脱敏做进记录器、代理独立 root-only 库（`/var/lib/upanel-agent/agent.db`，目录 0700 / 文件 0600，启动自校验）、AES-256-GCM 秘密存储（独立 nonce、AAD 绑引用与用途、`/etc/upanel/agent.key` 0600 且 `-init-key` 不覆盖）、临时秘密 10 分钟销毁与墓碑行、无明文读取路由，证据 `docs/evidence/P02/2026-10-20-p02.4/`（两台 VM 各 87 项断言 + VM 内核原生 agentstore 32 / agent 45 个用例，P02.1/P02.2/P02.3 回归各 58 / 103 / 84 项）。**阶段结论：P02 全部子任务完成** |
-| P03 | 预检、任务、幂等、对账 | in_progress | P03.1 **passed**：预检由代理生成（规范化参数、目标身份指纹、状态版本、影响、阻塞项、锁、再认证与短语策略），Web 只保存绑定并返回公开 DTO；有效期 120 秒且两端同一时间戳；用户/会话/动作/`params_hash`/`state_version` 双侧一致；短语只回一次明文、代理库只存哈希；未登记动作 400、缺规划器 501、`GET` 405。证据 `docs/evidence/P03/2026-10-20-p03.1/`（两台 VM 各 93 项断言 + VM 内核原生 5 个测试二进制，P02.1—P02.4 回归各 58/103/84/87 项）。P03.2 **passed**：持久 jobs、幂等链、`operation_id` 去重、代理执行记录与事件、资源锁与 30 秒排队、取消规则、先落库再提交、按 `operation_id` 对账；证据 `docs/evidence/P03/2026-10-20-p03.2/`（两台 VM 各 101 项断言 + VM 内核原生 169 用例 0 FAIL + p01-1/p01-2/p01-4/p02-1—p02-4/p03-1 回归各 29/34/114/58/103/85/87/93；宿主 check.sh PASS 12/0/NOT RUN 0）。验收期间抓到并修掉两个真缺陷：`CONFIRMATION_MISMATCH` 应为 400（DECISIONS Q64）、SQLite WAL DEFERRED 事务升级不调 busy handler → `_txlock=immediate`（DECISIONS Q65）。P03.3—P03.4 未开始（SSE/任务中心/重启对账） |
+| P03 | 预检、任务、幂等、对账 | **passed** | P03.1 **passed**：预检由代理生成（规范化参数、目标身份指纹、状态版本、影响、阻塞项、锁、再认证与短语策略），Web 只保存绑定并返回公开 DTO；有效期 120 秒且两端同一时间戳；用户/会话/动作/`params_hash`/`state_version` 双侧一致；短语只回一次明文、代理库只存哈希；未登记动作 400、缺规划器 501、`GET` 405。证据 `docs/evidence/P03/2026-10-20-p03.1/`（两台 VM 各 93 项断言 + VM 内核原生 5 个测试二进制，P02.1—P02.4 回归各 58/103/84/87 项）。P03.2 **passed**：持久 jobs、幂等链、`operation_id` 去重、代理执行记录与事件、资源锁与 30 秒排队、取消规则、先落库再提交、按 `operation_id` 对账；证据 `docs/evidence/P03/2026-10-20-p03.2/`（两台 VM 各 101 项断言 + VM 内核原生 169 用例 0 FAIL + p01-1/p01-2/p01-4/p02-1—p02-4/p03-1 回归各 29/34/114/58/103/85/87/93；宿主 check.sh PASS 12/0/NOT RUN 0）。验收期间抓到并修掉两个真缺陷：`CONFIRMATION_MISMATCH` 应为 400（DECISIONS Q64）、SQLite WAL DEFERRED 事务升级不调 busy handler → `_txlock=immediate`（DECISIONS Q65）。P03.3 **passed**：SSE 事件流（`id:`/`event:`/`data:`、`: connected`、15 秒 keepalive、`Last-Event-ID` 续传、日志环被裁后先发 `event: gap`）、代理事件镜像（先事件后状态）、日志分页与每任务 1000 行上限、任务中心与错误详情、最小登录页与路由守卫；证据 `docs/evidence/P03/2026-10-20-p03.3/`（两台 VM 各 73 项断言 + 原生 346 用例 0 FAIL + P03 前序回归）。验收期间抓到并修掉代理侧“阶段与事件分两笔写”的原子性缺陷（DECISIONS Q67）。P03.4 **passed**：Web 启动立刻 + 每 30 秒的对账循环（只查不跑，`grep CreateOperation` 在 `reconcile.go` 无调用点）、提交在途不判定、`NOT_FOUND` 按 `needs_sync` 分流（`failed`/`unconfirmed` vs `interrupted`/`unknown_result`）、幂等记录到期清理、验收注册表约束变成断言；证据 `docs/evidence/P03/2026-10-20-p03.4/`（两台 VM 各 78 项断言 + 原生 360 用例 0 FAIL + 全量 11 脚本 0 失败）。**阶段结论：P03 全部子任务完成，生产登记表仍为空（无真实写动作）** |
 | P04 | 首页和存储只读 | not_started | 需 VM 真实块设备 |
 | P05 | 服务、进程、日志 | not_started | — |
 | P06 | 文件和受限终端 | not_started | — |
@@ -1455,12 +1460,125 @@ panic 三次，都是 `Attempted to kill init! exitcode=0x8b`）。重启后 `/t
 （`tests/integration/run-all.sh`、`scripts/run-native-tests.sh`）随代码一起入库，
 换机后重建一次 VM 就能一键重跑全量回归。
 
+### P03.4（2026-10-20）— Web 与代理重启对账、重复提交、执行结果未知的 interrupted
+
+交付（代码）：
+
+- **后台对账**（`internal/operations/reconcile.go`，新文件）。`Service.RunReconciler` 由
+  `cmd/upanel-web` 以 goroutine 启动：**启动立刻扫一遍**，之后每 `ReconcileInterval = 30s` 一遍；
+  `ReconcileBatch = 100`，按 `updated_at` 升序取 `needs_sync = 1 OR status NOT IN (终态)`。
+  扫描只调 `GET /internal/v1/operations/:id`——**代码里没有任何 CreateOperation 调用点**，
+  对账永远不会重发（DECISIONS Q73）。
+- **提交在途登记**（`Service.inflight` + `beginSubmit/endSubmit`）。任务已落库、代理调用还没返回的
+  窗口里，对账不下任何结论（`outcomeInflight`，计入 `skipped_inflight`）。没有它，一个正在执行的
+  破坏性动作会被写成 `failed`，而代理随后照样执行（DECISIONS Q74）。
+- **`NOT_FOUND` 分流**（修订 Q63）：`needs_sync=1` → `failed`/`unconfirmed`/`AGENT_UNAVAILABLE`
+  （提交没到达）；`needs_sync=0` → `interrupted`/`unknown_result`/`OPERATION_INTERRUPTED`、
+  `cancellable=0`、错误体要求先核对实际状态（DECISIONS Q75）。读接口与后台扫描共用同一份判定
+  （`reconcileOne`），不会因为“被读”还是“被扫”得到不同终态。
+- **幂等记录清理**（`PurgeExpiredIdempotencyKeys`，`RunReconciler` 里每小时一次）：
+  只删“已过期且任务已结束”的记录，未结束任务的键必须留着，否则重试就等于第二次执行
+  （DECISIONS Q76）。
+- **验收脚本** `tests/integration/p03-4-reconcile-acceptance.sh`（78 项断言）：生产登记表为空、
+  十次/并发同键提交、同键不同请求 409、Web 重启后重放、提交未到达、代理 kill -9 后的
+  interrupted、代理库丢失后的 unknown_result、终态不回退、没有重试接口。
+- **调度修正** `tests/integration/run-all.sh`：日志改写到自建的 `LOG_DIR`（默认
+  `/var/tmp/upanel-logs`）。24.04 上出现过“脚本全通过、重定向失败、退出码被读成 2”的假失败——
+  `/tmp` 的粘滞位让后一次运行写不进上一次以 root 建的同名文件。
+- **测试注册表约束变成断言**（`internal/agent/acceptance_test.go`）：生产表为空、验收动作全部带
+  `acceptance.` 前缀且不在生产表、`Decode/Plan/Execute` 齐全、计划必带 `acceptance_only` 告警、
+  参数解码拒绝未知字段（DECISIONS Q77）。
+- **代理侧**沿用 P03.2 的 `reconcileInterrupted`（启动时把遗留非终态操作标 interrupted，
+  不自动重跑）：这一轮用 `kill -9` 在真实 VM 上验证了它与 Web 对账的衔接。
+
+### P03.4 验收结果（同上日，验收回填）
+
+**结论：passed。** 代码 + 两台 VM 验收均完成，证据在 `docs/evidence/P03/2026-10-20-p03.4/`。
+
+| 检查 | 24.04.5 / 6.8.0-147 | 22.04.5 / 5.15.0-198 |
+|---|---|---|
+| `p03-4-reconcile-acceptance.sh`（新增，78 项断言） | 通过 78 / 失败 0 | 通过 78 / 失败 0 |
+| `p01-1` | PASS 29 / FAIL 0 | PASS 29 / FAIL 0 |
+| `p01-2` | PASS 34 / FAIL 0 | PASS 34 / FAIL 0 |
+| `p01-4` | 通过 114 / 失败 0 | 通过 114 / 失败 0 |
+| `p02-1` | PASS=58 / FAIL=0 | PASS=58 / FAIL=0 |
+| `p02-2` | PASS=103 / FAIL=0 | PASS=103 / FAIL=0 |
+| `p02-3` | PASS 85 / FAIL 0 | PASS 85 / FAIL 0 |
+| `p02-4` | PASS=87 / FAIL=0 | PASS=87 / FAIL=0 |
+| `p03-1` | 通过 93 / 失败 0 | 通过 93 / 失败 0 |
+| `p03-2` | 通过 102 / 失败 0 | 通过 102 / 失败 0 |
+| `p03-3` | 通过 73 / 失败 0 | 通过 73 / 失败 0 |
+| VM 内核原生测试二进制（7 个） | TOTAL PASS 360 / FAIL 0 | TOTAL PASS 360 / FAIL 0 |
+| `run-all.sh` 汇总 | 运行 11 / 失败 0 | 运行 11 / 失败 0 |
+
+宿主侧：`go build ./...`、`go vet ./...` 退出 0，`gofmt -l .` 无输出，`go test ./...` 18 包 ok
+（`-v` 计数 258 PASS / 0 FAIL），`check.sh` PASS 12 / FAIL 0 / NOT RUN 0，`redocly lint` valid
+（10 warnings），交叉编译三个入口的 sha256 与两台 VM 上逐字节一致。
+
+**p03-4 脚本验证到的行为**（11 个段落，全部黑盒：curl + 查库 + 杀进程）
+
+1. 生产登记表为空：不带 `-acceptance-actions` 的代理对 `acceptance.probe` 预检回 400“未登记的动作”。
+2. 同一个幂等键提交十次、并发提交十次：都只有一个 job、一次代理执行。
+3. 同键不同请求 → 409 `IDEMPOTENCY_CONFLICT`（`curl --max-time 60` 兜住每个请求）。
+4. **Web 重启后重放同一个键**：拿回原 `job_id`，代理操作数不变——不重新执行。
+5. **提交没到达**（代理从未见过这条操作，`needs_sync=1`）：启动扫描判 `failed`/`unconfirmed`/
+   `AGENT_UNAVAILABLE`。
+6. **代理 `kill -9`**：重启后遗留操作被代理标 `interrupted`，Web 启动扫描同步为 `interrupted`，
+   `cancellable=0`，代理操作数不变（没有重放）。
+7. **代理侧记录丢失**（`needs_sync=0`）：等后台 30 秒扫描（不读页面、不重启 Web），任务变
+   `interrupted`/`unknown_result`/`OPERATION_INTERRUPTED`——**不是** `failed`。
+8. 终态不回退、`interrupted` 再取消 → 409、`POST /jobs/{id}/retry` → 404（没有重试接口）。
+9. 启动对账在 Web 日志里留痕（`开始任务对账` + `任务对账扫描完成` 的七个计数），
+   且日志不含口令与 CSRF。
+
+**证明“测试有牙”**：摘掉在途守卫 → 两个用例失败（`Unconfirmed:1`，期望 `SkippedInflight:1`）；
+把 `needs_sync` 分流写死 → `TestSweepPendingMarksUnconfirmedWhenAgentNeverSawOperation` 失败；
+`grep CreateOperation internal/operations/reconcile.go` 只命中注释（对账没有重新提交的调用点）。
+三份输出都在证据目录（`mutation-1-*`、`mutation-2-*`、`static-no-resubmit.txt`）。
+
+**本轮修掉的四个缺陷**
+
+| 缺陷 | 处理 | 决策 |
+|---|---|---|
+| `NOT_FOUND` 一律写 failed（Q63 的状态选错） | 按 `needs_sync` 分流：没到达 → failed；曾经到达 → interrupted/结果未知 | Q75 |
+| `TestGateDeniesOtherUIDs` 扫整个响应体，随机 `request_id` 里撞上 “4242” | 只断言 `error.code` 与 `error.message` | Q78 |
+| `p01-4` 不清 `/var/lib/upanel/upanel.db`，旧迁移校验和让服务按设计拒绝启动 | migrate 前清库（现场由脚本自建） | Q79 |
+| 两处“按时间取最新一条”的断言 | 改成按幂等键 / `operation_id` 指名对象，并加错误码断言 | Q80 |
+
+顺带关闭了 P03.2 的欠账：`idempotency_keys` 的到期清理（当时注释写“属 P03.4”）现已实现，
+且只删“任务已结束”的记录，不会把重试变成第二次执行（Q76）。
+
+**环境事实（不记作产品缺陷）**：24.04 验收 VM 本轮开始前刚经历过一次 panic
+（`Attempted to kill init! exitcode=0x8b`），`/tmp` 随重启清空，二进制与脚本重新上传并逐个
+核对 sha256。运行期间两台 VM 都没有中断。宿主 `check.sh` 的一次 go-test 变红是 Q78 的
+随机串问题，不是产品回归。**harness 事故**：`run-all.sh` 早先把逐脚本日志写进
+`/tmp/upanel-accept-<name>.log`，`/tmp` 的粘滞位让后一次运行写不进上一次以 root 建的同名文件，
+于是 10 个脚本“全通过但退出码 2”——已改为自建 `LOG_DIR`（默认 `/var/tmp/upanel-logs`，0777）。
+
+**NOT RUN（本轮没有执行，不能算通过）**
+
+- `go test -race`：宿主与 VM 都没有启用 cgo，整轮没有竞态检测器证据。
+- 幂等记录清理的 1 小时周期：验收脚本不会等一小时，“每小时真的跑了一次”只有单元测试，
+  **没有** VM 观测。
+- 真实浏览器：本轮没有任何浏览器证据；`interrupted` 的展示沿用 P03.3 的组件，未在浏览器里看过。
+  P03.3 的其他 NOT RUN（SSE 长连接压测、日志环容量、Firefox/Safari）同样仍未执行。
+- 代理与 Web **同时**重启的收敛：脚本只覆盖“先杀代理”“先杀 Web”两种顺序。
+- 多 Web 进程/多副本：在途登记是进程内的（Q74），systemd 单实例前提之外未验证。
+- 连续运行数小时的累积影响（内存、日志量、WAL 增长）未观测。
+
+**交付去向**：见第 7 节与本文件末尾的提交记录。
+
 ## 6. 未决问题与范围变更
 
-未批准任何范围变更。DECISIONS.md 第 8 节记录 Q1—Q72；P03.3 新增六条：Q67（阶段与事件必须同事务，
+未批准任何范围变更。DECISIONS.md 第 8 节记录 Q1—Q80；P03.3 新增六条：Q67（阶段与事件必须同事务，
 缺陷修复）、Q68（日志环保留 vs 只追加）、Q69（SSE 用轮询+对账，不做进程内广播中心）、
 Q70（viewer 任务可见性 = per-user 隔离，别人的任务 404）、Q71（验收脚本的运行身份必须由调度器
-强制）、Q72（最小登录页与路由守卫，范围补充，待确认）。
+强制）、Q72（最小登录页与路由守卫，范围补充，待确认）。P03.4 新增八条：Q73（对账用
+30 秒后台循环 + 启动扫描，只查不跑）、Q74（在途提交不判定）、Q75（`NOT_FOUND` 按 `needs_sync`
+分流，修订 Q63）、Q76（幂等记录只删已结束任务的）、Q77（测试注册表约束变成断言）、
+Q78（断言读字段，不扫整个响应体——随机 `request_id` 曾撞上 “4242”）、
+Q79（`p01-4` 必须自清 systemd 库；旧库里的旧迁移校验和会让服务按设计拒绝启动）、
+Q80（断言必须指名对象，不能按秒级 `created_at` 取“最新一条”）。
 
 - Q1 Go module 路径暂定 `upanel`（P01 前如需 canonical path 需一次性确定）。
 - Q2 开发宿主工具链与冻结版本不一致，已用 GOTOOLCHAIN 与仓库外 Node 22.23.3 解决。
@@ -1640,7 +1758,14 @@ Q70（viewer 任务可见性 = per-user 隔离，别人的任务 404）、Q71（
 | P03.3-VM | P03 | **已执行并通过（Ubuntu 24.04.5 与 22.04.5，root 运行，两台均 通过 73 / 失败 0）**。覆盖 SSE 帧格式与响应头、`: connected`、`id` 单调、`Last-Event-ID` 续传、坏值 400、未登录 401 / viewer 403 / 别人的任务 404、日志分页与坏 cursor、`gap` 帧、追加式触发器（改状态被拒 / 删日志允许 / 终态不回退）、每用户 4 条连接上限与释放、关闭流不影响任务执行、取消 202/409、日志无 CSRF 与口令 | docs/evidence/P03/2026-10-20-p03.3/{vm-upanel-2404-p033-acceptance.txt,vm-upanel-2204-p033-acceptance.txt,vm-upanel-2404-env.txt,vm-upanel-2204-env.txt,cross-build-sha256.txt} |
 | P03.3-UNIT-VM | P03 | 已执行通过（VM 内核上原生跑交叉编译测试二进制：agentstore / agent / agentclient / operations / syscmd / store / api，两台均 **346 用例 PASS / 0 FAIL**；修复前会偶发的 `TestOperationSubmitRunsOnceAndRecordsResult` 在 22.04 上单独复跑 20 次全过） | docs/evidence/P03/2026-10-20-p03.3/{vm-upanel-2404-native-tests.txt,vm-upanel-2204-native-tests.txt} |
 | P03.3-REGRESSION | P03 | 已执行通过（两台 VM 各跑完整 `run-all.sh`：p01-1 29 / 0、p01-2 34 / 0、p01-4 114 / 0、p02-1 58 / 0、p02-2 103 / 0、p02-3 85 / 0、p02-4 87 / 0、p03-1 93 / 0、p03-2 101 / 0、p03-3 73 / 0，**失败脚本数 0**） | docs/evidence/P03/2026-10-20-p03.3/vm-upanel-{2404,2204}-p{011,012,014,021,022,023,024,031,032,033-acceptance}.txt |
-| P03.3-RESULT | P03 | 已产出（交付清单、宿主与 VM 证据、验收抓到的阶段/事件非原子缺陷与修法、两起流程事故、未执行项、复现命令） | docs/evidence/P03/2026-10-20-p03.3/{result.md,commands.log} |
+| P03.3-RESULT | P03 | 已产出（交付清单、宿主与 VM 证据、验收抓到的阶段/事件非原子缺陷与修法、两起流程事故、未执行项、复现命令） | docs/evidence/P03/2026-10-20-p03.3/result.md |
+| P03.4-UNIT | P03 | 已执行通过（宿主 `go test -count=1 ./...` 18 包 ok，`-v` 计数 **258 PASS / 0 FAIL**；新增对账 11 个用例 + 验收注册表 3 个） | docs/evidence/P03/2026-10-20-p03.4/{go-test.txt,go-test-verbose.txt,go-test-verbose-summary.txt,host-build.txt,go-vet.txt,gofmt.txt} |
+| P03.4-CHECK | P03 | 已执行通过（`sh scripts/check.sh` → PASS 12 / FAIL 0 / NOT RUN 0；`redocly lint api/openapi.yaml` valid + 10 warnings） | docs/evidence/P03/2026-10-20-p03.4/{check.txt,openapi-lint.txt} |
+| P03.4-MUTATION | P03 | 已执行（摘掉在途守卫 → 2 个用例失败；写死 `needs_sync` 分流 → 1 个用例失败；`reconcile.go` 无 `CreateOperation` 调用点） | docs/evidence/P03/2026-10-20-p03.4/{mutation-1-inflight-guard.txt,mutation-2-needs-sync-split.txt,static-no-resubmit.txt} |
+| P03.4-VM | P03 | **已执行并通过（Ubuntu 24.04.5 与 22.04.5，root 运行，两台均 通过 78 / 失败 0；含 Web 重启重放、代理 kill -9、代理库被清空后的结果未知）** | docs/evidence/P03/2026-10-20-p03.4/{runall-24.txt,runall-22.txt,vm-logs-2404/,vm-logs-2204/} |
+| P03.4-UNIT-VM | P03 | 已执行通过（VM 内核上原生跑交叉编译测试二进制：7 个包 **TOTAL PASS 360 / FAIL 0**） | docs/evidence/P03/2026-10-20-p03.4/{native-24.txt,native-22.txt,env-24.txt,env-22.txt} |
+| P03.4-REGRESSION | P03 | 已执行通过（两台 VM 各跑完整 `run-all.sh`：11 个脚本 / 0 失败；p01-1 29、p01-2 34、p01-4 114、p02-1 58、p02-2 103、p02-3 85、p02-4 87、p03-1 93、p03-2 102、p03-3 73、p03-4 78） | docs/evidence/P03/2026-10-20-p03.4/{runall-24.txt,runall-22.txt} |
+| P03.4-RESULT | P03 | 已产出（交付清单、宿主与 VM 证据、变异与静态检查、四个缺陷与修法、NOT RUN 清单、复现命令） | docs/evidence/P03/2026-10-20-p03.4/result.md |026-10-20-p03.3/{result.md,commands.log} |
 | P00-VM-C（LVM 根） | P00/P04 | **NOT RUN**（未创建） | 需在 P04 前补齐 |
 | P00-VM-D（SMB 客户端） | P00/P08 | **NOT RUN**（未创建） | 需在 P08 前补齐 |
 

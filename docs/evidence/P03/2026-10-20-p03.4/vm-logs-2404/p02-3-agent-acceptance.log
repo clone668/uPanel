@@ -1,0 +1,107 @@
+== 0. 环境
+PASS  acceptance-runs-as-root
+PASS  agent-binary-present
+PASS  ctl-binary-present
+PASS  systemd-present
+PASS  python3-present
+PASS  web-user-exists
+PASS  probe-user-in-web-group
+
+== 1. 安装并启动代理服务
+PASS  agent-installed
+PASS  agent-binary-owner-is-root
+PASS  agent-binary-mode-755
+PASS  ctl-installed
+PASS  config-dir-owner-root
+PASS  config-dir-not-writable-by-web-user
+PASS  check-config-passes
+PASS  unit-runs-as-root
+PASS  unit-execstart-agent
+PASS  unit-runtime-directory
+PASS  unit-has-no-private-mounts
+PASS  unit-has-no-private-devices
+PASS  systemd-analyze-verify-clean
+PASS  agent-socket-created
+PASS  systemd-service-active
+PASS  systemd-mainpid-present
+PASS  agent-process-runs-as-root
+
+== 2. socket 与目录权限
+PASS  socket-is-unix-socket
+PASS  socket-owner-root
+PASS  socket-group-web-user
+PASS  socket-mode-660
+PASS  run-dir-owner-root
+PASS  run-dir-mode-755
+PASS  run-dir-not-writable-by-others
+PASS  agent-has-no-tcp-listener
+
+== 3. capabilities 只对 Web 账号开放
+PASS  capabilities-web-200
+PASS  capabilities-mode-production
+PASS  capabilities-actions-empty
+PASS  capabilities-queries-empty
+PASS  capabilities-root-403
+PASS  capabilities-root-code
+PASS  same-group-other-uid-403
+PASS  same-group-other-uid-code
+PASS  denied-without-leaking-allowed-uid
+PASS  outsider-cannot-connect
+
+== 4. 结构化只读查询：只认登记过的名字与字段
+PASS  unknown-query-400
+PASS  unknown-query-code
+PASS  unknown-query-message
+PASS  command-query-rejected-400
+PASS  unknown-field-envelope-400
+PASS  unknown-field-params-400
+PASS  non-json-body-400
+PASS  empty-body-400
+PASS  oversize-body-413
+PASS  queries-requires-post-405
+
+== 5. 没有万能转发：未知路径与 root 边界
+PASS  root-path-404-for-web
+PASS  unknown-path-403-for-root
+PASS  same-group-other-uid-403-on-queries
+PASS  unknown-path-404-for-web
+PASS  operations-rejects-unknown-fields-400
+
+== 6. 启动期拒绝（不降级、不放行）
+PASS  bad-web-user-exit-1
+PASS  bad-web-user-message
+PASS  numeric-web-user-exit-2
+PASS  numeric-web-user-message
+PASS  agent-refuses-non-root-1
+PASS  agent-refuses-non-root-message
+PASS  agent-refuses-non-socket-path-1
+PASS  agent-refuses-non-socket-message
+PASS  agent-kept-foreign-file
+
+== 7. 命令执行器与登记表：真实 Linux 内核上跑单元测试二进制
+PASS  syscmd-unit-tests-exit-0
+PASS  syscmd-unit-tests-no-fail
+PASS  syscmd-unit-tests-count(9)
+PASS  syscmd-timeout-case-ran
+PASS  syscmd-env-case-ran
+PASS  syscmd-truncate-case-ran
+PASS  agent-unit-tests-exit-0
+PASS  agent-unit-tests-no-fail
+PASS  agent-unit-tests-count(79)
+PASS  agent-gate-root-denied-ran
+PASS  agent-gate-other-uid-ran
+PASS  agent-unknown-query-ran
+
+== 8. 停止与清理
+PASS  socket-removed-on-stop
+PASS  systemd-service-inactive
+
+== 9. 日志与秘密
+PASS  journal-readable
+PASS  journal-shows-listening
+PASS  journal-has-no-password
+PASS  journal-has-no-secret
+PASS  capabilities-report-production
+
+==================================================
+PASS 85 / FAIL 0

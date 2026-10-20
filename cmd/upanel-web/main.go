@@ -275,6 +275,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		logger.Error("初始化预检服务失败，拒绝启动", "error", err)
 		return 1
 	}
+	// 任务对账（P03.4，CONTRACTS.md §4.3）：启动时立刻扫一遍非终态/待对账任务，之后每
+	// operations.ReconcileInterval 一次。只查不跑——对账永远不会重新提交操作。
+	// 用 goroutine 是因为它不该挡住监听；扫描自己尊重 ctx，进程停止时一并退出。
+	go opsService.RunReconciler(ctx)
 
 	srv, err := api.New(api.Options{
 		ListenAddress:   listenAddr,

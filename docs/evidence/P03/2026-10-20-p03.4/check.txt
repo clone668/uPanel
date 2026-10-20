@@ -1,0 +1,128 @@
+
+--- 仓库结构（P00 交付物）
+  present  go.mod
+  present  .nvmrc
+  present  .node-version
+  present  docs/DECISIONS.md
+  present  docs/DEPENDENCIES.md
+  present  docs/TEST_ENVIRONMENT.md
+  present  api/openapi.yaml
+  present  scripts/check.sh
+  present  web/package-lock.json
+
+--- Go 工具链
+  go.mod 约束: 1.27.3
+  本机 go 版本: go version go1.27.3 windows/amd64
+
+==> go-build
+<== PASS  go-build
+
+==> go-vet
+<== PASS  go-vet
+
+==> go-test
+ok  	upanel/cmd/upanel-agent	(cached)
+ok  	upanel/cmd/upanel-web	(cached)
+ok  	upanel/cmd/upanelctl	(cached)
+ok  	upanel/internal/agent	39.780s
+ok  	upanel/internal/agentclient	(cached)
+ok  	upanel/internal/agentstore	(cached)
+ok  	upanel/internal/api	(cached)
+ok  	upanel/internal/audit	(cached)
+ok  	upanel/internal/auth	(cached)
+ok  	upanel/internal/config	(cached)
+ok  	upanel/internal/httpx	(cached)
+ok  	upanel/internal/logging	(cached)
+ok  	upanel/internal/operations	(cached)
+ok  	upanel/internal/platform	(cached)
+ok  	upanel/internal/store	(cached)
+ok  	upanel/internal/syscmd	(cached)
+ok  	upanel/internal/version	(cached)
+ok  	upanel/internal/webui	(cached)
+?   	upanel/migrations	[no test files]
+?   	upanel/migrations/agentdb	[no test files]
+<== PASS  go-test
+
+==> go-build-linux
+<== PASS  go-build-linux
+
+==> go-vet-linux
+<== PASS  go-vet-linux
+
+==> gofmt
+<== PASS  gofmt
+
+--- Node 工具链
+  .nvmrc 约束: 22.23.3
+  本机 node 版本: v22.23.3
+
+==> node-version
+<== PASS  node-version
+
+==> web-typecheck
+<== PASS  web-typecheck
+
+==> web-lint
+<== PASS  web-lint
+
+==> web-test
+
+ RUN  v5.0.5 H:/Code/uPanel/web
+
+ ✓ src/router/routes.test.ts (4 tests) 8ms
+ ✓ src/api/jobs.test.ts (17 tests) 15ms
+ ✓ src/api/errors.test.ts (5 tests) 8ms
+ ✓ src/modules/registry.test.ts (7 tests) 10ms
+ ✓ src/router/redirect.test.ts (4 tests) 7ms
+ ✓ src/api/jobstream.test.ts (19 tests) 17ms
+ ✓ src/api/client.test.ts (12 tests) 56ms
+ ✓ src/stores/mode.test.ts (5 tests) 6ms
+ ✓ src/components/panels.test.ts (17 tests) 37ms
+
+ Test Files  9 passed (9)
+      Tests  90 passed (90)
+   Start at  00:18:42
+   Duration  1.21s (import 79%, tests 11%, transform 7%, worker 3%)
+
+<== PASS  web-test
+
+==> web-build
+vite v8.3.4 building client environment for production...
+transforming...
+✓ 2708 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                           1.36 kB │ gzip:  0.96 kB
+dist/assets/ApiErrorPanel-C64pX_HY.css    0.28 kB │ gzip:  0.18 kB
+dist/assets/OverviewView-C1BY7bJd.css     0.31 kB │ gzip:  0.18 kB
+dist/assets/LoginView-cud7mG0l.css        0.32 kB │ gzip:  0.19 kB
+dist/assets/JobsView-CadWjv_X.css         1.31 kB │ gzip:  0.44 kB
+dist/assets/index-DUI8NT9i.css            1.49 kB │ gzip:  0.63 kB
+dist/assets/NotFoundView-D4Y6xteR.js      0.51 kB │ gzip:  0.44 kB
+dist/assets/OverviewView-D3mjV9UK.js      2.04 kB │ gzip:  1.29 kB
+dist/assets/ApiErrorPanel-CXA5OciV.js     3.30 kB │ gzip:  1.79 kB
+dist/assets/JobsView-CW5f8QjM.js         40.21 kB │ gzip: 12.23 kB
+dist/assets/LoginView-k9q4Cq-8.js        70.71 kB │ gzip: 21.46 kB
+dist/assets/Button-DY86joZa.js          144.03 kB │ gzip: 51.75 kB
+dist/assets/index-BIrS_v21.js           288.27 kB │ gzip: 86.79 kB
+
+✓ built in 363ms
+<== PASS  web-build
+
+==> openapi-lint
+validating api\openapi.yaml...
+warning no-unused-components: 8
+warning operation-4xx-response: 2
+
+api\openapi.yaml: validated in 52ms
+
+Woohoo! Your API description is valid. 🎉
+You have 10 warnings.
+
+<== PASS  openapi-lint
+
+=========================== 汇总 ===========================
+PASS 12 / FAIL 0 / NOT RUN 0
+明细: go-build:PASS go-vet:PASS go-test:PASS go-build-linux:PASS go-vet-linux:PASS gofmt:PASS node-version:PASS web-typecheck:PASS web-lint:PASS web-test:PASS web-build:PASS openapi-lint:PASS
+NOT RUN 不等于通过；发布前必须按 docs/STAGES.md 补齐对应证据。
+============================================================

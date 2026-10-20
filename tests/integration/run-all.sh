@@ -5,7 +5,8 @@
 # 而是会得到看似通过或诡异挂起的结果——
 #   * p01-1 / p01-2 / p01-4 / p02-1 / p02-2：**非 root**（脚本自己用 sudo 做特权部分，
 #     并会断言“Web 不以 root 运行”“数据库文件属主是运行者”）；
-#   * p02-3 / p02-4 / p03-1 / p03-2 / p03-3：**root**（代理只能在 root 下启动）。
+#   * p02-3 / p02-4 / p03-1 / p03-2 / p03-3 / p03-4：**root**（代理只能在 root 下启动，
+#     p03-4 还要 kill 代理、替换代理库来制造重启与数据丢失）。
 # 典型事故：用 `sudo sh p01-2-acceptance.sh` 跑 p01-2，root 绕过目录权限，
 # “数据库目录不可写即拒绝启动”那条永远等不到退出，脚本会一直挂着。
 #
@@ -36,7 +37,7 @@ if [ -n "$DEPLOY_DIR" ] && [ ! -d "$DEPLOY_DIR/systemd" ]; then
 fi
 
 NONROOT_SCRIPTS="p01-1-acceptance p01-2-acceptance p01-4-acceptance p02-1-acceptance p02-2-acceptance"
-ROOT_SCRIPTS="p02-3-agent-acceptance p02-4-agent-secrets-acceptance p03-1-preflight-acceptance p03-2-jobs-acceptance p03-3-events-acceptance"
+ROOT_SCRIPTS="p02-3-agent-acceptance p02-4-agent-secrets-acceptance p03-1-preflight-acceptance p03-2-jobs-acceptance p03-3-events-acceptance p03-4-reconcile-acceptance"
 
 if [ $# -gt 0 ]; then
     SELECTED="$*"
@@ -97,6 +98,16 @@ sleep 1
 $SUDO rm -rf /run/upanel 2>/dev/null
 $SUDO rm -rf "$DB_ROOT_BASE"/upanel-accept-* 2>/dev/null
 
+# 每个脚本的日志写在自建目录里，而不是 /tmp 的固定文件名：
+# /tmp 有粘滞位，上一次以 root 建的同名文件会让这次的 runuser/setpriv 进程写不进去，
+# 结果是脚本全都跑通了、重定向却失败，退出码变成 2，看起来像环境不满足（24.04 上真发生过）。
+LOG_DIR=${LOG_DIR:-/var/tmp/upanel-logs}
+$SUDO rm -rf "$LOG_DIR" 2>/dev/null
+$SUDO mkdir -p "$LOG_DIR" 2>/dev/null
+$SUDO chmod 0777 "$LOG_DIR" 2>/dev/null
+# 旧版本用的 /tmp 固定文件名留着只会误导人（里面是上一次的结果）。
+$SUDO rm -f /tmp/upanel-accept-*.log 2>/dev/null
+
 for name in $SELECTED; do
     script="$SRC_DIR/$name.sh"
     if [ ! -f "$script" ]; then
@@ -112,16 +123,16 @@ for name in $SELECTED; do
 
     echo "== $name（$identity）"
     if [ "$identity" = "root" ]; then
-        run_root "$name" > "/tmp/upanel-accept-$name.log" 2>&1
+        run_root "$name" > "$LOG_DIR/$name.log" 2>&1
     else
-        run_nonroot "$name" > "/tmp/upanel-accept-$name.log" 2>&1
+        run_nonroot "$name" > "$LOG_DIR/$name.log" 2>&1
     fi
     rc=$?
     TOTAL_RAN=$((TOTAL_RAN + 1))
-    tail -3 "/tmp/upanel-accept-$name.log"
+    tail -3 "$LOG_DIR/$name.log"
     if [ "$rc" -ne 0 ]; then
         TOTAL_FAILED=$((TOTAL_FAILED + 1))
-        SUMMARY="$SUMMARY\n  $name: exit=$rc（日志 /tmp/upanel-accept-$name.log）"
+        SUMMARY="$SUMMARY\n  $name: exit=$rc（日志 $LOG_DIR/$name.log）"
     fi
     echo
 done
@@ -129,6 +140,7 @@ done
 echo "== 汇总 =="
 printf '运行脚本数: %s\n' "$TOTAL_RAN"
 printf '失败脚本数: %s\n' "$TOTAL_FAILED"
+printf '日志目录: %s\n' "$LOG_DIR"
 [ -z "$SUMMARY" ] || printf '%b\n' "$SUMMARY"
 [ "$TOTAL_FAILED" -eq 0 ] || exit 1
 exit 0

@@ -1,0 +1,12 @@
+# 变异测试 1：把“提交途中不判定”的守卫摘掉（if false && ...），看测试有没有牙
+$ sed -i 's/if s.submitInFlight(job.ID) {/if false \&\& s.submitInFlight(job.ID) {/' internal/operations/reconcile.go
+$ go test ./internal/operations/ -run 'TestSweepPendingSkipsInFlightSubmit|TestSubmitRacingSweepDoesNotMarkFalseFailure' -count=1 -v
+=== RUN   TestSweepPendingSkipsInFlightSubmit
+    reconcile_test.go:235: 对账统计 = {Scanned:1 Advanced:0 Deferred:0 Unconfirmed:1 Unknown:0 Failed:0 SkippedInflight:0}，期望跳过 1 条在途任务
+--- FAIL: TestSweepPendingSkipsInFlightSubmit (0.06s)
+=== RUN   TestSubmitRacingSweepDoesNotMarkFalseFailure
+    reconcile_test.go:373: 并发对账统计 = {Scanned:1 Advanced:0 Deferred:0 Unconfirmed:1 Unknown:0 Failed:0 SkippedInflight:0}，期望只跳过在途任务
+--- FAIL: TestSubmitRacingSweepDoesNotMarkFalseFailure (0.05s)
+FAIL
+FAIL	upanel/internal/operations	0.873s
+FAIL

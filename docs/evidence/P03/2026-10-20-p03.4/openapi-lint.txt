@@ -1,0 +1,9 @@
+validating api\openapi.yaml...
+warning no-unused-components: 8
+warning operation-4xx-response: 2
+
+api\openapi.yaml: validated in 53ms
+
+Woohoo! Your API description is valid. 🎉
+You have 10 warnings.
+

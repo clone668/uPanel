@@ -1,0 +1,121 @@
+# P03.4 验收命令与结果（按执行顺序）
+# 记录人：实施者；日期 2026-10-20
+# 说明：本文件只记录**实际执行过**的命令。未执行的检查在 result.md 的 NOT RUN 一节列出。
+# 宿主 = 开发机（M3 Air / Windows / Git Bash）。VM = 两台独立 Ubuntu 验收虚拟机。
+
+# ─────────────────────────── 宿主：构建与单元测试 ───────────────────────────
+cd /h/Code/uPanel
+gofmt -l internal cmd                               # 无输出
+go vet ./internal/agent/                            # exit 0
+go build ./...                                      # exit 0
+go test -count=1 ./...                              # 全部 ok，exit 0（20 个包）
+
+# 变异测试 1：摘掉“提交途中不判定”的守卫，证明测试有牙
+cp internal/operations/reconcile.go /tmp/reconcile.go.bak
+sed -i 's/if s.submitInFlight(job.ID) {/if false \&\& s.submitInFlight(job.ID) {/' \
+    internal/operations/reconcile.go
+go test ./internal/operations/ -count=1 -v \
+    -run 'TestSweepPendingSkipsInFlightSubmit|TestSubmitRacingSweepDoesNotMarkFalseFailure'
+# → 两个用例都 FAIL（Scanned:1 Unconfirmed:1，期望 SkippedInflight:1）；见 mutation-1-inflight-guard.txt
+cp /tmp/reconcile.go.bak internal/operations/reconcile.go
+
+# 变异测试 2：把 needs_sync 分流写死成“永远结果未知”，证明分流有牙
+cp internal/operations/reconcile.go /tmp/reconcile.go.bak
+sed -i '301s/if job.NeedsSync {/if false {/' internal/operations/reconcile.go
+go test ./internal/operations/ -count=1 -v \
+    -run 'TestSweepPendingMarksUnconfirmedWhenAgentNeverSawOperation|TestSweepPendingMarksUnknownResultInterrupted'
+# → Unconfirmed 那条 FAIL（Unknown:1，期望 Unconfirmed:1）；见 mutation-2-needs-sync-split.txt
+cp /tmp/reconcile.go.bak internal/operations/reconcile.go
+
+# 静态检查：对账路径没有“重新提交”的调用点
+grep -rn 'CreateOperation' internal/operations/reconcile.go   # 只有两句注释，无调用
+grep -rn 'GetOperation'   internal/operations/reconcile.go    # 唯一的代理调用
+# → static-no-resubmit.txt
+
+# ─────────────────────────── 宿主：证据与闸门 ───────────────────────────
+E=docs/evidence/P03/2026-10-20-p03.4
+go build ./...                                   > $E/host-build.txt
+go vet ./...                                     > $E/go-vet.txt
+gofmt -l .                                       > $E/gofmt.txt
+go test -count=1 ./...                           > $E/go-test.txt
+go test -count=1 -v ./internal/operations/ ./internal/agent/ ./internal/agentstore/ \
+    ./internal/api/ ./internal/store/ ./internal/agentclient/ > $E/go-test-verbose.txt
+                                                 # --- PASS 258 / --- FAIL 0
+export PATH="/c/Users/huxi/AppData/Local/nvm/v22.23.3:$PATH"
+sh scripts/check.sh                              # PASS 12 / FAIL 0 / NOT RUN 0
+web/node_modules/.bin/redocly lint --format=summary api/openapi.yaml
+                                                 # valid；10 warnings（与上一阶段同类同量），exit 0
+
+# ─────────────────────────── 宿主：交叉编译与校验和 ───────────────────────────
+mkdir -p /h/Code/vms/dist-p034/tests
+GOOS=linux GOARCH=amd64 go build -o /h/Code/vms/dist-p034/upanel-agent ./cmd/upanel-agent
+GOOS=linux GOARCH=amd64 go build -o /h/Code/vms/dist-p034/upanel-web   ./cmd/upanel-web
+GOOS=linux GOARCH=amd64 go build -o /h/Code/vms/dist-p034/upanelctl    ./cmd/upanelctl
+GOOS=linux GOARCH=amd64 go test -c -o /h/Code/vms/dist-p034/tests/ ./internal/agentstore/ \
+    ./internal/agent/ ./internal/operations/ ./internal/agentclient/ ./internal/syscmd/ \
+    ./internal/store/ ./internal/api/
+(cd /h/Code/vms/dist-p034 && sha256sum upanel-agent upanel-web upanelctl)
+# 0b03b63fb4298e47d7c80b0fd2cbd288dc61c4497eb985cada72ec7467c24976  upanel-agent
+# 89ddb2a7e9c8a13be7275d23eea299c1d85b85cc6a3f7b46dd59dbf7321c1ba0  upanel-web
+# 91880be42ef196a8c0f4ffb7d033ad4ffc922a8531bcf418359fc9d9f5223332  upanelctl
+# 修 Q78（只改测试文件）后重跑上面三条 go build，三个 sha256 一字不差：
+# 证明该修复不影响产品二进制，VM 上的验收脚本结果与产品代码一一对应。
+
+# ─────────────────────────── VM：启动 ───────────────────────────
+& H:\Code\vms\launch-vm.ps1 -Name upanel-2404 -SshPort 2222 -SeedPort 8899 -MemoryMB 4096
+& H:\Code\vms\launch-vm.ps1 -Name upanel-2204 -SshPort 2223 -SeedPort 8900 -MemoryMB 4096
+# 宿主 PowerShell 的 ssh 不认这两把私钥（UNPROTECTED PRIVATE KEY FILE），
+# 以下 ssh/scp 全部用 Git Bash 的 ssh。
+
+# ─────────────────────────── VM：上传与 sha256 核对 ───────────────────────────
+ssh -i /h/Code/vms/upanel-2404/id_ed25519 -p 2222 upanel@127.0.0.1 \
+    'mkdir -p /tmp/upanel-bin/tests /tmp/upanel-src'
+cd /h/Code/uPanel && tar czf - tests deploy | ssh ... -p 2222 'tar xzf - -C /tmp/upanel-src'
+scp -i .../id_ed25519 -P 2222 /h/Code/vms/dist-p034/{upanel-agent,upanel-web,upanelctl} \
+    upanel@127.0.0.1:/tmp/upanel-bin/
+scp -i .../id_ed25519 -P 2222 /h/Code/vms/dist-p034/tests/*.test upanel@127.0.0.1:/tmp/upanel-bin/tests/
+# upanelctl 结尾没有连字符，别用 upanel-* 通配（P03.3 踩过）：
+ssh ... 'chmod 0755 /tmp/upanel-bin/upanel-agent /tmp/upanel-bin/upanel-web \
+    /tmp/upanel-bin/upanelctl /tmp/upanel-bin/tests/*.test'
+ssh ... 'sha256sum /tmp/upanel-bin/upanel-* /tmp/upanel-bin/upanelctl /tmp/upanel-bin/tests/*.test'
+# 与 cross-build-sha256.txt 逐行一致（两台 VM 相同）
+
+# ─────────────────────────── VM：环境 + 原生测试 + 全量脚本 ───────────────────────────
+# 每台 VM 依次执行；环境与测试二进制 sha 先落盘，避免“跑了哪份二进制”说不清。
+ssh ... -p <port> upanel@127.0.0.1 'BIN=/tmp/upanel-bin
+  { head -3 /etc/os-release; uname -r; uname -m;
+    sha256sum $BIN/upanel-agent $BIN/upanel-web $BIN/upanelctl;
+    sha256sum $BIN/tests/*.test;
+    go version 2>/dev/null || echo "VM 内无 Go 工具链（符合预期）";
+    getent passwd upanel; } > /tmp/env-XX.txt 2>&1
+  sudo BIN_DIR=$BIN sh /tmp/upanel-src/tests/run-native-tests.sh > /tmp/native-XX.txt 2>&1
+  sudo BIN_DIR=$BIN sh /tmp/upanel-src/tests/integration/run-all.sh > /tmp/runall-XX.txt 2>&1'
+# 逐脚本日志写在自建目录（/var/tmp/upanel-logs），不再用 /tmp 固定文件名（粘滞位会假失败）
+
+# ─────────────────────────── 第一次全量回归（暴露两个测试现场问题） ───────────────────────────
+# 11 个脚本跑完：24.04 失败 1（p01-4），22.04 失败 2（p01-4、p03-2）。
+#   p01-4：/var/lib/upanel/upanel.db 是中间版本建的，0006 校验和与当前二进制不同，
+#          `upanelctl migrate` 按设计拒绝执行 → 服务 activating → 连带 5 条断言失败。
+#          修法见 DECISIONS Q79（migrate 前清掉这份由脚本自己创建的库）。
+#   p03-2：`ORDER BY created_at DESC LIMIT 1` 取到了别的任务 → 判成 'queued'。
+#          修法见 DECISIONS Q80（按幂等键指名任务，并加错误码断言）。
+# 同一次运行还暴露：24.04 上 /tmp/upanel-src/tests/run-native-tests.sh 缺失（tar 未带上
+# scripts/ 目录），原生测试那步报 "cannot open"；改为单独上传。
+
+# ─────────────────────────── 修完后的定向复跑 ───────────────────────────
+sudo BIN_DIR=/tmp/upanel-bin sh tests/integration/run-all.sh p01-4-acceptance p03-2-jobs-acceptance
+sudo BIN_DIR=/tmp/upanel-bin sh tests/integration/run-all.sh p03-2-jobs-acceptance
+# 两台 VM 各跑一轮上面两条命令：p01-4 通过 114/0、p03-2 通过 102/0（4 次跑 p03-2 全过）
+
+# ─────────────────────────── 最终全量回归（本文件所有数字的来源） ───────────────────────────
+ssh ... -p <port> upanel@127.0.0.1 'BIN=/tmp/upanel-bin
+  { 环境 + 三个入口 sha256 + 七个测试二进制 sha256 + 全部验收脚本 sha256 + go 版本 + 账号; } > /tmp/env-XX.txt
+  sudo BIN_DIR=$BIN sh /tmp/upanel-src/tests/run-native-tests.sh > /tmp/native-XX.txt
+  sudo BIN_DIR=$BIN sh /tmp/upanel-src/tests/integration/run-all.sh > /tmp/runall-XX.txt'
+# 结果（两台 VM 完全一致）：
+#   run-all：运行脚本数 11，失败脚本数 0
+#   p01-1 29/0  p01-2 34/0  p01-4 114/0  p02-1 58/0  p02-2 103/0  p02-3 85/0  p02-4 87/0
+#   p03-1 93/0  p03-2 102/0  p03-3 73/0  p03-4 78/0
+#   原生测试二进制：agentstore 72 / agent 104 / agentclient 24 / operations 57 / syscmd 9 /
+#                   store 11 / api 83 = TOTAL PASS 360 FAIL 0
+# 逐脚本日志从 /var/tmp/upanel-logs 取回，存为 vm-logs-2404/、vm-logs-2204/。

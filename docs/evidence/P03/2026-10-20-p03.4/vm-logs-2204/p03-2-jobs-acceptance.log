@@ -1,0 +1,130 @@
+== 0. 环境
+PASS  验收脚本以 root 运行
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  python3 可用于查库
+PASS  Web 账号 upanel-web 存在
+
+== 1. 启动代理与 Web ==
+PASS  -init-key 生成代理密钥
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  代理已启用验收动作表
+PASS  代理日志报告操作超时
+PASS  init-admin 退出码
+PASS  管理员 user_id=1
+PASS  Web 以 upanel-web 身份在 http://127.0.0.1:19444 启动
+PASS  Web 进程以 upanel-web 运行
+PASS  没有以 root 运行的 Web 进程
+PASS  管理员登录 200
+
+== 2. 再认证与提交主流程 ==
+PASS  密码再认证 200
+NOTE  probe 预检 pf_40b6e29be9bdf75c1daed10497e35d07
+PASS  缺 Idempotency-Key 返回 400
+PASS  缺幂等键的错误码
+PASS  缺幂等键没有留下任务
+PASS  提交任务返回 202
+PASS  job_id 形态为 job_<hex>
+PASS  提交后状态是 queued
+PASS  events_url 指向该任务
+PASS  Web 库记录了稳定 operation_id
+PASS  代理库有同一个 operation_id
+PASS  Web 库记录了消费它的 job
+PASS  幂等记录保留期 ≥ 24 小时
+PASS  jobs.needs_sync 已清除
+PASS  probe 操作在代理侧已核验为 succeeded
+PASS  读回任务 200
+PASS  任务状态 succeeded
+PASS  进度未知时为 null
+PASS  结果含 outcome
+PASS  终态任务带 finished_at
+
+== 3. 同一次请求提交十次只执行一次 ==
+PASS  十次提交都返回同一个 job_id（job_ebfe7a0f3d0f65ec2d69270494607da4）
+PASS  十个请求只产生一条 jobs 记录
+PASS  十个请求只产生一条幂等记录
+PASS  代理库只有一条对应操作
+PASS  代理执行记录只有一条 accepted 事件
+
+== 4. 幂等冲突与预检一次性 ==
+PASS  同键不同请求返回 409
+PASS  同键不同请求的错误码
+PASS  首次使用预检返回 202
+PASS  同一预检换键再提交返回 409
+PASS  预检已被使用的错误码
+
+== 5. 预检过期 ==
+PASS  过期预检返回 409
+PASS  过期预检的错误码
+PASS  过期预检没有落 job
+
+== 6. 再认证缺失与短语不符 ==
+PASS  第二次登录 200
+PASS  新会话生成预检 200
+PASS  未再认证提交返回 403
+PASS  未再认证的错误码
+PASS  未再认证没有落 job
+PASS  短语不符返回 400
+PASS  短语不符的错误码
+PASS  短语不符留下一条 failed 任务（拒绝也要留痕）
+PASS  被拒任务的错误码记在 error_json 里
+
+== 7. Web 退出后任务继续执行，恢复后仍能找到原 operation ==
+PASS  ping 任务提交 202
+PASS  Web 在任务执行期间退出
+PASS  Web 不在时任务仍然执行完成（执行不依赖 HTTP 连接）
+PASS  Web 重新启动
+PASS  Web 恢复后仍能按 job_id 读到任务
+PASS  任务状态已同步为 succeeded
+PASS  读到的仍是同一个 operation
+
+== 8. 代理崩溃：标 interrupted 且不自动重跑 ==
+PASS  崩溃前提交 202
+PASS  代理被 kill -9
+PASS  代理重启
+PASS  崩溃中的操作被标为 interrupted
+PASS  崩溃操作有结束时间
+PASS  没有自动重跑（操作行数不变）
+PASS  崩溃操作只有一条 accepted 事件
+PASS  读回崩溃任务 200
+PASS  崩溃任务状态是 interrupted
+
+== 9. 取消规则 ==
+PASS  probe 任务提交 202
+PASS  不可取消动作的 cancellable 为 false
+PASS  取消不可取消的任务返回 409
+PASS  取消被拒：动作不可取消（VALIDATION_ERROR）
+PASS  ping 任务提交 202
+PASS  可取消动作的 cancellable 为 true
+PASS  取消可取消的任务返回 202
+PASS  取消后状态为 running（请求已记录）
+PASS  ping 任务最终落在 canceled
+PASS  cancellation_requested 已置位
+
+== 10. 权限与请求形状 ==
+PASS  未登录提交返回 401
+PASS  创建 viewer 返回 201
+PASS  viewer 登录 200
+PASS  viewer 提交任务返回 403
+PASS  viewer 的错误码
+PASS  viewer 读任务列表 200（只含自己的）
+PASS  viewer 的列表里没有别人的任务
+PASS  缺 CSRF 提交返回 403
+PASS  缺 CSRF 的错误码
+PASS  夹带 action 字段返回 400
+PASS  夹带字段的错误码
+
+== 11. 终态不可回退与日志卫生 ==
+PASS  jobs 终态触发器存在
+PASS  job_events 只追加触发器存在
+PASS  operations 终态触发器存在
+PASS  Web 日志不含确认短语明文
+PASS  Web 日志记录了操作提交
+PASS  代理日志不含确认短语明文
+PASS  Web 库不含确认短语列
+
+== 12. 汇总 ==
+通过 102 项，失败 0 项
+P03.2 验收全部通过

@@ -1,0 +1,42 @@
+== VM 环境 ==
+PRETTY_NAME="Ubuntu 24.04.5 LTS"
+NAME="Ubuntu"
+VERSION_ID="24.04"
+6.8.0-147-generic
+x86_64
+
+== 二进制 sha256 ==
+0b03b63fb4298e47d7c80b0fd2cbd288dc61c4497eb985cada72ec7467c24976  /tmp/upanel-bin/upanel-agent
+89ddb2a7e9c8a13be7275d23eea299c1d85b85cc6a3f7b46dd59dbf7321c1ba0  /tmp/upanel-bin/upanel-web
+91880be42ef196a8c0f4ffb7d033ad4ffc922a8531bcf418359fc9d9f5223332  /tmp/upanel-bin/upanelctl
+
+== 测试二进制 sha256 ==
+5706c9e3199beed87eeaf5ca17e09f6e171c4fe3b6059d916a5681986f80a9da  /tmp/upanel-bin/tests/agent.test
+9c2e734763748697bc1a54dbc2143ae9f16e3114366ceef221df5deac6958774  /tmp/upanel-bin/tests/agentclient.test
+f72c84ea38d6406166cbc74f54891d74379ca68cddac2de82de8e19456a831d1  /tmp/upanel-bin/tests/agentstore.test
+8cf56ce6020a8136e53fc69bba6677d917eaf01745ba4d4e7b955c11959230b8  /tmp/upanel-bin/tests/api.test
+ce78004a5383ab6805a220cee801b22eb294112a4dd46664b637232ff39376f0  /tmp/upanel-bin/tests/operations.test
+3fe0d44905571e7b3dcfa83999deefaf25cd241710fbfaf5d244954727d68018  /tmp/upanel-bin/tests/store.test
+e1ff7f0f71c8e9763c53c148ec888e78649d001599a2ff5b282b4c95ccfe6b17  /tmp/upanel-bin/tests/syscmd.test
+
+== 验收脚本 sha256 ==
+f4f39729948bcd24351e91546a48ac6bdb194176dd1c2285d5f364fd2c48acbd  /tmp/upanel-src/tests/run-native-tests.sh
+ed5119038242355395f65024ec82c968d8cc13f5b5d80362f9d9972857f8bc71  /tmp/upanel-src/tests/integration/p01-1-acceptance.sh
+262e6618d2fa98d761a3f4beaa02808cbebd23b71ba7afaf5727d3482e6ee942  /tmp/upanel-src/tests/integration/p01-1-host-refusal.sh
+5d2ee99c245eef2d95e56f38444cd18a2035146c280f2866f8b1165ce04f5a24  /tmp/upanel-src/tests/integration/p01-2-acceptance.sh
+0fe82e51a246e86c0614f04585c1ed2e8fd4f1e4d7b2b71c43a964d28edda7bb  /tmp/upanel-src/tests/integration/p01-4-acceptance.sh
+ac32e472b2be6f36ef9d4f02b2b3acc6a9c75b54f19a92fa7c6da07eeba73589  /tmp/upanel-src/tests/integration/p02-1-acceptance.sh
+a4d9afdc34e6ec6957bd7792f1d69a5f729b35dc382965418a5bf3edad235a04  /tmp/upanel-src/tests/integration/p02-2-acceptance.sh
+3eab21e9ebce55e53cb22686bfc179d8bda5d5f142c6c4395ea64044172e9ffe  /tmp/upanel-src/tests/integration/p02-3-agent-acceptance.sh
+583b870ff2f10e897bf0cbda200d30d8f4eb0992fee80b221917c0e3ebfe7af2  /tmp/upanel-src/tests/integration/p02-4-agent-secrets-acceptance.sh
+02c9741876427c00f7368bb2c4518c35bd6a73bc12a122dc0285ab403a84ff7d  /tmp/upanel-src/tests/integration/p03-1-preflight-acceptance.sh
+50bcb541dd6b86e2e5d9e6b702a3ffa87e0c3a3c919ed96a6e6d7a5ffa6ab9c7  /tmp/upanel-src/tests/integration/p03-2-jobs-acceptance.sh
+96ae24e30cd60842444e1616b83d723f0166af13670e9a87814f7ed3fba808df  /tmp/upanel-src/tests/integration/p03-3-events-acceptance.sh
+4200ef2cafef5ac5cf7b84d53b5df6dafbfe31d32b78f0e036de71f28c6b7252  /tmp/upanel-src/tests/integration/p03-4-reconcile-acceptance.sh
+29c25a628142edea46ea2de952cb5ed0d78b9a39dfd919f11a44a1ee7da41b5e  /tmp/upanel-src/tests/integration/run-all.sh
+
+== Go 工具链 ==
+VM 内无 Go 工具链（符合预期，用交叉编译的 .test 跑）
+
+== 账号 ==
+upanel:x:1000:1000:uPanel acceptance operator:/home/upanel:/bin/bash

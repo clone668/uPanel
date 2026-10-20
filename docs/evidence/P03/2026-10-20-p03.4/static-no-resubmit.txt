@@ -1,0 +1,18 @@
+# 静态检查：对账路径里不存在任何“重新提交”的调用点（只查不跑）
+$ grep -rn 'CreateOperation' internal/operations/reconcile.go
+15://  2. **提交途中不判定**。任务已经落库、CreateOperation 还在返回路上的那几秒里，代理确实
+298:// 两条路都**不重试提交**：这里没有 CreateOperation 的调用点，唯一的出路是用户重新预检。
+
+$ grep -rn 'CreateOperation' internal/operations/*.go
+internal/operations/jobs.go:325:		return s.agent.CreateOperation(ctx, agentclient.OperationInput{
+internal/operations/reconcile.go:15://  2. **提交途中不判定**。任务已经落库、CreateOperation 还在返回路上的那几秒里，代理确实
+internal/operations/reconcile.go:298:// 两条路都**不重试提交**：这里没有 CreateOperation 的调用点，唯一的出路是用户重新预检。
+internal/operations/reconcile_test.go:213:// 这条用例守的是一个会毁磁盘的错：格式化任务已经落库，CreateOperation 还没返回，
+internal/operations/reconcile_test.go:221:	// 把任务放回“还没同步”的状态，并登记为在途（等价于 CreateOperation 正在返回路上）。
+internal/operations/service.go:66:	// CreateOperation 让代理持久接受一次操作（P03.2）。operation_id 由 Web 生成并落库在后。
+internal/operations/service.go:67:	CreateOperation(ctx context.Context, in agentclient.OperationInput) (agentclient.Operation, error)
+internal/operations/service_test.go:46:	// P03.4：opHook 在 CreateOperation 里被调用，用来把“提交卡在代理调用中”这个窗口
+internal/operations/service_test.go:64:func (f *fakeAgent) CreateOperation(_ context.Context, in agentclient.OperationInput) (agentclient.Operation, error) {
+
+$ grep -rn 'GetOperation' internal/operations/reconcile.go
+268:	op, err := s.agent.GetOperation(ctx, job.OperationID)

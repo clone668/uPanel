@@ -1,0 +1,59 @@
+== p01-1-acceptance（非 root）
+
+== 汇总 ==
+PASS 29 / FAIL 0
+
+== p01-2-acceptance（非 root）
+
+== 汇总 ==
+PASS 34 / FAIL 0
+
+== p01-4-acceptance（非 root）
+PASS    systemd-unit-removed-after-test
+
+通过: 114  失败: 0  未执行: 0
+
+== p02-1-acceptance（非 root）
+
+结果: PASS=58 FAIL=0
+工作目录: /var/tmp/upanel-accept-p02-1
+
+== p02-2-acceptance（非 root）
+
+结果: PASS=103 FAIL=0
+工作目录: /var/tmp/upanel-accept-p02-2
+
+== p02-3-agent-acceptance（root）
+
+==================================================
+PASS 85 / FAIL 0
+
+== p02-4-agent-secrets-acceptance（root）
+PASS  socket-removed-after-stop
+
+结果: PASS=87 FAIL=0
+
+== p03-1-preflight-acceptance（root）
+== 11. 汇总 ==
+通过 93 项，失败 0 项
+P03.1 验收全部通过
+
+== p03-2-jobs-acceptance（root）
+== 12. 汇总 ==
+通过 102 项，失败 0 项
+P03.2 验收全部通过
+
+== p03-3-events-acceptance（root）
+
+通过 73 项，失败 0 项
+P03.3 验收全部通过
+
+== p03-4-reconcile-acceptance（root）
+PASS  代理日志不含登录口令
+
+通过 78 项，失败 0 项
+
+== 汇总 ==
+运行脚本数: 11
+失败脚本数: 0
+日志目录: /var/tmp/upanel-logs

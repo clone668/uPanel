@@ -395,6 +395,12 @@ JSON
   pass "systemd-user-exists"
   # StateDirectory 在首次启动时才创建；迁移需要先有可写目录。
   $SUDO install -d -m 0750 -o upanel-web -g upanel-web /var/lib/upanel
+  # 迁移前先清掉上一轮跑剩的库：这份库是本脚本自己造的（配 /etc/upanel/upanel.json 指向它），
+  # 留旧库会让“迁移能否成功”取决于旧库当初由哪版二进制建库。P03.4 回放时撞过一次：
+  # 旧库里记着 0006 的旧校验和，新二进制按设计拒绝启动（“已应用的迁移不可修改”），
+  # migrate 退出 1、服务停在 activating，后面 4 条断言连带失败——那是保护机制在正常工作，
+  # 不是产品缺陷；该清理的是测试现场。
+  $SUDO rm -f /var/lib/upanel/upanel.db /var/lib/upanel/upanel.db-wal /var/lib/upanel/upanel.db-shm
 
   $SUDO -u upanel-web /usr/local/bin/upanelctl migrate --config "$SYS_CFG" \
     > "$BIN_DIR/accept-p01-4-sys-migrate.log" 2>&1
