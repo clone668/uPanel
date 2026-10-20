@@ -2015,6 +2015,12 @@ VM-E 从 62 涨到 63，多的就是“USB 盘在拓扑里可见（transport=usb
 让 guest 卡在固件阶段）；真实 SATA/USB-RAID/LVM 拓扑；真实生产服务器；前端渲染（P04.4）。
 详见 `docs/evidence/P04/2026-10-21-p04.3/hardening.md`。
 
+**交付去向**：补强提交 `3591cfd0c5aeb5932d3bace33bef1323388848f4`（23 个文件 / +3574 −10）
+已推送到 <https://github.com/clone668/uPanel>；本条记录随紧随其后的文档提交入库。
+新增证据文件：`p04-3-{2404,2204,smart}-h2.txt`、`native-storage-{2404,2204,smart}-h2.txt`、
+`race-h2-2204.txt`、`host-gates-h2.txt`、`go-test-verbose-h2.txt`、`check-h2.txt`、
+`usb-sdb-and-nvme-health.jsonl`、`hardening.md`。
+
 
 ## 6. 未决问题与范围变更
 
