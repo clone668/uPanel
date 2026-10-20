@@ -335,6 +335,27 @@ func temperatureOf(report smartReport) *float64 {
 	return &v
 }
 
+// smartctlMessage 取 smartctl 自己给的诊断原话（优先 severity=error 的那条）。
+//
+// 退出状态位只说“哪一类问题”，说不清“是哪块盘、为什么”：USB 桥不被识别、
+// 设备不支持某条命令这些情况，只有 messages 里的原话能解释清楚。
+func smartctlMessage(report smartReport) string {
+	var fallback string
+	for _, m := range report.Smartctl.Messages {
+		text := strings.TrimSpace(m.String)
+		if text == "" {
+			continue
+		}
+		if fallback == "" {
+			fallback = text
+		}
+		if strings.EqualFold(m.Severity, "error") {
+			return text
+		}
+	}
+	return fallback
+}
+
 // classifySmart 给出状态与理由。顺序体现优先级：
 // 磁盘失效 > 预失效属性 > 错误日志 > 明确的通过 > 无法判断。
 func classifySmart(report smartReport, exitCode int) (string, []string) {
@@ -346,7 +367,13 @@ func classifySmart(report smartReport, exitCode int) (string, []string) {
 	// 这种情况下哪怕 JSON 里带着一个 passed=true（可能是上一次的输出被残留），
 	// 也不能报 healthy。
 	if exitCode&statusBitCmdLine != 0 {
-		return HealthUnknown, []string{"smartctl 命令行参数被拒绝（退出状态位 0），本次结果不可信"}
+		reason := "smartctl 拒绝本次调用（退出状态位 0：命令行未被接受，或设备类型无法判定），本次结果不可信"
+		// USB 桥不认识时 smartctl 也走位 0（"Please specify device type with the -d option"），
+		// 把它的原话带出来，运维才知道是桥的问题而不是我们参数写错了。
+		if msg := smartctlMessage(report); msg != "" {
+			reason += "：" + msg
+		}
+		return HealthUnknown, []string{reason}
 	}
 	if exitCode&statusBitDiskFailing != 0 {
 		critical = true
@@ -416,7 +443,11 @@ func classifySmart(report smartReport, exitCode int) (string, []string) {
 	// 能读到 SMART 命令本身（位 1）、但某条命令失败了：这台设备的状态不可判断。
 	// 注意不把这种情况算成 warning——warning 是“盘说它有问题”，这里是“我们没问出来”。
 	if exitCode&statusBitOpenFailed != 0 {
-		return HealthUnknown, append(reasons, "smartctl 无法打开设备或设备处于低功耗模式")
+		reason := "smartctl 无法打开设备或设备处于低功耗模式"
+		if msg := smartctlMessage(report); msg != "" {
+			reason += "：" + msg
+		}
+		return HealthUnknown, append(reasons, reason)
 	}
 	if exitCode&statusBitSmartCmdFail != 0 {
 		return HealthUnknown, append(reasons, "SMART 命令执行失败或数据结构校验失败")
@@ -431,6 +462,10 @@ func classifySmart(report smartReport, exitCode int) (string, []string) {
 	}
 	if len(reasons) > 0 {
 		return HealthUnknown, reasons
+	}
+	// 没有任何结论时，smartctl 自己的诊断比一句笼统的“不知道”有用得多。
+	if msg := smartctlMessage(report); msg != "" {
+		return HealthUnknown, append(reasons, msg)
 	}
 	return HealthUnknown, append(reasons, "该设备没有给出总体健康结论（SCSI 设备通常没有）")
 }

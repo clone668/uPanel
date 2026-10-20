@@ -261,6 +261,10 @@ health 在 P04.3 的取值与来源：
 
 - 只有拿到明确的通过结论才是 `healthy`（`smart_status.passed=true`，或 NVMe 健康日志存在且没有任何 Critical Warning 位）。
 - 物理盘读不到 SMART 时是 `unknown` 并写清原因（未安装 smartctl、超时、打不开设备、输出无法解析）。
+- `details` 要带上 smartctl 自己的诊断原话（它的 `smartctl.messages`，优先 `severity=error` 的那条）：
+  “Unknown USB bridge”这类信息只有原话能说清是桥不被识别，而不是我们的参数写错了。
+- USB 桥接盘同理：桥不被 smartctl 识别时是 `unknown`（真实反例见 `tests/fixtures/smart/upanel-smart-usb-unknown-bridge.json`），
+  既不是 `unsupported`，更不是 `healthy`。
 - 分区、loop、rom 恒为 `unsupported` 并带 details：它们没有独立的 SMART，这是“没有这个功能”，不是“功能坏了”，也不是 `unknown`。
 - `health.source` 取 `sysfs`（只看 sysfs 就判断为休眠，未调用 smartctl）、`smartctl`、`none`（本机没有可用采集手段）。
 - 采集节奏 15 分钟，可配置 5—60 分钟；**不为读健康而唤醒磁盘**：先读 sysfs 的电源状态，休眠即跳过，非休眠时对非 NVMe 设备再加 `-n standby` 让 smartctl 在最后一刻放弃。

@@ -1,0 +1,37 @@
+{
+  "json_format_version": [
+    1,
+    0
+  ],
+  "smartctl": {
+    "version": [
+      7,
+      4
+    ],
+    "pre_release": false,
+    "svn_revision": "5530",
+    "platform_info": "x86_64-linux-6.8.0-147-generic",
+    "build_info": "(local build)",
+    "argv": [
+      "smartctl",
+      "-j",
+      "-i",
+      "-H",
+      "-A",
+      "-n",
+      "standby",
+      "/dev/sdb"
+    ],
+    "messages": [
+      {
+        "string": "/dev/sdb: Unknown USB bridge [0x46f4:0x0001 (0x000)]",
+        "severity": "error"
+      }
+    ],
+    "exit_status": 1
+  },
+  "local_time": {
+    "time_t": 1792531905,
+    "asctime": "Tue Oct 20 21:31:45 2026 UTC"
+  }
+}

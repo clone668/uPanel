@@ -27,11 +27,15 @@
 #  12. 登录不受采集拖累：statfs 卡住期间 Web 起得来、登录 5 秒内返回 200，
 #      且那一刻挂载仍然是不可达的（快不是因为卡点已经过去）
 #  13. 日志卫生：不出现 shell 命令行与私钥
+#  14. USB 盘（有则验）：拓扑里 transport=usb 可见、纳入逐盘对账；桥不认识时只能是 unknown
+#  15. 反向断言：报 healthy 必须有 smartctl 自己的依据（passed=true 或 NVMe 健康日志）
 #
 # 明确不覆盖（NOT RUN，原因写在文档里，不在脚本里假装通过）：
 #   - 睡眠盘不唤醒：QEMU 的 SCSI/NVMe 在这两个 VM 里无法进入 standby
 #     （smartctl -s standby,now 之后 sysfs 仍是 running），真机证据拿不到，只有单测。
 #   - ATA/SATA 盘的真实输出：VM-E 挂 ide-hd 会让 guest 卡在固件阶段，ATA 分支只有合成输入。
+#   - 真实 USB 盘：QEMU 的 usb-storage 桥（0x46f4:0x0001）不被 smartctl 识别，
+#     拿到的是“Unknown USB bridge”这个真实反例（夹具已留），不是一块能读出 SMART 的 USB 盘。
 
 set -u
 
@@ -82,8 +86,8 @@ RESP=""
 LOOP_DEV=""
 
 pass() { PASSED=$((PASSED + 1)); printf 'PASS  %s\n' "$1"; }
-fail() { FAILED=$((FAILED + 1)); FAILED_NAMES="$FAILED_NAMES | $1"; printf 'FAIL  %s: %s\n' "$1" "${2:-}"; }
-notrun() { NOTRUN=$((NOTRUN + 1)); NOTRUN_NAMES="$NOTRUN_NAMES | $1"; printf 'NOTRUN  %s: %s\n' "$1" "${2:-}"; }
+fail() { FAILED=$((FAILED + 1)); FAILED_NAMES="${FAILED_NAMES:+$FAILED_NAMES | }$1"; printf 'FAIL  %s: %s\n' "$1" "${2:-}"; }
+notrun() { NOTRUN=$((NOTRUN + 1)); NOTRUN_NAMES="${NOTRUN_NAMES:+$NOTRUN_NAMES | }$1"; printf 'NOTRUN  %s: %s\n' "$1" "${2:-}"; }
 note() { printf 'NOTE  %s\n' "$1"; }
 
 expect_eq() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1" "期望 '$2'，实际 '$3'"; fi; }
@@ -573,6 +577,10 @@ for n in topo["nodes"]:
         continue
     passed = (rep.get("smart_status") or {}).get("passed")
     log = rep.get("nvme_smart_health_information_log")
+    # 反向也要管：说 healthy 必须有自己的依据（smart_status.passed=true 或 NVMe 健康日志），
+    # 不能因为“没读到问题”就报健康——USB 桥不认识这类输出恰好没有任何健康字段。
+    if api["status"] == "healthy" and passed is not True and log is None:
+        bad.append(f"{dev}: API 说 healthy，但 smartctl 自己没给出任何通过结论")
     if rc == 0 and passed is True and api["status"] != "healthy":
         bad.append(f"{dev}: smartctl 结论通过，API 却是 {api['status']}")
     if passed is False and api["status"] != "critical":
@@ -592,6 +600,14 @@ for n in topo["nodes"]:
 for line in bad:
     print(line)
 PY
+  # USB 盘（如果有）：拓扑里必须看得见，且它的形状要能被逐盘对账覆盖到。
+  # 这里只记录“本机有没有 USB 盘”，结论本身由上面那条逐盘对账负责。
+  USB_DEVS=$(jget "$WORK/topo-health.json" '"、".join(sorted(n["name"] for n in d["data"]["nodes"] if (n.get("transport") or "") == "usb"))')
+  if [ -n "$USB_DEVS" ]; then
+    pass "USB 盘在拓扑里可见（transport=usb：$USB_DEVS），并纳入逐盘对账"
+  else
+    notrun "USB 盘在拓扑里可见" "本机没有 USB 总线上的块设备"
+  fi
   MISMATCH=$(python3 "$WORK/cross.py" "$WORK/topo-health.json" "$WORK/smart")
   if [ -z "$MISMATCH" ]; then
     pass "API 的健康结论与 smartctl 自身输出逐盘一致"

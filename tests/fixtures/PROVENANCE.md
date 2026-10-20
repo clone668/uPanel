@@ -66,7 +66,7 @@
 |---|---|---|---|
 | `upanel-2404`（VM-B，127.0.0.1:2222） | Ubuntu 24.04.5 / 6.8.0-147 | 4 块 QEMU SCSI 盘（40 GiB + 8 + 4 + 4），无 NVMe | 2026-10-20T19:29:28Z |
 | `upanel-2204`（VM-A，127.0.0.1:2223） | Ubuntu 22.04.5 / 5.15.0-198 | 4 块 QEMU SCSI 盘 + snap 的 8 个 loop | 2026-10-20T19:29:29Z |
-| `upanel-smart`（VM-E，127.0.0.1:2224） | Ubuntu 24.04.5 / 6.8.0-147 | 1 块 QEMU SCSI 系统盘 + 1 块 QEMU NVMe 4 GiB | 2026-10-20T19:29:29Z |
+| `upanel-smart`（VM-E，127.0.0.1:2224） | Ubuntu 24.04.5 / 6.8.0-147 | 1 块 QEMU SCSI 系统盘 + 1 块 QEMU NVMe 4 GiB（加 `-WithUsbDisk` 启动时另有 1 块 2 GiB QEMU USB 盘） | 2026-10-20T19:29:29Z（USB 夹具 21:31:45Z） |
 
 | 文件 | 命令 | sha256 |
 |---|---|---|
@@ -76,6 +76,8 @@
 | `smart/upanel-2404-sdb-scsi.json` | `sudo -n smartctl -j -i -H -A /dev/sdb`（VM-B，退出状态 0） | `235d4cfedb436d429c4973321a18b1f1ca12b15b0fe76eaefa403f157ef20a14` |
 | `smart/upanel-smart-sda-scsi.json` | `sudo -n smartctl -j -i -H -A /dev/sda`（VM-E，退出状态 0） | `8e62443da5fd4de706d3f2f13ce10d584a16476ef332385ebe83439f3cb6bd25` |
 | `smart/upanel-smart-nvme0n1.json` | `sudo -n smartctl -j -i -H -A /dev/nvme0n1`（VM-E，退出状态 0） | `27d995e22c3b0dc6c2b62e3766b4af52183b3e8e6502caee81dd02f3a87f46c9` |
+| `smart/upanel-smart-usb-unknown-bridge.json` | `sudo -n smartctl -j -i -H -A -n standby /dev/sdb`（VM-E，QEMU USB 盘，**按产品自己的参数**采集，退出状态 1） | `a47cc17bcb1a71a5dfcbc6a4c0680d72c7617d4a1ec1f966f53926bf7ad76095` |
+| `smart/upanel-smart-usb-sat.json` | `sudo -n smartctl -j -i -H -A -d sat /dev/sdb`（同一块 USB 盘显式指定 SAT，退出状态 2） | `759d891bac5076070d039c43f778e1219b41dc3552e44c99cb8b73cbc77dfec3` |
 
 `storage-2404/proc/diskstats` 与 `storage-2204/proc/diskstats` 分别是上面两份同名夹具的副本，
 与各自的 sysfs 树配套（同一台机器、同一时刻）。内容与源文件 sha256 相同。
@@ -94,6 +96,20 @@
 - VM-E 试过挂 ATA 盘（`-device ide-hd` / `ich9-ahci`），guest 卡在固件阶段不启动；
   ATA 分支（`ata_smart_attributes`）因此也只有合成输入。限制写在
   `H:\Code\vms\launch-vm-smart.ps1` 的注释里。
+- QEMU 的 **USB 盘**（`qemu-xhci` + `usb-storage`，2 GiB）在 smartctl 7.4 里是两个真实的反例，
+  两份夹具就是它们的原样输出：
+  - 走产品自己的参数（`-n standby`，不带 `-d`）：`/dev/sdb: Unknown USB bridge [0x46f4:0x0001 (0x000)]`
+    + `Please specify device type with the -d option`，**退出状态 1**，JSON 里没有 `device`、
+    没有 `smart_support`、没有温度；
+  - 显式 `-d sat`：`Read Device Identity failed: scsi error unsupported scsi opcode`，
+    **退出状态 2**，JSON 里只有 `device.type=sat` / `protocol=ATA`，仍然没有健康与温度。
+  两种都必须落到 `unknown` 并带上 smartctl 的原话——USB 桥不认识是“没问出来”，
+  既不是 `unsupported`（那是盘没有这个功能），更不是 `healthy`。
+- **同一块盘挂两处**（多挂载点）的真机记录取自 VM-E：`mount --bind /srv/upanel/mm/a /srv/upanel/mm/b`
+  之后 `/proc/self/mountinfo` 给出 `85 28 8:1 /srv/upanel/mm/a /srv/upanel/mm/b ... - ext4 /dev/sda1 ...`，
+  与 `/` 同为 `8:1`。这行原话被 `TestDeviceWithTwoMountPointsKeepsBoth` 追加到 `storage-2404`
+  的 mountinfo 副本上，用来证明两个挂载点是两个 `Mount` 条目、按 path 排序，而不是被合并成一条。
+
 
 ### 合成输入（不在本目录，避免被误认成采集结果）
 

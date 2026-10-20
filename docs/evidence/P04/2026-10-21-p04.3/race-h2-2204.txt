@@ -1,0 +1,55 @@
+go: downloading golang.org/x/term v0.47.0
+go: downloading github.com/gin-gonic/gin v1.12.0
+go: downloading golang.org/x/crypto v0.58.0
+go: downloading modernc.org/sqlite v1.60.1
+go: downloading golang.org/x/sys v0.49.0
+go: downloading github.com/gin-contrib/sse v1.1.0
+go: downloading github.com/mattn/go-isatty v0.0.24
+go: downloading github.com/quic-go/quic-go v0.59.0
+go: downloading golang.org/x/net v0.60.0
+go: downloading github.com/go-playground/validator/v10 v10.30.1
+go: downloading github.com/goccy/go-yaml v1.19.2
+go: downloading github.com/pelletier/go-toml/v2 v2.2.4
+go: downloading github.com/ugorji/go/codec v1.3.1
+go: downloading go.mongodb.org/mongo-driver/v2 v2.5.0
+go: downloading google.golang.org/protobuf v1.36.10
+go: downloading github.com/quic-go/qpack v0.6.0
+go: downloading github.com/gabriel-vasile/mimetype v1.4.12
+go: downloading github.com/go-playground/universal-translator v0.18.1
+go: downloading github.com/leodido/go-urn v1.4.0
+go: downloading golang.org/x/text v0.43.0
+go: downloading modernc.org/libc v1.77.1
+go: downloading github.com/go-playground/locales v0.14.1
+go: downloading github.com/dustin/go-humanize v1.0.1
+go: downloading github.com/google/uuid v1.6.0
+go: downloading modernc.org/mathutil v1.7.1
+go: downloading modernc.org/memory v1.12.1
+go: downloading github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec
+ok  	upanel/cmd/upanel-agent	1.029s
+ok  	upanel/cmd/upanel-web	1.332s
+ok  	upanel/cmd/upanelctl	6.038s
+ok  	upanel/internal/agent	22.314s
+ok  	upanel/internal/agentclient	1.258s
+ok  	upanel/internal/agentstore	6.821s
+ok  	upanel/internal/api	310.782s
+ok  	upanel/internal/audit	2.066s
+--- FAIL: TestDefaultPasswordParamsTiming (4.74s)
+    password_test.go:173: 单次 Argon2id 校验耗时 2.390723695s
+    password_test.go:178: 校验耗时 2.390723695s 过长，需重新基准
+FAIL
+FAIL	upanel/internal/auth	268.429s
+ok  	upanel/internal/config	1.030s
+ok  	upanel/internal/httpx	1.008s
+ok  	upanel/internal/logging	1.019s
+ok  	upanel/internal/monitoring	1.049s
+ok  	upanel/internal/operations	11.183s
+ok  	upanel/internal/platform	1.010s
+ok  	upanel/internal/storage	1.555s
+ok  	upanel/internal/store	1.818s
+ok  	upanel/internal/syscmd	4.400s
+?   	upanel/internal/testsupport	[no test files]
+ok  	upanel/internal/version	1.010s
+ok  	upanel/internal/webui	1.015s
+?   	upanel/migrations	[no test files]
+?   	upanel/migrations/agentdb	[no test files]
+FAIL

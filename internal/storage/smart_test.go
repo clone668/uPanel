@@ -76,6 +76,53 @@ func TestEvaluateSmartSCSIUnsupportedRealCapture(t *testing.T) {
 	}
 }
 
+// TestEvaluateSmartUSBUnknownBridgeRealCapture 是 VM-E 上真实挂的 USB 盘。
+//
+// QEMU 的 usb-storage 桥（0x46f4:0x0001）不在 smartctl 的桥表里，真实输出是
+// 退出状态 1 + 一条 severity=error 的 "Unknown USB bridge" 消息，没有 device、
+// 没有 smart_support、没有温度。夹具是**按产品自己的调用参数**采集的
+// （`-j -i -H -A -n standby`），不是事后补一个好看的命令。
+// 结论必须是 unknown，并且把 smartctl 的原话带上：
+// “桥不认识”说明我们没问出来，既不是 healthy，也不是 unsupported。
+func TestEvaluateSmartUSBUnknownBridgeRealCapture(t *testing.T) {
+	out := smartFixture(t, "upanel-smart-usb-unknown-bridge.json")
+	h := evaluateSmart(out, 1, "", fixedNow)
+
+	if h.Status != HealthUnknown {
+		t.Errorf("Status = %q，想要 %q（details: %v）", h.Status, HealthUnknown, deref(h.Details))
+	}
+	if h.Source != smartHealthSource {
+		t.Errorf("Source = %q，想要 %q", h.Source, smartHealthSource)
+	}
+	if h.Details == nil || !strings.Contains(*h.Details, "Unknown USB bridge") {
+		t.Errorf("Details = %v，要带上 smartctl 的原话（Unknown USB bridge）", deref(h.Details))
+	}
+	// 没有温度读数：不能因为退出状态是 1 就顺手给个 0。
+	if h.TemperatureCelsius != nil {
+		t.Errorf("TemperatureCelsius = %v，夹具里没有温度", *h.TemperatureCelsius)
+	}
+}
+
+// TestEvaluateSmartUSBSatOpenFailedRealCapture 是同一块 USB 盘加 `-d sat` 的真实输出：
+// smartctl 认出了 ATA 协议（device.type=sat），但读身份失败，退出状态 2，
+// JSON 里没有 messages（诊断只出现在文本模式）。
+//
+// 结论仍然是 unknown：设备打不开既不是“这块盘没有 SMART”，更不是健康。
+func TestEvaluateSmartUSBSatOpenFailedRealCapture(t *testing.T) {
+	out := smartFixture(t, "upanel-smart-usb-sat.json")
+	h := evaluateSmart(out, 2, "", fixedNow)
+
+	if h.Status != HealthUnknown {
+		t.Errorf("Status = %q，想要 %q（details: %v）", h.Status, HealthUnknown, deref(h.Details))
+	}
+	if h.Details == nil || !strings.Contains(*h.Details, "无法打开设备") {
+		t.Errorf("Details = %v，要说明设备打不开", deref(h.Details))
+	}
+	if h.TemperatureCelsius != nil {
+		t.Errorf("TemperatureCelsius = %v，夹具里没有温度", *h.TemperatureCelsius)
+	}
+}
+
 // syntheticSmartJSON 是手工构造的 smartctl 输出骨架。
 // 只放本阶段解析的字段，不冒充真实采集。占位符用 __NAME__ 形式，
 // 避免 %s 的顺序依赖（模板里有两个 %s，替换错位会让用例假绿）。
@@ -160,7 +207,7 @@ func TestEvaluateSmartBitmask(t *testing.T) {
 			status:  `"smart_status": {"passed": true}`,
 			exit:    statusBitCmdLine,
 			want:    HealthUnknown,
-			reasons: "命令行参数被拒绝",
+			reasons: "退出状态位 0",
 		},
 		{
 			name:    "失效与错误日志同时置位时以失效为准",

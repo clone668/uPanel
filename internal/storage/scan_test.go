@@ -584,3 +584,70 @@ func TestSnapshotVersionIgnoresTimeAndCapacity(t *testing.T) {
 		t.Fatal("挂载点变了，指纹却没变")
 	}
 }
+
+// TestDeviceWithTwoMountPointsKeepsBoth 覆盖“同一块盘挂两处”。
+//
+// 追加的那一行是 VM-E 上 `mount --bind /srv/upanel/mm/a /srv/upanel/mm/b` 之后
+// /proc/self/mountinfo 里的原话（major:minor 8:1，与 `/` 是同一个 /dev/sda1），
+// 其余夹具是 24.04 真机采集。两处挂载必须是两个 Mount 条目、各自查容量、按 path 稳定排序：
+// 合并成一条会让“哪个目录快满了”在页面上直接消失。
+func TestDeviceWithTwoMountPointsKeepsBoth(t *testing.T) {
+	src, err := fixtureDir("storage-2404")
+	if err != nil {
+		t.Fatalf("定位夹具失败: %v", err)
+	}
+	dir := t.TempDir()
+	if err := os.CopyFS(dir, os.DirFS(src)); err != nil {
+		t.Fatalf("复制夹具树失败: %v", err)
+	}
+
+	// VM-E 真实记录（内核给出的原话，字段顺序不变）。
+	const bindLine = "85 28 8:1 /srv/upanel/mm/a /srv/upanel/mm/b rw,relatime shared:1 - ext4 /dev/sda1 rw,discard,errors=remount-ro,commit=30\n"
+	mountsPath := filepath.Join(dir, "proc", "self", "mountinfo")
+	f, err := os.OpenFile(mountsPath, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatalf("打开夹具 mountinfo 失败: %v", err)
+	}
+	if _, err := f.WriteString(bindLine); err != nil {
+		t.Fatalf("写入 bind 挂载记录失败: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("关闭夹具 mountinfo 失败: %v", err)
+	}
+
+	// 容量由 Collector 在 Scan 之后填（30 秒缓存那一层），这里只验拓扑结构。
+	topo, err := Scan(context.Background(), Root{
+		Sys:         filepath.Join(dir, "sys"),
+		Proc:        filepath.Join(dir, "proc"),
+		Disks:       &fixtureDiskReader{dir: filepath.Join(dir, "disks")},
+		Now:         func() time.Time { return fixedNow },
+		ReadTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Scan 失败: %v", err)
+	}
+
+	dev := deviceByID(t, topo, "sda1")
+	if dev.Filesystem == nil {
+		t.Fatalf("sda1 有挂载点，但 Filesystem 为 nil")
+	}
+	if len(dev.Filesystem.Mounts) != 2 {
+		t.Fatalf("sda1 的挂载点 = %+v，想要 2 条（/ 与 /srv/upanel/mm/b）", dev.Filesystem.Mounts)
+	}
+	want := []string{"/", "/srv/upanel/mm/b"}
+	for i, m := range dev.Filesystem.Mounts {
+		if m.Path != want[i] {
+			t.Errorf("挂载点[%d] = %q，想要 %q（挂载点必须按 path 排序，页面才不会每次都换顺序）",
+				i, m.Path, want[i])
+		}
+		if m.FSType != "ext4" {
+			t.Errorf("挂载点 %s 的 fstype = %q，想要 ext4（同一个文件系统）", m.Path, m.FSType)
+		}
+	}
+
+	// 多一个挂载点不能让系统盘保护失效：根还在，整盘 sda 仍受保护。
+	disk := deviceByID(t, topo, "sda")
+	if !disk.Protection.SystemDisk {
+		t.Errorf("sda: 多挂一个目录之后 SystemDisk = false，系统盘保护不能因此失效")
+	}
+}

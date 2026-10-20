@@ -1,0 +1,36 @@
+== go version ==
+go version go1.27.3 windows/amd64
+
+== go build ./... ==
+build OK
+
+== go vet ./... ==
+vet OK
+
+== gofmt -l . ==
+(empty: 无未格式化文件)
+
+== go test ./... -count=1 ==
+ok  	upanel/cmd/upanel-agent	1.206s
+ok  	upanel/cmd/upanel-web	2.840s
+ok  	upanel/cmd/upanelctl	1.582s
+ok  	upanel/internal/agent	18.236s
+ok  	upanel/internal/agentclient	1.181s
+ok  	upanel/internal/agentstore	2.157s
+ok  	upanel/internal/api	70.258s
+ok  	upanel/internal/audit	1.079s
+ok  	upanel/internal/auth	45.648s
+ok  	upanel/internal/config	0.765s
+ok  	upanel/internal/httpx	0.771s
+ok  	upanel/internal/logging	0.553s
+ok  	upanel/internal/monitoring	0.804s
+ok  	upanel/internal/operations	7.265s
+ok  	upanel/internal/platform	0.474s
+ok  	upanel/internal/storage	6.047s
+ok  	upanel/internal/store	1.139s
+ok  	upanel/internal/syscmd	1.065s
+?   	upanel/internal/testsupport	[no test files]
+ok  	upanel/internal/version	0.464s
+ok  	upanel/internal/webui	0.741s
+?   	upanel/migrations	[no test files]
+?   	upanel/migrations/agentdb	[no test files]

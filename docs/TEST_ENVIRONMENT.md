@@ -257,7 +257,7 @@ P04.3 需要一块**能读出真实 SMART 结论**的盘。两台既有 VM 都�
 | 端口 | `127.0.0.1:2224` → guest 22 |
 | 密钥 | `H:\Code\vms\upanel-smart\id_ed25519` |
 | 启动 | `powershell -NoProfile -File H:\Code\vms\launch-vm-smart.ps1` |
-| 磁盘布局 | `sda` 40 GiB（SCSI，系统盘）+ `nvme0n1` 4 GiB（QEMU NVMe 控制器） |
+| 磁盘布局 | `sda` 40 GiB（SCSI，系统盘）+ `nvme0n1` 4 GiB（QEMU NVMe 控制器）；加 `-WithUsbDisk` 启动时另有 `sdb` 2 GiB（`qemu-xhci` + `usb-storage`） |
 | 账号 | `upanel`（免密 sudo），与 VM-A/VM-B 一致 |
 
 实测结论（`tests/fixtures/smart/upanel-smart-nvme0n1.json` 是这台机器的真实输出）：
@@ -270,3 +270,8 @@ P04.3 需要一块**能读出真实 SMART 结论**的盘。两台既有 VM 都�
 - 休眠盘同样造不出来：SCSI 忽略 `-s standby,now`，NVMe 的 `runtime_status` 报 `unsupported`，
   `sleeping` 与 `-n standby` 只有单测覆盖，验收脚本内标 NOT RUN。
 - 与 VM-B 一样安装 `smartmontools 7.4`；`nfs-kernel-server` 只在 VM-B 上装（P04.3 的不可达挂载实验在那儿做）。
+- USB 盘（`powershell -File launch-vm-smart.ps1 -WithUsbDisk`）：`lsblk` 里 `TRAN=usb`，但 QEMU 的 USB 桥
+  （`0x46f4:0x0001`）不在 smartctl 的桥表里——真实输出是 `Unknown USB bridge`（退出状态 1）；
+  显式 `-d sat` 是 `Read Device Identity failed: scsi error unsupported scsi opcode`（退出状态 2）。
+  两份原样输出都在 `tests/fixtures/smart/`，用来钉住“桥不认识 → `unknown`，不是 unsupported、更不是 healthy”。
+  换句话说，这台 VM 提供的 USB 证据是**真实的反例**，不是一块能读出 SMART 的 USB 盘。
