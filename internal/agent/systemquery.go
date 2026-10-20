@@ -1,0 +1,41 @@
+package agent
+
+import (
+	"context"
+	"encoding/json"
+
+	"upanel/internal/monitoring"
+)
+
+// ProductionDeps 是生产登记表的依赖。
+//
+// 登记表按“给什么才登记什么”的原则构造：没有对应实现就不登记那条能力，
+// capabilities 因此只会报告真实可用的查询。反过来（先登记一个永远失败的查询、
+// 再指望调用方不调用它）会让 capabilities 说谎，而界面上会显示一条点开就报错的入口。
+type ProductionDeps struct {
+	// Collector 是系统基础资源采集器（P04.1）。为 nil 时不登记 system.summary。
+	Collector *monitoring.Collector
+}
+
+// newSystemSummaryQuery 登记 system.summary：无参数，返回采集器最近一次快照。
+//
+// 返回的是**快照**而不是现场采集：采集按 5 秒轮询在后台跑，查询只读缓存，
+// 所以同一个 5 秒窗口内反复刷新页面拿到的是同一份数据与同一个采集时间，
+// 不会因为刷新快慢得到互相矛盾的数。
+func newSystemSummaryQuery(collector *monitoring.Collector) Query {
+	return Query{
+		Name: monitoring.QueryName,
+		Decode: func(raw json.RawMessage) (any, error) {
+			// 这条查询没有参数。空结构 + DisallowUnknownFields 让任何多余字段
+			// （包括 {"command":"..."}）都被拒绝，而不是被静默忽略。
+			var params struct{}
+			if err := DecodeParams(raw, &params); err != nil {
+				return nil, err
+			}
+			return params, nil
+		},
+		Run: func(ctx context.Context, _ any) (any, error) {
+			return collector.Summary(), nil
+		},
+	}
+}

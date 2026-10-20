@@ -60,6 +60,9 @@ type Options struct {
 	// Operations 是预检与任务服务（P03.1）。必需依赖：没有它就没有“先看影响再执行”的入口。
 	// 代理不可用属于运行时状态（服务返回 503），不是启动条件。
 	Operations *operations.Service
+	// Monitor 是系统基础资源读取端（P04.1）。允许为 nil（演示模式不连代理）：
+	// 那时 GET /system/summary 明确回 503 AGENT_UNAVAILABLE，而不是给一份空摘要。
+	Monitor Monitor
 }
 
 // Server 是 Web HTTP 服务。

@@ -249,10 +249,32 @@ func NewRegistry() *Registry {
 
 // NewProductionRegistry 返回生产登记表。
 //
-// 当前刻意为空：P02.3 不开放任何系统动作，也没有可用的结构化读取（采集属于 P04）。
+// P02.3 起这张表刻意没有任何动作：第一个真实动作要到 P07 的分区/格式化链路才登记。
+// 查询从 P04.1 起按模块加入：deps 里给了采集器才登记 system.summary。
+//
 // 空表不是“占位实现”——它让 capabilities 与真实能力一致，并让未登记名称的拒绝路径
 // 在生产里天然生效。
-func NewProductionRegistry() *Registry { return NewRegistry() }
+func NewProductionRegistry(deps ProductionDeps) (*Registry, error) {
+	reg := NewRegistry()
+	if err := RegisterProductionQueries(reg, deps); err != nil {
+		return nil, err
+	}
+	return reg, nil
+}
+
+// RegisterProductionQueries 把生产查询登记进 reg，动作表保持不变。
+//
+// 单独拆出来是因为验收模式：验收用 --acceptance 换成验收动作表，但查询仍然是
+// 生产实现——验收脚本要验证的就是真实采集链路，而不是再造一份。
+func RegisterProductionQueries(reg *Registry, deps ProductionDeps) error {
+	if deps.Collector == nil {
+		return nil
+	}
+	if err := reg.RegisterQuery(newSystemSummaryQuery(deps.Collector)); err != nil {
+		return fmt.Errorf("代理登记 system.summary 失败: %w", err)
+	}
+	return nil
+}
 
 // RegisterAction 登记一个动作。
 func (r *Registry) RegisterAction(a Action) error {

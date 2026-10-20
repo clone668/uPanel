@@ -1,0 +1,72 @@
+== 0. 环境与交付物 ==
+PASS  验收脚本以非 root 用户运行（upanel）
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanelctl
+PASS  upanelctl version 退出码
+PASS  version 输出含程序名
+PASS  systemd 单元指定非 root 用户
+PASS  systemd 单元不以 root 运行
+PASS  systemd 单元不含万能 shell
+== 1. init-admin ==
+PASS  init-admin 退出码
+PASS  输出含用户名 admin
+PASS  输出不含明文口令
+PASS  stderr 不含明文口令
+PASS  两次输入不一致时拒绝
+PASS  库里已有账号时拒绝再次初始化
+PASS  拒绝原因可读
+== 2. production 启动与非 root 身份 ==
+PASS  production 模式在 127.0.0.1:9443 启动
+PASS  健康检查
+PASS  Web 进程 uid=1000（非 root）
+PASS  数据库文件属于运行用户
+PASS  数据库文件权限不向其他用户开放（600）
+== 3. 登录入口检查 ==
+PASS  缺少 X-UPanel-Request → 未通过
+PASS  非 JSON Content-Type → 未通过
+PASS  陌生 Origin → 403
+PASS  缺少 Origin 返回 CSRF_FAILED
+PASS  未知字段被拒绝
+PASS  错误密码 → 401
+PASS  错误密码响应不泄露账号是否存在
+== 4. 正确登录与 Cookie 属性 ==
+PASS  正确口令 → 200
+PASS  Cookie 名 __Host-upanel_session
+PASS  Cookie HttpOnly
+PASS  Cookie Secure
+PASS  Cookie SameSite=Strict
+PASS  Cookie Path=/
+PASS  Cookie 不带 Domain
+PASS  登录响应不含口令
+PASS  登录响应不含哈希
+PASS  拿到会话 Cookie 与 CSRF 令牌
+== 5. 会话读取与 CSRF 轮换 ==
+PASS  GET session → 200
+PASS  CSRF 令牌已轮换
+PASS  reauth_expires_at 为 null
+PASS  无 Cookie 读 session → 401
+PASS  伪造 Cookie → 401
+== 6. 进程重启后会话仍然有效 ==
+PASS  重启后服务恢复
+PASS  重启前的会话仍可用
+== 7. 退出 ==
+PASS  无 CSRF 头退出 → 403
+PASS  正确 CSRF 退出 → 200
+PASS  退出清除 Cookie
+PASS  退出后同一 Cookie → 401
+== 8. 连续失败触发限速 ==
+PASS  连续失败后返回 429
+PASS  限速响应带 retry_after_seconds
+== 9. 数据库里没有明文秘密 ==
+PASS  库里没有明文口令
+PASS  库里保存的是 Argon2id 哈希
+PASS  库里没有明文会话令牌
+PASS  库里没有明文 CSRF 令牌
+== 10. 日志边界 ==
+PASS  Web 日志不含口令
+PASS  Web 日志不含 CSRF 令牌
+PASS  Web 日志记录了登录请求
+
+结果: PASS=58 FAIL=0
+工作目录: /var/tmp/upanel-accept-p02-1

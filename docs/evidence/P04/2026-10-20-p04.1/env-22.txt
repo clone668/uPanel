@@ -1,0 +1,12 @@
+# VM-A upanel-2204（127.0.0.1:2223）
+Ubuntu 22.04.5 LTS
+5.15.0-198-generic
+2
+               total        used        free      shared  buff/cache   available
+Mem:      4101849088   195416064  2693820416      987136  1212612608  3658252288
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+ens4             UP             10.0.2.15/24 metric 100 fec0::5054:ff:fe12:3456/64 fe80::5054:ff:fe12:3456/64 
+--go--
+go: 未安装（DECISIONS Q9）
+--python--
+Python 3.10.12

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: uPanel API
-  version: 0.0.0-p03.2
+  version: 0.0.0-p04.1
   summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
   description: |
     uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。
@@ -570,6 +570,54 @@ paths:
           $ref: '#/components/responses/NotFound'
         '413':
           $ref: '#/components/responses/PayloadTooLarge'
+
+  /api/v1/system/summary:
+    get:
+      operationId: getSystemSummary
+      summary: 系统概况（CPU、内存、负载、网络、主机信息）
+      description: |
+        返回代理最近一次采集的快照（CONTRACTS.md 第 3 节，权限 V）。
+
+        采集在代理侧按 5 秒轮询 /proc 与 /sys，查询只读快照：同一窗口内反复刷新拿到
+        同一份数据与同一个 collected_at，不会因为刷新快慢得到互相矛盾的数。
+
+        这份响应里没有“补零”的数字：
+        - 每段有自己的 status（ok / error / unavailable）与 error 说明；
+        - 最近一次采集失败的段保留最近一次成功的值，collected_at 停在那次成功的时间，
+          界面据此显示“陈旧”，而不是把 0 当成真实值；
+        - 首次采样、计数器重置、跨重启时，usage_percent 与 *_bytes_per_second 是 null；
+        - stale 只说明快照本身太旧（超过 3 个采集间隔），不代表各段采集成功。
+
+        字节数与计数器是十进制字符串（与第 1 节一致），百分比与速率是数字。
+      tags: [system]
+      responses:
+        '200':
+          description: 最近一次采集快照；可能 degraded（部分段失败）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SystemSummary'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '503':
+          description: 代理不可用（未配置 socket 或连接失败），此时没有可展示的采集数据。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /api/v1/operations/preflight:
     post:
@@ -1782,6 +1830,291 @@ components:
           maxLength: 128
           description: 下一页游标；null 表示没有更多。
 
+    SystemSectionStatus:
+      type: string
+      enum: [ok, error, unavailable]
+      description: |
+        采集段最近一次尝试的结果。ok 表示这次读到了；error 表示数据源存在但读取/解析失败；
+        unavailable 表示这台机器上没有这个数据源（例如受限容器里没有某个 /proc 文件）。
+        三者都不是“零值”：界面必须据此区分“真的 0”和“没采到”。
+
+    SystemSummary:
+      type: object
+      additionalProperties: false
+      description: |
+        系统基础资源快照（GET /system/summary）。采集在代理侧完成，Web 只透传。
+      required: [collected_at, interval_ms, stale, degraded, host, cpu, memory, load, network]
+      properties:
+        collected_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        interval_ms:
+          type: integer
+          minimum: 1
+          description: 采集轮询间隔（毫秒）；用于判断“多久之前的数”是否正常。
+        stale:
+          type: boolean
+          description: |
+            快照时间超过 3 个采集间隔。它只说明这份快照本身太旧（采集循环卡住或刚恢复），
+            不说明各段是否采集成功——那看 degraded 与各段 status。
+        degraded:
+          type: boolean
+          description: 至少有一个段的 status 不是 ok。
+        host:
+          $ref: '#/components/schemas/SystemHostSection'
+        cpu:
+          $ref: '#/components/schemas/SystemCpuSection'
+        memory:
+          $ref: '#/components/schemas/SystemMemorySection'
+        load:
+          $ref: '#/components/schemas/SystemLoadSection'
+        network:
+          $ref: '#/components/schemas/SystemNetworkSection'
+
+    SystemHostSection:
+      type: object
+      additionalProperties: false
+      description: |
+        主机与系统信息（/etc/os-release、/proc/sys/kernel/*、/proc/uptime）。
+        段失败时字段缺失，collected_at 指向最近一次成功的时间。
+      required: [status, uptime_seconds]
+      properties:
+        status:
+          $ref: '#/components/schemas/SystemSectionStatus'
+        error:
+          type: string
+          description: 最近一次失败的原因；status 为 ok 时不存在。
+        source:
+          type: string
+          description: 数据来源（固定写法的文件路径），用于说明“数从哪来”。
+        collected_at:
+          type: [string, 'null']
+          description: 段里这份值的采集时间；从未成功过为 null。
+        hostname:
+          type: string
+        os_id:
+          type: string
+          description: os-release 的 ID（例如 ubuntu）。
+        os_name:
+          type: string
+        os_version:
+          type: string
+          description: os-release 的 VERSION_ID（例如 24.04）。
+        os_pretty_name:
+          type: string
+        kernel_release:
+          type: string
+        arch:
+          type: string
+          description: 内核报告的机器架构（uname -m）。
+        boot_id:
+          type: string
+          description: 本次启动的标识；变化说明计数器不可比。
+        uptime_seconds:
+          type: [number, 'null']
+          minimum: 0
+          description: 开机秒数；读不到为 null。
+
+    SystemCpuSection:
+      type: object
+      additionalProperties: false
+      description: |
+        CPU 使用率与规模（/proc/stat）。使用率是两个相邻样本时间分量的差，
+        没有前一次样本、计数器重置或跨重启时为 null。
+      required: [status, logical_cores, usage_percent]
+      properties:
+        status:
+          $ref: '#/components/schemas/SystemSectionStatus'
+        error:
+          type: string
+        source:
+          type: string
+        collected_at:
+          type: [string, 'null']
+        model:
+          type: string
+          description: 来自 /proc/cpuinfo 的型号；读不到就省略（不影响本段是否成功）。
+        logical_cores:
+          type: integer
+          minimum: 0
+          description: /proc/stat 里 cpuN 行的数量。
+        usage_percent:
+          type: [number, 'null']
+          minimum: 0
+          maximum: 100
+          description: 所有核合计的使用率；没有可比较的前一次样本时为 null（不是 0）。
+        sample_window_ms:
+          type: [integer, 'null']
+          minimum: 1
+          description: usage_percent 对应的采样时间窗；与 usage_percent 同为 null 或同时存在。
+        per_cpu:
+          type: array
+          description: 按核使用率；CPU 热插拔导致索引对不上时该核的 usage_percent 为 null。
+          items:
+            $ref: '#/components/schemas/SystemCpuCore'
+
+    SystemCpuCore:
+      type: object
+      additionalProperties: false
+      required: [index, usage_percent]
+      properties:
+        index:
+          type: integer
+          minimum: 0
+        usage_percent:
+          type: [number, 'null']
+          minimum: 0
+          maximum: 100
+
+    SystemMemorySection:
+      type: object
+      additionalProperties: false
+      description: |
+        内存与 swap（/proc/meminfo），单位字节，JSON 里是十进制字符串。
+        缺必需字段时整段失败，不会用 0 补齐。
+      required:
+        - status
+        - total_bytes
+        - free_bytes
+        - available_bytes
+        - buffers_bytes
+        - cached_bytes
+        - used_bytes
+        - swap_total_bytes
+        - swap_free_bytes
+      properties:
+        status:
+          $ref: '#/components/schemas/SystemSectionStatus'
+        error:
+          type: string
+        source:
+          type: string
+        collected_at:
+          type: [string, 'null']
+        total_bytes:
+          $ref: '#/components/schemas/NullableByteString'
+        free_bytes:
+          $ref: '#/components/schemas/NullableByteString'
+        available_bytes:
+          $ref: '#/components/schemas/NullableByteString'
+        buffers_bytes:
+          $ref: '#/components/schemas/NullableByteString'
+        cached_bytes:
+          $ref: '#/components/schemas/NullableByteString'
+        used_bytes:
+          $ref: '#/components/schemas/NullableByteString'
+          description: Total - Available（可用内存口径），不是 Total - Free。
+        swap_total_bytes:
+          $ref: '#/components/schemas/NullableByteString'
+        swap_free_bytes:
+          $ref: '#/components/schemas/NullableByteString'
+
+    SystemLoadSection:
+      type: object
+      additionalProperties: false
+      description: 负载（/proc/loadavg）。
+      required: [status, load1, load5, load15, runnable, threads]
+      properties:
+        status:
+          $ref: '#/components/schemas/SystemSectionStatus'
+        error:
+          type: string
+        source:
+          type: string
+        collected_at:
+          type: [string, 'null']
+        load1:
+          type: [number, 'null']
+          minimum: 0
+        load5:
+          type: [number, 'null']
+          minimum: 0
+        load15:
+          type: [number, 'null']
+          minimum: 0
+        runnable:
+          type: [integer, 'null']
+          minimum: 0
+          description: 可运行进程数（loadavg 的 a/b 里的 a）。
+        threads:
+          type: [integer, 'null']
+          minimum: 0
+          description: 进程/线程总数（loadavg 的 a/b 里的 b）。
+
+    SystemNetworkSection:
+      type: object
+      additionalProperties: false
+      description: |
+        网卡计数器（/proc/net/dev + /sys/class/net/*/operstate）。
+        速率是相邻两次采样的字节差除以时间窗；计数器重置、网卡新出现或时间窗不为正时为 null。
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/SystemSectionStatus'
+        error:
+          type: string
+        source:
+          type: string
+        collected_at:
+          type: [string, 'null']
+        interfaces:
+          type: array
+          description: 按网卡名排序；循环设备也列出（loopback=true），不做主观裁剪。
+          items:
+            $ref: '#/components/schemas/SystemNetInterface'
+
+    SystemNetInterface:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - loopback
+        - rx_bytes
+        - tx_bytes
+        - rx_packets
+        - tx_packets
+        - rx_errors
+        - tx_errors
+        - rx_dropped
+        - tx_dropped
+        - rx_bytes_per_second
+        - tx_bytes_per_second
+      properties:
+        name:
+          type: string
+        oper_state:
+          type: string
+          description: /sys/class/net/<name>/operstate（up、down、unknown……）；读不到就省略。
+        loopback:
+          type: boolean
+        rx_bytes:
+          $ref: '#/components/schemas/ByteString'
+        tx_bytes:
+          $ref: '#/components/schemas/ByteString'
+        rx_packets:
+          $ref: '#/components/schemas/ByteString'
+        tx_packets:
+          $ref: '#/components/schemas/ByteString'
+        rx_errors:
+          $ref: '#/components/schemas/ByteString'
+        tx_errors:
+          $ref: '#/components/schemas/ByteString'
+        rx_dropped:
+          $ref: '#/components/schemas/ByteString'
+        tx_dropped:
+          $ref: '#/components/schemas/ByteString'
+        rx_bytes_per_second:
+          type: [number, 'null']
+          minimum: 0
+          description: 接收速率（字节/秒）；没有可比较的前一次样本或计数器重置时为 null。
+        tx_bytes_per_second:
+          type: [number, 'null']
+          minimum: 0
+          description: 发送速率（字节/秒）；同上。
+
+    NullableByteString:
+      type: [string, 'null']
+      pattern: '^(0|[1-9][0-9]*)$'
+      description: 非负十进制字符串，或 null 表示这次没采到。
   responses:
     BadRequest:
       description: 语法或参数错误（400）。

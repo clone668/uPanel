@@ -76,7 +76,7 @@ VM 内核原生测试二进制 169 个用例 0 FAIL，二进制 sha256 与宿主
 
 ## 1. 当前任务
 
-- 当前阶段：P03（预检、任务、幂等、对账）—— **passed**（P03.1—P03.4 全部 passed）。
+- 当前阶段：P04（首页和存储只读）—— **in_progress**（P04.1 已 passed；P04.2/P04.3/P04.4 未开始）。
 - 已完成子任务：P00.1—P00.3、**P01.1**—**P01.4**、**P02.1**（首个管理员、密码哈希、登录、
   退出、会话轮换、CSRF、Origin、限速；无默认密码）、**P02.2**（admin/viewer、账号管理、
   最后管理员保护、再认证、脱敏 DTO、审计事件起步）、**P02.3**（代理 Unix socket + SO_PEERCRED
@@ -89,12 +89,19 @@ VM 内核原生测试二进制 169 个用例 0 FAIL，二进制 sha256 与宿主
   代理事件镜像、任务中心与错误详情、最小登录页与路由守卫；两台 VM 各 73 项断言，
   抓并修掉 Q67 的原子性缺陷）、**P03.4**（启动 + 每 30 秒的对账循环、只查不跑、提交在途不判定、
   `NOT_FOUND` 按 `needs_sync` 分流为 `failed`/`unconfirmed` 与 `interrupted`/`unknown_result`、
-  幂等记录到期清理、验收注册表约束变成断言；两台 VM 各 78 项断言，原生测试 360 用例全绿）。
-- 下一子任务：**P04**（首页和存储只读）。P03 的整体交付是“预检 → 接受 → 执行 → 可查 →
-  重启/崩溃后说得清”，**但生产登记表仍然为空**：没有任何真实系统写动作，P04 才开始接
-  真实的系统数据采集（需要 VM 真实块设备的只读存储信息）。
+  幂等记录到期清理、验收注册表约束变成断言；两台 VM 各 78 项断言，原生测试 360 用例全绿）、
+  **P04.1**（系统信息采集：`internal/monitoring` 读 `/proc`（stat/meminfo/loadavg/net/dev/
+  os-release/uptime）与 `syscall.Uname`，代理侧 5 秒轮询缓存 + 单调时钟驱动 + `boot_id` 失效，
+  每次采集带 `collected_at`、`interval_ms`、`stale`、`degraded` 与**分节状态**；字节/计数器
+  一律非负十进制字符串，算不出来的速率是 `null` 而不是 `0`；查询登记表新增 `system.summary`
+  （唯一查询），`GET /api/v1/system/summary` 走 Web 透传、需要 V 权限、代理不可用时 503
+  `AGENT_UNAVAILABLE` 且不影响登录；两台 VM 各 72 项断言、原生测试 394 用例全绿、
+  12 个验收脚本全量回归 0 失败）。
+- 下一子任务：**P04.2**（存储拓扑只读：块设备树、设备身份校验、系统盘保护识别）。
+  P04.1 只做“读数字”，还没有碰任何块设备；P04.2 才开始读 `/sys/block` 与 udev 属性，
+  仍然**只读**，且设备身份与系统盘保护的判定必须先在 VM 里验证过才能被写动作复用。
 - 下游是否可继续：**是**；但任何系统写操作必须走 P03 建成的链路（预检 → 任务 → 幂等 → 对账），
-  不允许绕过。
+  不允许绕过。P04.1 的 `system.summary` 是**查询**，不产生任务，也不落写审计。
 - 当前版本：未发布。
 - 当前无阻塞。遗留（不阻塞）：VM-C（LVM 根，P04 前需要）、VM-D（SMB 客户端，P08/P14 前需要）；
   验收 VM 内未安装 Go/Node 工具链（DECISIONS Q9）；systemd 真实托管形态已在 P02.3 的两台 VM
@@ -110,6 +117,11 @@ VM 内核原生测试二进制 169 个用例 0 FAIL，二进制 sha256 与宿主
   22.04 从未发生，仍按“宿主 WHPX 长跑不稳”处理，不记作产品缺陷。
   另外：宿主 PowerShell 的 `ssh` 不认这两把 VM 私钥（`UNPROTECTED PRIVATE KEY FILE`），
   所有 VM 操作用 Git Bash 的 `ssh` 完成。
+- 环境事实（P04.1 期间）：24.04 验收 VM 第四次 panic（同一条 `Attempted to kill init!`，
+  exitcode=0x8b），重启后 `/tmp` 清空、`/etc/upanel/upanel.json` 再次被截断成 0 字节；
+  删除该文件并重新上传二进制/脚本/夹具后全量回归通过。四次全在 24.04，22.04 一次没有。
+  结论不变：宿主侧 WHPX 长跑不稳，不是产品缺陷。**但这也意味着任何一次“跑完就过”的结论
+  必须能在重启后再复现一遍**——P04.1 的两台 VM 最终结果都是重启后重跑得到的。
 
 ## 2. 状态定义
 
@@ -128,7 +140,7 @@ VM 内核原生测试二进制 169 个用例 0 FAIL，二进制 sha256 与宿主
 | P01 | 最小可运行骨架 | **passed** | P01.1 骨架/配置/日志/健康检查、P01.2 SQLite 迁移/事务/错误码/request_id/Gin 路由、P01.3 前端骨架/路由/中文导航/统一 API 客户端/七状态组件/mock 横幅、P01.4 前端嵌入二进制/mock 与 production 配置/systemd 单元/本地启动文档，均有宿主 + 两台 VM 证据；P01.4 各 VM 114 项断言通过。证据 `docs/evidence/P01/2026-10-20*/` |
 | P02 | 认证、权限、审计、代理 | **passed** | P02.1 **passed**：users/sessions 表、Argon2id、登录/退出/会话轮换/CSRF/Origin/限速、`upanelctl init-admin`（无默认密码），证据 `docs/evidence/P02/2026-10-20-p02.1/`（宿主 38 项 + 两台 VM 各 58 项断言）。P02.2 **passed**：admin/viewer 边界、账号增删改查（脱敏 DTO + 分页 + 乐观并发）、最后管理员保护、5 分钟再认证、追加式审计表，证据 `docs/evidence/P02/2026-10-20-p02.2/`（宿主 81 项 + 两台 VM 各 99 项断言，P02.1 回归各 58 项）。P02.3 **passed**：代理 socket 与 SO_PEERCRED UID 边界、固定登记表（生产为空）、结构化只读查询、命令执行器超时/输出上限、systemd 真实托管，证据 `docs/evidence/P02/2026-10-20-p02.3/`（两台 VM 各 84 项断言 + VM 内核原生 28 + 9 个用例，P02.2 回归各 99 项）。P02.4 **passed**：审计跟随业务事务（被拒绝请求独立记 failure 行）、日志脱敏做进记录器、代理独立 root-only 库（`/var/lib/upanel-agent/agent.db`，目录 0700 / 文件 0600，启动自校验）、AES-256-GCM 秘密存储（独立 nonce、AAD 绑引用与用途、`/etc/upanel/agent.key` 0600 且 `-init-key` 不覆盖）、临时秘密 10 分钟销毁与墓碑行、无明文读取路由，证据 `docs/evidence/P02/2026-10-20-p02.4/`（两台 VM 各 87 项断言 + VM 内核原生 agentstore 32 / agent 45 个用例，P02.1/P02.2/P02.3 回归各 58 / 103 / 84 项）。**阶段结论：P02 全部子任务完成** |
 | P03 | 预检、任务、幂等、对账 | **passed** | P03.1 **passed**：预检由代理生成（规范化参数、目标身份指纹、状态版本、影响、阻塞项、锁、再认证与短语策略），Web 只保存绑定并返回公开 DTO；有效期 120 秒且两端同一时间戳；用户/会话/动作/`params_hash`/`state_version` 双侧一致；短语只回一次明文、代理库只存哈希；未登记动作 400、缺规划器 501、`GET` 405。证据 `docs/evidence/P03/2026-10-20-p03.1/`（两台 VM 各 93 项断言 + VM 内核原生 5 个测试二进制，P02.1—P02.4 回归各 58/103/84/87 项）。P03.2 **passed**：持久 jobs、幂等链、`operation_id` 去重、代理执行记录与事件、资源锁与 30 秒排队、取消规则、先落库再提交、按 `operation_id` 对账；证据 `docs/evidence/P03/2026-10-20-p03.2/`（两台 VM 各 101 项断言 + VM 内核原生 169 用例 0 FAIL + p01-1/p01-2/p01-4/p02-1—p02-4/p03-1 回归各 29/34/114/58/103/85/87/93；宿主 check.sh PASS 12/0/NOT RUN 0）。验收期间抓到并修掉两个真缺陷：`CONFIRMATION_MISMATCH` 应为 400（DECISIONS Q64）、SQLite WAL DEFERRED 事务升级不调 busy handler → `_txlock=immediate`（DECISIONS Q65）。P03.3 **passed**：SSE 事件流（`id:`/`event:`/`data:`、`: connected`、15 秒 keepalive、`Last-Event-ID` 续传、日志环被裁后先发 `event: gap`）、代理事件镜像（先事件后状态）、日志分页与每任务 1000 行上限、任务中心与错误详情、最小登录页与路由守卫；证据 `docs/evidence/P03/2026-10-20-p03.3/`（两台 VM 各 73 项断言 + 原生 346 用例 0 FAIL + P03 前序回归）。验收期间抓到并修掉代理侧“阶段与事件分两笔写”的原子性缺陷（DECISIONS Q67）。P03.4 **passed**：Web 启动立刻 + 每 30 秒的对账循环（只查不跑，`grep CreateOperation` 在 `reconcile.go` 无调用点）、提交在途不判定、`NOT_FOUND` 按 `needs_sync` 分流（`failed`/`unconfirmed` vs `interrupted`/`unknown_result`）、幂等记录到期清理、验收注册表约束变成断言；证据 `docs/evidence/P03/2026-10-20-p03.4/`（两台 VM 各 78 项断言 + 原生 360 用例 0 FAIL + 全量 11 脚本 0 失败）。**阶段结论：P03 全部子任务完成，生产登记表仍为空（无真实写动作）** |
-| P04 | 首页和存储只读 | not_started | 需 VM 真实块设备 |
+| P04 | 首页和存储只读 | **in_progress** | P04.1 **passed**：`internal/monitoring` 纯文件读取采集（`/proc/stat`、`meminfo`、`loadavg`、`net/dev`、`os-release`、`uptime`、`cpuinfo` + `uname`），代理侧 5 秒轮询缓存（`collected_at`/`interval_ms`/`stale`/`degraded` + 分节 `status`），速率只由相邻样本差分给出、算不出来为 `null`，`boot_id` 变化让 CPU 窗口失效；查询登记表新增唯一查询 `system.summary`（`DecodeParams` 拒绝任何字段），Web 侧 `GET /api/v1/system/summary`（权限 V）只透传、不做第二层缓存，代理不可用 503 `AGENT_UNAVAILABLE` 且不影响登录；能力只上报真实存在的东西。证据 `docs/evidence/P04/2026-10-20-p04.1/`（两台 VM 各 **72** 项断言 + VM 内核原生 **401** 用例 0 FAIL + 12 脚本全量回归 930/0；宿主 check.sh PASS 12/0/NOT RUN 0，redocly valid 9 warnings）。**生产登记表仍为空，本轮没有新增任何写动作**。P04.2（块设备拓扑与系统盘保护）、P04.3（SMART/NVMe/diskstats）、P04.4（首页）未开始 |
 | P05 | 服务、进程、日志 | not_started | — |
 | P06 | 文件和受限终端 | not_started | — |
 | P07 | 分区、格式化、挂载 | not_started | 需独立 VM 数据盘 |
@@ -1573,6 +1585,92 @@ sha256、`runall-*.txt`、逐脚本日志（`vm-logs-2404/`、`vm-logs-2204/`）
 `commands.log` 与 `result.md`。本轮新增的 `tests/integration/p03-4-reconcile-acceptance.sh`
 与 `run-all.sh` 的 `LOG_DIR` 改动随代码一起入库，换台机器重建一次验收环境就能一键重跑。
 
+### P04.1（2026-10-20）— 系统基础资源采集、5 秒轮询缓存与时间戳
+
+**做了什么**
+
+| 层 | 文件 | 内容 |
+|---|---|---|
+| 采集 | `internal/monitoring/types.go`（新） | DTO：`Summary{cpu,memory,load,network,host,interval_ms,stale,degraded,collected_at}`，每段带 `status`/`error`/`source`/`collected_at`；字节与计数器一律 `json:",string"`（CONTRACTS §1） |
+| 采集 | `internal/monitoring/procfs.go`（新） | `/proc/stat`、`meminfo`、`loadavg`、`net/dev`、`os-release`、`uptime`、`cpuinfo` 解析；`syscall.Uname` 取内核与主机名。只读文件，不执行命令 |
+| 采集 | `internal/monitoring/collector.go`（新） | 5 秒 ticker（先立即采一次）、`Refresh`、`Snapshot`（读取时判 `stale`：超过 3 个间隔）、`Summary`（冷启动同步采一次）；某段失败保留上次有效值与它的旧时间，从未成功则 `null` |
+| 采集 | `internal/monitoring/collector.go` | 速率 = 相邻两次样本差分 / 时间窗；无前次样本、计数器回退、窗口非正 → `null`；`boot_id` 变化让 CPU 采样窗口失效 |
+| 代理 | `internal/agent/systemquery.go`（新） | 查询 `system.summary`：零参数，`DecodeParams` 用 `DisallowUnknownFields` 拒绝任何字段（`params.command` 也拒），返回采集器快照并附 `collected_at` |
+| 代理 | `internal/agent/registry.go` | `ProductionDeps.Collector != nil` 时才登记该查询；未注入采集器就不上报这条能力（Q84） |
+| 代理 | `cmd/upanel-agent/main.go` | 启动采集循环，随信号 ctx 退出 |
+| Web | `internal/api/system.go`（新）、`router.go`、`server.go` | `GET /api/v1/system/summary`，权限 V；代理不可用 → 503 `AGENT_UNAVAILABLE`（Q88），登录与其余接口不受影响 |
+| Web | `internal/monitoring/fetch.go`（新）、`cmd/upanel-web/main.go` | 代理客户端 `Fetcher`，**不做第二层缓存**：`collected_at` 永远是采集时间（Q81） |
+| 契约 | `api/openapi.yaml` | 新路径 + 新 schema，`info.version: 0.0.0-p04.1`；只登记已实现的路径 |
+| 测试 | `internal/monitoring/*_test.go`、`internal/agent/systemquery_test.go`、`internal/api/system_test.go` | 解析器用真实 `/proc` 采集样本 + 合成反例；线格式用例钉住“字符串字节 / `null` 速率” |
+| 夹具 | `tests/fixtures/`（6 份真实采集 + 7 份 `*.synthetic.*` 反例）、`PROVENANCE.md` | 来源与采集命令写清楚（Q85） |
+| 夹具查找 | `internal/testsupport/fixtures.go`（新）、`scripts/run-native-tests.sh` | 环境变量 → 二进制旁边 → 向上查找三层；找不到**失败并列出试过的路径**，不跳过 |
+| 验收 | `tests/integration/p04-1-system-acceptance.sh`（新） | 72 项断言，root 运行；`run-all.sh` 注册为第 12 个脚本 |
+
+**接口与数据变更**：新增 `GET /api/v1/system/summary`（V 权限）与代理内部查询 `system.summary`；
+**没有**数据库迁移、没有新表、没有新写动作，生产动作登记表仍为空。
+
+**没有引入的东西**（本轮刻意）：没有 `exec`、没有 shell、没有可注入参数的采集接口、没有让
+采集跟随请求即时读盘（否则“轮询缓存”名不副实）、没有第二个缓存层。
+
+### P04.1 验收结果（同上日，验收回填）
+
+**结论：passed。** 代码 + 两台 VM 验收均完成，证据在 `docs/evidence/P04/2026-10-20-p04.1/`。
+
+| 检查 | 24.04.5 / 6.8.0-147 | 22.04.5 / 5.15.0-198 |
+|---|---|---|
+| `p04-1-system-acceptance.sh`（新增，72 项断言） | 通过 72 / 失败 0 | 通过 72 / 失败 0 |
+| VM 内核原生测试二进制（8 个） | TOTAL PASS **401** / FAIL 0 | TOTAL PASS **401** / FAIL 0 |
+| 12 脚本全量回归 | 运行 12 / 失败 0（合计 930 断言） | 运行 12 / 失败 0（合计 930 断言） |
+
+宿主侧：`go build ./...`、`go vet ./...` exit 0，`gofmt -l .` 无输出，`go test ./...` 19 包 ok
+（`-v` 计数 228 PASS / 0 FAIL），`check.sh` PASS 12 / FAIL 0 / NOT RUN 0，`redocly lint` valid
+（9 warnings）。三个入口二进制与 8 个测试二进制在两台 VM 上 sha256 逐个一致（11/11）。
+
+**p04-1 脚本验到的行为**（10 段，全部黑盒：curl + 读 `/proc` + 杀进程）
+
+1. 身份：root 运行、三个二进制可执行、`upanel-web` 账号存在、代理 uid=0。
+2. 能力如实：`supported_queries == ['system.summary']`、`supported_actions == []`。
+3. 与 `/proc` 逐项比对：`MemTotal` 按字节精确相等；`MemAvailable` 与前后两次读取同量级
+   （±64 MiB，页缓存让它在毫秒级就变）；`used = total - available`；逻辑核数 = `nproc`；
+   `boot_id`、`os_id`、`kernel_release`、主机名、开机时长、1 分钟负载（容差 1.0）、五个段
+   `status=ok`。
+4. 时间戳与缓存：`interval_ms=5000`；`collected_at` 在 10 秒内；`stale=false`、`degraded=false`；
+   睡 6 秒后 `collected_at` 前进 4—9 秒（不是每次请求都变，也不是不动）。
+5. 计数器区间：`ens4` 的 `rx_bytes` 落在“睡满一个间隔”前后两次 `/proc/net/dev` 之间，
+   第二份不小于第一份。
+6. 使用率与速率：第二份快照 `usage_percent` 非 null 且在 0—100，`sample_window_ms` 在 4000—9000，
+   按核使用率数量 = 逻辑核数，至少一块网卡给出非 null 非负速率。
+7. 没有万能入口：`params.command` → 400、未知参数 → 400、`system.nonexistent` → 400“未登记”、
+   `GET /internal/v1/queries` → 405。
+8. Web 透传：未登录 401；admin 200 且数值与 `/proc` 一致；新建 viewer 后 viewer 同样 200。
+9. 采集故障不阻塞登录：停代理 → 登录仍 200，`/api/v1/system/summary` 503 `AGENT_UNAVAILABLE`
+   且**不返回任何数值**；代理重启后自动回到 200 且是真实值。
+10. 日志卫生：代理日志无 `sh -c`、无 `BEGIN PRIVATE KEY`，Web 日志无 `panic`。
+
+**证明“测试有牙”**：`types_test.go` 钉住 `"total_bytes":"4009864"`（字符串）与
+`"rx_bytes_per_second":null`；把字段上的 `json:",string"` 去掉该用例立刻失败。夹具用例在
+VM 上找不到 `tests/fixtures` 时会**失败并打印试过的路径**（P02.3 就是这样先红后绿的），
+不是 skip。
+
+**本轮修掉的问题**（改产品/改验证手段，没有放宽任何断言）
+
+| 问题 | 处理 | 决策 |
+|---|---|---|
+| 字节/计数器被序列化成 JSON 数字 | 全部加 `json:",string"` + 线格式用例 | Q82 |
+| 22.04 的三条时间戳断言判 False（24.04 全绿） | Python 3.10 `fromisoformat` 不认 9 位小数秒 → 脚本内截到 6 位；**产品格式不改** | Q87 |
+| VM 上夹具用例全挂 | 测试二进制跑在 `/tmp`，`../../tests/fixtures` 没有意义 → 三层查找 + 运行器拷夹具，找不到就失败 | Q85 补充 |
+| “快照只增不减”在 24.04 偶发失败 | 断言把两份快照顺序弄反（`jgetx` 的第一个参数才是 `d`），修正方向 | 验收脚本缺陷 |
+| 代理停机后 Web 起不来（`readonly database`） | 只 chown 了库文件没 chown 目录，SQLite 建不了 `-wal` → 先 chown 目录 | 验收脚本缺陷 |
+| 22.04 的 `tests/api.test` 是旧产物（`8cf56ce6…`） | 重新同步 11 个文件并重跑原生测试；回归不受影响（回归只用三个入口二进制，那几个字节相同） | 证据缺陷 |
+
+**环境事实（不记作产品缺陷）**：24.04 本轮开始前第四次 panic（`Attempted to kill init!`
+exitcode=0x8b），重启后 `/tmp` 清空、`/etc/upanel/upanel.json` 又被截断成 0 字节；删文件、
+重传二进制/夹具/脚本、逐个核 sha256 后重跑。**所有 VM 结论都来自重启之后的那一轮。**
+
+**NOT RUN**：真实生产服务器；小时级长跑的内存/fd 稳定性；段失败的真实注入（只有单测用假
+reader 覆盖）；受限容器/无 `/proc` 环境；`go test -race`（宿主与 VM 都没开 cgo）；浏览器证据
+（首页属 P04.4）；采集间隔可配置（本轮固定 5000 ms，`interval_ms` 已随响应返回）。
+
 ## 6. 未决问题与范围变更
 
 未批准任何范围变更。DECISIONS.md 第 8 节记录 Q1—Q80；P03.3 新增六条：Q67（阶段与事件必须同事务，
@@ -1583,7 +1681,13 @@ Q70（viewer 任务可见性 = per-user 隔离，别人的任务 404）、Q71（
 分流，修订 Q63）、Q76（幂等记录只删已结束任务的）、Q77（测试注册表约束变成断言）、
 Q78（断言读字段，不扫整个响应体——随机 `request_id` 曾撞上 “4242”）、
 Q79（`p01-4` 必须自清 systemd 库；旧库里的旧迁移校验和会让服务按设计拒绝启动）、
-Q80（断言必须指名对象，不能按秒级 `created_at` 取“最新一条”）。
+Q80（断言必须指名对象，不能按秒级 `created_at` 取“最新一条”）。P04.1 新增八条：
+Q81（采集缓存只在代理侧，Web 只透传）、Q82（字节与计数器是十进制字符串）、
+Q83（段级 `status` 与值自带 `collected_at`；`degraded` 与 `stale` 是两个问题；速率算不出来是
+`null`；`boot_id` 变化让窗口失效）、Q84（能力只登记真实存在的东西）、
+Q85（夹具必须是真实采集 + 标注反例）、Q86（p02-3 断言收紧 85→87，只增不减）、
+Q87（Python 3.10 与 RFC3339Nano；验收脚本截断小数秒，产品格式不改）、
+Q88（代理不可用是 503 `AGENT_UNAVAILABLE`，不是 500；采集失败不阻塞登录）。
 
 - Q1 Go module 路径暂定 `upanel`（P01 前如需 canonical path 需一次性确定）。
 - Q2 开发宿主工具链与冻结版本不一致，已用 GOTOOLCHAIN 与仓库外 Node 22.23.3 解决。
@@ -1770,7 +1874,15 @@ Q80（断言必须指名对象，不能按秒级 `created_at` 取“最新一条
 | P03.4-VM | P03 | **已执行并通过（Ubuntu 24.04.5 与 22.04.5，root 运行，两台均 通过 78 / 失败 0；含 Web 重启重放、代理 kill -9、代理库被清空后的结果未知）** | docs/evidence/P03/2026-10-20-p03.4/{runall-24.txt,runall-22.txt,vm-logs-2404/,vm-logs-2204/} |
 | P03.4-UNIT-VM | P03 | 已执行通过（VM 内核上原生跑交叉编译测试二进制：7 个包 **TOTAL PASS 360 / FAIL 0**） | docs/evidence/P03/2026-10-20-p03.4/{native-24.txt,native-22.txt,env-24.txt,env-22.txt} |
 | P03.4-REGRESSION | P03 | 已执行通过（两台 VM 各跑完整 `run-all.sh`：11 个脚本 / 0 失败；p01-1 29、p01-2 34、p01-4 114、p02-1 58、p02-2 103、p02-3 85、p02-4 87、p03-1 93、p03-2 102、p03-3 73、p03-4 78） | docs/evidence/P03/2026-10-20-p03.4/{runall-24.txt,runall-22.txt} |
-| P03.4-RESULT | P03 | 已产出（交付清单、宿主与 VM 证据、变异与静态检查、四个缺陷与修法、NOT RUN 清单、复现命令） | docs/evidence/P03/2026-10-20-p03.4/result.md |026-10-20-p03.3/{result.md,commands.log} |
+| P03.4-RESULT | P03 | 已产出（交付清单、宿主与 VM 证据、变异与静态检查、四个缺陷与修法、NOT RUN 清单、复现命令） | docs/evidence/P03/2026-10-20-p03.4/result.md |
+| P03.3-RESULT（补记） | P03 | 已产出（交付清单、宿主与 VM 证据、验收抓到的阶段/事件非原子缺陷与修法、两起流程事故、未执行项、复现命令）。P04.1 期间发现本表上一行曾被误粘成 P03.3 的路径碎片，已拆回两行 | docs/evidence/P03/2026-10-20-p03.3/{result.md,commands.log} |
+| P04.1-UNIT | P04 | 已执行通过（宿主 `go build`/`go vet`/`gofmt` 干净，`go test ./...` **19 包 ok**，指定包 `-v` 计数 **228 PASS / 0 FAIL**；`monitoring` 30 个用例含线格式与解析器反例） | docs/evidence/P04/2026-10-20-p04.1/{host-build.txt,go-vet.txt,gofmt.txt,go-test.txt,go-test-verbose.txt} |
+| P04.1-CHECK | P04 | 已执行通过（`sh scripts/check.sh` → PASS 12 / FAIL 0 / NOT RUN 0；`redocly lint api/openapi.yaml` valid + 9 warnings） | docs/evidence/P04/2026-10-20-p04.1/{check.txt,openapi-lint.txt} |
+| P04.1-VM | P04 | **已执行并通过（Ubuntu 24.04.5 与 22.04.5，root 运行，两台均 通过 72 / 失败 0；含 `/proc` 逐项比对、时间戳前进、计数器区间、无万能入口、Web 透传、代理停机不阻塞登录）** | docs/evidence/P04/2026-10-20-p04.1/{p04-1-24.txt,p04-1-22.txt,env-24.txt,env-22.txt} |
+| P04.1-UNIT-VM | P04 | 已执行通过（VM 内核上原生跑交叉编译测试二进制：8 个包 **TOTAL PASS 401 / FAIL 0**） | docs/evidence/P04/2026-10-20-p04.1/{native-24.txt,native-22.txt} |
+| P04.1-REGRESSION | P04 | 已执行通过（两台 VM 各跑完整 `run-all.sh`：**12 个脚本 / 0 失败**，合计 930 断言；p02-3 收紧到 87、p04-1 新增 72） | docs/evidence/P04/2026-10-20-p04.1/{runall-24.txt,runall-22.txt,vm-logs-2404/,vm-logs-2204/} |
+| P04.1-BINARY | P04 | 已执行通过（11 个交叉编译产物在宿主与两台 VM 上 sha256 逐个一致；入口二进制用固定 `BUILD_DATE` 可重建） | docs/evidence/P04/2026-10-20-p04.1/{cross-build-sha256.txt,vm-sha256-2404.txt,vm-sha256-2204.txt} |
+| P04.1-RESULT | P04 | 已产出（交付清单、宿主与 VM 证据、六个缺陷与修法、NOT RUN 清单、环境事故记录） | docs/evidence/P04/2026-10-20-p04.1/{result.md,commands.log} |
 | P00-VM-C（LVM 根） | P00/P04 | **NOT RUN**（未创建） | 需在 P04 前补齐 |
 | P00-VM-D（SMB 客户端） | P00/P08 | **NOT RUN**（未创建） | 需在 P08 前补齐 |
 
@@ -1805,7 +1917,8 @@ Q80（断言必须指名对象，不能按秒级 `created_at` 取“最新一条
   审计事件，P02.3 的 Web↔代理通道与执行器边界，P02.4 的审计事务化/日志脱敏/代理独立库与秘密存储，
   P03.1 的预检生成与绑定，P03.2 的持久任务/幂等/去重/资源锁/取消与对账，P03.3 的事件流（SSE、
   断线续传、gap、日志环）与任务中心（**任务机制完整，但仍无
-  生产动作可执行**）。viewer 目前的“只读”只体现在账号管理与任务查询接口上
+  生产动作可执行**），P04.1 的系统基础资源**只读**采集（CPU/内存/负载/网络/主机信息，
+  代理侧 5 秒轮询缓存，`GET /api/v1/system/summary`）。viewer 目前的“只读”只体现在账号管理与任务查询接口上
   （写操作一律 403）；代理的生产登记表为空，**没有任何业务数据接口**，也没有首页/磁盘/服务/文件页面。
   P03 及之后的高风险能力（磁盘写、共享、网络回滚、备份恢复）只有约定，没有实现，
   更没有 Linux 证据。
@@ -1887,3 +2000,24 @@ Q80（断言必须指名对象，不能按秒级 `created_at` 取“最新一条
   真实磁盘/文件系统行为验收。
 - 便携 QEMU、VM 镜像、cloud-init seed 全部位于仓库之外（`H:\Code\vms`、`H:\Code\.toolchains`），
   不入库；换机需按 TEST_ENVIRONMENT.md 第 8 节复现。
+- P04.1 的采集是“5 秒轮询 + 快照”，不是实时：`collected_at` 永远是上一次采集尝试的时间，
+  两次采集之间发生的瞬时峰值看不到；`stale` 的门槛是 3 个间隔（15 秒），采集连续失败也不会
+  立刻变红，要等快照超过门槛。前端不要把 `stale=false` 读成“数据刚刚生成”。
+- 采集段失败只有**假 reader 的单测**覆盖（`/proc/meminfo` 读失败、内容截断、列数不对等），
+  两台 VM 上没有制造过真实段失败（去 chmod 真 `/proc` 没有意义也不安全）。所以
+  “失败时保留上次有效值 + 旧时间 + `status=error`”这条在真实系统上**未观测**。
+- 采集间隔固定 5000 ms，没有配置项；`interval_ms` 只用于让前端解释时间戳，不驱动行为。
+  改动间隔需要同时改契约与验收脚本（PLAN §8 写的是 5 秒）。
+- 速率只在相邻两次样本之间成立：代理刚启动的 5 秒内所有 `_per_sec` 是 `null`；
+  `boot_id` 变化会丢弃 CPU 窗口，但网卡计数器的回退只能靠“变小就报 null”兜住，
+  没有按网卡身份重建对称性（换 veth 重名时可能短暂显示 null）。
+- 桥接/虚拟网卡（`veth*`、`docker0`、`br-*`）目前**照常列出**，没有过滤也没有分组；
+  两台 VM 上只有 `lo` + `ens4`，所以“网卡很多的机器上响应有多大”没有证据。
+- CPU 使用率是整机与按逻辑核两种口径，按核数组长度 = 逻辑核数；**没有**按核频率、
+  温度、功耗，也没有 cgroup 口径（容器里看宿主数据的问题未处理）。
+- `host` 段只有 `os_id`/`os_name`/`kernel_release`/`hostname`/`uptime` 一类只读信息；
+  发行版名称取自 `/etc/os-release` 的 `PRETTY_NAME`，没有做版本语义化。
+- P04.1 没有首页：接口在，页面要到 P04.4；因此也**没有取值的浏览器证据**（只有 curl）。
+- `go test -race` 仍未执行（宿主与两台 VM 都没有 cgo）：采集器有一个 5 秒 ticker 与并发读写
+  快照，正确性靠互斥 + 单测，没有竞态检测器证据。长时间（小时级）运行的内存/fd 稳定性
+  同样未观测。

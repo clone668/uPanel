@@ -23,6 +23,7 @@ import (
 	"upanel/internal/auth"
 	"upanel/internal/config"
 	"upanel/internal/logging"
+	"upanel/internal/monitoring"
 	"upanel/internal/operations"
 	"upanel/internal/platform"
 	"upanel/internal/store"
@@ -257,6 +258,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// 特权代理客户端（P03.1 起预检必须由代理生成）。
 	// mock 模式不连接代理：演示数据在进程内产生，与真实代理完全隔离。
 	var preflightAgent operations.Agent
+	// 系统基础资源读取端（P04.1）。演示模式下保持 nil：接口回 503，不造假数据。
+	var monitor api.Monitor
 	if mode == platform.ModeProduction {
 		client, err := agentclient.New(cfg.Agent.SocketPath)
 		if err != nil {
@@ -265,10 +268,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		preflightAgent = client
+		fetcher, err := monitoring.NewFetcher(client, logger)
+		if err != nil {
+			logger.Error("初始化系统信息读取端失败，拒绝启动", "error", err)
+			return 1
+		}
+		monitor = fetcher
 		logger.Info("代理客户端已配置", "socket", cfg.Agent.SocketPath)
 	} else {
-		// 明确说明原因：演示模式下预检会返回 503，而不是给出一份假的计划。
-		logger.Warn("演示模式不连接特权代理，预检接口将不可用", "socket", cfg.Agent.SocketPath)
+		// 明确说明原因：演示模式下预检与系统信息会返回 503，而不是给一份假的数据。
+		logger.Warn("演示模式不连接特权代理，预检与系统信息接口将不可用",
+			"socket", cfg.Agent.SocketPath)
 	}
 	opsService, err := operations.New(db, preflightAgent, logger, operations.Options{})
 	if err != nil {
@@ -291,6 +301,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Auth:            authService,
 		Audit:           auditWriter,
 		Operations:      opsService,
+		Monitor:         monitor,
 		AllowedOrigins:  allowedOrigins,
 	})
 	if err != nil {

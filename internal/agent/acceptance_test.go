@@ -17,7 +17,10 @@ import (
 // TestProductionRegistryHasNoAcceptanceActions 断言两件事：
 // 生产登记表为空；即便将来它有了真实动作，也不会包含任何 acceptance.* 名字。
 func TestProductionRegistryHasNoAcceptanceActions(t *testing.T) {
-	prod := NewProductionRegistry()
+	prod, err := NewProductionRegistry(ProductionDeps{})
+	if err != nil {
+		t.Fatalf("构造生产登记表失败: %v", err)
+	}
 	if names := prod.ActionNames(); len(names) != 0 {
 		t.Fatalf("生产动作表应为空（第一个真实动作不在 P03 范围），实际 %v", names)
 	}

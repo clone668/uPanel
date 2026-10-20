@@ -1,0 +1,26 @@
+# 宿主交叉编译产物 sha256（GOOS=linux GOARCH=amd64 CGO_ENABLED=0，go1.27.3）
+# 版本 0.0.0-p04.1，commit 6f5e6bb，build date 2026-10-20T16:49:29Z（与二进制 -version 输出一致）
+#
+# 可复现命令（仓库根执行）。三个入口二进制逐字节可复现，前提是 BUILD_DATE 固定：
+#   LDF='-X upanel/internal/version.Version=0.0.0-p04.1 -X upanel/internal/version.Commit=6f5e6bb -X upanel/internal/version.BuildDate=2026-10-20T16:49:29Z'
+#   CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$LDF" -o dist/linux-amd64/<入口> ./cmd/<入口>
+#   CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go test -c -o dist/linux-amd64/tests/<包>.test ./internal/<包>
+#
+# 注意：测试二进制**不带** -trimpath（带它时 sha256 与 P04.1 验收期间实际使用的二进制不同）。
+# 因此测试二进制的 sha256 依赖宿主源码路径 H:\Code\uPanel：本表证明“上传到 VM 的就是这里跑过的”，
+# 不是跨机器可复现的构建配方。入口二进制带 -trimpath，不受路径影响。
+f8c47d8b5bfa2b45aa03b4d91860a1179bcb4783c81380cac20d98f3b32dd8b1 *upanel-web
+2b6d0a0694dda9c42755cf66bad329a5dc15ef8d010fb38639e99ebc6406d55c *upanel-agent
+42a763f68f81054f164b67613f41795968ba7fe6f7e93c95591c41b0b30f1a36 *upanelctl
+4a748d66a9a8e3aa4944f7f4957e7f3914db85b8e6a9368917cd6473470ef860 *tests/agent.test
+9c2e734763748697bc1a54dbc2143ae9f16e3114366ceef221df5deac6958774 *tests/agentclient.test
+f72c84ea38d6406166cbc74f54891d74379ca68cddac2de82de8e19456a831d1 *tests/agentstore.test
+d688923a5d7e23cd2301fe7d543d0377dc039c3d382d1deecebdba4593de1398 *tests/api.test
+03b15eb7bd6a27e651bc0b9e47a455dcd362fee3228e47613a6c0d0e3480bc66 *tests/monitoring.test
+ce78004a5383ab6805a220cee801b22eb294112a4dd46664b637232ff39376f0 *tests/operations.test
+3fe0d44905571e7b3dcfa83999deefaf25cd241710fbfaf5d244954727d68018 *tests/store.test
+e1ff7f0f71c8e9763c53c148ec888e78649d001599a2ff5b282b4c95ccfe6b17 *tests/syscmd.test
+
+# 两台 VM 的 /tmp/upanel-bin 上同名文件逐个 sha256 与上表 11/11 一致，原始输出见 vm-sha256-2404.txt、vm-sha256-2204.txt
+# 源码 HEAD
+6f5e6bb882dafba62ca2b1d481991544013c7247 记录 P03.4 交付去向（origin/main 与本地 HEAD 同一 sha 6db9b35）

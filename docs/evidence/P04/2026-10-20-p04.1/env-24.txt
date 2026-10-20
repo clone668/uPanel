@@ -1,0 +1,12 @@
+# VM-B upanel-2404（127.0.0.1:2222）
+Ubuntu 24.04.5 LTS
+6.8.0-147-generic
+2
+               total        used        free      shared  buff/cache   available
+Mem:      4106100736   410529792  3359121408      999424   570482688  3695570944
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+ens4             UP             10.0.2.15/24 metric 100 fec0::5054:ff:fe12:3456/64 fe80::5054:ff:fe12:3456/64 
+--go--
+go: 未安装（DECISIONS Q9）
+--python--
+Python 3.12.3

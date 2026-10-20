@@ -122,7 +122,13 @@ func New(opts Options) (*Server, error) {
 	}
 	registry := opts.Registry
 	if registry == nil {
-		registry = NewProductionRegistry()
+		// 没有显式登记表时用生产表。缺省情况下 deps 为空，于是生产表里只有
+		// “不依赖外部实现”的能力；依赖采集器的查询由调用方显式传入。
+		production, err := NewProductionRegistry(ProductionDeps{})
+		if err != nil {
+			return nil, err
+		}
+		registry = production
 	}
 
 	s := &Server{opts: opts, startedAt: time.Now().UTC(), registry: registry}

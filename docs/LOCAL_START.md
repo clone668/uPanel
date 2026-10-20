@@ -303,15 +303,38 @@ sudo BIN_DIR=/tmp/upanel-bin sh tests/integration/p03-4-reconcile-acceptance.sh 
 没有“重试”接口、启动对账在日志里留痕且日志不含口令与 CSRF。脚本用 `--max-time 60` 兜住每个
 请求，卡住的响应会超时而不是把整轮验收挂死。
 
+系统基础资源采集（P04.1）也**必须 root**（代理只能在 root 下启动，脚本还要以 `upanel-web`
+身份走 socket）：
+
+```sh
+# VM 内
+sudo BIN_DIR=/tmp/upanel-bin sh tests/integration/p04-1-system-acceptance.sh   # 72 项断言
+```
+
+它验证：`capabilities` 如实报告 `system.summary`（写动作表仍为空）；采集出来的数**和同一台机器上的
+`/proc` 逐项对得上**（内存总量按字节精确比对、`MemAvailable` 按 ±64 MiB 同量级比对、逻辑核数与
+`nproc`、`boot_id`、发行版 `ID`、`uname -r`、开机时长、负载、`ens4` 计数器落在“睡满一个间隔”
+前后两次 `/proc/net/dev` 读取之间）；`interval_ms=5000`、`collected_at` 是最近 5 秒内的时间戳、
+`stale=false`，隔一个间隔再查时间戳**前进**；第二份快照给出 0—100 的使用率、非 null 的非负速率、
+`sample_window_ms` 落在一个间隔量级、按核使用率数量与逻辑核一致；`system.summary` **拒绝任何参数**
+（包括伪装的 `command` 字段）与未登记查询、`GET` 405；Web 端未登录 401、viewer 也能读、
+数值与代理一致；**代理停机时登录仍然成功**而 `/api/v1/system/summary` 返回 503
+`AGENT_UNAVAILABLE`，代理恢复后自动回到 200；日志里没有 shell 命令痕迹与私钥。
+
 完整回归用一条命令跑完（**按脚本头声明的身份调度**，跑前清理残留进程与 `/run/upanel`）：
 
 ```sh
 # VM 内（upanel 用户即可，root 也行）
 BIN_DIR=/tmp/upanel-bin sh tests/integration/run-all.sh
 BIN_DIR=/tmp/upanel-bin sh tests/integration/run-all.sh p03-3-events    # 只跑指定几个
-sudo BIN_DIR=/tmp/upanel-bin sh tests/run-native-tests.sh               # VM 内核上的 Go 测试二进制
+sudo BIN_DIR=/tmp/upanel-bin sh scripts/run-native-tests.sh             # VM 内核上的 Go 测试二进制
 LOG_DIR=/var/tmp/my-logs BIN_DIR=/tmp/upanel-bin sh tests/integration/run-all.sh   # 换日志目录
 ```
+
+> `run-native-tests.sh` 会把 `tests/fixtures/` 拷到 `BIN_DIR/fixtures` 并设好 `UPANEL_FIXTURES`：
+> 解析器用例读的是**真实采集样本**（`stat-cpu-2404.txt` 等），测试二进制在 `/tmp` 下跑，
+> `../../tests/fixtures` 在那里没有意义。找不到夹具时脚本会打印警告、用例会**失败**（不是跳过），
+> 因为“没读到夹具的解析器测试”等于没测。
 
 > 逐脚本日志默认写到 `/var/tmp/upanel-logs/`（目录由脚本自己创建并 `chmod 0777`，可用 `LOG_DIR`
 > 覆盖），**不再写 `/tmp/upanel-accept-<name>.log`**：`/tmp` 有粘滞位，上一次以 root 建的同名
@@ -320,7 +343,7 @@ LOG_DIR=/var/tmp/my-logs BIN_DIR=/tmp/upanel-bin sh tests/integration/run-all.sh
 
 > 身份不要凭感觉给：`p01-1`/`p01-2`/`p01-4`/`p02-1`/`p02-2` 必须以**非 root** 运行
 > （脚本自己用 sudo 做特权部分，并断言 Web 不以 root 跑、库文件属主是运行者），
-> `p02-3`/`p02-4`/`p03-1`/`p03-2`/`p03-3`/`p03-4` 必须以 **root** 运行（代理只能在 root 下启动）。
+> `p02-3`/`p02-4`/`p03-1`/`p03-2`/`p03-3`/`p03-4`/`p04-1` 必须以 **root** 运行（代理只能在 root 下启动）。
 > 用 root 跑 `p01-2` 不会报“身份错”，而是会在“数据库目录不可写必须拒绝启动”那条上一直等
 > ——root 绕过目录权限，进程永远不退（DECISIONS Q71）。
 

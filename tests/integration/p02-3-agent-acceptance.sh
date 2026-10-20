@@ -16,7 +16,7 @@
 #   1. 代理以 root 通过 systemd 启动；socket 为 root:upanel-web 0660，/run/upanel 为 root:root 0755
 #      （目录可穿越、不可写：Web 账号要能走到 socket，但不能在里面新建或替换文件）
 #   2. 普通接口只允许 upanel-web（Web 账号）；root 与其他 UID 一律 403 FORBIDDEN
-#   3. capabilities 如实报告空动作表与空查询表，不编造能力
+#   3. capabilities 如实报告能力：写动作表为空，查询表恰好是已登记的那几项，不多报
 #   4. 未登记 query、命令字符串字段、未知字段、超长请求体、非 POST 一律拒绝
 #   5. 未知路径 404（Web）与 403（root）：代理没有“万能转发”
 #   6. 启动期拒绝：非 root、账号不存在、配置里写数字 UID、socket 路径被普通文件占据
@@ -267,7 +267,9 @@ call web GET /internal/v1/capabilities
 expect_eq "capabilities-web-200" "200" "$CODE"
 expect_eq "capabilities-mode-production" "production" "$(jget "$RESP" 'd["data"]["mode"]')"
 expect_eq "capabilities-actions-empty" "[]" "$(jget "$RESP" 'd["data"]["supported_actions"]')"
-expect_eq "capabilities-queries-empty" "[]" "$(jget "$RESP" 'd["data"]["supported_queries"]')"
+# 查询表从 P04.1 起有 system.summary 一项。这里断言**完全等于**这一项：
+# 少报是隐藏能力，多报是编造能力，两种都算失败。
+expect_eq "capabilities-queries-exact" "['system.summary']" "$(jget "$RESP" 'd["data"]["supported_queries"]')"
 CAPS_BODY=$(cat "$RESP" 2>/dev/null)
 
 call root GET /internal/v1/capabilities
@@ -286,10 +288,15 @@ expect_eq "outsider-cannot-connect" "000" "$CODE"
 
 echo
 echo "== 4. 结构化只读查询：只认登记过的名字与字段"
-call web POST /internal/v1/queries '{"query":"system.summary"}'
+call web POST /internal/v1/queries '{"query":"system.nonexistent"}'
 expect_eq "unknown-query-400" "400" "$CODE"
 expect_eq "unknown-query-code" "VALIDATION_ERROR" "$(jget "$RESP" 'd["error"]["code"]')"
 expect_contains "unknown-query-message" "未登记" "$(cat "$RESP" 2>/dev/null)"
+# system.summary 从 P04.1 起是登记过的查询：它必须返回 200，但**仍然不接受任何参数**
+# （下面三条把它当成“已登记但拒绝夹带”的样本，比原来用未登记名字更严格）。
+call web POST /internal/v1/queries '{"query":"system.summary"}'
+expect_eq "registered-query-200" "200" "$CODE"
+expect_eq "registered-query-has-data" "True" "$(jget "$RESP" 'bool(d.get("data"))')"
 
 call web POST /internal/v1/queries '{"query":"command","params":{"command":"id"}}'
 expect_eq "command-query-rejected-400" "400" "$CODE"

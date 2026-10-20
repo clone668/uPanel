@@ -67,6 +67,12 @@ func (s *Server) routes() *gin.Engine {
 		users.POST("/:id/password", s.requireCSRF(), s.requireReauth(), s.handleSetUserPassword)
 		users.DELETE("/:id", s.requireCSRF(), s.requireReauth(), s.handleDeleteUser)
 
+		// 系统只读信息（P04.1）：权限 V，任何已登录用户都能看系统概况。
+		// 采集与缓存都在代理侧，这里只透传最近一次快照，不叠加第二层缓存。
+		system := v1.Group("/system")
+		system.Use(s.requireSession())
+		system.GET("/summary", s.handleSystemSummary)
+
 		// 系统写操作的统一入口（P03.1）：先预检，再由 POST /jobs 创建任务（P03.2）。
 		// 预检只读不写系统；再认证在**提交任务**时校验（按动作登记策略），不在预检阶段。
 		ops := v1.Group("/operations", s.auditRoute(audit.ActionOperationPreflight))
