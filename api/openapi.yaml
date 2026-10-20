@@ -23,7 +23,7 @@ info:
     name: Proprietary
     identifier: LicenseRef-Proprietary
 x-upanel-contract-status:
-  stage: P03.2
+  stage: P03.3
   implemented_paths:
     - get /api/v1/health/live
     - head /api/v1/health/live
@@ -41,6 +41,8 @@ x-upanel-contract-status:
     - get /api/v1/jobs
     - get /api/v1/jobs/{id}
     - post /api/v1/jobs/{id}/cancel
+    - get /api/v1/jobs/{id}/events
+    - get /api/v1/jobs/{id}/logs
   note: 只列出已实现并通过验收的接口；未实现模块不出现在 paths 中。
 servers:
   - url: https://127.0.0.1:9443/api/v1
@@ -893,6 +895,160 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/v1/jobs/{id}/events:
+    get:
+      operationId: getJobEvents
+      summary: 任务事件流（SSE，仅 admin）
+      description: |
+        任务的实时事件流（CONTRACTS.md 4.3）。这是 GET，靠会话 Cookie + 同源 Origin 校验，
+        不要求 X-CSRF-Token（EventSource 无法自定义请求头）。
+
+        帧格式：`id: <seq>`、`event: status|progress|log|gap`、`data: {seq,kind,payload,created_at}`。
+        `id` 是任务内持久递增的 seq，客户端重连时浏览器会带 `Last-Event-ID`，
+        服务端从该位置续发（也接受查询参数 `last_event_id` 便于验收脚本）。
+        每 15 秒发送一行注释心跳（`: keepalive`），避免中间设备掐掉空闲连接。
+
+        重连**不会**重新执行任务：任务的实际推进只由代理完成，事件流是只读视图。
+        历史被容量上限回收后，服务端先发一帧 `gap`（payload.reason=history_pruned），
+        客户端应重新拉取 GET /jobs/{id} 与第一页日志，而不是假设“没有新事件”。
+
+        每个账号同时最多 4 条流；超出返回 429，避免慢客户端吃满文件描述符。
+        慢客户端会被写超时断开，客户端随后按 Last-Event-ID 重连。
+      tags: [operations]
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+        - name: Last-Event-ID
+          in: header
+          required: false
+          schema:
+            type: string
+            pattern: '^[0-9]+$'
+          description: 已收到的最后一个事件 seq；缺省表示从头补发。
+        - name: last_event_id
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^[0-9]+$'
+          description: 与 Last-Event-ID 等价，仅用于调试与验收脚本。
+      responses:
+        '200':
+          description: |
+            text/event-stream。首帧是 `: connected` 注释，随后按 seq 升序推送事件。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum: ['no-store']
+            X-Accel-Buffering:
+              schema:
+                type: string
+                enum: ['no']
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              example: |
+                : connected
+
+                id: 7
+                event: progress
+                data: {"seq":7,"kind":"progress","payload":{"step":"ping_done"}}
+
+                id: 8
+                event: status
+                data: {"seq":8,"kind":"status","payload":{"status":"succeeded"}}
+
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: 任务不存在或不属于当前账号（NOT_FOUND）。归属校验在写响应头之前完成，
+            因此客户端拿到的是 JSON 错误，而不是一条 200 的空流。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: 同一账号打开的事件流过多（VALIDATION_ERROR，HTTP 429）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/jobs/{id}/logs:
+    get:
+      operationId: getJobLogs
+      summary: 任务脱敏日志分页（仅 admin）
+      description: |
+        读取任务的日志行（CONTRACTS.md 4.3）。只返回 kind=log 的事件，按 seq 升序。
+
+        游标是不透明字符串：把上一页返回的 `next_cursor` 原样带回来即可。
+        非法游标返回 400，而不是悄悄从头开始（那会让“加载更多”变成无限循环）。
+
+        每个任务最多保留最近 1000 行日志（环形回收：超出时删最旧的日志行，
+        状态与进度事件永不删除），因此历史可能在长期任务里被裁掉——
+        此时事件流会给 gap，日志里也只剩最近的部分。
+      tags: [operations]
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 128
+          description: 上一页返回的 next_cursor；缺省从第一页开始。
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 100
+      responses:
+        '200':
+          description: 一页日志。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/JobLogsData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: 任务不存在或不属于当前账号（NOT_FOUND）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
 components:
   securitySchemes:
     upanelSession:
@@ -1586,6 +1742,45 @@ components:
           items:
             $ref: '#/components/schemas/Job'
           description: 按 created_at 倒序；最多 limit 条（默认 50，最大 200）。
+
+    JobEvent:
+      type: object
+      additionalProperties: false
+      description: |
+        一条任务事件。seq 在任务内持久递增，既是 SSE 的 id，也是日志分页的锚点。
+        payload 里的内容按 kind 不同：
+        status → {status, step, from}（Web 写入）或代理侧事件的包装 {agent_seq, agent_kind, payload}；
+        progress → 代理的进度载荷；log → 一行脱敏日志；gap → {reason, min_seq, max_seq}。
+        客户端不得依赖 payload 的深层结构做状态判断：状态以 GET /jobs/{id} 为准。
+      required: [seq, kind, payload, created_at]
+      properties:
+        seq:
+          type: integer
+          minimum: 0
+          description: gap 帧的 seq 固定为 0（它不是持久事件，只是提示）。
+        kind:
+          type: string
+          enum: [status, progress, log, gap]
+        payload:
+          type: object
+          additionalProperties: true
+        created_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
+    JobLogsData:
+      type: object
+      additionalProperties: false
+      required: [logs]
+      properties:
+        logs:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobEvent'
+          description: 只含 kind=log 的事件，按 seq 升序。
+        next_cursor:
+          type: [string, 'null']
+          maxLength: 128
+          description: 下一页游标；null 表示没有更多。
 
   responses:
     BadRequest:

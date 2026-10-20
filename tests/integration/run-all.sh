@@ -1,0 +1,134 @@
+#!/bin/sh
+# 在 Ubuntu 验收 VM 内按正确身份依次跑完所有验收脚本。
+#
+# 为什么需要它：这些脚本对运行身份的要求不同，跑错身份不会报“身份错”，
+# 而是会得到看似通过或诡异挂起的结果——
+#   * p01-1 / p01-2 / p01-4 / p02-1 / p02-2：**非 root**（脚本自己用 sudo 做特权部分，
+#     并会断言“Web 不以 root 运行”“数据库文件属主是运行者”）；
+#   * p02-3 / p02-4 / p03-1 / p03-2 / p03-3：**root**（代理只能在 root 下启动）。
+# 典型事故：用 `sudo sh p01-2-acceptance.sh` 跑 p01-2，root 绕过目录权限，
+# “数据库目录不可写即拒绝启动”那条永远等不到退出，脚本会一直挂着。
+#
+# 用法（VM 内）：
+#   BIN_DIR=/tmp/upanel-bin sh run-all.sh            # root 或能 sudo 的 upanel 用户都行
+#   BIN_DIR=/tmp/upanel-bin sh run-all.sh p03-3-events p03-2-jobs   # 只跑指定几个
+#
+# 退出码：0 全部通过；1 有失败项；2 环境不满足。
+set -u
+
+BIN_DIR="${BIN_DIR:-/tmp/upanel-bin}"
+SRC_DIR="${SRC_DIR:-$(cd "$(dirname "$0")" && pwd)}"
+DB_ROOT_BASE=/var/tmp
+
+# p01-4 需要一份 deploy/ 目录（systemd 单元模板）；仓库里自带，按上传位置推导。
+# 推导不到就交给脚本自己报“缺少 unit 文件”，不假装通过。
+DEPLOY_GUESS="$(cd "$SRC_DIR/../.." 2>/dev/null && pwd)/deploy"
+if [ -z "${DEPLOY_DIR:-}" ] && [ -d "$DEPLOY_GUESS" ]; then
+    DEPLOY_DIR="$DEPLOY_GUESS"
+fi
+export DEPLOY_DIR="${DEPLOY_DIR:-}"
+if [ -n "$DEPLOY_DIR" ] && [ ! -d "$DEPLOY_DIR/systemd" ]; then
+    # 目录结构不对（例如 scp -r 把 deploy/ 塞进了已存在的 deploy/，变成 deploy/deploy），
+    # 直接说清楚，别让 p01-4 以七条“单元文件不存在”的形式报出来。
+    echo "DEPLOY_DIR=$DEPLOY_DIR 下没有 systemd/，systemd 相关断言不可能通过" >&2
+    echo "检查上传结构：$DEPLOY_DIR 应当直接包含 systemd/ 与两个配置样例" >&2
+    exit 2
+fi
+
+NONROOT_SCRIPTS="p01-1-acceptance p01-2-acceptance p01-4-acceptance p02-1-acceptance p02-2-acceptance"
+ROOT_SCRIPTS="p02-3-agent-acceptance p02-4-agent-secrets-acceptance p03-1-preflight-acceptance p03-2-jobs-acceptance p03-3-events-acceptance"
+
+if [ $# -gt 0 ]; then
+    SELECTED="$*"
+else
+    SELECTED="$NONROOT_SCRIPTS $ROOT_SCRIPTS"
+fi
+
+SUDO=""
+if [ "$(id -u)" -ne 0 ]; then
+    SUDO="sudo"
+fi
+
+# 二进制先过一遍：三个入口缺一个或没有执行位，后面的脚本会以几十条“功能失败”的形式
+# 报出来（p02-1 曾在 root 下刷出 45 条失败），看起来像产品坏了，其实是没传好文件。
+MISSING=""
+for bin in upanel-agent upanel-web upanelctl; do
+    [ -x "$BIN_DIR/$bin" ] || MISSING="$MISSING $bin"
+done
+if [ -n "$MISSING" ]; then
+    echo "缺少可执行文件（$BIN_DIR）:$MISSING" >&2
+    echo "先上传二进制并 chmod 0755（注意 upanelctl 结尾没有连字符，别用 upanel-* 通配）" >&2
+    exit 2
+fi
+
+# 需要时把命令降到非特权用户执行：优先用盘上真实存在的 upanel 账号。
+if [ "$(id -u)" -eq 0 ]; then
+    RUN_USER=${RUN_USER:-upanel}
+    if ! id -u "$RUN_USER" >/dev/null 2>&1; then
+        echo "找不到非特权账号 $RUN_USER，无法运行非 root 验收脚本" >&2
+        exit 2
+    fi
+    RUN_UID=$(id -u "$RUN_USER")
+    RUN_GID=$(id -g "$RUN_USER")
+fi
+
+run_nonroot() {
+    if [ "$(id -u)" -eq 0 ]; then
+        setpriv --reuid="$RUN_UID" --regid="$RUN_GID" --clear-groups \
+            env BIN_DIR="$BIN_DIR" DEPLOY_DIR="$DEPLOY_DIR" sh "$SRC_DIR/$1.sh"
+    else
+        env BIN_DIR="$BIN_DIR" DEPLOY_DIR="$DEPLOY_DIR" sh "$SRC_DIR/$1.sh"
+    fi
+}
+
+run_root() {
+    $SUDO env BIN_DIR="$BIN_DIR" DEPLOY_DIR="$DEPLOY_DIR" sh "$SRC_DIR/$1.sh"
+}
+
+TOTAL_FAILED=0
+TOTAL_RAN=0
+SUMMARY=""
+
+# 全部从干净状态开始：残留进程会占住 18881 端口或重造 socket，
+# 上一次运行留下的数据库/配置也不该参与本次断言。
+$SUDO pkill -f "upanel-agent --config" 2>/dev/null
+$SUDO pkill -f "upanel-web --config" 2>/dev/null
+sleep 1
+$SUDO rm -rf /run/upanel 2>/dev/null
+$SUDO rm -rf "$DB_ROOT_BASE"/upanel-accept-* 2>/dev/null
+
+for name in $SELECTED; do
+    script="$SRC_DIR/$name.sh"
+    if [ ! -f "$script" ]; then
+        echo "缺少脚本: $script" >&2
+        TOTAL_FAILED=$((TOTAL_FAILED + 1))
+        SUMMARY="$SUMMARY\n  $name: 缺失"
+        continue
+    fi
+    case " $NONROOT_SCRIPTS " in
+        *" $name "*) identity="非 root" ;;
+        *) identity="root" ;;
+    esac
+
+    echo "== $name（$identity）"
+    if [ "$identity" = "root" ]; then
+        run_root "$name" > "/tmp/upanel-accept-$name.log" 2>&1
+    else
+        run_nonroot "$name" > "/tmp/upanel-accept-$name.log" 2>&1
+    fi
+    rc=$?
+    TOTAL_RAN=$((TOTAL_RAN + 1))
+    tail -3 "/tmp/upanel-accept-$name.log"
+    if [ "$rc" -ne 0 ]; then
+        TOTAL_FAILED=$((TOTAL_FAILED + 1))
+        SUMMARY="$SUMMARY\n  $name: exit=$rc（日志 /tmp/upanel-accept-$name.log）"
+    fi
+    echo
+done
+
+echo "== 汇总 =="
+printf '运行脚本数: %s\n' "$TOTAL_RAN"
+printf '失败脚本数: %s\n' "$TOTAL_FAILED"
+[ -z "$SUMMARY" ] || printf '%b\n' "$SUMMARY"
+[ "$TOTAL_FAILED" -eq 0 ] || exit 1
+exit 0

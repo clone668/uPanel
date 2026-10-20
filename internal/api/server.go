@@ -69,6 +69,8 @@ type Server struct {
 	engine         *gin.Engine
 	http           *http.Server
 	allowedOrigins *httpx.OriginSet
+	// streams 限制单个用户同时打开的事件流数量（P03.3）。
+	streams *streamLimiter
 }
 
 // healthLive 是 GET /api/v1/health/live 的响应体。
@@ -111,7 +113,12 @@ func New(opts Options) (*Server, error) {
 		return nil, errors.New("api: AllowedOrigins 不能为空")
 	}
 
-	s := &Server{opts: opts, startedAt: time.Now().UTC(), allowedOrigins: origins}
+	s := &Server{
+		opts:           opts,
+		startedAt:      time.Now().UTC(),
+		allowedOrigins: origins,
+		streams:        newStreamLimiter(),
+	}
 	s.engine = s.routes()
 	s.http = &http.Server{
 		Handler:           s.engine,

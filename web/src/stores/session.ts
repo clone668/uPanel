@@ -1,0 +1,108 @@
+// 会话状态（Pinia）。
+//
+// 三条规则，来自 CONTRACTS.md 第 2 节：
+//   1. Cookie 由服务端下发（HttpOnly/Secure/SameSite=Strict），前端**读不到也写不了**；
+//   2. CSRF 令牌只存内存，页面刷新后靠 GET /auth/session 重新取回；
+//   3. 未登录的页面统一跳登录页，不渲染“空数据”假装已登录。
+//
+// 页面只问这里要 user / csrfToken / 是否 admin，不自己发 /auth/session。
+
+import { computed, ref } from 'vue'
+import { defineStore } from 'pinia'
+
+import {
+  fetchSession,
+  login as loginRequest,
+  logout as logoutRequest,
+  type Role,
+  type SessionUser,
+} from '@/api/auth'
+import { ApiError, setCsrfTokenProvider } from '@/api/client'
+
+export type SessionStatus = 'unknown' | 'anonymous' | 'authenticated'
+
+export const useSessionStore = defineStore('session', () => {
+  const user = ref<SessionUser | null>(null)
+  const csrfToken = ref<string | null>(null)
+  const expiresAt = ref<string | null>(null)
+  const reauthExpiresAt = ref<string | null>(null)
+  const status = ref<SessionStatus>('unknown')
+
+  const isAuthenticated = computed(() => status.value === 'authenticated')
+  const role = computed<Role | null>(() => user.value?.role ?? null)
+  const isAdmin = computed(() => role.value === 'admin')
+
+  function applySession(data: {
+    user: SessionUser
+    csrf_token: string
+    expires_at: string
+    reauth_expires_at?: string | null
+  }): void {
+    user.value = data.user
+    csrfToken.value = data.csrf_token
+    expiresAt.value = data.expires_at
+    reauthExpiresAt.value = data.reauth_expires_at ?? null
+    status.value = 'authenticated'
+  }
+
+  function clear(): void {
+    user.value = null
+    csrfToken.value = null
+    expiresAt.value = null
+    reauthExpiresAt.value = null
+    status.value = 'anonymous'
+  }
+
+  /**
+   * 恢复会话：刷新页面后第一次调用。
+   *
+   * 401 是**正常结果**（就是没登录），不是错误；其他错误照常抛出，
+   * 避免把“服务连不上”显示成“请登录”而让人反复输密码。
+   */
+  async function restore(): Promise<void> {
+    try {
+      const result = await fetchSession()
+      applySession(result.data)
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.code === 'UNAUTHENTICATED') {
+        clear()
+        return
+      }
+      status.value = 'anonymous'
+      throw caught
+    }
+  }
+
+  /** 登录。失败时保持未登录状态，由页面展示错误。 */
+  async function signIn(username: string, password: string): Promise<void> {
+    const result = await loginRequest(username, password)
+    applySession(result.data)
+  }
+
+  /** 退出。即使服务端调用失败也清空本地状态：不能让人“以为已经退出”。 */
+  async function signOut(): Promise<void> {
+    try {
+      await logoutRequest()
+    } finally {
+      clear()
+    }
+  }
+
+  // 统一 API 客户端从这里取 CSRF 令牌（不落 localStorage）。
+  setCsrfTokenProvider(() => csrfToken.value)
+
+  return {
+    user,
+    csrfToken,
+    expiresAt,
+    reauthExpiresAt,
+    status,
+    isAuthenticated,
+    role,
+    isAdmin,
+    restore,
+    signIn,
+    signOut,
+    clear,
+  }
+})

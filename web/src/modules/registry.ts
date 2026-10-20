@@ -64,8 +64,8 @@ export const MODULES: readonly ModuleDef[] = [
     key: 'jobs',
     label: '任务中心',
     path: '/jobs',
-    implementedIn: null,
-    summary: '后台任务与审计关联',
+    implementedIn: 'P03.3',
+    summary: '任务列表、状态机、事件流与脱敏日志',
   },
   { key: 'settings', label: '设置', path: '/settings', implementedIn: null, summary: '面板设置' },
 ] as const

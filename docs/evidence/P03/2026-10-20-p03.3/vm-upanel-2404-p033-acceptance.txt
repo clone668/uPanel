@@ -1,0 +1,101 @@
+== 0. 环境
+PASS  验收脚本以 root 运行
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  python3 可用于查库与解析帧
+PASS  Web 账号 upanel-web 存在
+
+== 1. 启动代理与 Web ==
+PASS  -init-key 生成代理密钥
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  init-admin 退出码
+PASS  管理员 user_id=1
+PASS  Web 以 upanel-web 身份在 http://127.0.0.1:19445 启动
+PASS  Web 进程以 upanel-web 运行
+PASS  没有以 root 运行的 Web 进程
+PASS  管理员登录 200
+PASS  密码再认证 200
+
+== 2. 提交一个 probe 任务，事件由代理产生 ==
+PASS  probe 预检 200
+PASS  probe 提交 202
+PASS  创建结果含 job_id=job_0ced6d445fa0178bb348be0dc90b6521
+PASS  events_url 指向事件流
+PASS  probe 任务到达 succeeded
+
+== 3. 事件流：帧格式、镜像来源、seq 递增 ==
+PASS  响应是 text/event-stream
+PASS  事件流禁用缓存
+PASS  关闭反向代理缓冲
+PASS  首帧是注释（客户端据此确认流已建立）
+PASS  首帧不是业务事件
+PASS  帧里带持久递增的 id
+PASS  id 严格递增（客户端据此续传）
+PASS  事件类型里有 status
+PASS  事件里有代理产生的事件（镜像而非自造）
+PASS  代理事件保留 agent_seq 以便追溯
+PASS  data 是带 seq 的 JSON
+PASS  data 声明 kind
+
+== 4. 断线重连：不重发、不重跑 ==
+PASS  带 Last-Event-ID 重连不重发已看过的事件
+PASS  重连不触发新的执行
+PASS  重连后的流里没有终态回放
+
+== 5. 输入校验与权限 ==
+PASS  非法 Last-Event-ID → 400
+PASS  非法 Last-Event-ID 的错误码
+PASS  未登录打开事件流 → 401
+PASS  创建 viewer 账号 201
+PASS  viewer 登录 200
+PASS  viewer 打开事件流 → 403
+PASS  viewer 事件流的错误码
+PASS  viewer 读日志 → 403
+PASS  viewer 读别人的任务 → 404（归属隔离）
+PASS  viewer 读任务列表 200（接口对 viewer 开放）
+PASS  viewer 的列表里没有别人的任务
+
+== 6. 日志分页 ==
+PASS  以 upanel-web 身份可写入日志行
+PASS  日志第一页 200
+PASS  limit=2 返回 2 行
+PASS  还有下一页时返回 next_cursor
+PASS  日志条目 kind=log
+PASS  日志第二页 200
+PASS  续页 seq 大于上一页（不重复、不跳过）
+PASS  非法游标 → 400
+PASS  limit=0 → 400
+PASS  limit=201 → 400
+
+== 7. 历史被清理后重连：先发 gap ==
+PASS  历史缺失时发 gap 帧
+PASS  gap 说明历史已被清理
+
+== 8. 只追加：状态事件不可删、日志可按容量回收、终态不可回退 ==
+PASS  状态事件不能删除（触发器生效）
+PASS  事件改写被拒绝（只追加）
+PASS  日志行可按容量回收（迁移 0006）
+PASS  终态不能回到 running（触发器生效）
+
+== 9. 并发连接上限 ==
+PASS  第 5 条事件流 → 429
+PASS  关闭旧流后名额释放（可再次建立）
+
+== 10. 关闭事件流不影响任务执行 ==
+PASS  ping 预检 200
+PASS  ping 提交 202
+PASS  关闭事件流后任务仍执行到底（succeeded）
+
+== 11. 取消与状态机 ==
+PASS  已进入终态的动作取消 → 409（不假装成功）
+PASS  不可取消的动作取消 → 409
+
+== 12. 日志文件检查 ==
+PASS  Web 日志没有把 CSRF 令牌写进去
+PASS  Web 日志没有把密码写进去
+PASS  代理日志没有把密码写进去
+
+通过 73 项，失败 0 项
+P03.3 验收全部通过

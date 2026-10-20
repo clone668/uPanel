@@ -1,0 +1,10 @@
+$ sudo BIN_DIR=/tmp/upanel-bin sh /tmp/upanel-src/tests/run-native-tests.sh
+== agentstore rc=0 PASS=72 FAIL=0
+== agent rc=0 PASS=101 FAIL=0
+== agentclient rc=0 PASS=24 FAIL=0
+== operations rc=0 PASS=46 FAIL=0
+== syscmd rc=0 PASS=9 FAIL=0
+== store rc=0 PASS=11 FAIL=0
+== api rc=0 PASS=83 FAIL=0
+TOTAL PASS=346 FAIL=0
+exit=0

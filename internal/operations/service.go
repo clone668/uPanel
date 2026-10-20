@@ -68,6 +68,11 @@ type Agent interface {
 	GetOperation(ctx context.Context, operationID string) (agentclient.Operation, error)
 	// CancelOperation 请求安全取消；动作是否可取消由代理的策略决定。
 	CancelOperation(ctx context.Context, operationID string) (agentclient.Operation, error)
+	// OperationEvents 读回代理侧事件流水（P03.3），用于镜像进 job_events。
+	//
+	// 它和 GetOperation 一样会把“连不上代理”与“代理说没有这条操作”分成两类错误：
+	// 前者不能让任务被标成完成，后者不能让任务被标成失败后又重发。
+	OperationEvents(ctx context.Context, operationID string) ([]agentclient.OperationEvent, error)
 }
 
 // Options 是构造 Service 的可选参数。

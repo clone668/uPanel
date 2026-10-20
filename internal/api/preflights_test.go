@@ -32,9 +32,14 @@ type stubAgent struct {
 	cancelOp  agentclient.Operation
 	cancelErr error
 
+	// P03.3：代理侧事件流水（镜像进 job_events 的那一份）。
+	events    []agentclient.OperationEvent
+	eventsErr error
+
 	opCalls     []agentclient.OperationInput
 	getCalls    []string
 	cancelCalls []string
+	eventCalls  []string
 }
 
 func (s *stubAgent) CreatePreflight(_ context.Context, in agentclient.PreflightInput) (agentclient.PreflightPlan, error) {
@@ -67,6 +72,14 @@ func (s *stubAgent) CancelOperation(_ context.Context, operationID string) (agen
 		return agentclient.Operation{}, s.cancelErr
 	}
 	return s.cancelOp, nil
+}
+
+func (s *stubAgent) OperationEvents(_ context.Context, operationID string) ([]agentclient.OperationEvent, error) {
+	s.eventCalls = append(s.eventCalls, operationID)
+	if s.eventsErr != nil {
+		return nil, s.eventsErr
+	}
+	return s.events, nil
 }
 
 // stubPlan 返回一份完整的代理侧计划。

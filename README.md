@@ -2,7 +2,7 @@
 
 uPanel 是面向单台 Ubuntu 服务器的 Web 管理面板，覆盖系统、磁盘、共享和 Web 应用管理。
 
-本目录当前处于 **P00、P01、P02 已通过、P03 进行中（P03.1、P03.2 已通过；P03.3—P03.4 未开始）** 的状态：Go 侧已有最小可运行骨架
+本目录当前处于 **P00、P01、P02 已通过、P03 进行中（P03.1—P03.3 已通过；P03.4 未开始）** 的状态：Go 侧已有最小可运行骨架
 ——两个服务入口（`upanel-web` 非 root / `upanel-agent` root 仅 Unix socket）加一个 CLI
 （`upanelctl`），带严格 JSON 配置、结构化日志、版本信息、`/api/v1/health/live` 与代理
 `capabilities`，Linux 与 mock 实现分离；持久层已有 SQLite（WAL / foreign_keys / busy_timeout
@@ -56,8 +56,20 @@ Web 掉线都不影响任务；资源锁按锁名排序获取避免死锁，30 �
 跑 169 个用例 0 FAIL；宿主 `check.sh` PASS 12 / FAIL 0 / NOT RUN 0）。** 验收抓到两个宿主测试没抓到的
 真缺陷并已修复：`CONFIRMATION_MISMATCH` 曾错映射成 409（契约要求 400，DECISIONS Q64）；
 SQLite WAL 下 DEFERRED 事务升级失败不排队导致偶发 `SQLITE_BUSY`，改用 `_txlock=immediate`
-并加了能拦住回归的测试（DECISIONS Q65）。**P03.3 才开始做事件推流**——现在 `events_url`
-还是个不可用的地址。
+并加了能拦住回归的测试（DECISIONS Q65）。
+**P03.3 让任务“看得见”**：`GET /api/v1/jobs/{id}/events` 是真正的 SSE 流（`id:`/`event:`/`data:`
+三行帧，首帧 `: connected`，每 15 秒一帧 `: keepalive`，每次写前设写超时而不是全局 `WriteTimeout`），
+支持 `Last-Event-ID` 断线续传；客户端要的位置已经被日志环裁掉时先发 `event: gap`（`seq` 为 0、
+不带 id 行，所以不会把水位往回推），前端收到就整体重读而不是猜补。事件的唯一生产者仍是代理，
+Web 按 `jobs.agent_event_seq` 水位把代理事件镜像进 `job_events`，**先写事件再写状态**，
+客户端不会先看到 `succeeded` 再等 `finished`。日志有容量上限（每任务最近 1000 行，只允许删
+`kind='log'`，状态类事件一条不删，DECISIONS Q68），并有 `GET /jobs/{id}/logs` 分页。
+前端补上任务中心（列表/详情/状态机/取消/日志尾部/结果 JSON）与**最小登录页 + 路由守卫**——
+后者是范围补充：任务中心只有 admin 能用，而 P02.1 只有登录接口没有登录界面（DECISIONS Q72）。
+`progress_percent` 是 `NULL` 就显示“未上报”，`cancellation_requested` 仍不等于 `canceled`。
+**本轮还修了一个只在 VM 上偶发的真缺陷**：代理把“阶段变更”和“对应事件”分成两笔写，
+读方可能看到终态却读不到终态事件；已改为同一事务，并用注入事件写失败的测试证明终态会跟着回滚
+（DECISIONS Q67）。
 **仍无系统数据采集与任何写操作**：代理的生产登记表为空（验收动作只在 `-acceptance-actions` 下存在），
 磁盘/服务/文件与所有写路径还在 P03 之后的阶段。Ubuntu 22.04/24.04 验收 VM 上骨架、持久层、
 打包形态、认证链路、账号管理、代理边界、秘密存储与预检绑定均有实跑证据

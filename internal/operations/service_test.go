@@ -39,9 +39,14 @@ type fakeAgent struct {
 	cancelOp  agentclient.Operation
 	cancelErr error
 
+	// P03.3：代理侧事件流水。events 按调用顺序整体返回（不分页，代理接口本来就不分页）。
+	events    []agentclient.OperationEvent
+	eventsErr error
+
 	opCalls     []agentclient.OperationInput
 	getCalls    []string
 	cancelCalls []string
+	eventCalls  []string
 }
 
 func (f *fakeAgent) CreatePreflight(_ context.Context, in agentclient.PreflightInput) (agentclient.PreflightPlan, error) {
@@ -74,6 +79,14 @@ func (f *fakeAgent) CancelOperation(_ context.Context, operationID string) (agen
 		return agentclient.Operation{}, f.cancelErr
 	}
 	return f.cancelOp, nil
+}
+
+func (f *fakeAgent) OperationEvents(_ context.Context, operationID string) ([]agentclient.OperationEvent, error) {
+	f.eventCalls = append(f.eventCalls, operationID)
+	if f.eventsErr != nil {
+		return nil, f.eventsErr
+	}
+	return f.events, nil
 }
 
 // newTestService 构造跑在临时目录真实数据库上的预检服务。

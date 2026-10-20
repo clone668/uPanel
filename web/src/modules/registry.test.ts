@@ -33,16 +33,21 @@ describe('模块清单', () => {
     expect(new Set(MODULES.map((m) => m.path)).size).toBe(MODULES.length)
   })
 
-  it('未实现模块不出现在导航里', () => {
+  it('导航只包含已实现的模块（当前：概览、任务中心）', () => {
     const visible = visibleModules()
-    expect(visible.map((m) => m.key)).toEqual(['overview'])
+    // 这份清单每实现一个模块就多一项：它是“界面上现在有什么”的唯一凭证。
+    expect(visible.map((m) => m.key)).toEqual(['overview', 'jobs'])
     expect(visible.every((m) => m.implementedIn !== null)).toBe(true)
   })
 
-  it('未标记实现的模块也没有被偷偷登记阶段', () => {
+  it('已实现模块标注的阶段号形如 P03.3，未实现模块保持 null', () => {
+    const implemented = new Set(['overview', 'jobs'])
     for (const module of MODULES) {
-      if (module.key === 'overview') continue
-      expect(module.implementedIn, `模块 ${module.key} 不应在 P01.3 被标记为已实现`).toBeNull()
+      if (implemented.has(module.key)) {
+        expect(module.implementedIn, `模块 ${module.key} 应标注阶段`).toMatch(/^P\d{2}\.\d$/)
+        continue
+      }
+      expect(module.implementedIn, `模块 ${module.key} 尚未实现，不应标注阶段`).toBeNull()
     }
   })
 

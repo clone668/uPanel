@@ -327,6 +327,47 @@ func (c *Client) GetOperation(ctx context.Context, operationID string) (Operatio
 	return decodeOperation(raw)
 }
 
+// OperationEvent 是代理侧的一条操作事件（内部协议，CONTRACTS.md 第 15 节）。
+//
+// Seq 在**操作内**单调递增，是 Web 侧镜像到 job_events 的水位线：
+// 每次对账只取回比上次镜像更大的 seq，重复对账不会把同一条事件抄两遍。
+type OperationEvent struct {
+	Seq       int64           `json:"seq"`
+	Kind      string          `json:"kind"`
+	Payload   json.RawMessage `json:"payload"`
+	CreatedAt string          `json:"created_at"`
+}
+
+// OperationEvents 读回代理侧操作的事件流水。
+//
+// 与 GetOperation 一样：代理回业务错误是 *Error，连不上或响应不合法是 *UnavailableError。
+// 调用方不能把“读不到事件”当成“没有事件”——那会把一次网络抖动写成任务已完成。
+func (c *Client) OperationEvents(ctx context.Context, operationID string) ([]OperationEvent, error) {
+	if operationID == "" {
+		return nil, errors.New("agentclient: operation_id 不能为空")
+	}
+	raw, err := c.do(ctx, http.MethodGet, "/internal/v1/operations/"+operationID+"/events", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		OperationID string           `json:"operation_id"`
+		Events      []OperationEvent `json:"events"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, &UnavailableError{Err: fmt.Errorf("操作事件响应无法解析: %w", err)}
+	}
+	if out.OperationID != operationID {
+		return nil, &UnavailableError{Err: fmt.Errorf("操作事件响应的 operation_id 不一致：%q", out.OperationID)}
+	}
+	for i, ev := range out.Events {
+		if ev.Seq <= 0 || ev.Kind == "" {
+			return nil, &UnavailableError{Err: fmt.Errorf("第 %d 条操作事件缺少 seq 或 kind", i+1)}
+		}
+	}
+	return out.Events, nil
+}
+
 // CancelOperation 请求安全取消。不可取消的动作由代理以 409 拒绝（*Error）。
 func (c *Client) CancelOperation(ctx context.Context, operationID string) (Operation, error) {
 	if operationID == "" {

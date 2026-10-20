@@ -551,6 +551,18 @@ func (s *Service) syncFromAgent(ctx context.Context, jobID string, op agentclien
 	startedAt := op.StartedAt
 	finishedAt := op.FinishedAt
 
+	// 先把代理侧事件抄进 job_events（P03.3），再更新状态。
+	//
+	// 顺序的理由：事件是**已经发生过的事**，状态是它的结论。先抄事件，客户端在任何时刻
+	// 读到“状态已变”时，导致它变化的那几条事件一定已经在库里了；反过来先改状态，
+	// 中间那一瞬的 SSE 客户端会看到 succeeded 却还缺 finished 事件。
+	//
+	// 镜像失败不阻断状态同步：事件是旁支，状态是主干。但必须留下日志——
+	// 悄悄丢事件会让任务中心少一段历史，而页面本身不会报错。
+	if err := s.MirrorAgentEvents(ctx, jobID, op.OperationID); err != nil {
+		s.logger.Warn("镜像代理事件失败", "job_id", jobID, "operation_id", op.OperationID, "error", err)
+	}
+
 	err := s.db.WithTx(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		// 先读旧状态：事件记的是**变化**，不是每次对账的回声。
 		var oldStatus, oldStep string

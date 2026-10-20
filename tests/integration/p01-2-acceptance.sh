@@ -108,7 +108,7 @@ expect_contains "migrate-fresh-from" "$MIG1" '"from_version": 0'
 # 版本号是**精确**断言，写“当前应有的版本”而不是“≥1”：P01.2 时期是 1，
 # 之后每加一条迁移都要同步改这一行（0002—0005 已加，所以现在是 5）。
 # 新增迁移却忘了改这里，就是脚本在提醒你有人在偷偷动 schema。
-expect_contains "migrate-fresh-version" "$MIG1" '"schema_version": 5'
+expect_contains "migrate-fresh-version" "$MIG1" '"schema_version": 6'
 expect_contains "migrate-fresh-applied" "$MIG1" '"applied_versions": ['
 
 if [ -f "$DB" ]; then pass "migrate-created-db-file"; else fail "migrate-created-db-file" "数据库文件未创建"; fi
@@ -124,7 +124,7 @@ echo "== 3. 重复迁移幂等 =="
 "$CTL" migrate --config "$CFG_DB" --json > "$BIN_DIR/accept-migrate-2.json" 2> "$BIN_DIR/accept-migrate-2.log"
 expect_eq "migrate-repeat-exit0" "$?" "0"
 MIG2=$(cat "$BIN_DIR/accept-migrate-2.json")
-expect_contains "migrate-repeat-version" "$MIG2" '"schema_version": 5'
+expect_contains "migrate-repeat-version" "$MIG2" '"schema_version": 6'
 expect_contains "migrate-repeat-no-apply" "$MIG2" '"applied_versions": []'
 
 MIG3=$("$CTL" migrate --db "$DB" 2>/dev/null)

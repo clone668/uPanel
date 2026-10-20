@@ -9,10 +9,23 @@ import { findModule } from '@/modules/registry'
 
 export const appRoutes: readonly RouteRecordRaw[] = [
   {
+    path: '/login',
+    name: 'login',
+    component: () => import('@/views/LoginView.vue'),
+    // 登录页不属于任何导航模块：它没有侧栏高亮，也不需要登录。
+    meta: { moduleKey: null, public: true },
+  },
+  {
     path: '/',
     name: 'overview',
     component: () => import('@/views/OverviewView.vue'),
     meta: { moduleKey: 'overview' },
+  },
+  {
+    path: '/jobs',
+    name: 'jobs',
+    component: () => import('@/views/JobsView.vue'),
+    meta: { moduleKey: 'jobs' },
   },
   {
     path: '/:pathMatch(.*)*',

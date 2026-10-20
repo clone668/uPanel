@@ -81,6 +81,13 @@ func (s *Server) routes() *gin.Engine {
 		jobs.GET("", s.handleListJobs)
 		jobs.GET("/:id", s.handleGetJob)
 		jobs.POST("/:id/cancel", s.requireAdmin(), s.requireCSRF(), s.handleCancelJob)
+		// 事件流与日志按契约只有 admin 能看（CONTRACTS.md 4.3：GET /jobs/:id/events、/logs 是 admin，
+		// 而 GET /jobs 与 GET /jobs/:id 是 V）。viewer 看到的是摘要，看不到流。
+		//
+		// 注意这里**没有** requireCSRF：SSE 是 GET，EventSource 无法自定义请求头，
+		// 靠会话 Cookie + Origin 校验 + 同源守卫（originGuard）来界定来源。
+		jobs.GET("/:id/events", s.requireAdmin(), s.handleJobEvents)
+		jobs.GET("/:id/logs", s.requireAdmin(), s.handleJobLogs)
 	}
 
 	r.NoRoute(s.handleNoRoute)

@@ -1,0 +1,93 @@
+# P03.3 验收命令与结果（按执行顺序）
+# 记录人：实施者；日期 2026-10-20
+# 说明：本文件只记录**实际执行过**的命令。未执行的检查在 result.md 的 NOT RUN 一节列出。
+# 宿主 = 开发机（M3 Air / Windows / Git Bash）。VM = 两台独立 Ubuntu 验收虚拟机。
+
+# ─────────────────────────── 宿主：修缺陷后的构建与单元测试 ───────────────────────────
+cd /h/Code/uPanel
+gofmt -l internal/ cmd/                          # 无输出
+go vet ./...                                     # exit 0
+go build ./...                                   # exit 0
+go test ./... -count=1                           # 全部 ok，exit 0
+go test ./internal/agent/ -run TestOperationSubmitRunsOnceAndRecordsResult -count=40
+                                                 # ok，40 次全过（修复前在 VM 上 3 次跑出 2 次失败）
+go test ./internal/agentstore/ -run 'TestFinishRollsBack|TestStageChangeAndEventAreAtomic' -count=1 -v
+                                                 # --- PASS ×2
+# 证明新测试有牙：把 operations.go 换回 HEAD 版本再跑
+git show HEAD:internal/agentstore/operations.go > internal/agentstore/operations.go
+go test ./internal/agentstore/ -run TestFinishRollsBack -count=1
+# → FAIL: 事件写入失败后阶段 = "succeeded"，期望仍是 running（终态必须一起回滚）
+cp /tmp/operations.new.go internal/agentstore/operations.go   # 恢复修复版本
+
+# ─────────────────────────── 宿主：证据与闸门 ───────────────────────────
+go build ./...                      > docs/evidence/P03/2026-10-20-p03.3/host-build.txt
+go vet ./...                        > docs/evidence/P03/2026-10-20-p03.3/go-vet.txt
+gofmt -l .                          > docs/evidence/P03/2026-10-20-p03.3/gofmt.txt
+go test -count=1 ./...              > docs/evidence/P03/2026-10-20-p03.3/go-test.txt
+go test -count=1 -v ./internal/agentstore/ ./internal/agent/ ./internal/operations/ \
+    ./internal/api/ ./internal/store/ > docs/evidence/P03/2026-10-20-p03.3/go-test-verbose.txt
+                                                 # --- PASS 228 / --- FAIL 0
+export PATH="/c/Users/huxi/AppData/Local/nvm/v22.23.3:$PATH"
+sh scripts/check.sh                              # PASS 12 / FAIL 0 / NOT RUN 0
+web/node_modules/.bin/redocly lint --format=summary api/openapi.yaml
+                                                 # valid；10 warnings（与上一阶段同类同量），exit 0
+
+# ─────────────────────────── 宿主：交叉编译与校验和 ───────────────────────────
+mkdir -p /h/Code/vms/dist-p033/tests
+GOOS=linux GOARCH=amd64 go build -o /h/Code/vms/dist-p033/upanel-agent ./cmd/upanel-agent
+GOOS=linux GOARCH=amd64 go build -o /h/Code/vms/dist-p033/upanel-web   ./cmd/upanel-web
+GOOS=linux GOARCH=amd64 go build -o /h/Code/vms/dist-p033/upanelctl    ./cmd/upanelctl
+GOOS=linux GOARCH=amd64 go test -c -o /h/Code/vms/dist-p033/tests/ ./internal/agentstore/ \
+    ./internal/agent/ ./internal/operations/ ./internal/agentclient/ ./internal/syscmd/ \
+    ./internal/store/ ./internal/api/
+(cd /h/Code/vms/dist-p033 && sha256sum upanel-agent upanel-web upanelctl)
+# dfb35bcc60afc3e2eef879357a7761b0af52b62b470726427fb532ac5a5d35d9  upanel-agent
+# 2741285073034103384032b2c5b8cdb6b341c5c5ab6e5dc9b45dec54ae28a5e8  upanel-web
+# cd51044d3d2b73fe289cc7cdfa9bdb1599cc282648b03d9570208bc58266ea99  upanelctl
+
+# ─────────────────────────── VM：启动 ───────────────────────────
+& H:\Code\vms\launch-vm.ps1 -Name upanel-2404 -SshPort 2222 -SeedPort 8899 -MemoryMB 4096
+& H:\Code\vms\launch-vm.ps1 -Name upanel-2204 -SshPort 2223 -SeedPort 8900 -MemoryMB 4096
+# 宿主 PowerShell 的 ssh 不认这两把私钥（UNPROTECTED PRIVATE KEY FILE），
+# 以下 ssh/scp 全部用 Git Bash 的 ssh。
+
+# ─────────────────────────── VM：上传与 sha256 核对 ───────────────────────────
+ssh -i /h/Code/vms/upanel-2404/id_ed25519 -p 2222 upanel@127.0.0.1 'mkdir -p /tmp/upanel-bin /tmp/upanel-src/tests/integration /tmp/upanel-src/deploy'
+scp -i .../id_ed25519 -P 2222 -r /h/Code/vms/dist-p033/{upanel-agent,upanel-web,upanelctl,tests} \
+    upanel@127.0.0.1:/tmp/upanel-bin/
+scp -i .../id_ed25519 -P 2222 tests/integration/*.sh upanel@127.0.0.1:/tmp/upanel-src/tests/integration/
+scp -i .../id_ed25519 -P 2222 -r deploy upanel@127.0.0.1:/tmp/upanel-src/deploy
+ssh ... 'chmod 0755 /tmp/upanel-bin/upanel-agent /tmp/upanel-bin/upanel-web /tmp/upanel-bin/upanelctl \
+         /tmp/upanel-bin/tests/*; sha256sum ...'
+# 与宿主 sha256 逐字节一致（见 vm-*-env.txt）
+
+# ─────────────────────────── VM：原生测试二进制 ───────────────────────────
+sudo BIN_DIR=/tmp/upanel-bin sh /tmp/upanel-src/tests/run-native-tests.sh
+# 24.04.5：agentstore 72 / agent 101 / agentclient 24 / operations 46 / syscmd 9 / store 11 / api 83
+#          TOTAL PASS=346 FAIL=0
+# 22.04.5：同上，TOTAL PASS=346 FAIL=0
+# 另外在 22.04 上单独复跑修复前会偶发的用例，确认不再偶发：
+cd /tmp/upanel-bin/tests && sudo ./agent.test -test.run TestOperationSubmitRunsOnceAndRecordsResult -test.count=20
+# → PASS（20 次）
+
+# ─────────────────────────── VM：验收脚本（按身份调度） ───────────────────────────
+# 新增 tests/integration/run-all.sh：按脚本头声明的身份分组（p01-1/p01-2/p01-4/p02-1/p02-2
+# 用 setpriv 降到 upanel；p02-3/p02-4/p03-1/p03-2/p03-3 用 sudo），跑前清 /run/upanel、
+# 残留进程与 /var/tmp/upanel-accept-*，并检查三个入口二进制是否可执行。
+ssh -i ... -p 2222 upanel@127.0.0.1 'BIN_DIR=/tmp/upanel-bin sh /tmp/upanel-src/tests/integration/run-all.sh'
+ssh -i ... -p 2223 upanel@127.0.0.1 'BIN_DIR=/tmp/upanel-bin sh /tmp/upanel-src/tests/integration/run-all.sh'
+# 明细见 result.md 的验收表与 vm-*-p0*.txt（每个脚本一份完整日志）
+
+# ─────────────────────────── 本轮踩到的两个流程事故（都不是产品缺陷） ───────────────────────────
+# ① 我用 `sudo sh p01-2-acceptance.sh` 跑了本该以非 root 运行的脚本：root 绕过 0500 目录权限，
+#    “数据库目录不可写必须拒绝启动”那条永远等不到退出，脚本挂起 32 分钟。→ DECISIONS Q71，
+#    改为 run-all.sh 按身份调度；脚本本身与断言未改。
+# ② 上传后用 `chmod 0755 /tmp/upanel-bin/upanel-*` 修执行位，但 upanelctl 结尾没有连字符，
+#    不匹配该通配，导致 p02-1 在 24.04 上刷出 45 条“功能失败”。→ run-all.sh 增加二进制预检，
+#    缺可执行文件时直接 exit 2 并打印原因，不让它伪装成产品失败。
+
+# ─────────────────────────── 24.04 VM 的第四次中断 ───────────────────────────
+# 15:2x 期间 24.04 的 ssh 开始 banner 超时（登录不进，负载不高），强制重启后恢复。
+# 上一次启动的 kernel 日志结尾只有 `journald: File ... corrupted or uncleanly shut down`，
+# 没有 oops/panic 记录；本轮之前它已 panic 三次（`Attempted to kill init! exitcode=0x8b`）。
+# 记作环境事实，不记作产品缺陷；重启后所有脚本重跑通过。

@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
@@ -258,6 +260,204 @@ func TestOperationLifecycleWritesEvents(t *testing.T) {
 		}
 	}
 	_ = db
+}
+
+// TestFinishRollsBackStageWhenEventWriteFails 是原子性的确定性证明：
+// 让事件写入失败，终态必须一起回滚——不能出现“阶段是 succeeded、事件表里却没有 finished”。
+func TestFinishRollsBackStageWhenEventWriteFails(t *testing.T) {
+	ops, plans, db := newTestOperations(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	op := sampleOperation(t, insertPlan(t, plans, "rollback"), opIdFor("rollback"), "req-rollback")
+	if _, _, err := ops.Accept(ctx, op); err != nil {
+		t.Fatalf("接受失败: %v", err)
+	}
+	if err := ops.MarkRunning(ctx, op.ID, "executing", now); err != nil {
+		t.Fatalf("推进到 running 失败: %v", err)
+	}
+	// 只拦住这个操作的事件写入，其它写入不受影响。
+	if _, err := db.store().SQL().Exec(`
+		CREATE TRIGGER fail_event BEFORE INSERT ON operation_events
+		WHEN NEW.operation_id = '` + op.ID + `'
+		BEGIN SELECT RAISE(ABORT, 'injected event write failure'); END`); err != nil {
+		t.Fatalf("创建注入触发器失败: %v", err)
+	}
+	if err := ops.Finish(ctx, op.ID, StageSucceeded, "done", []byte(`{"outcome":"verified"}`), nil, now); err == nil {
+		t.Fatal("事件写入失败时 Finish 仍然返回成功")
+	}
+	got, err := ops.Get(ctx, op.ID)
+	if err != nil {
+		t.Fatalf("读回操作失败: %v", err)
+	}
+	if got.Stage != StageRunning {
+		t.Fatalf("事件写入失败后阶段 = %q，期望仍是 running（终态必须一起回滚）", got.Stage)
+	}
+	if len(got.Result) != 0 && string(got.Result) != `{}` {
+		t.Fatalf("事件写入失败后结果 = %s，期望没有落库", got.Result)
+	}
+
+	// 同一件事换到 MarkRunning：started 写不进去，阶段不能停在 running。
+	seed := "rollback2"
+	op2 := sampleOperation(t, insertPlan(t, plans, seed), opIdFor(seed), "req-"+seed)
+	if _, _, err := ops.Accept(ctx, op2); err != nil {
+		t.Fatalf("接受失败: %v", err)
+	}
+	if _, err := db.store().SQL().Exec(`
+		CREATE TRIGGER fail_event2 BEFORE INSERT ON operation_events
+		WHEN NEW.operation_id = '` + op2.ID + `'
+		BEGIN SELECT RAISE(ABORT, 'injected event write failure'); END`); err != nil {
+		t.Fatalf("创建注入触发器失败: %v", err)
+	}
+	if err := ops.MarkRunning(ctx, op2.ID, "executing", now); err == nil {
+		t.Fatal("事件写入失败时 MarkRunning 仍然返回成功")
+	}
+	got2, err := ops.Get(ctx, op2.ID)
+	if err != nil {
+		t.Fatalf("读回操作失败: %v", err)
+	}
+	if got2.Stage != StageAccepted {
+		t.Fatalf("started 写入失败后阶段 = %q，期望仍是 accepted", got2.Stage)
+	}
+}
+
+// TestStageChangeAndEventAreAtomic 守住“阶段可见 ⟹ 对应事件可见”这条不变量。
+//
+// 写入方把终态与终态事件放在同一个事务里，读取方（Web 的事件镜像、代理的事件接口）
+// 才敢先读阶段、再读事件。分成两笔写就会出现“已经是 succeeded、但 finished 事件还没落库”
+// 的窗口：读方看到终态后不再追事件，那条终态事件就永久丢了。
+//
+// 这里用并发读来验证：写者不停推进操作，读者在任意时刻读到的终态都必须带终态事件。
+func TestStageChangeAndEventAreAtomic(t *testing.T) {
+	ops, plans, db := newTestOperations(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+
+	const rounds = 24
+	ids := make([]string, 0, rounds)
+	for i := 0; i < rounds; i++ {
+		seed := fmt.Sprintf("atom%d", i)
+		plan := insertPlan(t, plans, seed)
+		op := sampleOperation(t, plan, opIdFor(seed), "req-"+seed)
+		if _, _, err := ops.Accept(ctx, op); err != nil {
+			t.Fatalf("接受失败: %v", err)
+		}
+		ids = append(ids, op.ID)
+	}
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	report := make(chan string, 8)
+	var readerWG sync.WaitGroup
+	for r := 0; r < 2; r++ {
+		readerWG.Add(1)
+		go func() {
+			defer readerWG.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				for _, id := range ids {
+					op, err := ops.Get(ctx, id)
+					if err != nil {
+						report <- fmt.Sprintf("读回操作 %s 失败: %v", id, err)
+						return
+					}
+					if !IsTerminalStage(op.Stage) {
+						continue
+					}
+					events, err := ops.Events(ctx, id)
+					if err != nil {
+						report <- fmt.Sprintf("读取 %s 事件失败: %v", id, err)
+						return
+					}
+					if !hasTerminalEvent(events, op.Stage) {
+						report <- fmt.Sprintf("%s 阶段已经是 %s，但终态事件还没落库: %+v", id, op.Stage, events)
+						return
+					}
+				}
+			}
+		}()
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < rounds; i++ {
+			if err := ops.MarkRunning(ctx, ids[i], "executing", now); err != nil {
+				t.Errorf("推进到 running 失败: %v", err)
+				return
+			}
+			// 推进到 running 之后立刻读：started 必须已经可见。
+			events, err := ops.Events(ctx, ids[i])
+			if err != nil {
+				t.Errorf("读取事件失败: %v", err)
+				return
+			}
+			if len(events) == 0 || events[len(events)-1].Kind != "started" {
+				t.Errorf("running 之后立刻读事件，最后一条 = %+v，期望 started", events)
+				return
+			}
+			stage := StageSucceeded
+			if i%3 == 0 {
+				stage = StageFailed
+			}
+			if err := ops.Finish(ctx, ids[i], stage, "done", []byte(`{"outcome":"verified"}`), nil, now); err != nil {
+				t.Errorf("写入终态失败: %v", err)
+				return
+			}
+		}
+	}()
+	wg.Wait()
+	close(stop)
+	readerWG.Wait()
+	close(report)
+	for msg := range report {
+		t.Error(msg)
+	}
+
+	// 收尾再确认一遍：每条操作都以终态 + 对应终态事件结束。
+	for _, id := range ids {
+		op, err := ops.Get(ctx, id)
+		if err != nil {
+			t.Fatalf("读回操作失败: %v", err)
+		}
+		if !IsTerminalStage(op.Stage) {
+			t.Fatalf("%s 阶段 = %q，期望终态", id, op.Stage)
+		}
+		if stageOf(op) == "" {
+			t.Fatalf("%s 没有终态", id)
+		}
+		events, err := ops.Events(ctx, id)
+		if err != nil {
+			t.Fatalf("读取事件失败: %v", err)
+		}
+		if !hasTerminalEvent(events, op.Stage) {
+			t.Fatalf("%s 的终态事件缺失: %+v", id, events)
+		}
+	}
+	_ = db
+}
+
+// stageOf 只是让收尾检查读一次终态，避免直接用 op.Stage 的判定被编辑器优化掉。
+func stageOf(op Operation) string { return op.Stage }
+
+// hasTerminalEvent 判断事件流里是否已有与终态匹配的那条事件。
+func hasTerminalEvent(events []OperationEvent, stage string) bool {
+	want := "finished"
+	switch stage {
+	case StageCanceled:
+		want = "canceled"
+	case StageFailed, StageInterrupted:
+		want = "error"
+	}
+	for _, ev := range events {
+		if ev.Kind == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestOperationTerminalStageIsFinalInDatabase(t *testing.T) {

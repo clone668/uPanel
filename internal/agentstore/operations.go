@@ -114,6 +114,14 @@ func NewOperations(db *DB) (*Operations, error) {
 // errDuplicateReplay 是事务内的回滚信号：同一个 ID 的同一请求又来了。
 var errDuplicateReplay = errors.New("agentstore: duplicate replay")
 
+// errStageMoved 是事务内的重试信号：读到阶段之后，条件更新没有命中——
+// 说明另一条路径（取消 / 完成）抢先改了阶段，事务已回滚，重新读一遍再判断。
+var errStageMoved = errors.New("agentstore: 操作阶段已被并发修改")
+
+// operationStageAttempts 限制阶段变更的重试次数：这里的竞争只来自“取消 vs 执行”，
+// 两个写者抢同一个操作，三次足够；超过说明逻辑有问题，要报错而不是无限重试。
+const operationStageAttempts = 3
+
 // Accept 消费预检并写入操作记录，两件事必须在**同一个事务**里完成。
 //
 // 否则会出现“预检已经不能用，但没有任何人记得为什么”的空洞，或者反过来
@@ -226,33 +234,65 @@ func (o *Operations) FindByPreflight(ctx context.Context, ref string) (Operation
 }
 
 // MarkRunning 把操作推进到 running；已经在 running 时是幂等的（补一条 started 之外什么也不改）。
+//
+// 状态变更与 started 事件**必须在同一个事务里**落库：读操作的一方（代理的事件接口、
+// Web 的事件镜像）先看到 running 就必须能立刻读到 started，否则“阶段已经变了但事件
+// 还没写”的窗口会让按阶段判断的读取方永久漏掉一条事件。
 func (o *Operations) MarkRunning(ctx context.Context, id, step string, now time.Time) error {
-	op, err := o.Get(ctx, id)
-	if err != nil {
-		return err
-	}
-	if op.Stage == StageRunning {
+	for attempt := 0; attempt < operationStageAttempts; attempt++ {
+		var finished bool
+		err := o.db.store().WithTx(ctx, func(ctx context.Context, tx *sql.Tx) error {
+			op, err := o.getTx(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			if op.Stage == StageRunning {
+				return nil
+			}
+			if IsTerminalStage(op.Stage) {
+				finished = true
+				return nil
+			}
+			if op.Stage != StageAccepted {
+				return fmt.Errorf("%w: 阶段 %q 不能推进到 running", ErrOperationInvalid, op.Stage)
+			}
+			res, err := tx.ExecContext(ctx,
+				`UPDATE operations SET stage = ?, step = ?, started_at = ?, updated_at = ?
+				  WHERE operation_id = ? AND stage = ?`,
+				StageRunning, step, millis(now), millis(now), id, StageAccepted)
+			if err != nil {
+				return fmt.Errorf("agentstore: 推进操作状态失败: %w", err)
+			}
+			n, err := res.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("agentstore: 读取状态推进结果失败: %w", err)
+			}
+			if n == 0 {
+				return errStageMoved
+			}
+			return appendEventTx(ctx, tx, id, "started", map[string]any{"step": step}, now)
+		})
+		if errors.Is(err, errStageMoved) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if finished {
+			return ErrOperationFinished
+		}
 		return nil
 	}
-	if IsTerminalStage(op.Stage) {
-		return ErrOperationFinished
-	}
-	if op.Stage != StageAccepted {
-		return fmt.Errorf("%w: 阶段 %q 不能推进到 running", ErrOperationInvalid, op.Stage)
-	}
-	if _, err := o.db.store().ExecContext(ctx,
-		`UPDATE operations SET stage = ?, step = ?, started_at = ?, updated_at = ?
-		  WHERE operation_id = ? AND stage = ?`,
-		StageRunning, step, millis(now), millis(now), id, StageAccepted); err != nil {
-		return fmt.Errorf("agentstore: 推进操作状态失败: %w", err)
-	}
-	return o.AppendEvent(ctx, id, "started", map[string]any{"step": step}, now)
+	return fmt.Errorf("agentstore: 推进操作状态失败: %w", errStageMoved)
 }
 
 // Finish 写入终态与结果。
 //
 // 已是同一终态时返回 nil（重复完成是幂等的）；换成另一个终态则拒绝——
 // 终态不可回退，succeeded 也不会变成 failed。
+//
+// 终态与终态事件同样必须原子写入：这条不变量是“阶段可见 ⟹ 对应事件可见”，
+// Web 侧按事件镜像任务日志时依赖它（否则读到 succeeded 之后不再追事件，终态事件永久丢失）。
 func (o *Operations) Finish(ctx context.Context, id, stage, step string, result, errJSON []byte, now time.Time) error {
 	if !IsTerminalStage(stage) {
 		return fmt.Errorf("%w: 阶段 %q 不是终态", ErrOperationInvalid, stage)
@@ -263,37 +303,54 @@ func (o *Operations) Finish(ctx context.Context, id, stage, step string, result,
 	if len(errJSON) == 0 {
 		errJSON = []byte("{}")
 	}
-	op, err := o.Get(ctx, id)
-	if err != nil {
+	for attempt := 0; attempt < operationStageAttempts; attempt++ {
+		err := o.db.store().WithTx(ctx, func(ctx context.Context, tx *sql.Tx) error {
+			op, err := o.getTx(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			if op.Stage == stage {
+				return nil
+			}
+			if IsTerminalStage(op.Stage) {
+				return fmt.Errorf("%w: 当前是 %s，不能再改成 %s", ErrOperationFinished, op.Stage, stage)
+			}
+			res, err := tx.ExecContext(ctx,
+				`UPDATE operations SET stage = ?, step = ?, result_json = ?, error_json = ?,
+				        finished_at = ?, updated_at = ? WHERE operation_id = ? AND stage = ?`,
+				stage, step, string(result), string(errJSON), millis(now), millis(now), id, op.Stage)
+			if err != nil {
+				return fmt.Errorf("agentstore: 写入终态失败: %w", err)
+			}
+			n, err := res.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("agentstore: 读取终态写入结果失败: %w", err)
+			}
+			if n == 0 {
+				return errStageMoved
+			}
+			kind := "finished"
+			switch stage {
+			case StageCanceled:
+				kind = "canceled"
+			case StageFailed, StageInterrupted:
+				kind = "error"
+			}
+			payload := map[string]any{"stage": stage, "step": step}
+			var e struct {
+				Code string `json:"code"`
+			}
+			if json.Unmarshal(errJSON, &e) == nil && e.Code != "" {
+				payload["error_code"] = e.Code
+			}
+			return appendEventTx(ctx, tx, id, kind, payload, now)
+		})
+		if errors.Is(err, errStageMoved) {
+			continue
+		}
 		return err
 	}
-	if op.Stage == stage {
-		return nil
-	}
-	if IsTerminalStage(op.Stage) {
-		return fmt.Errorf("%w: 当前是 %s，不能再改成 %s", ErrOperationFinished, op.Stage, stage)
-	}
-	if _, err := o.db.store().ExecContext(ctx,
-		`UPDATE operations SET stage = ?, step = ?, result_json = ?, error_json = ?,
-		        finished_at = ?, updated_at = ? WHERE operation_id = ?`,
-		stage, step, string(result), string(errJSON), millis(now), millis(now), id); err != nil {
-		return fmt.Errorf("agentstore: 写入终态失败: %w", err)
-	}
-	kind := "finished"
-	switch stage {
-	case StageCanceled:
-		kind = "canceled"
-	case StageFailed, StageInterrupted:
-		kind = "error"
-	}
-	payload := map[string]any{"stage": stage, "step": step}
-	var e struct {
-		Code string `json:"code"`
-	}
-	if json.Unmarshal(errJSON, &e) == nil && e.Code != "" {
-		payload["error_code"] = e.Code
-	}
-	return o.AppendEvent(ctx, id, kind, payload, now)
+	return fmt.Errorf("agentstore: 写入终态失败: %w", errStageMoved)
 }
 
 // RequestCancel 请求取消一个操作，返回更新后的记录。
@@ -310,36 +367,48 @@ func (o *Operations) RequestCancel(ctx context.Context, id string, now time.Time
 		return op, ErrOperationFinished
 	}
 	if op.Stage == StageAccepted {
-		res, err := o.db.store().ExecContext(ctx,
-			`UPDATE operations SET stage = ?, step = 'canceled', cancellation_requested = 1,
-			        finished_at = ?, updated_at = ? WHERE operation_id = ? AND stage = ?`,
-			StageCanceled, millis(now), millis(now), id, StageAccepted)
+		var moved bool
+		err := o.db.store().WithTx(ctx, func(ctx context.Context, tx *sql.Tx) error {
+			res, err := tx.ExecContext(ctx,
+				`UPDATE operations SET stage = ?, step = 'canceled', cancellation_requested = 1,
+				        finished_at = ?, updated_at = ? WHERE operation_id = ? AND stage = ?`,
+				StageCanceled, millis(now), millis(now), id, StageAccepted)
+			if err != nil {
+				return fmt.Errorf("agentstore: 取消失败: %w", err)
+			}
+			n, err := res.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("agentstore: 读取取消结果失败: %w", err)
+			}
+			if n == 0 {
+				moved = true
+				return nil
+			}
+			return appendEventTx(ctx, tx, id, "canceled", map[string]any{"stage": StageCanceled}, now)
+		})
 		if err != nil {
-			return Operation{}, fmt.Errorf("agentstore: 取消失败: %w", err)
+			return Operation{}, err
 		}
-		n, err := res.RowsAffected()
-		if err != nil {
-			return Operation{}, fmt.Errorf("agentstore: 读取取消结果失败: %w", err)
-		}
-		if n == 0 {
+		if moved {
 			// 竞态：另一条路径刚刚把它推进起来了。重新读，按 running 处理。
 			return o.RequestCancel(ctx, id, now)
 		}
-		if err := o.AppendEvent(ctx, id, "canceled", map[string]any{"stage": StageCanceled}, now); err != nil {
-			return Operation{}, err
-		}
 		return o.Get(ctx, id)
 	}
-	if _, err := o.db.store().ExecContext(ctx,
-		`UPDATE operations SET cancellation_requested = 1, updated_at = ? WHERE operation_id = ?`,
-		millis(now), id); err != nil {
-		return Operation{}, fmt.Errorf("agentstore: 记录取消请求失败: %w", err)
-	}
-	if !op.CancellationRequested {
-		if err := o.AppendEvent(ctx, id, "progress",
-			map[string]any{"cancellation_requested": true}, now); err != nil {
-			return Operation{}, err
+	err = o.db.store().WithTx(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE operations SET cancellation_requested = 1, updated_at = ? WHERE operation_id = ?`,
+			millis(now), id); err != nil {
+			return fmt.Errorf("agentstore: 记录取消请求失败: %w", err)
 		}
+		if op.CancellationRequested {
+			return nil
+		}
+		return appendEventTx(ctx, tx, id, "progress",
+			map[string]any{"cancellation_requested": true}, now)
+	})
+	if err != nil {
+		return Operation{}, err
 	}
 	return o.Get(ctx, id)
 }

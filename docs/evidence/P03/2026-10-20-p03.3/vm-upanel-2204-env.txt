@@ -1,0 +1,15 @@
+Ubuntu 22.04.5 LTS
+5.15.0-198-generic
+2
+               total        used        free      shared  buff/cache   available
+Mem:            3911         185        2584           0        1141        3490
+dfb35bcc60afc3e2eef879357a7761b0af52b62b470726427fb532ac5a5d35d9  /tmp/upanel-bin/upanel-agent
+2741285073034103384032b2c5b8cdb6b341c5c5ab6e5dc9b45dec54ae28a5e8  /tmp/upanel-bin/upanel-web
+cd51044d3d2b73fe289cc7cdfa9bdb1599cc282648b03d9570208bc58266ea99  /tmp/upanel-bin/upanelctl
+5e30749cb276e9242ddfde9449cc96cc75f6364f454ce1ba2df8afb52eff0c87  /tmp/upanel-bin/tests/agent.test
+9c2e734763748697bc1a54dbc2143ae9f16e3114366ceef221df5deac6958774  /tmp/upanel-bin/tests/agentclient.test
+f72c84ea38d6406166cbc74f54891d74379ca68cddac2de82de8e19456a831d1  /tmp/upanel-bin/tests/agentstore.test
+20233633ab49923560819371d657acee8f93d28d3f688ffa4fac5a3b5ff99b17  /tmp/upanel-bin/tests/api.test
+d3f7514ef0b6d8ea5e329042bb9cbfd4b94e90f047ce290123f48769e68f8edf  /tmp/upanel-bin/tests/operations.test
+db6b3184be6383539a2c7fa7a75c1ccecf08ecfe960c5e8e590aac85b453f8fd  /tmp/upanel-bin/tests/store.test
+e1ff7f0f71c8e9763c53c148ec888e78649d001599a2ff5b282b4c95ccfe6b17  /tmp/upanel-bin/tests/syscmd.test

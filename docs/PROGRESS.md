@@ -1311,9 +1311,149 @@ exitcode=0x8b，systemd/PID 1 段错误），重启 VM、重传二进制（sha25
 `/etc/upanel/upanel.json`（内容为空），三项断言报 `解析配置文件失败 … EOF`，删文件后恢复。
 22.04 VM 全程未 panic。
 
+### P03.3（2026-10-20）— SSE 事件、断线重连、日志限额、任务中心、状态机与错误详情
+
+交付（代码）：
+
+- SSE 端点 `GET /api/v1/jobs/{id}/events`（`internal/api/jobstream.go`）。帧格式照 CONTRACTS §4.3：
+  `id: <seq>` + `event: status|progress|log|gap` + `data: {seq,kind,payload,created_at}`；
+  连接建立先发一帧 `: connected`（注释帧，不推进水位），之后每 15 秒一帧 `: keepalive`。
+  响应头 `Content-Type: text/event-stream`、`Cache-Control: no-store`、`X-Accel-Buffering: no`。
+  每条帧写之前 `SetWriteDeadline(10s)` —— 用绝对 `WriteTimeout` 会连正常的长连接一起杀掉，
+  这是 SSE 最容易踩的坑。
+- 断线重连靠 `Last-Event-ID` 请求头（也接受 `last_event_id` 查询参数，方便 curl 调试），
+  格式非法直接 400 `VALIDATION_ERROR`。补发范围是 `job_events.seq > after`；如果客户端要的位置
+  早于保留窗口（`bounds.MinSeq`），先发一帧 `event: gap`（`seq` 恒为 0、**不带 id 行**，因此
+  不会把水位往回推），再补发窗口内的事件。前端收到 `gap` 就不做增量猜补，直接重读详情 + 日志
+  并 `stream.restart()`。
+- 每用户最多 4 条并发连接（`sseMaxConnsPerUser`），第 5 条 429；连接断开即释放配额
+  （用 `acquire`/`release` 包住整个处理函数，不是靠 GC）。
+- 事件镜像 `internal/operations/jobevent.go`：代理是**唯一**的事件生产者，Web 只抄。
+  水位是 `jobs.agent_event_seq`，只抄 `seq > 水位` 的事件，并在**同一个事务**里把水位推上去
+  （要么事件与水位一起落地，要么都不落地）。写入顺序是**先事件、后状态**——客户端不会出现
+  “先看到 succeeded、再等 finished”的顺序错乱。
+- 日志限额（迁移 `0006_job_event_mirror.sql`）：`job_events` 的 `UPDATE` 永远被触发器拒绝；
+  `DELETE` 只开给 `kind='log'`，每个任务保留最近 1000 行，状态/进度/gap 事件一条都不删。
+  这是对 P03.2“绝对只追加”的一次**有意识的降级**，理由与边界写在迁移注释和 DECISIONS Q68 里。
+- 日志分页 `GET /api/v1/jobs/{id}/logs?cursor=&limit=`：默认 100，上限 200（`MaxJobEventPage`），
+  `next_cursor` 可为 `null`（到底了），坏 cursor 400。
+- 前端状态机与错误详情 `web/src/api/jobs.ts`：`canCancel`（admin + 可取消 + 未请求取消 + 非终态
+  四个条件缺一不可）、`progressText`（`null` → “未上报”，不编进度）、`jobErrorMessage`
+  （`AGENT_UNAVAILABLE` / `OPERATION_INTERRUPTED` 各带一条“先确认真实状态再决定”的 hint）、
+  `mergeLogs`（按 seq 去重升序）、`trimLogs(500)`。
+- 任务中心 `web/src/views/JobsView.vue`：列表 5 秒轮询、详情、SSE 状态标签（连接中/已连接/重连中/
+  已断开）、`gap` 触发整体重读、日志尾部合并、取消（失败时显示错误面板，不吞错）、viewer 只读提示、
+  结果 JSON 折叠块。
+- 流式客户端 `web/src/api/jobstream.ts`：`openJobStream(jobId, handlers, factory)` 接受可注入的
+  `EventSourceLike`，所以流逻辑能在 node 里测（不引 jsdom，DECISIONS Q21 的约定延续）；
+  `readyState === 2` 报 `closed`，其余报 `reconnecting`，不把“断了”说成“还在连”。
+- 登录页与路由守卫（**范围补充**，DECISIONS Q72）：`web/src/views/LoginView.vue`、
+  `web/src/stores/session.ts`（`unknown|anonymous|authenticated`，401 当正常结果处理）、
+  `web/src/router/index.ts` 的 `installAuthGuard`、`web/src/router/redirect.ts` 的 `safeRedirect`
+  （拒绝非字符串、非 `/` 开头、`//`、`/\`、`/login`，防开放重定向与登录页自环）。
+- 契约：`api/openapi.yaml` 新增 `/api/v1/jobs/{id}/events`（SSE，200/400/401/403/404/429，含样例流）
+  与 `/api/v1/jobs/{id}/logs`（cursor/limit，200/400/401/403/404）；新增 schema `JobEvent`
+  （`seq >= 0`、`kind` 闭枚举、`payload`、`created_at`）与 `JobLogsData`
+  （`next_cursor` 用 `type: [string, 'null']` —— OpenAPI 3.1 里 `nullable: true` 无效，
+  redocly 会直接报错）；`stage: P03.3`，`implemented_paths` 同步。
+- 测试：`internal/api/jobstream_test.go` 用 `httptest.NewServer` 走真实 HTTP（帧格式、resume、
+  坏 `Last-Event-ID`、权限、`gap`、连接上限、日志分页各一组；`ResponseRecorder` 无法断言
+  chunked 刷新与断连，所以不用它）；前端新增 `jobs.test.ts` 17 项、`jobstream.test.ts` 19 项、
+  `redirect.test.ts` 4 项。
+- 代理侧修复（本轮 22.04 偶发失败暴露，**改产品不改测试**）：`internal/agentstore/operations.go`
+  的 `MarkRunning` / `Finish` / `RequestCancel` 把“阶段变更”和“对应事件”合进同一个事务，
+  条件更新带阶段守卫、未命中则回滚重试。根因与证据见 DECISIONS Q67 与下面的验收记录。
+
+接口/数据库变更：
+
+- 新增公开接口 2 条（SSE 事件流、日志分页）；均为只读，`requireSession` + `requireAdmin`。
+- Web 库迁移 `0006_job_event_mirror.sql`：`jobs.agent_event_seq`（镜像水位）+
+  `job_events` 的删除口子（只允许 `kind='log'`）。schema_version 5 → 6。
+- `p01-2` 的 `schema_version` 断言 5 → 6（同一约定：精确断言当前版本）。
+
+验证方式变更：
+
+- 新增 `tests/integration/run-all.sh` 与 `scripts/run-native-tests.sh`：前者按脚本头声明的身份
+  （root / 非 root）分组调度并在跑之前检查三个二进制是否可执行，后者在 VM 内跑原生测试二进制并
+  统计 `--- PASS` / `--- FAIL`。起因是我用 `sudo` 跑了本该以非 root 运行的 `p01-2`，
+  root 绕过目录权限导致脚本挂起 32 分钟（DECISIONS Q71）。
+
+### P03.3 验收结果（同上日，验收回填）
+
+**结论：passed。** 代码 + 两台 VM 验收均完成，证据在 `docs/evidence/P03/2026-10-20-p03.3/`。
+
+| 检查 | 24.04.5 / 6.8.0-147 | 22.04.5 / 5.15.0-198 |
+|---|---|---|
+| `p03-3-events-acceptance.sh` | 通过 73 / 失败 0 | 通过 73 / 失败 0 |
+| `p01-1` | PASS 29 / FAIL 0 | PASS 29 / FAIL 0 |
+| `p01-2` | PASS 34 / FAIL 0 | PASS 34 / FAIL 0 |
+| `p01-4` | 通过 114 / 失败 0 | 通过 114 / 失败 0 |
+| `p02-1` | PASS=58 / FAIL=0 | PASS=58 / FAIL=0 |
+| `p02-2` | PASS=103 / FAIL=0 | PASS=103 / FAIL=0 |
+| `p02-3` | PASS 85 / FAIL 0 | PASS 85 / FAIL 0 |
+| `p02-4` | PASS=87 / FAIL=0 | PASS=87 / FAIL=0 |
+| `p03-1` | 通过 93 / 失败 0 | 通过 93 / 失败 0 |
+| `p03-2` | 通过 101 / 失败 0 | 通过 101 / 失败 0 |
+| VM 内核原生测试二进制（agentstore/agent/agentclient/operations/syscmd/store/api） | TOTAL PASS=346 / FAIL=0 | TOTAL PASS=346 / FAIL=0 |
+
+两台 VM 上 `/tmp/upanel-bin/{upanel-agent,upanel-web,upanelctl}` 与测试二进制的 sha256 与宿主
+交叉编译产物（`cross-build-sha256.txt`、`vm-*-env.txt`）逐字节一致，所以“验收跑的是这份代码”
+有据可查。宿主侧：`go build ./...` 退出 0、`go vet ./...` 退出 0、`gofmt -l .` 无输出、
+`go test ./...` 全 ok（`-v` 计数 228 PASS / 0 FAIL）、`check.sh` PASS 12 / FAIL 0 / NOT RUN 0、
+`redocly lint api/openapi.yaml` valid（10 warnings，与改动前同类同量）。
+
+**验收抓到的真缺陷（22.04 上偶发，改产品不改测试）**
+
+`TestOperationSubmitRunsOnceAndRecordsResult` 在 22.04 上三次跑出两次失败：
+`事件太少: [{Seq:1 Kind:accepted} {Seq:2 Kind:started}]`，而此时操作阶段已经是 `succeeded`。
+根因是代理的 `MarkRunning` / `Finish` / `RequestCancel` 先 `UPDATE operations` 再
+`INSERT operation_events`，两笔独立的写之间存在窗口，读方可以先看到终态、后（甚至永远不）
+看到终态事件。这不是“测试假设了一个代码没承诺的顺序”：Web 的 `MirrorAgentEvents` 正是按
+“阶段可见 ⟹ 对应事件可见”写的（先读操作、再读事件，看到终态后不再追），分两笔写会让终态事件
+永久丢失在镜像之外。**修在产品侧**：三处阶段变更合进一个事务，条件更新带阶段守卫，
+未命中就回滚重试（DECISIONS Q67）。**确定性证明**：新增
+`TestFinishRollsBackStageWhenEventWriteFails`——用 `BEFORE INSERT` 触发器只让该操作的事件写入失败，
+断言终态一起回滚；把 `internal/agentstore/operations.go` 换回上一个提交的版本时该测试失败
+（`事件写入失败后阶段 = "succeeded"，期望仍是 running`），换回修复版本通过。另有
+`TestStageChangeAndEventAreAtomic` 用并发读方持续检查不变量。修复后同一用例在 22.04 上
+连续 20 次通过、在宿主上 40 次通过。
+
+**本轮暴露的两个流程问题（改调度，不改断言；DECISIONS Q71）**
+
+1. 我用 `sudo` 跑了本该以非 root 运行的 `p01-2`：root 绕过 `0500` 目录权限，
+   “数据库目录不可写必须拒绝启动”那条永远等不到退出，脚本挂了 32 分钟。改成
+   `tests/integration/run-all.sh` 按脚本头声明的身份调度（非 root 用 `setpriv` 降到 `upanel`）。
+2. 上传后 `chmod 0755 /tmp/upanel-bin/upanel-*` 漏掉了 `upanelctl`（结尾没有连字符），
+   24.04 上 `p02-1` 因此刷出 45 条“功能失败”，看起来像产品坏了。`run-all.sh` 现在先检查三个
+   入口是否可执行，缺文件直接 exit 2 并打印原因。
+
+**环境事实（不记作产品缺陷）**：24.04 VM 本轮第四次中断——15:2x 期间 ssh 开始 banner 超时、
+登录不进，强制重启后恢复；上一次启动的 kernel 日志结尾只有
+`journald: File ... corrupted or uncleanly shut down`，没有 oops/panic 记录（本轮之前它已
+panic 三次，都是 `Attempted to kill init! exitcode=0x8b`）。重启后 `/tmp` 被清空，
+二进制与脚本重新上传并逐一核对 sha256 后全部重跑通过。22.04 VM 全程未中断。
+
+**NOT RUN（本轮没有执行，不能算通过）**
+
+- `go test -race`：宿主 `go test -race` 需要 cgo，本机报
+  `-race requires cgo; enable cgo by setting CGO_ENABLED=1`，未执行；VM 里同样没有启用 cgo，
+  因此整轮**没有**竞态检测器的证据，并发正确性只由 `TestStageChangeAndEventAreAtomic`
+  这类并发读写用例 + `_txlock=immediate` 的排队语义支撑。
+- 浏览器端的 SSE 与登录页：只有 node 环境下的逻辑测试（可注入 `EventSourceLike`）与构建产物；
+  没有用真实浏览器打开任务中心、没有在 Chromium 里观察帧刷新/重连/gap 的实际表现，
+  Firefox/Safari 更没验证（DECISIONS Q21、Q72）。
+- SSE 长连接下的资源占用：没有做“连接挂 1 小时”“4 条连接跑满再断线重连”的长时间压测；
+  连接上限与释放只做了短时断言。
+- 日志环裁剪只验证到“超过上限后最旧的日志被删、状态事件不受影响”，没有在真实任务里
+  产出上万行日志做容量与性能观测。
+- 代理/Web 同时重启时的对账收敛（P03.4 的范围）尚未验证。
+
 ## 6. 未决问题与范围变更
 
-未批准任何范围变更。DECISIONS.md 第 8 节记录 Q1—Q66：
+未批准任何范围变更。DECISIONS.md 第 8 节记录 Q1—Q72；P03.3 新增六条：Q67（阶段与事件必须同事务，
+缺陷修复）、Q68（日志环保留 vs 只追加）、Q69（SSE 用轮询+对账，不做进程内广播中心）、
+Q70（viewer 任务可见性 = per-user 隔离，别人的任务 404）、Q71（验收脚本的运行身份必须由调度器
+强制）、Q72（最小登录页与路由守卫，范围补充，待确认）。
 
 - Q1 Go module 路径暂定 `upanel`（P01 前如需 canonical path 需一次性确定）。
 - Q2 开发宿主工具链与冻结版本不一致，已用 GOTOOLCHAIN 与仓库外 Node 22.23.3 解决。
@@ -1488,6 +1628,12 @@ exitcode=0x8b，systemd/PID 1 段错误），重启 VM、重传二进制（sha25
 | P03.2-UNIT-VM | P03 | 已执行通过（VM 内核上原生跑交叉编译测试二进制：agentstore / agent / operations / agentclient / syscmd，两台均 **169 用例 PASS / 0 FAIL**） | docs/evidence/P03/2026-10-20-p03.2/{vm-upanel-2404-native-tests.txt,vm-upanel-2204-native-tests.txt} |
 | P03.2-REGRESSION | P03 | 已执行通过（两台 VM：p01-1 各 29 / 0、p01-2 各 34 / 0、p01-4 各 114 / 0、p02-1 各 58 / 0、p02-2 各 103 / 0、p02-3 各 85 / 0、p02-4 各 87 / 0、p03-1 各 93 / 0） | docs/evidence/P03/2026-10-20-p03.2/vm-upanel-{2404,2204}-p{011,012,014,021,022,023,024,031}.txt |
 | P03.2-RESULT | P03 | 已产出（交付清单、宿主与 VM 证据、验收抓到的两个缺陷与修法、过期脚本修正、未执行项、复现命令） | docs/evidence/P03/2026-10-20-p03.2/{result.md,commands.log} |
+| P03.3-UNIT | P03 | 已执行通过（宿主 `go test -count=1 ./...` 全 ok，`-v` 计数 **228 PASS / 0 FAIL**；`go vet ./...` 退出码 0、`gofmt -l .` 无输出、`go build ./...` 退出码 0） | docs/evidence/P03/2026-10-20-p03.3/{host-build.txt,go-vet.txt,gofmt.txt,go-test.txt,go-test-verbose.txt,go-test-verbose-summary.txt} |
+| P03.3-CHECK | P03 | 已执行通过（`sh scripts/check.sh` → PASS 12 / FAIL 0 / NOT RUN 0；`redocly lint api/openapi.yaml` valid，10 warnings 与上一阶段同类同量） | docs/evidence/P03/2026-10-20-p03.3/{check.txt,openapi-lint.txt,cross-build-sha256.txt} |
+| P03.3-VM | P03 | **已执行并通过（Ubuntu 24.04.5 与 22.04.5，root 运行，两台均 通过 73 / 失败 0）**。覆盖 SSE 帧格式与响应头、`: connected`、`id` 单调、`Last-Event-ID` 续传、坏值 400、未登录 401 / viewer 403 / 别人的任务 404、日志分页与坏 cursor、`gap` 帧、追加式触发器（改状态被拒 / 删日志允许 / 终态不回退）、每用户 4 条连接上限与释放、关闭流不影响任务执行、取消 202/409、日志无 CSRF 与口令 | docs/evidence/P03/2026-10-20-p03.3/{vm-upanel-2404-p033-acceptance.txt,vm-upanel-2204-p033-acceptance.txt,vm-upanel-2404-env.txt,vm-upanel-2204-env.txt,cross-build-sha256.txt} |
+| P03.3-UNIT-VM | P03 | 已执行通过（VM 内核上原生跑交叉编译测试二进制：agentstore / agent / agentclient / operations / syscmd / store / api，两台均 **346 用例 PASS / 0 FAIL**；修复前会偶发的 `TestOperationSubmitRunsOnceAndRecordsResult` 在 22.04 上单独复跑 20 次全过） | docs/evidence/P03/2026-10-20-p03.3/{vm-upanel-2404-native-tests.txt,vm-upanel-2204-native-tests.txt} |
+| P03.3-REGRESSION | P03 | 已执行通过（两台 VM 各跑完整 `run-all.sh`：p01-1 29 / 0、p01-2 34 / 0、p01-4 114 / 0、p02-1 58 / 0、p02-2 103 / 0、p02-3 85 / 0、p02-4 87 / 0、p03-1 93 / 0、p03-2 101 / 0、p03-3 73 / 0，**失败脚本数 0**） | docs/evidence/P03/2026-10-20-p03.3/vm-upanel-{2404,2204}-p{011,012,014,021,022,023,024,031,032,033-acceptance}.txt |
+| P03.3-RESULT | P03 | 已产出（交付清单、宿主与 VM 证据、验收抓到的阶段/事件非原子缺陷与修法、两起流程事故、未执行项、复现命令） | docs/evidence/P03/2026-10-20-p03.3/{result.md,commands.log} |
 | P00-VM-C（LVM 根） | P00/P04 | **NOT RUN**（未创建） | 需在 P04 前补齐 |
 | P00-VM-D（SMB 客户端） | P00/P08 | **NOT RUN**（未创建） | 需在 P08 前补齐 |
 
@@ -1500,9 +1646,28 @@ exitcode=0x8b，systemd/PID 1 段错误），重启 VM、重传二进制（sha25
 
 ## 8. 已知限制
 
+- P03.3 的 SSE 只做了短时验收：**没有**长时间压测（连接挂机数小时、4 条连接跑满再反复断线重连、
+  代理频繁重启时的重连风暴），连接上限与释放只有秒级断言；日志环裁剪也没有在“一个任务产出
+  上万行日志”的真实场景下观测过容量与耗时。
+- SSE 的推送方式是**每连接 1 秒轮询 + 对账**（DECISIONS Q69），不是进程内广播中心：
+  单机面板够用，但 N 条连接就是 N 次/秒的本地查询，且这个方案不跨实例（多实例部署要换机制）。
+- 任务中心的浏览器证据只有 node 层的逻辑测试（可注入 `EventSourceLike`）与构建产物，
+  **没有**在真实浏览器里打开过任务中心、没有观察过帧刷新/重连/gap 的实际表现；
+  Firefox/Safari 完全未验证。
+- 登录页是 P03.3 的范围补充（DECISIONS Q72，待确认）：只做登录/退出/会话恢复/守卫/回跳校验，
+  没有注册、找回密码、MFA，也没有账号管理界面（P02.2 的接口仍然只能靠 API/脚本使用）。
+  会话 cookie 带 `Secure`，浏览器直连明文回环之外的场景要等 P10 的 TLS。
+- viewer 看不到别人的任务（DECISIONS Q70）：多管理员协同时没有“全局任务视图”，
+  P04 概览也不提供；要改必须先改 CONTRACTS。
+- `go test -race` 在宿主和两台 VM 上**都没有执行**（需要 cgo，环境未启用）：
+  并发正确性靠 `TestStageChangeAndEventAreAtomic` 这类并发用例与 `_txlock=immediate`
+  的排队语义支撑，没有竞态检测器证据。
+- 代理/Web 同时重启时的任务对账收敛、重复提交与“未知结果”的人工处理属 P03.4，本轮未验证。
+
 - 已有能力限于：P01 的骨架/持久层/前端/打包部署形态，P02.1 的认证与会话，P02.2 的账号管理与
   审计事件，P02.3 的 Web↔代理通道与执行器边界，P02.4 的审计事务化/日志脱敏/代理独立库与秘密存储，
-  P03.1 的预检生成与绑定，P03.2 的持久任务/幂等/去重/资源锁/取消与对账（**任务机制完整，但仍无
+  P03.1 的预检生成与绑定，P03.2 的持久任务/幂等/去重/资源锁/取消与对账，P03.3 的事件流（SSE、
+  断线续传、gap、日志环）与任务中心（**任务机制完整，但仍无
   生产动作可执行**）。viewer 目前的“只读”只体现在账号管理与任务查询接口上
   （写操作一律 403）；代理的生产登记表为空，**没有任何业务数据接口**，也没有首页/磁盘/服务/文件页面。
   P03 及之后的高风险能力（磁盘写、共享、网络回滚、备份恢复）只有约定，没有实现，

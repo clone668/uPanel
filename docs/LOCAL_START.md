@@ -269,6 +269,39 @@ sudo BIN_DIR=/tmp/upanel-bin sh tests/integration/p03-2-jobs-acceptance.sh
 如果它在你的环境里挂了，先看 `== 0` 段的**登录是否 200**——登录失败会让后面每个 `PF_*` 变量
 都没值，脚本会立刻早退（exit 1）而不是继续报一堆无关错误。
 
+事件流与任务中心（P03.3）同样**必须 root**：
+
+```sh
+# VM 内
+sudo BIN_DIR=/tmp/upanel-bin sh tests/integration/p03-3-events-acceptance.sh   # 73 项断言
+```
+
+它验证：SSE 响应头（`text/event-stream`、`no-store`、`X-Accel-Buffering: no`）、首帧
+`: connected`、`id:` 单调递增、帧格式与四种 `event:`、`agent_kind`/`agent_seq` 证明事件确实
+来自代理镜像、带 `Last-Event-ID` 续传不会重发也不会多执行、坏 `Last-Event-ID` 400、
+未登录 401 / viewer 403 / 别人的任务 404、日志分页（`limit`、`next_cursor`、坏 cursor 400、
+`limit` 0 与 201 都 400）、日志环被裁后先发 `event: gap`、`job_events` 的追加式触发器
+（改状态被拒、删状态事件被拒、删日志允许、终态不能回退）、每用户 4 条连接上限（第 5 条 429，
+关闭后配额释放）、关闭事件流不影响任务继续执行、取消语义（202 / 409），以及日志里没有
+CSRF 令牌与口令。
+**两台验收 VM 上均已通过（24.04.5 与 22.04.5 各 73 项 / 0 失败，见
+`docs/evidence/P03/2026-10-20-p03.3/`）。**
+
+完整回归用一条命令跑完（**按脚本头声明的身份调度**，跑前清理残留进程与 `/run/upanel`）：
+
+```sh
+# VM 内（upanel 用户即可，root 也行）
+BIN_DIR=/tmp/upanel-bin sh tests/integration/run-all.sh
+BIN_DIR=/tmp/upanel-bin sh tests/integration/run-all.sh p03-3-events    # 只跑指定几个
+sudo BIN_DIR=/tmp/upanel-bin sh tests/run-native-tests.sh               # VM 内核上的 Go 测试二进制
+```
+
+> 身份不要凭感觉给：`p01-1`/`p01-2`/`p01-4`/`p02-1`/`p02-2` 必须以**非 root** 运行
+> （脚本自己用 sudo 做特权部分，并断言 Web 不以 root 跑、库文件属主是运行者），
+> `p02-3`/`p02-4`/`p03-1`/`p03-2`/`p03-3` 必须以 **root** 运行（代理只能在 root 下启动）。
+> 用 root 跑 `p01-2` 不会报“身份错”，而是会在“数据库目录不可写必须拒绝启动”那条上一直等
+> ——root 绕过目录权限，进程永远不退（DECISIONS Q71）。
+
 手工验证账号管理（先用 `init-admin` 建号，再登录取 CSRF 令牌）：
 
 ```sh

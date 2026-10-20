@@ -1,0 +1,22 @@
+$ go test -count=1 ./...
+ok  	upanel/cmd/upanel-agent	1.736s
+ok  	upanel/cmd/upanel-web	4.563s
+ok  	upanel/cmd/upanelctl	4.933s
+ok  	upanel/internal/agent	22.470s
+ok  	upanel/internal/agentclient	1.771s
+ok  	upanel/internal/agentstore	11.639s
+ok  	upanel/internal/api	46.898s
+ok  	upanel/internal/audit	1.568s
+ok  	upanel/internal/auth	41.080s
+ok  	upanel/internal/config	1.032s
+ok  	upanel/internal/httpx	0.939s
+ok  	upanel/internal/logging	0.467s
+ok  	upanel/internal/operations	13.164s
+ok  	upanel/internal/platform	0.514s
+ok  	upanel/internal/store	3.513s
+ok  	upanel/internal/syscmd	1.340s
+ok  	upanel/internal/version	0.636s
+ok  	upanel/internal/webui	0.901s
+?   	upanel/migrations	[no test files]
+?   	upanel/migrations/agentdb	[no test files]
+exit=0
