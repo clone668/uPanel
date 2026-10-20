@@ -1813,6 +1813,17 @@ reader 覆盖）；受限容器/无 `/proc` 环境；`go test -race`（宿主与
 休眠盘不唤醒的行为（验收机没有可休眠的盘，仅单测覆盖）；SMART 与温度（P04.3）；`go test -race`；
 前端页面渲染（P04.4）。
 
+**交付去向**：代码与证据已推送到 <https://github.com/clone668/uPanel>，代码提交
+`85f5cedbeffbcde5c6c63394a1f6c4fb5c7a356b`（407 个文件 / +8901 −32，含两台 VM 的存储夹具），
+本条记录随紧随其后的文档提交入库。证据目录 `docs/evidence/P04/2026-10-20-p04.2/` 含宿主闸门输出
+（`check.txt`、`openapi-lint.txt`）、两台 VM 环境（`vm-2404-env.txt`、`vm-2204-env.txt`）、
+二进制 sha256 对照（`cross-build-sha256.txt`、`vm-sha256-2404.txt`、`vm-sha256-2204.txt`）、
+`runall-2404.txt`/`runall-2204.txt`、`p04-2-2404.txt`/`p04-2-2204.txt`、
+`native-2404.txt`/`native-2204.txt`、`storage-regression-2404.txt`/`storage-regression-2204.txt`、
+`commands.log` 与 `result.md`。新增的 `tests/integration/p04-2-storage-acceptance.sh`、
+`tests/fixtures/storage-{2404,2204}/`、`scripts/capture-storage-fixtures.sh` 随代码入库，
+换台机器重建一次验收环境就能一键重跑（步骤见 `commands.log`）。
+
 
 ## 6. 未决问题与范围变更
 
