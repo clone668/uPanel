@@ -22,6 +22,7 @@ import (
 	"upanel/internal/logging"
 	"upanel/internal/monitoring"
 	"upanel/internal/platform"
+	"upanel/internal/storage"
 	"upanel/internal/version"
 	"upanel/migrations/agentdb"
 )
@@ -194,6 +195,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// 在响应里标成 error/unavailable，capabilities 仍然是真实能力。
 	collector := monitoring.NewCollector(monitoring.Options{Logger: logger})
 
+	// 存储拓扑采集（P04.2）：5 秒扫描一次 /sys、/proc 与 /dev/disk，容量按 30 秒缓存，
+	// storage.topology 查询只读最近一次快照。全部只读，不执行任何外部命令。
+	storageCollector := storage.NewCollector(storage.Options{Logger: logger})
+
 	// 动作登记表：生产表当前为空（真实动作随 P07 起逐项登记）。
 	// 验收表只能靠显式参数启用，且动作全部以 acceptance. 开头、不读写任何系统资源。
 	registry := agent.NewRegistry()
@@ -203,7 +208,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			"actions", registry.ActionNames())
 	}
 	// 查询表在两种模式下都是生产实现：验收要验证的就是真实采集链路。
-	if err := agent.RegisterProductionQueries(registry, agent.ProductionDeps{Collector: collector}); err != nil {
+	if err := agent.RegisterProductionQueries(registry, agent.ProductionDeps{Collector: collector, Storage: storageCollector}); err != nil {
 		logger.Error("登记生产查询失败", "error", err)
 		return 1
 	}
@@ -248,9 +253,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// 采集循环：立刻采一次，之后每 5 秒一次。它只是读 /proc，不该挡住监听，
+	// 采集循环：立刻采一次，之后每 5 秒一次。它们只是读 /proc 与 /sys，不该挡住监听，
 	// 所以放 goroutine；ctx 结束时一并退出。
 	go collector.Run(ctx)
+	go storageCollector.Run(ctx)
 
 	if err := srv.Serve(ctx); err != nil {
 		logger.Error("代理退出", "error", err)

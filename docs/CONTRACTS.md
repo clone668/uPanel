@@ -210,6 +210,24 @@ observed_state：mounted、unmounted、missing、mismatch、error、unknown；�
 
 动作中的 label 校验按 ext4/XFS 的实际限制分别实现，不能只用通用 255 字符。分区 start_bytes/size_bytes 需满足逻辑扇区与 1 MiB 对齐，并且不得越界或重叠。
 
+### 6.1 附加字段（P04.2 起）
+
+在上面 Device 必需字段之外，P04.2 增加三个字段。它们是对必需字段的补充，不是替代：必需字段一个都不能少，新增字段对老客户端只是多出来的键。
+
+| 字段 | 类型 | 语义 |
+|---|---|---|
+| protection | 对象 | system_disk 布尔；reasons 人类可读理由（去重、固定排序）；sources 触发保护的设备 id |
+| holders | 字符串数组 | 直接依赖这台设备的设备 id（sysfs holders：dm/md 消费它） |
+| swap | 对象或 null | 活动交换区来源；type 为 partition/file，含 size_bytes、used_bytes、priority |
+
+protection 的定义方式：从 `/proc/self/mountinfo` 与 `/proc/swaps` 出发，找出承载 `/`、`/boot`、EFI 系统分区、面板数据与配置目录、以及活动交换区的设备，再沿 partition_of/depends_on **递归向上**标记所有底层盘。因此“整盘被标为系统盘”与“它的某个分区承载 /”必须同时成立，二者不能互相矛盾。判定失败时不能默认 false 放行写入，必须报错或标 unknown。
+
+capabilities 在 P04.2 恒为空数组：动作注册表（第 5 节）尚未实现，返回空数组表示“这里不提供动作入口”，不得返回伪 available。前端必须把空 capabilities 渲染成“无可执行动作”，而不是“全部可用”。
+
+partition_table 的 partitions 来自 sysfs（内核当前认定的分区），盘上读到的 MBR/GPT 只用来补充类型与 free_regions；两者不一致时保留内核结果并给出 warning，不静默采信任何一方。partition_table.source 区分 device（读了盘）、kernel（只用 sysfs，类型未知）、skipped（盘在休眠或读失败，未去打扰它）。盘在休眠时不得为探测分区表而唤醒。
+
+filesystem.type/uuid/label 在未挂载时为 null，本阶段不调用 blkid，不靠猜。
+
 ## 7. 共享契约
 
 GET /shares、GET /shares/:id、GET /shares/:id/connections、GET /share-accounts：admin。viewer 只在首页看到共享数量和健康摘要。

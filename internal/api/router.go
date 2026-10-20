@@ -73,6 +73,15 @@ func (s *Server) routes() *gin.Engine {
 		system.Use(s.requireSession())
 		system.GET("/summary", s.handleSystemSummary)
 
+		// 存储只读视图（P04.2）：权限 V（CONTRACTS.md 第 6 节）。
+		// 三个路由读的是代理的同一份扫描快照，因此设备列表与拓扑永远一致；
+		// 本阶段没有任何写路由——分区/格式化要等 P07 的预检与任务链路。
+		st := v1.Group("/storage")
+		st.Use(s.requireSession())
+		st.GET("/topology", s.handleStorageTopology)
+		st.GET("/devices", s.handleListDevices)
+		st.GET("/devices/:id", s.handleGetDevice)
+
 		// 系统写操作的统一入口（P03.1）：先预检，再由 POST /jobs 创建任务（P03.2）。
 		// 预检只读不写系统；再认证在**提交任务**时校验（按动作登记策略），不在预检阶段。
 		ops := v1.Group("/operations", s.auditRoute(audit.ActionOperationPreflight))

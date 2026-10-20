@@ -38,3 +38,22 @@
 | `netdev.synthetic.empty.txt` | 只有表头、没有网卡：必须报错，不能返回空列表冒充“没有网卡” |
 | `os-release.synthetic.no-id.txt` | 没有 `ID` 也没有 `NAME`：不是可识别的 os-release，必须报错 |
 | `loadavg.synthetic.bad.txt` | 第三个负载值不是数字，必须报错 |
+
+## 存储拓扑夹具（P04.2）
+
+`storage-2404/` 与 `storage-2204/` 是**整棵目录**，不是单个文件：`storage.Scan` 读的是目录树
+（`sys/block`、`sys/class/block/<dev>/…`、`dev/disk/by-*`、`proc/self/mountinfo`、`proc/swaps`）
+外加盘头部切片。它们的来源、采集时间、宿主机与逐文件 sha256 写在各自的 `MANIFEST.txt` 里，
+采集脚本是 `scripts/capture-storage-fixtures.sh`（在验收 VM 内原样拷贝，不改写内容）。
+
+| 目录 | 来源 | 用途 |
+|---|---|---|
+| `storage-2404/` | Ubuntu 24.04.5 / 6.8.0-147（upanel-2404），2026-10-20T17:33:19Z 采集 | 真机样本：sda 40 GiB + sda1(`/`)/sda14/sda15(`/boot/efi`)/sda16(`/boot`)、sdb 8 GiB、sdc/sdd 4 GiB、8 个 loop、fd0 |
+| `storage-2204/` | Ubuntu 22.04.5 / 5.15.0-198（upanel-2204），2026-10-20 采集 | 同一形态的另一代内核（snap loop 挂载、分区号不同） |
+
+两条注意：
+
+- `dev/disk/by-*` 里的条目在真机上是**符号链接**（指向块设备），夹具里是写着目标路径的**普通文件**。
+  这正是 P04.2 那个 OOM 缺陷（DECISIONS Q89）逃过夹具单测的原因——只有真机会按符号链接读；
+  补上的 `TestReadDiskLinksUsesSymlinkTarget` 用**真的**相对符号链接把两条路径区分开。
+- 内容不含主机名以外的敏感信息；`MANIFEST.txt` 里的 UUID 是虚拟机的一次性文件系统标识，不是生产数据。

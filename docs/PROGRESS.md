@@ -73,10 +73,27 @@ VM 内核原生测试二进制 169 个用例 0 FAIL，二进制 sha256 与宿主
 另外修了四份**断言过期**的验收脚本（p01-1、p01-2、p01-4、p03-2）：只按已文档化的现行行为更新，
 断言条数只增不减（p01-1 26 → 29，新增 `agent-root-forbidden`）。
 
+**P04.2 把“这台服务器上有什么盘、哪块不能碰”变成了只读事实**：`internal/storage` 走 `/sys/block` +
+`/sys/class/block` 枚举整盘/分区/LVM/RAID/加密/loop/rom，边只有 `partition_of` 与 `depends_on`（from=子→to=父）；
+设备身份按 `wwid` → `serial` → 型号+容量的强弱顺序算 `sha256:` 指纹并给出 `identity_confidence`（读不到就如实
+`medium`，两台 QEMU VM 都是 `medium`）；系统盘保护从 `/proc/self/mountinfo` 与 `/proc/swaps` 出发，
+沿边**递归向上**把底层盘一起标记，空白盘不保护、临时挂载的 loop 镜像也不因“被挂载”变成系统盘；
+分区表读盘头部只用来补类型与 `free_regions`，与内核不一致时保留内核结果并给 `warning`；挂载容量 30 秒缓存、
+`available_bytes` 取 `f_bavail`；`snapshot_version` 只由内容决定（与时间、容量无关），写动作预检才有意义。
+代理查询 `storage.topology`，Web 侧 `GET /api/v1/storage/{topology,devices,devices/:id}`（权限 V）只透传，
+不重排边、不改保护判定。**没有** `lsblk`/`blkid`/`udevadm` 调用，没有任何写动作，`health` 一律 `unknown`、
+`capabilities` 一律 `[]`（SMART 属 P04.3）。
+**两台 Ubuntu VM 上的 P04.2 验收已执行并通过：各 通过 108 / 失败 0 / 未执行 0；VM 内核原生 473 用例 0 FAIL；
+13 个验收脚本全量回归 1038 断言 0 失败。**
+这一轮抓到两个**只有真机才能发现**的缺陷：① `/dev/disk/by-*` 是指向块设备的符号链接，代码用
+`os.ReadFile` 读它，等于把整块盘读进内存，代理在 24.04 上启动约 20 秒后被 OOM 杀掉（Q89，夹具里这些条目
+是普通文件，永远测不出来）；② `snapshot_version` 把 `collected_at` 和容量也哈希进去，每 5 秒就变，
+违反 CONTRACTS §6 的预检语义（Q90）。另外把 by-id 链接目标收紧成“只认本次扫描枚举到的设备”（Q91）。
+
 
 ## 1. 当前任务
 
-- 当前阶段：P04（首页和存储只读）—— **in_progress**（P04.1 已 passed；P04.2/P04.3/P04.4 未开始）。
+- 当前阶段：P04（首页和存储只读）—— **in_progress**（P04.1、P04.2 已 passed；P04.3/P04.4 未开始）。
 - 已完成子任务：P00.1—P00.3、**P01.1**—**P01.4**、**P02.1**（首个管理员、密码哈希、登录、
   退出、会话轮换、CSRF、Origin、限速；无默认密码）、**P02.2**（admin/viewer、账号管理、
   最后管理员保护、再认证、脱敏 DTO、审计事件起步）、**P02.3**（代理 Unix socket + SO_PEERCRED
@@ -96,10 +113,19 @@ VM 内核原生测试二进制 169 个用例 0 FAIL，二进制 sha256 与宿主
   一律非负十进制字符串，算不出来的速率是 `null` 而不是 `0`；查询登记表新增 `system.summary`
   （唯一查询），`GET /api/v1/system/summary` 走 Web 透传、需要 V 权限、代理不可用时 503
   `AGENT_UNAVAILABLE` 且不影响登录；两台 VM 各 72 项断言、原生测试 394 用例全绿、
-  12 个验收脚本全量回归 0 失败）。
-- 下一子任务：**P04.2**（存储拓扑只读：块设备树、设备身份校验、系统盘保护识别）。
-  P04.1 只做“读数字”，还没有碰任何块设备；P04.2 才开始读 `/sys/block` 与 udev 属性，
-  仍然**只读**，且设备身份与系统盘保护的判定必须先在 VM 里验证过才能被写动作复用。
+  12 个验收脚本全量回归 0 失败）、**P04.2**（存储拓扑只读：`internal/storage` 走 `/sys/block` +
+  `/sys/class/block` 枚举块设备树（整盘/分区/LVM/RAID/加密/loop/rom），边只有 `partition_of`/`depends_on`
+  且 from=子→to=父；设备身份按 WWD→序列号→型号+容量的强弱顺序算 `sha256:` 指纹并给出
+  `identity_confidence`（读不到就如实 `medium`）；系统盘保护从 `/proc/self/mountinfo` + `/proc/swaps`
+  出发、沿边**递归向上**标记，空白盘不保护、临时挂载的 loop 镜像也不保护；分区表读盘头部只用来补类型与
+  `free_regions`，与内核不一致时保留内核结果并给 warning；容量 30 秒缓存、`available_bytes` 取 `f_bavail`；
+  `snapshot_version` 只由内容决定（与时间、容量无关）；查询登记表新增 `storage.topology`，
+  Web 侧 `GET /api/v1/storage/{topology,devices,devices/:id}`（权限 V）只透传；两台 VM 各 108 项断言、
+  原生测试 473 用例全绿、13 个验收脚本全量回归 0 失败。**本轮抓到并修掉两个只有真机才能发现的缺陷**：
+  块设备被当普通文件读导致代理被 OOM 杀死（Q89）、`snapshot_version` 依赖时间（Q90））。
+- 下一子任务：**P04.3**（SMART / NVMe 健康与 diskstats：按 15 分钟节奏采集健康与温度，
+  睡眠盘不唤醒）。P04.2 已经把设备树、身份指纹与系统盘保护立起来（只读），P04.3 只往上加“健康”
+  这一层采集，不改拓扑结构；`health.status` 目前一律 `unknown`、温度 `null`，正是留给 P04.3 的诚实占位。
 - 下游是否可继续：**是**；但任何系统写操作必须走 P03 建成的链路（预检 → 任务 → 幂等 → 对账），
   不允许绕过。P04.1 的 `system.summary` 是**查询**，不产生任务，也不落写审计。
 - 当前版本：未发布。
@@ -122,6 +148,11 @@ VM 内核原生测试二进制 169 个用例 0 FAIL，二进制 sha256 与宿主
   删除该文件并重新上传二进制/脚本/夹具后全量回归通过。四次全在 24.04，22.04 一次没有。
   结论不变：宿主侧 WHPX 长跑不稳，不是产品缺陷。**但这也意味着任何一次“跑完就过”的结论
   必须能在重启后再复现一遍**——P04.1 的两台 VM 最终结果都是重启后重跑得到的。
+- 环境事实（P04.2 期间）：24.04 验收 VM 第五次 panic（同一条 `Attempted to kill init!`，exitcode=0x8b），
+  这次发生在全量回归跑到一半时。重启、重传二进制/测试/夹具/脚本、核 sha256（12/12 一致）后，
+  依次跑原生测试（473/0）、p04-2（108/0）、全量回归（13 脚本 0 失败）。五次全在 24.04，22.04 一次没有。
+  另一件事**不是环境问题而是我自己的操作缺陷**：`chmod +x /tmp/upanel-bin/upanel-*` 匹配不到
+  `upanelctl`（没有连字符），p04-2 因此报了 4 项失败（`init-admin` 退出码 126）；显式列三个文件后 108/0。
 
 ## 2. 状态定义
 
@@ -140,7 +171,7 @@ VM 内核原生测试二进制 169 个用例 0 FAIL，二进制 sha256 与宿主
 | P01 | 最小可运行骨架 | **passed** | P01.1 骨架/配置/日志/健康检查、P01.2 SQLite 迁移/事务/错误码/request_id/Gin 路由、P01.3 前端骨架/路由/中文导航/统一 API 客户端/七状态组件/mock 横幅、P01.4 前端嵌入二进制/mock 与 production 配置/systemd 单元/本地启动文档，均有宿主 + 两台 VM 证据；P01.4 各 VM 114 项断言通过。证据 `docs/evidence/P01/2026-10-20*/` |
 | P02 | 认证、权限、审计、代理 | **passed** | P02.1 **passed**：users/sessions 表、Argon2id、登录/退出/会话轮换/CSRF/Origin/限速、`upanelctl init-admin`（无默认密码），证据 `docs/evidence/P02/2026-10-20-p02.1/`（宿主 38 项 + 两台 VM 各 58 项断言）。P02.2 **passed**：admin/viewer 边界、账号增删改查（脱敏 DTO + 分页 + 乐观并发）、最后管理员保护、5 分钟再认证、追加式审计表，证据 `docs/evidence/P02/2026-10-20-p02.2/`（宿主 81 项 + 两台 VM 各 99 项断言，P02.1 回归各 58 项）。P02.3 **passed**：代理 socket 与 SO_PEERCRED UID 边界、固定登记表（生产为空）、结构化只读查询、命令执行器超时/输出上限、systemd 真实托管，证据 `docs/evidence/P02/2026-10-20-p02.3/`（两台 VM 各 84 项断言 + VM 内核原生 28 + 9 个用例，P02.2 回归各 99 项）。P02.4 **passed**：审计跟随业务事务（被拒绝请求独立记 failure 行）、日志脱敏做进记录器、代理独立 root-only 库（`/var/lib/upanel-agent/agent.db`，目录 0700 / 文件 0600，启动自校验）、AES-256-GCM 秘密存储（独立 nonce、AAD 绑引用与用途、`/etc/upanel/agent.key` 0600 且 `-init-key` 不覆盖）、临时秘密 10 分钟销毁与墓碑行、无明文读取路由，证据 `docs/evidence/P02/2026-10-20-p02.4/`（两台 VM 各 87 项断言 + VM 内核原生 agentstore 32 / agent 45 个用例，P02.1/P02.2/P02.3 回归各 58 / 103 / 84 项）。**阶段结论：P02 全部子任务完成** |
 | P03 | 预检、任务、幂等、对账 | **passed** | P03.1 **passed**：预检由代理生成（规范化参数、目标身份指纹、状态版本、影响、阻塞项、锁、再认证与短语策略），Web 只保存绑定并返回公开 DTO；有效期 120 秒且两端同一时间戳；用户/会话/动作/`params_hash`/`state_version` 双侧一致；短语只回一次明文、代理库只存哈希；未登记动作 400、缺规划器 501、`GET` 405。证据 `docs/evidence/P03/2026-10-20-p03.1/`（两台 VM 各 93 项断言 + VM 内核原生 5 个测试二进制，P02.1—P02.4 回归各 58/103/84/87 项）。P03.2 **passed**：持久 jobs、幂等链、`operation_id` 去重、代理执行记录与事件、资源锁与 30 秒排队、取消规则、先落库再提交、按 `operation_id` 对账；证据 `docs/evidence/P03/2026-10-20-p03.2/`（两台 VM 各 101 项断言 + VM 内核原生 169 用例 0 FAIL + p01-1/p01-2/p01-4/p02-1—p02-4/p03-1 回归各 29/34/114/58/103/85/87/93；宿主 check.sh PASS 12/0/NOT RUN 0）。验收期间抓到并修掉两个真缺陷：`CONFIRMATION_MISMATCH` 应为 400（DECISIONS Q64）、SQLite WAL DEFERRED 事务升级不调 busy handler → `_txlock=immediate`（DECISIONS Q65）。P03.3 **passed**：SSE 事件流（`id:`/`event:`/`data:`、`: connected`、15 秒 keepalive、`Last-Event-ID` 续传、日志环被裁后先发 `event: gap`）、代理事件镜像（先事件后状态）、日志分页与每任务 1000 行上限、任务中心与错误详情、最小登录页与路由守卫；证据 `docs/evidence/P03/2026-10-20-p03.3/`（两台 VM 各 73 项断言 + 原生 346 用例 0 FAIL + P03 前序回归）。验收期间抓到并修掉代理侧“阶段与事件分两笔写”的原子性缺陷（DECISIONS Q67）。P03.4 **passed**：Web 启动立刻 + 每 30 秒的对账循环（只查不跑，`grep CreateOperation` 在 `reconcile.go` 无调用点）、提交在途不判定、`NOT_FOUND` 按 `needs_sync` 分流（`failed`/`unconfirmed` vs `interrupted`/`unknown_result`）、幂等记录到期清理、验收注册表约束变成断言；证据 `docs/evidence/P03/2026-10-20-p03.4/`（两台 VM 各 78 项断言 + 原生 360 用例 0 FAIL + 全量 11 脚本 0 失败）。**阶段结论：P03 全部子任务完成，生产登记表仍为空（无真实写动作）** |
-| P04 | 首页和存储只读 | **in_progress** | P04.1 **passed**：`internal/monitoring` 纯文件读取采集（`/proc/stat`、`meminfo`、`loadavg`、`net/dev`、`os-release`、`uptime`、`cpuinfo` + `uname`），代理侧 5 秒轮询缓存（`collected_at`/`interval_ms`/`stale`/`degraded` + 分节 `status`），速率只由相邻样本差分给出、算不出来为 `null`，`boot_id` 变化让 CPU 窗口失效；查询登记表新增唯一查询 `system.summary`（`DecodeParams` 拒绝任何字段），Web 侧 `GET /api/v1/system/summary`（权限 V）只透传、不做第二层缓存，代理不可用 503 `AGENT_UNAVAILABLE` 且不影响登录；能力只上报真实存在的东西。证据 `docs/evidence/P04/2026-10-20-p04.1/`（两台 VM 各 **72** 项断言 + VM 内核原生 **401** 用例 0 FAIL + 12 脚本全量回归 930/0；宿主 check.sh PASS 12/0/NOT RUN 0，redocly valid 9 warnings）。**生产登记表仍为空，本轮没有新增任何写动作**。P04.2（块设备拓扑与系统盘保护）、P04.3（SMART/NVMe/diskstats）、P04.4（首页）未开始 |
+| P04 | 首页和存储只读 | **in_progress** | P04.1 **passed**：`internal/monitoring` 纯文件读取采集（`/proc/stat`、`meminfo`、`loadavg`、`net/dev`、`os-release`、`uptime`、`cpuinfo` + `uname`），代理侧 5 秒轮询缓存（`collected_at`/`interval_ms`/`stale`/`degraded` + 分节 `status`），速率只由相邻样本差分给出、算不出来为 `null`，`boot_id` 变化让 CPU 窗口失效；查询登记表新增唯一查询 `system.summary`（`DecodeParams` 拒绝任何字段），Web 侧 `GET /api/v1/system/summary`（权限 V）只透传、不做第二层缓存，代理不可用 503 `AGENT_UNAVAILABLE` 且不影响登录；能力只上报真实存在的东西。证据 `docs/evidence/P04/2026-10-20-p04.1/`（两台 VM 各 **72** 项断言 + VM 内核原生 **401** 用例 0 FAIL + 12 脚本全量回归 930/0；宿主 check.sh PASS 12/0/NOT RUN 0，redocly valid 9 warnings）。**生产登记表仍为空，本轮没有新增任何写动作**。P04.2 **passed**：`internal/storage` 只读块设备拓扑（`/sys/block` + `/sys/class/block`，整盘/分区/lvm/raid/crypt/loop/rom/other）、边 `partition_of`/`depends_on`（from=子→to=父）、设备身份 `sha256:` 指纹 + 诚实的 `identity_confidence`、系统盘保护从 mountinfo/swaps 出发沿边递归向上、分区表读盘头部只补类型与 free_regions（内核结果优先）、容量 30 秒缓存取 `f_bavail`、`snapshot_version` 只由内容决定；代理查询 `storage.topology`、Web `GET /api/v1/storage/{topology,devices,devices/:id}`（V 权限、只透传）；`health.status` 一律 `unknown`、`capabilities` 一律 `[]`。证据 `docs/evidence/P04/2026-10-20-p04.2/`（两台 VM 各 **108** 项断言 + VM 内核原生 **473** 用例 0 FAIL + 13 脚本全量回归 1038/0；宿主 check.sh PASS 12/0/NOT RUN 0）。本轮修掉 Q89（块设备被当普通文件读 → 代理 OOM）、Q90（快照版本依赖时间）、Q91（by-id 链接缺已知设备约束）、Q96（一个测试抖动）。P04.3（SMART/NVMe/diskstats）、P04.4（首页）未开始 |
 | P05 | 服务、进程、日志 | not_started | — |
 | P06 | 文件和受限终端 | not_started | — |
 | P07 | 分区、格式化、挂载 | not_started | 需独立 VM 数据盘 |
@@ -1680,6 +1711,109 @@ reader 覆盖）；受限容器/无 `/proc` 环境；`go test -race`（宿主与
 `tests/fixtures/` 与 `scripts/run-native-tests.sh` 的夹具逻辑随代码一起入库，换台机器重建一次
 验收环境就能一键重跑。
 
+### P04.2（2026-10-20）— 存储拓扑只读：块设备树、设备身份校验、系统盘保护识别
+
+**做了什么**
+
+| 层 | 文件 | 内容 |
+|---|---|---|
+| 采集 | `internal/storage/types.go`（新） | DTO：`Topology{nodes,edges,snapshot_version,collected_at,interval_ms,stale}`、`Device`、`PartitionTable`/`Partition`/`FreeRegion`、`Filesystem`/`Mount`/`Capacity`、`Health`/`Capability`、`Protection`、`Swap`、`Edge`。字节量与计数器一律 `json:",string"`；读不到的字段是 `null`，不是 `0` |
+| 采集 | `internal/storage/scan.go`（新） | 走 `/sys/block`（含 `/sys/class/block` 下的分区）枚举设备；`dev`/`size`/`ro`/`removable`/`holders`/`slaves`/`device/{model,vendor,serial,wwid}`；`partition` 属性区分整盘与分区；`by-id/by-uuid/by-label` 稳定链接；`/proc/self/mountinfo` 与 `/proc/swaps` 关联挂载与交换区。**没有 exec、没有 shell、没有 lsblk/blkid** |
+| 采集 | `internal/storage/table.go`（新） | 分区表探测：只读盘头部若干 KiB 解析 MBR/GPT，用来补 `type` 与 `free_regions`；与 sysfs 不一致时保留内核结果并给 `warning`；`source=kernel` 表示没去读盘 |
+| 采集 | `internal/storage/identity.go`（新） | 身份指纹：按 `wwid` → `serial` → 型号+容量等强弱顺序取可用信息算 `sha256:`，同时给出 `identity_confidence`（high/medium/low）。信息不够就如实 `medium`——两台验收 VM 的 QEMU 盘都读不到 serial/wwid，指纹仍然稳定且两盘不撞车 |
+| 采集 | `internal/storage/protect.go`（新） | 系统盘保护：关键路径（`/`、`/boot`、EFI、面板数据目录、面板配置目录、活动交换区）→ 挂载点 → 设备，再沿 `partition_of`/`depends_on` **递归向上**标记底层盘；理由去重固定排序，`sources` 记来源设备 |
+| 采集 | `internal/storage/collector.go`（新） | 5 秒拓扑扫描 + 30 秒容量缓存（`statvfs`，跟随挂载点）；扫描失败保留上一份成功快照并置 `stale`，**不清空节点**（读不到不等于没有盘） |
+| 代理 | `internal/agent/storagequery.go`（新）、`registry.go` | 查询 `storage.topology`：零参数，`DecodeParams` 拒绝任何字段（含 `params.command`、`params.path`），登记进生产表；`capabilities` 如实报 `queries: ['storage.topology','system.summary']`、`actions: []` |
+| Web | `internal/api/storage.go`（新）、`router.go`、`server.go` | `GET /api/v1/storage/{topology,devices,devices/:id}`，权限 V；只透传，不重排边、不改保护判定；未知设备 404；代理不可用 503 `AGENT_UNAVAILABLE` |
+| Web | `internal/storage/fetch.go`（新） | 代理客户端 `Fetcher`，同样不做第二层缓存 |
+| 契约 | `docs/CONTRACTS.md` §6.1（新）、`api/openapi.yaml` | 新增 15 个 storage schema，`info.version: 0.0.0-p04.2`；§6.1 把“保护沿边递归向上、capabilities 恒空数组、内核分区结果优先、未挂载时 type/uuid/label 为 null、休眠盘不唤醒”写成契约 |
+| 测试 | `internal/storage/*_test.go`（8 个文件）、`internal/agent/storagequery_test.go`、`internal/api/storage_test.go` | 用两台 VM 的真实采集夹具（`tests/fixtures/storage-2404/`、`storage-2204/`）当输入，断言设备集合、边方向、指纹稳定、保护递归、分区表解析、`snapshot_version` 与时间无关；合成反例覆盖坏 MBR/GPT 与坏 sysfs 字段 |
+| 夹具 | `scripts/capture-storage-fixtures.sh`（新）、`tests/fixtures/storage-{2404,2204}/`、`MANIFEST.txt` | 夹具是**在验收 VM 上原样采集**的（`/sys/block` 子树、`/proc/self/mountinfo`、`/proc/swaps`、盘头部 1 MiB 切片），来源与采集命令写在 MANIFEST 里 |
+| 验收 | `tests/integration/p04-2-storage-acceptance.sh`（新） | 15 段 108 项断言，root 运行；`run-all.sh` 注册为第 13 个脚本 |
+
+**接口与数据变更**：新增 `GET /api/v1/storage/topology`、`/storage/devices`、`/storage/devices/:id`（均为 V 权限）
+与代理内部查询 `storage.topology`；**没有**数据库迁移、没有新表、没有新写动作，生产动作登记表仍为空。
+
+**没有引入的东西**（本轮刻意）：没有 `lsblk`/`blkid`/`udevadm` 调用（全部读文件）；没有为探测分区表
+唤醒休眠盘；没有 SMART（P04.3）；没有编造 `health`（一律 `unknown`、温度 `null`）；没有给出任何
+`capabilities` 动作入口。
+
+
+### P04.2 验收结果（同上日，验收回填）
+
+**结论：passed。** 代码 + 宿主闸门 + 两台 VM 验收全部完成，证据在
+`docs/evidence/P04/2026-10-20-p04.2/`，详见其中的 `result.md`。
+
+| 检查 | 24.04.5 / 6.8.0-147 | 22.04.5 / 5.15.0-198 |
+|---|---|---|
+| `p04-2-storage-acceptance.sh`（新增，108 项断言） | 通过 108 / 失败 0 / 未执行 0 | 通过 108 / 失败 0 / 未执行 0 |
+| VM 内核原生测试二进制（9 个） | TOTAL PASS **473** / FAIL 0 | TOTAL PASS **473** / FAIL 0 |
+| 13 脚本全量回归 | 运行 13 / 失败 0（合计 **1038** 断言） | 运行 13 / 失败 0（合计 **1038** 断言） |
+
+宿主侧：`go build ./...`、`go vet ./...` exit 0，`gofmt -l .` 无输出，
+`go test ./... -count=1 -v` 计 **648** 个 `--- PASS` / 0 个 `--- FAIL`（4 个平台相关 SKIP），
+`check.sh` PASS 12 / FAIL 0 / NOT RUN 0，`redocly lint` valid（9 warnings）。
+12 个交叉编译产物（3 个入口 + 9 个测试二进制）在宿主与两台 VM 上 sha256 **逐个一致**；
+入口二进制用固定 `BUILD_DATE` 重复构建 3/3 逐字节相同。
+
+**p04-2 脚本验到的行为**（15 段，全部黑盒）
+
+1. 环境：root、三个二进制可执行、`upanel-web` 账号、python3。
+2. 代理启动：socket、`uid=0`、10 秒内开始应答；`capabilities` 如实报
+   `['storage.topology','system.summary']` 且 `actions == []`。
+3. 快照形态：`status=ok`、`interval_ms=5000`、`collected_at` 在 15 秒内、`snapshot_version` 是 sha256。
+4. 设备集合与 `/sys/block` + 分区完全一致（24.04 上 17 台）；`size_bytes`/`read_only` 与 sysfs 精确一致；
+   `kind=partition` 与内核 `partition` 属性一一对应；扇区大小关系成立。
+5. 边：两端已知、`relation` 封闭、无重复、无自环；sysfs 认的每个分区都有 `partition_of` 指回整盘且不多出。
+6. 身份：只有真读到 WWN/序列号才报 `high`（QEMU 上如实 `medium`）；不同设备不撞车、同型号同容量不撞车；
+   内容不变时两次查询版本不变、逐台指纹一致。
+7. 诚实性：`health.status` 一律 `unknown`、温度与 `checked_at` 是 `null`、每台设备 `capabilities == []`、
+   读不到的字段是 `null` 不是空串。
+8. 系统盘保护：脚本从 `/proc/self/mountinfo` **独立重算**承载关键路径的设备（24.04：sda1/sda15/sda16），
+   逐台核对被标为系统盘；理由写明承载根文件系统；保护沿边递归向上；空白盘 sdb/sdc/sdd 不被保护。
+9. 临时 loop 镜像（64 MiB ext4）：`kind=loop`、挂载点出现、**不因被挂载而成为系统盘**；
+   `total_bytes` 与 statvfs 精确一致，`available_bytes` 与空闲镜像 `f_bavail` **精确相等**
+   （`f_bfree` 差 4 694 016 字节 → 这条断言真能区分取错字段）；挂载出现/消失都让 `snapshot_version` 变，
+   且消失后回到原值（指纹只由内容决定）。
+10. 节奏：一个间隔后 `collected_at` 前进 4—30 秒。
+11. 容量：`/` 的 `total_bytes` 精确相等；`available_bytes` 落在实时 `f_bavail` 的 0.5% 内
+    （30 秒采集窗口内会漂移，脚本注明本机 `f_bfree - f_bavail` 仅 16 MiB、区分不了 Bavail/Bfree，
+    严格对账放在第 9 段）；`used_percent` 在 0—100；容量自带 `collected_at`。
+12. 边界：不接受任何参数（含 `command`/`path`）、未登记查询名 400 且说明“未登记”、信封夹带未知字段 400。
+13. Web 透传：未登录 401；admin 与 viewer 都 200（V）；Web 与代理给出同一个 `snapshot_version`
+    且不重排边、不改保护判定；详情只带相关边；未知设备 404；`sda;id`、`..%2f..%2fetc%2fshadow`、
+    `sda%20--force` 都不是命令入口。
+14. 代理停机：`/storage/topology` 与 `/storage/devices` 503 且不返回任何设备；恢复后 200 且仍是同一份真实拓扑。
+15. 日志卫生：无 `sh -c` 痕迹、无私钥泄漏、无 panic。
+
+**证明“测试有牙”**：`TestReadDiskLinksUsesSymlinkTarget` 在 VM 上真跑（Windows 上因缺符号链接权限 SKIP），
+`storage-regression-*.txt` 有 `--- PASS`；`TestSnapshotVersionIgnoresTimeAndCapacity` 钉住“相隔 37 秒指纹相同、
+补容量不变、改路径才变”；第 9 段的精确相等 + 4.69 MB 保留块差是“取错字段立刻红”的硬证据；
+第 8 段的保护判定由脚本独立重算，不是拿被测代码验证被测代码。
+
+**本轮修掉的问题**
+
+| 问题 | 处理 | 决策 |
+|---|---|---|
+| 代理在真实 24.04 上约 20 秒后被 OOM 杀掉（夹具单测全绿）：`/dev/disk/by-*` 是指向块设备的符号链接，`os.ReadFile` 把整块盘读进内存 | `linkTarget` 先 `Lstat` 再 `Readlink`，普通文件分支只认 `/dev/` 绝对路径；新增符号链接回归用例 | Q89 |
+| `snapshot_version` 每 5 秒就变（违反 CONTRACTS §6 预检语义） | 哈希前归一化 `collected_at`/`checked_at`/容量；新增“时间无关”用例 | Q90 |
+| `/dev/disk/by-*` 指向非设备文件时被当成设备名 | 只对本次扫描枚举到的设备名生效；链接目标按 `devDir` 相对化 | Q91 |
+| `capabilities` 断言过期（`p02-3`/`p04-1` 只列 `system.summary`） | 改成精确列表并注明少报多报都算失败 | Q92 |
+| 验收脚本 `jget`/`jgetx` 把 `None` 也打印、`NameError` 变空串静默通过 | 抽出 `_probe` 截 stdout：语句块用它的 print、单表达式用返回值；命名空间补 `json`/`os` | Q95 |
+| `TestSweepExpiredSecrets` 高负载下偶发失败（在 50ms TTL 上做边界断言） | 拆成“长 TTL 断言不误杀 + 短 TTL 断言会销毁”，语义不变 | Q96 |
+
+**环境事实（不记作产品缺陷）**：24.04 本轮第五次 `Attempted to kill init!` panic（exitcode=0x8b），
+发生在全量回归途中。重启后重新上传二进制/测试/夹具/脚本、核 sha256（12/12 一致），
+再依次跑原生测试（473/0）、p04-2（108/0）、全量回归（13 脚本 0 失败）——本文所有 24.04 结论
+都来自重启后的那一轮。另有一次**验收环境缺陷**：`chmod +x /tmp/upanel-bin/upanel-*` 匹配不到
+`upanelctl`（无连字符），导致 p04-2 报 4 项失败（`init-admin` 退出码 126）；显式列三个文件后 108/0，
+已记进 `commands.log` 避免重复踩。
+
+**NOT RUN**：真实生产服务器；LVM/LUKS/软 RAID/NVMe/多路径的真实拓扑（两台 VM 只有 SCSI 盘与 loop）；
+休眠盘不唤醒的行为（验收机没有可休眠的盘，仅单测覆盖）；SMART 与温度（P04.3）；`go test -race`；
+前端页面渲染（P04.4）。
+
+
 ## 6. 未决问题与范围变更
 
 未批准任何范围变更。DECISIONS.md 第 8 节记录 Q1—Q80；P03.3 新增六条：Q67（阶段与事件必须同事务，
@@ -1806,6 +1940,18 @@ Q88（代理不可用是 503 `AGENT_UNAVAILABLE`，不是 500；采集失败不�
 - Q63 代理回 `NOT_FOUND` → `failed`/`unconfirmed` + `AGENT_UNAVAILABLE`（P03.2）：状态未知不等于成功，
       也不自动重跑破坏性动作；同一 `operation_id` 留给人工/后续对账。
 
+- Q89/Q90/Q91 是 P04.2 在真实 VM 上抓到的三个缺陷（块设备被当普通文件读导致 OOM、快照版本依赖时间、
+      by-id 链接缺“已知设备”约束），修法与影响见 DECISIONS。它们的共同点：夹具单测全绿，只有真机会炸。
+- Q92 起 `capabilities` 里出现第二个查询 `storage.topology`（仍无任何动作）：`p02-3`/`p04-1` 里写死的
+      “只有 system.summary”断言已同步收紧。**少报和多报都算失败**，不允许为了让老断言过而隐瞒新能力。
+- **待确认（P04.2 提出）**：`docs/CONTRACTS.md` §6.1 是本轮新增的（保护递归、`capabilities` 恒空、
+      内核分区结果优先、未挂载时 `filesystem.type/uuid/label` 为 null、休眠盘不唤醒、容量 30 秒 TTL）。
+      它是对 §6 的补充，不改变既有字段语义；如果负责人希望换一种写法（例如把 `protection.sources`
+      去掉、或让 `capabilities` 永远不出现），要在 P04.3 开始前说清楚，否则前端会按现在的形状实现。
+- **未决（P04.2 记录）**：VM-C（LVM 根）仍未创建。保护递归在 LVM/RAID/加密上的逻辑只有构造节点与
+      边的单测，没有真机样本。P07（分区/格式化/挂载）之前必须补一台 LVM 根的验收 VM，
+      否则“写操作前能不能正确识别系统盘”这一点在真实叠层上仍属未验证。
+
 后续按“日期、问题/变更、依据、影响文件、决策人、处理结果”记录。
 不要把模型个人偏好当作项目负责人批准。
 
@@ -1892,6 +2038,12 @@ Q88（代理不可用是 503 `AGENT_UNAVAILABLE`，不是 500；采集失败不�
 | P04.1-REGRESSION | P04 | 已执行通过（两台 VM 各跑完整 `run-all.sh`：**12 个脚本 / 0 失败**，合计 930 断言；p02-3 收紧到 87、p04-1 新增 72） | docs/evidence/P04/2026-10-20-p04.1/{runall-24.txt,runall-22.txt,vm-logs-2404/,vm-logs-2204/} |
 | P04.1-BINARY | P04 | 已执行通过（11 个交叉编译产物在宿主与两台 VM 上 sha256 逐个一致；入口二进制用固定 `BUILD_DATE` 可重建） | docs/evidence/P04/2026-10-20-p04.1/{cross-build-sha256.txt,vm-sha256-2404.txt,vm-sha256-2204.txt} |
 | P04.1-RESULT | P04 | 已产出（交付清单、宿主与 VM 证据、六个缺陷与修法、NOT RUN 清单、环境事故记录） | docs/evidence/P04/2026-10-20-p04.1/{result.md,commands.log} |
+| P04.2-CHECK | P04 | 已执行通过（`sh scripts/check.sh` → PASS 12 / FAIL 0 / NOT RUN 0；`redocly lint api/openapi.yaml` valid + 9 warnings） | docs/evidence/P04/2026-10-20-p04.2/{check.txt,openapi-lint.txt} |
+| P04.2-VM | P04 | **已执行并通过（Ubuntu 24.04.5 与 22.04.5，root 运行，两台均 通过 108 / 失败 0 / 未执行 0；含设备集合与 sysfs 全等、边方向与封闭性、身份稳定不撞车、系统盘保护独立重算、临时 loop 镜像不因挂载受保护、容量对 Bavail 精确对账、参数边界、Web 透传与 viewer 权限、代理停机 503）** | docs/evidence/P04/2026-10-20-p04.2/{p04-2-2404.txt,p04-2-2204.txt,vm-2404-env.txt,vm-2204-env.txt,storage-regression-2404.txt,storage-regression-2204.txt} |
+| P04.2-UNIT-VM | P04 | 已执行通过（VM 内核上原生跑交叉编译测试二进制：9 个包 **TOTAL PASS 473 / FAIL 0**；`TestReadDiskLinksUsesSymlinkTarget` 在 Linux 上真实执行，不是 SKIP） | docs/evidence/P04/2026-10-20-p04.2/{native-2404.txt,native-2204.txt} |
+| P04.2-REGRESSION | P04 | 已执行通过（两台 VM 各跑完整 `run-all.sh`：**13 个脚本 / 0 失败**，合计 1038 断言） | docs/evidence/P04/2026-10-20-p04.2/{runall-2404.txt,runall-2204.txt} |
+| P04.2-BINARY | P04 | 已执行通过（12 个交叉编译产物在宿主与两台 VM 上 sha256 逐个一致；入口二进制重复构建 3/3 逐字节相同） | docs/evidence/P04/2026-10-20-p04.2/{cross-build-sha256.txt,vm-sha256-2404.txt,vm-sha256-2204.txt} |
+| P04.2-RESULT | P04 | 已产出（结论、逐段验到的行为、测试有牙的证据、六个缺陷与修法、NOT RUN 清单、环境事故与操作缺陷记录、复现命令） | docs/evidence/P04/2026-10-20-p04.2/{result.md,commands.log} |
 | P00-VM-C（LVM 根） | P00/P04 | **NOT RUN**（未创建） | 需在 P04 前补齐 |
 | P00-VM-D（SMB 客户端） | P00/P08 | **NOT RUN**（未创建） | 需在 P08 前补齐 |
 
@@ -1927,7 +2079,9 @@ Q88（代理不可用是 503 `AGENT_UNAVAILABLE`，不是 500；采集失败不�
   P03.1 的预检生成与绑定，P03.2 的持久任务/幂等/去重/资源锁/取消与对账，P03.3 的事件流（SSE、
   断线续传、gap、日志环）与任务中心（**任务机制完整，但仍无
   生产动作可执行**），P04.1 的系统基础资源**只读**采集（CPU/内存/负载/网络/主机信息，
-  代理侧 5 秒轮询缓存，`GET /api/v1/system/summary`）。viewer 目前的“只读”只体现在账号管理与任务查询接口上
+  代理侧 5 秒轮询缓存，`GET /api/v1/system/summary`），P04.2 的存储拓扑**只读**视图（块设备树、
+  边、设备身份指纹、系统盘保护、分区表类型与空闲区间、挂载点容量；`GET /api/v1/storage/topology`
+  与 `/storage/devices[/:id]`）。viewer 目前的“只读”只体现在账号管理、任务查询与这两个只读接口上
   （写操作一律 403）；代理的生产登记表为空，**没有任何业务数据接口**，也没有首页/磁盘/服务/文件页面。
   P03 及之后的高风险能力（磁盘写、共享、网络回滚、备份恢复）只有约定，没有实现，
   更没有 Linux 证据。
@@ -2030,3 +2184,23 @@ Q88（代理不可用是 503 `AGENT_UNAVAILABLE`，不是 500；采集失败不�
 - `go test -race` 仍未执行（宿主与两台 VM 都没有 cgo）：采集器有一个 5 秒 ticker 与并发读写
   快照，正确性靠互斥 + 单测，没有竞态检测器证据。长时间（小时级）运行的内存/fd 稳定性
   同样未观测。
+- P04.2 的存储拓扑只有**SCSI 盘 + loop** 的真机证据（两台 VM：sda 40 GiB 带分区、sdb 8 GiB、
+  sdc/sdd 4 GiB、8 个 loop、fd0）。LVM、LUKS、软 RAID、NVMe、多路径、iSCSI 都没有真机样本：
+  这些形态的边与保护递归只用构造的节点/边单测覆盖过。VM-C（LVM 根）仍是未建的缺口。
+- 睡眠盘不唤醒（`health.status=sleeping` 时跳过分区表探测）**只有单测覆盖**：验收 VM 上没有
+  可休眠的盘（QEMU 的 SCSI 盘没有指望进入 sleep）。真实磁盘休眠时的行为未观测。
+- `health` 在 P04.2 一律是 `unknown`、温度与 `checked_at` 是 `null`：这是诚实的占位，不是缺陷。
+  页面此时**不能**显示健康状态；SMART/NVMe 采集与 15 分钟节奏属 P04.3。
+- 容量按 30 秒 TTL 缓存（PLAN §8），两次刷新之间可能比拓扑旧；`available_bytes` 取 `f_bavail`，
+  所以快照里的可用空间与实时 `statvfs` 之间有采集窗口内的漂移（验收里 `/` 上观察到约 4.5 MB/40 GiB，
+  空闲的 loop 镜像上精确相等）。
+- `snapshot_version` **不含**容量与时间，只由拓扑内容决定（Q90）：因此“只剩容量变化”不会让版本变。
+  写动作预检若要关心容量变化，必须自己比对容量，不能指望版本号。
+- `filesystem.uuid`/`label` 依赖 `/dev/disk/by-*` 已由 udev 生成；没有 udev 的精简系统或容器里
+  这两项会是 `null`（诚实降级，不猜、不调 `blkid`）。
+- 设备身份在读不到 WWN/序列号时只能给 `medium`（两台 QEMU VM 都是如此）：指纹在**同一台机器内**
+  稳定且不撞车，但没有验证过“同一块盘换槽位/换机器后仍认得出”，不能据此做去重或迁移判断。
+- 分区表探测只读盘头部有限字节，MBR 扩展分区链过深、坏表、非 512/4096 逻辑扇区的盘只会给
+  `warning` 或 `source=kernel`，不做修复也不抛错；`free_regions` 只是“探测到的空闲区间”，
+  不能直接当作分区建议。
+- 存储拓扑的浏览器证据同样没有：接口在，页面要到 P04.4。

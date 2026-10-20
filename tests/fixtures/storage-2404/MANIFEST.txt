@@ -1,0 +1,200 @@
+# 存储夹具采集清单
+host=upanel-2404
+os=Ubuntu 24.04.5 LTS
+kernel=6.8.0-147-generic
+time_utc=2026-10-20T17:33:19Z
+collected_by=capture-storage-fixtures.sh
+
+## lsblk -b
+NAME    KNAME MAJ:MIN TYPE        SIZE RO MOUNTPOINT FSTYPE UUID
+fd0     fd0     2:0   disk        4096  0                   
+sda     sda     8:0   disk 42949672960  0                   
+├─sda1  sda1    8:1   part 41874865664  0 /          ext4   59134bd0-a76f-4ea0-8e4a-770b2e1eafc2
+├─sda14 sda14   8:14  part     4194304  0                   
+├─sda15 sda15   8:15  part   111149056  0 /boot/efi  vfat   0E9D-3FD8
+└─sda16 sda16 259:0   part   957350400  0 /boot      ext4   b4f0deba-ce7d-45dc-9999-0427f2720320
+sdb     sdb     8:16  disk  8589934592  0                   
+sdc     sdc     8:32  disk  4294967296  0                   
+sdd     sdd     8:48  disk  4294967296  0                   
+
+## 文件清单与 sha256
+b1c085c9e75c0dc6d1b226b111f61df9a6a0cb8bbd9a4394c8c38bbc90ee9cab  MANIFEST.txt
+74a277fc6f94b5b2517a2376371beb630ef323fe54b3b8395a1ba6acae2b1496  dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_UPANEL-DATA-A-8G
+ca62fafaa6e303628a3b74157c8b35f1f1bd62d4cdc6f7c50ffb24aeda87603d  dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_UPANEL-DATA-B-4G
+ed099f0198e999bee1ec671a7e9c34515874654816e7ed353e54b115ea2a21e1  dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_UPANEL-DATA-C-4G
+bde29688c389c304693471263940deac7388fc8c5c220503104b1cb1f1ae63c0  dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_UPANEL-SYS-40G
+adb5637c6fbe1328883ae007a4367067d7f17d76888a29c4f3dbf72036a73c94  dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_UPANEL-SYS-40G-part1
+ea58bf14ecc64925e9164092d44fcd0c3fea0296dd1dd6bf60b05df49a5368d6  dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_UPANEL-SYS-40G-part14
+14c12b309595769e5c56588fde69d1fad5b956dde4c158d788f4dd31b50cddbf  dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_UPANEL-SYS-40G-part15
+b06a29acd6e3883b26fe41b51c565f883fbef6aa345bfc0c7e80457b7708274f  dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_UPANEL-SYS-40G-part16
+74a277fc6f94b5b2517a2376371beb630ef323fe54b3b8395a1ba6acae2b1496  dev/disk/by-id/scsi-SQEMU_QEMU_HARDDISK_UPANEL-DATA-A-8G
+ca62fafaa6e303628a3b74157c8b35f1f1bd62d4cdc6f7c50ffb24aeda87603d  dev/disk/by-id/scsi-SQEMU_QEMU_HARDDISK_UPANEL-DATA-B-4G
+ed099f0198e999bee1ec671a7e9c34515874654816e7ed353e54b115ea2a21e1  dev/disk/by-id/scsi-SQEMU_QEMU_HARDDISK_UPANEL-DATA-C-4G
+bde29688c389c304693471263940deac7388fc8c5c220503104b1cb1f1ae63c0  dev/disk/by-id/scsi-SQEMU_QEMU_HARDDISK_UPANEL-SYS-40G
+adb5637c6fbe1328883ae007a4367067d7f17d76888a29c4f3dbf72036a73c94  dev/disk/by-id/scsi-SQEMU_QEMU_HARDDISK_UPANEL-SYS-40G-part1
+ea58bf14ecc64925e9164092d44fcd0c3fea0296dd1dd6bf60b05df49a5368d6  dev/disk/by-id/scsi-SQEMU_QEMU_HARDDISK_UPANEL-SYS-40G-part14
+14c12b309595769e5c56588fde69d1fad5b956dde4c158d788f4dd31b50cddbf  dev/disk/by-id/scsi-SQEMU_QEMU_HARDDISK_UPANEL-SYS-40G-part15
+b06a29acd6e3883b26fe41b51c565f883fbef6aa345bfc0c7e80457b7708274f  dev/disk/by-id/scsi-SQEMU_QEMU_HARDDISK_UPANEL-SYS-40G-part16
+b06a29acd6e3883b26fe41b51c565f883fbef6aa345bfc0c7e80457b7708274f  dev/disk/by-label/BOOT
+14c12b309595769e5c56588fde69d1fad5b956dde4c158d788f4dd31b50cddbf  dev/disk/by-label/UEFI
+adb5637c6fbe1328883ae007a4367067d7f17d76888a29c4f3dbf72036a73c94  dev/disk/by-label/cloudimg-rootfs
+adb5637c6fbe1328883ae007a4367067d7f17d76888a29c4f3dbf72036a73c94  dev/disk/by-partuuid/17b4d016-4dff-469b-bb05-776ecd0a63d4
+ea58bf14ecc64925e9164092d44fcd0c3fea0296dd1dd6bf60b05df49a5368d6  dev/disk/by-partuuid/24378bbd-4f0a-4154-93d5-e5be509ad4f9
+b06a29acd6e3883b26fe41b51c565f883fbef6aa345bfc0c7e80457b7708274f  dev/disk/by-partuuid/4cc491c2-2bfb-46d6-bf48-0a9d606ba0d7
+14c12b309595769e5c56588fde69d1fad5b956dde4c158d788f4dd31b50cddbf  dev/disk/by-partuuid/6ec49856-0bd6-4fc8-891c-2ab8f712b077
+14c12b309595769e5c56588fde69d1fad5b956dde4c158d788f4dd31b50cddbf  dev/disk/by-uuid/0E9D-3FD8
+adb5637c6fbe1328883ae007a4367067d7f17d76888a29c4f3dbf72036a73c94  dev/disk/by-uuid/59134bd0-a76f-4ea0-8e4a-770b2e1eafc2
+b06a29acd6e3883b26fe41b51c565f883fbef6aa345bfc0c7e80457b7708274f  dev/disk/by-uuid/b4f0deba-ce7d-45dc-9999-0427f2720320
+064c0406a483041551198daee8f9676d1e20cf4064e35f3db987940f574ddbd1  disks/sda.bin
+3f1f6f76c52276c865bae097486a0ce164cd509c98c6410b677f516084ad7c3c  disks/sdb.bin
+3f1f6f76c52276c865bae097486a0ce164cd509c98c6410b677f516084ad7c3c  disks/sdc.bin
+3f1f6f76c52276c865bae097486a0ce164cd509c98c6410b677f516084ad7c3c  disks/sdd.bin
+67eea15f34ea89833e0c1b1051675b38de0a59e962e4cfb8331eecce6d3d5ad8  proc/mounts
+fbd27eac1047f160918708a5c81ad1394cf475fa27ea855175e9546f9cfe15f1  proc/self/mountinfo
+615b077d430a7469a972688b6e10db6e37f8ecea47e6f2754cb179bb6c483e0a  proc/swaps
+1e114374142085811171a477d3a891ae5f57d18abdfce321815ba3bf6a76c0a3  sys/block/fd0/dev
+6d1dbb9c582de44ad1dbc0d24eca4d831d8172bef0593680ecd24f6d0ce9def5  sys/block/fd0/device/power-control
+f13674351f8231c9e60fc923652b1ce94b62357ee00fedaf23ad3af677aff656  sys/block/fd0/device/power-status
+7b4ad272e37a17144366b72d7fbf342861f29001a85ab0d6c095921b244faf71  sys/block/fd0/device/realpath
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/fd0/queue/logical_block_size
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/fd0/queue/physical_block_size
+4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865  sys/block/fd0/queue/rotational
+4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865  sys/block/fd0/removable
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/fd0/ro
+aa67a169b0bba217aa0aa88a65346920c84c42447c36ba5f7ea65f422c1fe5d8  sys/block/fd0/size
+15a5f1a279715bd747ec8e7d9d18fd915e27ceb13f395748643919ec15a4ecce  sys/block/loop0/dev
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/loop0/queue/logical_block_size
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/loop0/queue/physical_block_size
+4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865  sys/block/loop0/queue/rotational
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop0/removable
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop0/ro
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop0/size
+b4fbeb261aa7c645fbd1222ffe169167fc34992fcb3de433ce27d87841e16b58  sys/block/loop1/dev
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/loop1/queue/logical_block_size
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/loop1/queue/physical_block_size
+4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865  sys/block/loop1/queue/rotational
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop1/removable
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop1/ro
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop1/size
+6e2243787736b7b426fa2e2dbf6fb8614ca9554db86304fd110bf5c0f372bba7  sys/block/loop2/dev
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/loop2/queue/logical_block_size
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/loop2/queue/physical_block_size
+4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865  sys/block/loop2/queue/rotational
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop2/removable
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop2/ro
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop2/size
+32af76dc2898a7cc2833f5880068dc5eb4cb16ead11b18292f70ab84b82921c2  sys/block/loop3/dev
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/loop3/queue/logical_block_size
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/loop3/queue/physical_block_size
+4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865  sys/block/loop3/queue/rotational
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop3/removable
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop3/ro
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop3/size
+da88fff3f8485b59f55ffa8159f2c7d6304104df84ffb0a3e0a3bc6c86978981  sys/block/loop4/dev
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/loop4/queue/logical_block_size
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/loop4/queue/physical_block_size
+4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865  sys/block/loop4/queue/rotational
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop4/removable
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop4/ro
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop4/size
+7f48b1e3160a8d0057316d9f6723b061d597eb7b7c349b24fa2c6f41dbbd2dc4  sys/block/loop5/dev
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/loop5/queue/logical_block_size
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/loop5/queue/physical_block_size
+4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865  sys/block/loop5/queue/rotational
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop5/removable
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop5/ro
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop5/size
+9c67153fbaf7e46520eae1054bf087b01213dfb3398ab91f3ecfd6387cd79ac2  sys/block/loop6/dev
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/loop6/queue/logical_block_size
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/loop6/queue/physical_block_size
+4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865  sys/block/loop6/queue/rotational
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop6/removable
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop6/ro
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop6/size
+1a1608122f719418938b8a55fd12c0679b81fb60f1658d0c64b6a7e27b375b0c  sys/block/loop7/dev
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/loop7/queue/logical_block_size
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/loop7/queue/physical_block_size
+4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865  sys/block/loop7/queue/rotational
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop7/removable
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop7/ro
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/loop7/size
+f7c72b8cb72b9223dfa0ff026c9866edd8641c0ebfbe5ad7f0a90e0f40718cf0  sys/block/sda/dev
+b447a1198b24ce3136e5cf98cc851db1627e4495ca795311a1c51e35be3a43d5  sys/block/sda/device/model
+b6ac5bc39377e44ee783dff946f6703a994f5eb31a438e69dc0735b40060d2e8  sys/block/sda/device/power-control
+45df5ad5e0ecfa54d3226343e0e6857337494ba6e32f189d1174070665d8c659  sys/block/sda/device/power-status
+a5ff4f0962cd60c035971a39f6964ad516225167902c69f13dd94803e53e99c7  sys/block/sda/device/realpath
+754b12764d1a1a132afb9a91ee06e69bb61b6e2c81d123600809b08f6fec1d46  sys/block/sda/device/rev
+a4ecc5c87d811bbff7a118c17ef8cf83318cb623a103c15b8549089aa2a7f0ac  sys/block/sda/device/state
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/sda/device/type
+65d248dc79dc297e8b1e3de973cd9d3aeed427b95f6db7ba072ff8273fcc9a78  sys/block/sda/device/vendor
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/sda/queue/logical_block_size
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/sda/queue/physical_block_size
+4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865  sys/block/sda/queue/rotational
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/sda/removable
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/sda/ro
+22d6c56196d8037be260cb12882534be7cae1ee0d616563b374a6ea382b9a9a0  sys/block/sda/sda1/dev
+4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865  sys/block/sda/sda1/partition
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/sda/sda1/ro
+e8110182a5b70ecb3acb2b6e7ac1d789ccbd8510ab703ce973a9ce77227cc5a0  sys/block/sda/sda1/size
+e2d8ab01279093f94f083220b652be05ea412cae7c3fb10d90a0ce8a6fc4bfdb  sys/block/sda/sda1/start
+6412c2cae7b05660a27528a9f72e30b02bfbcac3864733a9908ef2889689e014  sys/block/sda/sda14/dev
+9a92adbc0cee38ef658c71ce1b1bf8c65668f166bfb213644c895ccb1ad07a25  sys/block/sda/sda14/partition
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/sda/sda14/ro
+131e490ede5d344e5a8539d4a5335ccc70db7eacb397b876cffc72578b1331bf  sys/block/sda/sda14/size
+3ed26e56eb4e40cb4d731e5e170955b7d03de05ec5486ef291e950aa119ba250  sys/block/sda/sda14/start
+ac0ec6ba7397735ee17e9d0b9940e45d56af4623d5a149ee75a5311a2d9358cd  sys/block/sda/sda15/dev
+238903180cc104ec2c5d8b3f20c5bc61b389ec0a967df8cc208cdc7cd454174f  sys/block/sda/sda15/partition
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/sda/sda15/ro
+1235d64e1882aff02c35c3b1755c4d60637edc95b6551a0a051370dc90915a2d  sys/block/sda/sda15/size
+6d54f2f865d3f6cc198cc0b18d801785266358b85453dfaedd322c32243c945f  sys/block/sda/sda15/start
+59df4d453c90c01463838b3c11fe12c2be28b2334fed7427b1980d611e7eeb61  sys/block/sda/sda16/dev
+e6c21e8d260fe71882debdb339d2402a2ca7648529bc2303f48649bce0380017  sys/block/sda/sda16/partition
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/sda/sda16/ro
+f3bb70fccd3bac4a14c00b1072ff565d196f6a66cb7d5a8ec306dcd80f0eb8e8  sys/block/sda/sda16/size
+0c6cd87f6cc3ac8601f31defbb239df17266a34627ae5263e97fde2841b2e200  sys/block/sda/sda16/start
+2dfa767bd68fbd232dde5a4974058218febe8c8c93faf8d01f0884d3387bd8c3  sys/block/sda/size
+f747baf2383128ba7e4e5f5952aac36a098035ab3158396f0a4f6e142ad617c6  sys/block/sdb/dev
+b447a1198b24ce3136e5cf98cc851db1627e4495ca795311a1c51e35be3a43d5  sys/block/sdb/device/model
+b6ac5bc39377e44ee783dff946f6703a994f5eb31a438e69dc0735b40060d2e8  sys/block/sdb/device/power-control
+45df5ad5e0ecfa54d3226343e0e6857337494ba6e32f189d1174070665d8c659  sys/block/sdb/device/power-status
+8cdbae00d49b42389bb442ea8d688c0ff07f9460e71ab43baa6c1fde189d68c4  sys/block/sdb/device/realpath
+754b12764d1a1a132afb9a91ee06e69bb61b6e2c81d123600809b08f6fec1d46  sys/block/sdb/device/rev
+a4ecc5c87d811bbff7a118c17ef8cf83318cb623a103c15b8549089aa2a7f0ac  sys/block/sdb/device/state
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/sdb/device/type
+65d248dc79dc297e8b1e3de973cd9d3aeed427b95f6db7ba072ff8273fcc9a78  sys/block/sdb/device/vendor
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/sdb/queue/logical_block_size
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/sdb/queue/physical_block_size
+4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865  sys/block/sdb/queue/rotational
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/sdb/removable
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/sdb/ro
+1c717f8a059be27832853ed4d506f3c7ab305023703aefda2b2272606e13ee01  sys/block/sdb/size
+825e86bb6a1f534612f1885a3497ecb226ae959ba79ecab5ef2218a565b23044  sys/block/sdc/dev
+b447a1198b24ce3136e5cf98cc851db1627e4495ca795311a1c51e35be3a43d5  sys/block/sdc/device/model
+b6ac5bc39377e44ee783dff946f6703a994f5eb31a438e69dc0735b40060d2e8  sys/block/sdc/device/power-control
+45df5ad5e0ecfa54d3226343e0e6857337494ba6e32f189d1174070665d8c659  sys/block/sdc/device/power-status
+83fe25041dce76f402030e7d9d0d836381f1ac4c66eed93266ee6ae36036c80e  sys/block/sdc/device/realpath
+754b12764d1a1a132afb9a91ee06e69bb61b6e2c81d123600809b08f6fec1d46  sys/block/sdc/device/rev
+a4ecc5c87d811bbff7a118c17ef8cf83318cb623a103c15b8549089aa2a7f0ac  sys/block/sdc/device/state
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/sdc/device/type
+65d248dc79dc297e8b1e3de973cd9d3aeed427b95f6db7ba072ff8273fcc9a78  sys/block/sdc/device/vendor
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/sdc/queue/logical_block_size
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/sdc/queue/physical_block_size
+4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865  sys/block/sdc/queue/rotational
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/sdc/removable
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/sdc/ro
+22ee405617f143f8b43cdb9268b81b558e106454ba7a8b8c1354e9574481ba1e  sys/block/sdc/size
+4bd79283cacd4df07c5bec0630f7e81bb4239d06213a2380e1a9f448dce4a135  sys/block/sdd/dev
+b447a1198b24ce3136e5cf98cc851db1627e4495ca795311a1c51e35be3a43d5  sys/block/sdd/device/model
+b6ac5bc39377e44ee783dff946f6703a994f5eb31a438e69dc0735b40060d2e8  sys/block/sdd/device/power-control
+45df5ad5e0ecfa54d3226343e0e6857337494ba6e32f189d1174070665d8c659  sys/block/sdd/device/power-status
+4f374e820f6f182f8f743784ff69d54f9ea3109a513b1f008bdde73b72cc4df6  sys/block/sdd/device/realpath
+754b12764d1a1a132afb9a91ee06e69bb61b6e2c81d123600809b08f6fec1d46  sys/block/sdd/device/rev
+a4ecc5c87d811bbff7a118c17ef8cf83318cb623a103c15b8549089aa2a7f0ac  sys/block/sdd/device/state
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/sdd/device/type
+65d248dc79dc297e8b1e3de973cd9d3aeed427b95f6db7ba072ff8273fcc9a78  sys/block/sdd/device/vendor
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/sdd/queue/logical_block_size
+240269e94afb4bbc4c643851e366bf4f0d870ff0753d250b854f748cf3516285  sys/block/sdd/queue/physical_block_size
+4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865  sys/block/sdd/queue/rotational
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/sdd/removable
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  sys/block/sdd/ro
+22ee405617f143f8b43cdb9268b81b558e106454ba7a8b8c1354e9574481ba1e  sys/block/sdd/size

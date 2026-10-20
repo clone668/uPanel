@@ -76,3 +76,62 @@ func Fixture(name string) ([]byte, error) {
 	return nil, fmt.Errorf("读取夹具 %s 失败：试过 %s（可用 UPANEL_FIXTURES 指向 tests/fixtures）",
 		name, strings.Join(tried, "、"))
 }
+
+// FixtureDir 返回仓库 tests/fixtures 下某个**目录型**夹具的绝对路径。
+//
+// 有些夹具是整棵树（例如 storage-2404 里的 sys/ + proc/，模拟一台真机的
+// sysfs 与 /proc），只能按目录使用，不能读成一段字节。查找顺序与 Fixture 相同。
+func FixtureDir(name string) (string, error) {
+	var tried []string
+
+	try := func(p string) (string, bool) {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			tried = append(tried, p+"（无法转绝对路径）")
+			return "", false
+		}
+		st, err := os.Stat(abs)
+		if err != nil || !st.IsDir() {
+			tried = append(tried, abs)
+			return "", false
+		}
+		return abs, true
+	}
+
+	if root := os.Getenv("UPANEL_FIXTURES"); root != "" {
+		if dir, ok := try(filepath.Join(root, name)); ok {
+			return dir, nil
+		}
+	}
+
+	if exe, err := os.Executable(); err == nil {
+		dir := filepath.Dir(exe)
+		for _, cand := range []string{
+			filepath.Join(dir, "fixtures", name),
+			filepath.Join(dir, "..", "fixtures", name),
+			filepath.Join(dir, "..", "..", "tests", "fixtures", name),
+		} {
+			if d, ok := try(cand); ok {
+				return d, nil
+			}
+		}
+	}
+
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("无法取得当前工作目录: %w", err)
+	}
+	for i := 0; i < maxWalkDepth; i++ {
+		if d, ok := try(filepath.Join(dir, "tests", "fixtures", name)); ok {
+			return d, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+
+	return "", fmt.Errorf("定位夹具目录 %s 失败：试过 %s（可用 UPANEL_FIXTURES 指向 tests/fixtures）",
+		name, strings.Join(tried, "、"))
+}

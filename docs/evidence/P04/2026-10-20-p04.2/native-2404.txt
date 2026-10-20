@@ -1,0 +1,10 @@
+== agentstore rc=0 PASS=72 FAIL=0
+== agent rc=0 PASS=112 FAIL=0
+== agentclient rc=0 PASS=24 FAIL=0
+== operations rc=0 PASS=57 FAIL=0
+== syscmd rc=0 PASS=9 FAIL=0
+== store rc=0 PASS=11 FAIL=0
+== api rc=0 PASS=100 FAIL=0
+== monitoring rc=0 PASS=30 FAIL=0
+== storage rc=0 PASS=58 FAIL=0
+TOTAL PASS=473 FAIL=0

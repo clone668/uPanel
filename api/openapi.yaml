@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: uPanel API
-  version: 0.0.0-p04.1
+  version: 0.0.0-p04.2
   summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
   description: |
     uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。
@@ -611,6 +611,158 @@ paths:
           $ref: '#/components/responses/Unauthenticated'
         '503':
           description: 代理不可用（未配置 socket 或连接失败），此时没有可展示的采集数据。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/storage/topology:
+    get:
+      operationId: getStorageTopology
+      summary: 块设备拓扑（nodes、edges、snapshot_version）
+      description: |
+        返回代理最近一次扫描的块设备拓扑（CONTRACTS.md 第 6 节，权限 V）。
+
+        采集全部只读：读 /sys/block、/proc/self/mountinfo、/proc/swaps、/dev/disk/by-*
+        与整盘最前面的 34 个扇区（判断分区表类型与空闲区），不执行任何外部命令。
+        扫描在代理侧按 5 秒循环进行，查询只读快照：同一窗口内反复刷新拿到同一份拓扑
+        与同一个 snapshot_version。
+
+        edges 的 from 是**子设备/消费者**，to 是**父设备/底层提供者**：
+        sda1 --partition_of--> sda，dm-0 --depends_on--> sda2。保护与锁沿这个方向递归向上追。
+
+        snapshot_version 只覆盖 nodes 与 edges 的内容，不含容量与采集时间：
+        内容不变则版本不变，执行前的幂等与预检比对靠它。
+
+        status 是**最近一次扫描尝试**的结果。扫描失败时 nodes/edges/collected_at 停在上一次
+        成功的样子，status=error 并给出 error 原因——读不到 sysfs 不等于服务器上没有磁盘，
+        因此失败时不会把节点清空。
+      tags: [storage]
+      responses:
+        '200':
+          description: 最近一次扫描快照；可能标记为 error（保留上一次成功的节点）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/StorageTopology'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '503':
+          description: 代理不可用（未配置 socket 或连接失败），此时没有可展示的拓扑。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/storage/devices:
+    get:
+      operationId: listStorageDevices
+      summary: 块设备列表（含系统盘保护判断）
+      description: |
+        与 /storage/topology 读同一份快照（CONTRACTS.md 第 6 节，权限 V）。
+        因此列表里每一台设备的 protection、holders 与 collected_at 都与拓扑里的完全一致。
+
+        每台设备至少包含 Device 必需字段。P04.2 起另有三个附加字段（见 CONTRACTS.md 第 6 节）：
+        protection（系统盘保护与理由）、holders（谁依赖它）、swap（活动交换区）。
+
+        health 在本阶段恒为 unknown：SMART/NVMe 采集属 P04.3，没采到就不能写 healthy。
+
+        capabilities 在本阶段恒为空数组：写动作登记表要到 P07 才开始有内容，
+        这里不能预告未实现的能力。未知类型的设备更不能暗示可以破坏性操作。
+      tags: [storage]
+      responses:
+        '200':
+          description: 设备列表与采集元数据。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/StorageDeviceList'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '503':
+          description: 代理不可用（未配置 socket 或连接失败）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/storage/devices/{id}:
+    get:
+      operationId: getStorageDevice
+      summary: 单台设备详情（含直接相关的关系边）
+      description: |
+        返回一台设备及其直接相关的拓扑边（CONTRACTS.md 第 6 节，权限 V）。
+
+        id 是**内核设备名**（sda、sda1、dm-0、md0、loop0）。它在一次启动内唯一，
+        用作 API 路径参数；判断“是不是同一块盘”要用 identity_fingerprint，
+        不能用 id——名字会随启动与插槽变化。
+
+        id 只作为标识使用：它不会被拼成路径或命令。不存在的设备返回 404，而不是空对象。
+      tags: [storage]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 内核设备名，例如 sda、sda1、dm-0。
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+            pattern: '^[A-Za-z0-9._-]+$'
+      responses:
+        '200':
+          description: 设备详情。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/StorageDeviceDetail'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: 代理不可用（未配置 socket 或连接失败）。
           headers:
             X-Request-ID:
               $ref: '#/components/headers/RequestId'
@@ -2110,6 +2262,404 @@ components:
           type: [number, 'null']
           minimum: 0
           description: 发送速率（字节/秒）；同上。
+
+    # ---- 存储（P04.2）----
+
+    StorageTopology:
+      type: object
+      additionalProperties: false
+      description: |
+        一次扫描的完整块设备拓扑（GET /storage/topology）。nodes 与 edges 是同一份快照：
+        节点里的 protection 与边永远一致，不会出现“某个分区被标成系统盘的一部分，
+        但它到磁盘的边却不在”。
+      required: [status, snapshot_version, collected_at, interval_ms, nodes, edges]
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+          description: 最近一次扫描尝试的结果。
+        error:
+          type: string
+          maxLength: 500
+          description: 扫描失败的原因（status=error 时存在；不含敏感信息）。
+        snapshot_version:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+          description: |
+            nodes 与 edges 的内容指纹。内容不变则版本不变（不含容量与时间）。
+            写动作的预检会拿它与执行前的版本比对（P07）。
+        collected_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        interval_ms:
+          type: integer
+          minimum: 1
+          description: 扫描循环间隔（毫秒），用于判断数据新旧。
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorageDevice'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorageEdge'
+
+    StorageDeviceList:
+      type: object
+      additionalProperties: false
+      description: GET /storage/devices 的响应体；元数据与拓扑一致。
+      required: [status, snapshot_version, collected_at, interval_ms, devices, edges]
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+        error:
+          type: string
+          maxLength: 500
+        snapshot_version:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+        collected_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        interval_ms:
+          type: integer
+          minimum: 1
+        devices:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorageDevice'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorageEdge'
+
+    StorageDeviceDetail:
+      type: object
+      additionalProperties: false
+      description: GET /storage/devices/{id} 的响应体。
+      required: [status, snapshot_version, collected_at, interval_ms, device, edges]
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+        error:
+          type: string
+          maxLength: 500
+        snapshot_version:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+        collected_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        interval_ms:
+          type: integer
+          minimum: 1
+        device:
+          $ref: '#/components/schemas/StorageDevice'
+        edges:
+          type: array
+          description: 只包含与这台设备直接相关的边（它作为子设备，或作为底层提供者）。
+          items:
+            $ref: '#/components/schemas/StorageEdge'
+
+    StorageDevice:
+      type: object
+      additionalProperties: false
+      description: |
+        一台块设备（含分区与逻辑设备）。未知值一律是 null，不是 0 或空字符串。
+      required: [id, kind, name, size_bytes, logical_sector_bytes, physical_sector_bytes,
+                 model, serial, wwn, transport, rotational, read_only, online,
+                 identity_confidence, identity_fingerprint, filesystem, partition_table,
+                 health, capabilities, protection, collected_at]
+      properties:
+        id:
+          type: string
+          description: 内核设备名（sda、sda1、dm-0、md0、loop0）。一次启动内唯一。
+        kind:
+          type: string
+          enum: [disk, partition, lvm, raid, crypt, loop, rom, other]
+          description: 设备类型。loop 用于快照等显式环境；未知类型绝不能配破坏性按钮。
+        name:
+          type: string
+        size_bytes:
+          $ref: '#/components/schemas/ByteString'
+        logical_sector_bytes:
+          type: integer
+          minimum: 1
+        physical_sector_bytes:
+          type: integer
+          minimum: 1
+        model:
+          type: [string, 'null']
+        serial:
+          type: [string, 'null']
+          description: 硬件序列号；虚拟盘上常为 null（读不到就是 null，不伪造）。
+        wwn:
+          type: [string, 'null']
+        transport:
+          type: [string, 'null']
+          description: virtio、nvme、usb、scsi、ata、mmc、unknown 或 null；来自 sysfs 真实路径，不按名字猜。
+        rotational:
+          type: boolean
+          description: 介质是否旋转。虚拟盘上不可靠，仅作展示。
+        read_only:
+          type: boolean
+          description: 设备本身被标记只读（写保护开关、光盘）。
+        online:
+          type: boolean
+          description: 设备当前存在且没有报离线。休眠的设备仍然 online。
+        identity_confidence:
+          type: string
+          enum: [high, medium, low, unknown]
+          description: |
+            身份指纹的可信度：high（有 WWN 或序列号）、medium（只有 udev 的 scsi-S/ata- 稳定名）、
+            low（只有型号+拓扑地址，换槽位就认不出）、unknown（连型号都没有）。
+        identity_fingerprint:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+          description: |
+            同一物理设备的稳定标识，用于“还是不是同一块盘”。它不含容量：
+            扩容不该让同一块盘变成另一块盘。
+        filesystem:
+          oneOf:
+            - $ref: '#/components/schemas/StorageFilesystem'
+            - type: 'null'
+        partition_table:
+          oneOf:
+            - $ref: '#/components/schemas/StoragePartitionTable'
+            - type: 'null'
+        health:
+          $ref: '#/components/schemas/StorageHealth'
+        capabilities:
+          type: array
+          description: 这台设备当前**可以**执行的动作。P04.2 起恒为空。
+          items:
+            $ref: '#/components/schemas/StorageCapability'
+        protection:
+          $ref: '#/components/schemas/StorageProtection'
+        holders:
+          type: array
+          description: 直接依赖这台设备的设备 id（sysfs holders：dm/md 消费它）。
+          items:
+            type: string
+        swap:
+          oneOf:
+            - $ref: '#/components/schemas/StorageSwap'
+            - type: 'null'
+        collected_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
+    StorageProtection:
+      type: object
+      additionalProperties: false
+      description: |
+        系统盘保护判断。它不是“名字像不像系统盘”，而是从 /proc/self/mountinfo 与
+        /proc/swaps 出发找到承载根文件系统、/boot、EFI 分区、面板数据目录与交换区的设备，
+        再沿 partition_of / depends_on 递归向上标记所有底层盘。
+      required: [system_disk, reasons, sources]
+      properties:
+        system_disk:
+          type: boolean
+        reasons:
+          type: array
+          description: 人类可读的理由，去重且排序固定。
+          items:
+            type: string
+        sources:
+          type: array
+          description: 触发保护的具体设备 id（例如承载 / 的 sda1）。
+          items:
+            type: string
+
+    StorageFilesystem:
+      type: object
+      additionalProperties: false
+      required: [type, uuid, label, mounts]
+      properties:
+        type:
+          type: [string, 'null']
+          description: 文件系统类型；未挂载时为 null（本阶段不调用 blkid，不猜）。
+        uuid:
+          type: [string, 'null']
+        label:
+          type: [string, 'null']
+        mounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorageMount'
+
+    StorageMount:
+      type: object
+      additionalProperties: false
+      required: [path, source, fstype, options, read_only, capacity]
+      properties:
+        path:
+          type: string
+        source:
+          type: string
+        fstype:
+          type: string
+        options:
+          type: array
+          items:
+            type: string
+        read_only:
+          type: boolean
+          description: 来自挂载选项里的 ro（不是设备本身的只读标记）。
+        capacity:
+          oneOf:
+            - $ref: '#/components/schemas/StorageCapacity'
+            - type: 'null'
+
+    StorageCapacity:
+      type: object
+      additionalProperties: false
+      description: |
+        挂载点容量。按 30 秒缓存（PLAN.md 第 8 节），因此 collected_at 可能比拓扑的旧。
+        读取失败时整块是 null，不是全 0。
+      required: [total_bytes, available_bytes, used_percent, inode_total, inode_available,
+                 inode_used_percent, collected_at]
+      properties:
+        total_bytes:
+          $ref: '#/components/schemas/ByteString'
+        available_bytes:
+          $ref: '#/components/schemas/ByteString'
+        used_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        inode_total:
+          $ref: '#/components/schemas/ByteString'
+        inode_available:
+          $ref: '#/components/schemas/ByteString'
+        inode_used_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        collected_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
+    StoragePartitionTable:
+      type: object
+      additionalProperties: false
+      description: |
+        partitions 来自 sysfs（内核当前认定的分区），不是从盘上读的——
+        内核才是“现在存在哪些分区”的权威。盘上读到的类型与空闲区另记，不一致时给 warning。
+      required: [type, partitions, free_regions, source]
+      properties:
+        type:
+          type: string
+          enum: [gpt, mbr, none, unknown]
+        partitions:
+          type: array
+          items:
+            $ref: '#/components/schemas/StoragePartition'
+        free_regions:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorageFreeRegion'
+        source:
+          type: string
+          enum: [device, kernel, skipped]
+          description: |
+            device（读了盘上的 MBR/GPT）、kernel（只用了 sysfs 的分区列表，类型未知）、
+            skipped（盘在休眠或读失败，没有去打扰它）。
+        warning:
+          type: string
+          maxLength: 500
+          description: 盘上分区表与内核分区不一致等情况的说明，不隐藏。
+
+    StoragePartition:
+      type: object
+      additionalProperties: false
+      required: [device_id, number, start_bytes, size_bytes]
+      properties:
+        device_id:
+          type: string
+        number:
+          type: integer
+          minimum: 1
+        start_bytes:
+          $ref: '#/components/schemas/ByteString'
+        size_bytes:
+          $ref: '#/components/schemas/ByteString'
+
+    StorageFreeRegion:
+      type: object
+      additionalProperties: false
+      description: 分区表里未被占用的区间，“还能建多大分区”的依据。
+      required: [start_bytes, size_bytes]
+      properties:
+        start_bytes:
+          $ref: '#/components/schemas/ByteString'
+        size_bytes:
+          $ref: '#/components/schemas/ByteString'
+
+    StorageHealth:
+      type: object
+      additionalProperties: false
+      description: |
+        设备健康。P04.2 恒为 unknown：SMART/NVMe 采集属 P04.3。
+        没采到温度时 temperature_celsius 是 null，不能写成 0 °C。
+      required: [status, temperature_celsius, source, checked_at, details]
+      properties:
+        status:
+          type: string
+          enum: [healthy, warning, critical, unknown, unsupported, sleeping]
+        temperature_celsius:
+          type: [number, 'null']
+        source:
+          type: string
+          description: 数据来源（smartctl、nvme、none）。
+        checked_at:
+          oneOf:
+            - $ref: '#/components/schemas/Rfc3339Utc'
+            - type: 'null'
+        details:
+          type: [string, 'null']
+
+    StorageCapability:
+      type: object
+      additionalProperties: false
+      required: [action, state]
+      properties:
+        action:
+          type: string
+        state:
+          type: string
+          enum: [available, blocked, unsupported]
+        reason:
+          type: string
+
+    StorageSwap:
+      type: object
+      additionalProperties: false
+      description: 活动交换区（来自 /proc/swaps）。
+      required: [type, size_bytes, used_bytes, priority]
+      properties:
+        type:
+          type: string
+          enum: [partition, file]
+        size_bytes:
+          $ref: '#/components/schemas/ByteString'
+        used_bytes:
+          $ref: '#/components/schemas/ByteString'
+        priority:
+          type: integer
+
+    StorageEdge:
+      type: object
+      additionalProperties: false
+      description: |
+        一条拓扑关系。from 是子设备/消费者，to 是父设备/底层提供者。
+        保护与锁沿这个方向递归向上追，不靠设备名字推断层级。
+      required: [from_device_id, to_device_id, relation]
+      properties:
+        from_device_id:
+          type: string
+        to_device_id:
+          type: string
+        relation:
+          type: string
+          enum: [partition_of, depends_on]
 
     NullableByteString:
       type: [string, 'null']

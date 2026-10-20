@@ -267,9 +267,9 @@ call web GET /internal/v1/capabilities
 expect_eq "capabilities-web-200" "200" "$CODE"
 expect_eq "capabilities-mode-production" "production" "$(jget "$RESP" 'd["data"]["mode"]')"
 expect_eq "capabilities-actions-empty" "[]" "$(jget "$RESP" 'd["data"]["supported_actions"]')"
-# 查询表从 P04.1 起有 system.summary 一项。这里断言**完全等于**这一项：
-# 少报是隐藏能力，多报是编造能力，两种都算失败。
-expect_eq "capabilities-queries-exact" "['system.summary']" "$(jget "$RESP" 'd["data"]["supported_queries"]')"
+# 查询表随阶段增长：P04.1 加 system.summary，P04.2 加 storage.topology。
+# 这里断言**完全等于**当前应有的集合（字典序）：少报是隐藏能力，多报是编造能力，两种都算失败。
+expect_eq "capabilities-queries-exact" "['storage.topology', 'system.summary']" "$(jget "$RESP" 'd["data"]["supported_queries"]')"
 CAPS_BODY=$(cat "$RESP" 2>/dev/null)
 
 call root GET /internal/v1/capabilities

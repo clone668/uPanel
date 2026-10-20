@@ -267,11 +267,15 @@ func NewProductionRegistry(deps ProductionDeps) (*Registry, error) {
 // 单独拆出来是因为验收模式：验收用 --acceptance 换成验收动作表，但查询仍然是
 // 生产实现——验收脚本要验证的就是真实采集链路，而不是再造一份。
 func RegisterProductionQueries(reg *Registry, deps ProductionDeps) error {
-	if deps.Collector == nil {
-		return nil
+	if deps.Collector != nil {
+		if err := reg.RegisterQuery(newSystemSummaryQuery(deps.Collector)); err != nil {
+			return fmt.Errorf("代理登记 system.summary 失败: %w", err)
+		}
 	}
-	if err := reg.RegisterQuery(newSystemSummaryQuery(deps.Collector)); err != nil {
-		return fmt.Errorf("代理登记 system.summary 失败: %w", err)
+	if deps.Storage != nil {
+		if err := reg.RegisterQuery(newStorageTopologyQuery(deps.Storage)); err != nil {
+			return fmt.Errorf("代理登记 storage.topology 失败: %w", err)
+		}
 	}
 	return nil
 }

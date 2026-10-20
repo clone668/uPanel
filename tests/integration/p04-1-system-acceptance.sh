@@ -286,7 +286,7 @@ expect_eq "代理进程 uid=0" "0" "$(ps -o uid= -p "$AGENT_PID" 2>/dev/null | t
 
 call web GET /internal/v1/capabilities
 expect_eq "capabilities 200" "200" "$CODE"
-expect_eq "capabilities 报告 system.summary" "['system.summary']" "$(jget "$RESP" 'd["data"]["supported_queries"]')"
+expect_eq "capabilities 报告 system.summary" "['storage.topology', 'system.summary']" "$(jget "$RESP" 'd["data"]["supported_queries"]')"
 expect_eq "capabilities 仍不报告任何写动作" "[]" "$(jget "$RESP" 'd["data"]["supported_actions"]')"
 
 echo

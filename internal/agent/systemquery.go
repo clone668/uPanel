@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"upanel/internal/monitoring"
+	"upanel/internal/storage"
 )
 
 // ProductionDeps 是生产登记表的依赖。
@@ -15,6 +16,8 @@ import (
 type ProductionDeps struct {
 	// Collector 是系统基础资源采集器（P04.1）。为 nil 时不登记 system.summary。
 	Collector *monitoring.Collector
+	// Storage 是块设备拓扑采集器（P04.2）。为 nil 时不登记 storage.topology。
+	Storage *storage.Collector
 }
 
 // newSystemSummaryQuery 登记 system.summary：无参数，返回采集器最近一次快照。

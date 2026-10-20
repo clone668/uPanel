@@ -1,0 +1,52 @@
+OS: Ubuntu 24.04.5 LTS
+KERNEL: 6.8.0-147-generic
+PYTHON: Python 3.12.3
+SHELL_IS_DASH: /usr/bin/dash
+
+== lsblk -b ==
+NAME           SIZE TYPE MOUNTPOINT
+fd0            4096 disk 
+sda     42949672960 disk 
+├─sda1  41874865664 part /
+├─sda14     4194304 part 
+├─sda15   111149056 part /boot/efi
+└─sda16   957350400 part /boot
+sdb      8589934592 disk 
+sdc      4294967296 disk 
+sdd      4294967296 disk 
+
+== /proc/self/mountinfo (blocks) ==
+28 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw,discard,errors=remount-ro,commit=30
+45 43 8:15 / /boot/efi rw,relatime shared:44 - vfat /dev/sda15 rw,fmask=0077,dmask=0077,codepage=437,iocharset=iso8859-1,shortname=mixed,errors=remount-ro
+
+== /proc/swaps ==
+Filename				Type		Size		Used		Priority
+
+== /dev/disk ==
+/dev/disk/by-id:
+total 0
+lrwxrwxrwx 1 root root  9 Oct 20 18:39 scsi-0QEMU_QEMU_HARDDISK_UPANEL-DATA-A-8G -> ../../sdb
+lrwxrwxrwx 1 root root  9 Oct 20 18:39 scsi-0QEMU_QEMU_HARDDISK_UPANEL-DATA-B-4G -> ../../sdc
+lrwxrwxrwx 1 root root  9 Oct 20 18:39 scsi-0QEMU_QEMU_HARDDISK_UPANEL-DATA-C-4G -> ../../sdd
+lrwxrwxrwx 1 root root  9 Oct 20 18:39 scsi-0QEMU_QEMU_HARDDISK_UPANEL-SYS-40G -> ../../sda
+lrwxrwxrwx 1 root root 10 Oct 20 18:39 scsi-0QEMU_QEMU_HARDDISK_UPANEL-SYS-40G-part1 -> ../../sda1
+lrwxrwxrwx 1 root root 11 Oct 20 18:39 scsi-0QEMU_QEMU_HARDDISK_UPANEL-SYS-40G-part14 -> ../../sda14
+lrwxrwxrwx 1 root root 11 Oct 20 18:39 scsi-0QEMU_QEMU_HARDDISK_UPANEL-SYS-40G-part15 -> ../../sda15
+lrwxrwxrwx 1 root root 11 Oct 20 18:39 scsi-0QEMU_QEMU_HARDDISK_UPANEL-SYS-40G-part16 -> ../../sda16
+lrwxrwxrwx 1 root root  9 Oct 20 18:39 scsi-SQEMU_QEMU_HARDDISK_UPANEL-DATA-A-8G -> ../../sdb
+lrwxrwxrwx 1 root root  9 Oct 20 18:39 scsi-SQEMU_QEMU_HARDDISK_UPANEL-DATA-B-4G -> ../../sdc
+lrwxrwxrwx 1 root root  9 Oct 20 18:39 scsi-SQEMU_QEMU_HARDDISK_UPANEL-DATA-C-4G -> ../../sdd
+lrwxrwxrwx 1 root root  9 Oct 20 18:39 scsi-SQEMU_QEMU_HARDDISK_UPANEL-SYS-40G -> ../../sda
+lrwxrwxrwx 1 root root 10 Oct 20 18:39 scsi-SQEMU_QEMU_HARDDISK_UPANEL-SYS-40G-part1 -> ../../sda1
+lrwxrwxrwx 1 root root 11 Oct 20 18:39 scsi-SQEMU_QEMU_HARDDISK_UPANEL-SYS-40G-part14 -> ../../sda14
+lrwxrwxrwx 1 root root 11 Oct 20 18:39 scsi-SQEMU_QEMU_HARDDISK_UPANEL-SYS-40G-part15 -> ../../sda15
+lrwxrwxrwx 1 root root 11 Oct 20 18:39 scsi-SQEMU_QEMU_HARDDISK_UPANEL-SYS-40G-part16 -> ../../sda16
+
+/dev/disk/by-uuid:
+total 0
+lrwxrwxrwx 1 root root 11 Oct 20 18:39 0E9D-3FD8 -> ../../sda15
+lrwxrwxrwx 1 root root 10 Oct 20 18:39 59134bd0-a76f-4ea0-8e4a-770b2e1eafc2 -> ../../sda1
+lrwxrwxrwx 1 root root 11 Oct 20 18:39 b4f0deba-ce7d-45dc-9999-0427f2720320 -> ../../sda16
+
+== accounts ==
+uid=999(upanel-web) gid=988(upanel-web) groups=988(upanel-web)

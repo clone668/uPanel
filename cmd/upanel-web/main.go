@@ -26,6 +26,7 @@ import (
 	"upanel/internal/monitoring"
 	"upanel/internal/operations"
 	"upanel/internal/platform"
+	"upanel/internal/storage"
 	"upanel/internal/store"
 	"upanel/internal/version"
 	"upanel/internal/webui"
@@ -260,6 +261,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	var preflightAgent operations.Agent
 	// 系统基础资源读取端（P04.1）。演示模式下保持 nil：接口回 503，不造假数据。
 	var monitor api.Monitor
+	// 存储只读视图读取端（P04.2）。演示模式下同样保持 nil。
+	var storageReader api.StorageReader
 	if mode == platform.ModeProduction {
 		client, err := agentclient.New(cfg.Agent.SocketPath)
 		if err != nil {
@@ -274,6 +277,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		monitor = fetcher
+		storageFetcher, err := storage.NewFetcher(client, logger)
+		if err != nil {
+			logger.Error("初始化存储读取端失败，拒绝启动", "error", err)
+			return 1
+		}
+		storageReader = storageFetcher
 		logger.Info("代理客户端已配置", "socket", cfg.Agent.SocketPath)
 	} else {
 		// 明确说明原因：演示模式下预检与系统信息会返回 503，而不是给一份假的数据。
@@ -302,6 +311,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Audit:           auditWriter,
 		Operations:      opsService,
 		Monitor:         monitor,
+		Storage:         storageReader,
 		AllowedOrigins:  allowedOrigins,
 	})
 	if err != nil {

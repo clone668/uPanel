@@ -63,6 +63,9 @@ type Options struct {
 	// Monitor 是系统基础资源读取端（P04.1）。允许为 nil（演示模式不连代理）：
 	// 那时 GET /system/summary 明确回 503 AGENT_UNAVAILABLE，而不是给一份空摘要。
 	Monitor Monitor
+	// Storage 是存储只读视图读取端（P04.2）。允许为 nil（不连代理）：
+	// 那时 /storage/* 明确回 503 AGENT_UNAVAILABLE，而不是给一份空拓扑。
+	Storage StorageReader
 }
 
 // Server 是 Web HTTP 服务。

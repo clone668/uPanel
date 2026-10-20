@@ -5,8 +5,8 @@
 # 而是会得到看似通过或诡异挂起的结果——
 #   * p01-1 / p01-2 / p01-4 / p02-1 / p02-2：**非 root**（脚本自己用 sudo 做特权部分，
 #     并会断言“Web 不以 root 运行”“数据库文件属主是运行者”）；
-#   * p02-3 / p02-4 / p03-1 / p03-2 / p03-3 / p03-4 / p04-1：**root**（代理只能在 root 下启动，
-#     p03-4 还要 kill 代理、替换代理库来制造重启与数据丢失）。
+#   * p02-3 / p02-4 / p03-1 / p03-2 / p03-3 / p03-4 / p04-1 / p04-2：**root**（代理只能在 root 下启动，
+#     p03-4 还要 kill 代理、替换代理库来制造重启与数据丢失；p04-2 要挂载一块临时 loop 镜像）。
 # 典型事故：用 `sudo sh p01-2-acceptance.sh` 跑 p01-2，root 绕过目录权限，
 # “数据库目录不可写即拒绝启动”那条永远等不到退出，脚本会一直挂着。
 #
@@ -37,7 +37,7 @@ if [ -n "$DEPLOY_DIR" ] && [ ! -d "$DEPLOY_DIR/systemd" ]; then
 fi
 
 NONROOT_SCRIPTS="p01-1-acceptance p01-2-acceptance p01-4-acceptance p02-1-acceptance p02-2-acceptance"
-ROOT_SCRIPTS="p02-3-agent-acceptance p02-4-agent-secrets-acceptance p03-1-preflight-acceptance p03-2-jobs-acceptance p03-3-events-acceptance p03-4-reconcile-acceptance p04-1-system-acceptance"
+ROOT_SCRIPTS="p02-3-agent-acceptance p02-4-agent-secrets-acceptance p03-1-preflight-acceptance p03-2-jobs-acceptance p03-3-events-acceptance p03-4-reconcile-acceptance p04-1-system-acceptance p04-2-storage-acceptance"
 
 if [ $# -gt 0 ]; then
     SELECTED="$*"

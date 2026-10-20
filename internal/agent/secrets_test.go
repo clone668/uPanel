@@ -225,14 +225,9 @@ func TestPostSecretDeniedForOtherUIDs(t *testing.T) {
 	}
 }
 
-func TestSweepExpiredSecrets(t *testing.T) {
-	// 真实等待 80ms 而不是注入时钟：验证的是“服务端扫描器用的就是真实时间”。
-	srv, secrets := newSecretServer(t, agentstore.SecretsOptions{TTL: 50 * time.Millisecond})
-
-	rec := postSecret(t, srv, testWebUID, `{"purpose":"notification_password","value":"mail-pass"}`)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("状态码 = %d；响应 %s", rec.Code, rec.Body.String())
-	}
+// secretRefOf 从 POST /internal/v1/secrets 的响应里取出 secret_ref。
+func secretRefOf(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
 	var body struct {
 		Data struct {
 			SecretRef string `json:"secret_ref"`
@@ -241,14 +236,53 @@ func TestSweepExpiredSecrets(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("响应不是合法 JSON: %v", err)
 	}
+	if body.Data.SecretRef == "" {
+		t.Fatalf("响应里没有 secret_ref: %s", rec.Body.String())
+	}
+	return body.Data.SecretRef
+}
 
-	// 到期前：扫描不销毁任何东西。
-	removed, err := srv.SweepExpiredSecrets(reqContext(t))
+func TestSweepExpiredSecrets(t *testing.T) {
+	// 真实等待而不注入时钟：验证的是“服务端扫描器用的就是真实时间”。
+	//
+	// 分成两块而不是一条时间线，是因为这里曾经偶发失败（宿主高负载下重现过一次）：
+	// TTL 50ms、POST 之后立刻扫描，断言“一条都没销毁”，可一旦机器忙，POST 到扫描之间
+	// 就超过 50ms，秘密在第一次扫描前已到期，断言变成 false。
+	// 所以“未到期不销毁”用一条 TTL 1 小时的秘密来断言（差几个毫秒不会翻转），
+	// “到期后销毁”另开一条 TTL 50ms 的秘密并等满 80ms。两条合起来仍然覆盖
+	// 扫描器的两个方向，而且不依赖机器忙不忙。
+	//
+	// 第一块：未到期的秘密不能被销毁。
+	longSrv, longSecrets := newSecretServer(t, agentstore.SecretsOptions{TTL: time.Hour})
+	rec := postSecret(t, longSrv, testWebUID, `{"purpose":"notification_password","value":"keep-me"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("状态码 = %d；响应 %s", rec.Code, rec.Body.String())
+	}
+	longRef := secretRefOf(t, rec)
+	removed, err := longSrv.SweepExpiredSecrets(reqContext(t))
 	if err != nil {
 		t.Fatalf("扫描失败: %v", err)
 	}
 	if removed != 0 {
 		t.Fatalf("未到期就销毁了 %d 条", removed)
+	}
+	if _, err := longSecrets.Resolve(reqContext(t), longRef); err != nil {
+		t.Fatalf("未到期的秘密应当还能解密: %v", err)
+	}
+
+	// 第二块：到期之后必须销毁，且只销毁一次。
+	srv, secrets := newSecretServer(t, agentstore.SecretsOptions{TTL: 50 * time.Millisecond})
+	rec = postSecret(t, srv, testWebUID, `{"purpose":"notification_password","value":"mail-pass"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("状态码 = %d；响应 %s", rec.Code, rec.Body.String())
+	}
+	body := struct {
+		Data struct {
+			SecretRef string `json:"secret_ref"`
+		} `json:"data"`
+	}{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("响应不是合法 JSON: %v", err)
 	}
 
 	time.Sleep(80 * time.Millisecond)

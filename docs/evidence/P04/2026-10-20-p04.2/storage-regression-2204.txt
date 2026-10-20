@@ -1,0 +1,9 @@
+=== RUN   TestScanRealCapture2404
+--- PASS: TestScanRealCapture2404 (0.00s)
+=== RUN   TestScanRealCapture2204
+--- PASS: TestScanRealCapture2204 (0.00s)
+=== RUN   TestReadDiskLinksUsesSymlinkTarget
+--- PASS: TestReadDiskLinksUsesSymlinkTarget (0.00s)
+=== RUN   TestSnapshotVersionIgnoresTimeAndCapacity
+--- PASS: TestSnapshotVersionIgnoresTimeAndCapacity (0.01s)
+PASS

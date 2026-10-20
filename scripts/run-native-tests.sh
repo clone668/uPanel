@@ -50,7 +50,7 @@ export UPANEL_FIXTURES="$FIXTURES"
 total_pass=0
 total_fail=0
 
-for name in agentstore agent agentclient operations syscmd store api monitoring; do
+for name in agentstore agent agentclient operations syscmd store api monitoring storage; do
     bin="$TESTS/$name.test"
     if [ ! -x "$bin" ]; then
         echo "缺少测试二进制: $bin" >&2
