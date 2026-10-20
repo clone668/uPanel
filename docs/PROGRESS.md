@@ -1566,7 +1566,12 @@ panic 三次，都是 `Attempted to kill init! exitcode=0x8b`）。重启后 `/t
 - 多 Web 进程/多副本：在途登记是进程内的（Q74），systemd 单实例前提之外未验证。
 - 连续运行数小时的累积影响（内存、日志量、WAL 增长）未观测。
 
-**交付去向**：见第 7 节与本文件末尾的提交记录。
+**交付去向**：代码与证据已推送到 <https://github.com/clone668/uPanel>，`refs/heads/main` =
+本地 `HEAD` 同一个 sha `6db9b35fb8e0665a48ae1950d3eb0e1ad2cd9e22`（58 个文件 / +5407 −61），
+工作区干净。证据目录 `docs/evidence/P03/2026-10-20-p03.4/` 含宿主闸门输出、两台 VM 的环境与
+sha256、`runall-*.txt`、逐脚本日志（`vm-logs-2404/`、`vm-logs-2204/`）、变异测试输出、
+`commands.log` 与 `result.md`。本轮新增的 `tests/integration/p03-4-reconcile-acceptance.sh`
+与 `run-all.sh` 的 `LOG_DIR` 改动随代码一起入库，换台机器重建一次验收环境就能一键重跑。
 
 ## 6. 未决问题与范围变更
 
