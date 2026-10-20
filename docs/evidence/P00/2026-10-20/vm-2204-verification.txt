@@ -1,0 +1,62 @@
+# 采集时间: 2026-10-20T05:25:16Z
+# 方式: ssh -p 2223 upanel@127.0.0.1  (QEMU 11.1.0 / -accel whpx, Ubuntu 22.04 cloud image, -m 4096)
+# 说明: 以下全部为虚拟机内真实命令输出，未经编辑（SSH 首次连接警告除外）
+
+Warning: Permanently added '[127.0.0.1]:2223' (ED25519) to the list of known hosts.
+=== 系统身份 ===
+Distributor ID:	Ubuntu
+Description:	Ubuntu 22.04.5 LTS
+Release:	22.04
+Codename:	jammy
+No LSB modules are available.
+5.15.0-198-generic
+
+=== 资源配置（应为 4096MB / 2 vCPU） ===
+2
+               total        used        free      shared  buff/cache   available
+Mem:            3911         187        3459           0         264        3501
+
+=== 块设备（应只见 QEMU HARDDISK 与 UPANEL-* 序列号） ===
+NAME    SIZE TYPE TRAN VENDOR   MODEL         SERIAL           WWN
+fd0       4K disk                                              
+loop0    74M loop                                              
+loop1  44.7M loop                                              
+loop2 115.2M loop                                              
+sda      40G disk      QEMU     QEMU HARDDISK UPANEL-SYS-40G   
+sdb       8G disk      QEMU     QEMU HARDDISK UPANEL-DATA-A-8G 
+sdc       4G disk      QEMU     QEMU HARDDISK UPANEL-DATA-B-4G 
+sdd       4G disk      QEMU     QEMU HARDDISK UPANEL-DATA-C-4G 
+
+=== /dev/disk/by-id（磁盘，排除分区） ===
+
+=== udev ID_SERIAL_SHORT ===
+/dev/sda UPANEL-SYS-40G
+/dev/sdb UPANEL-DATA-A-8G
+/dev/sdc UPANEL-DATA-B-4G
+/dev/sdd UPANEL-DATA-C-4G
+
+=== 根文件系统 ===
+/dev/sda1 /      ext4   38.6G  1.7G 36.9G
+
+=== 拓扑 ===
+NAME      SIZE TYPE FSTYPE   MOUNTPOINTS       PKNAME
+fd0         4K disk                            
+loop0      74M loop squashfs /snap/core22/2955 
+loop1    44.7M loop squashfs /snap/snapd/28254 
+loop2   115.2M loop squashfs /snap/lxd/40911   
+sda        40G disk                            
+├─sda1   39.9G part ext4     /                 sda
+├─sda14     4M part                            sda
+└─sda15   106M part vfat     /boot/efi         sda
+sdb         8G disk                            
+sdc         4G disk                            
+sdd         4G disk                            
+
+=== 宿主共享挂载探测（期望为空） ===
+[以上为空则通过]
+
+=== 阳性对照（ext4 应列出） ===
+/
+
+=== swap（期望为空） ===
+[以上为空则通过]

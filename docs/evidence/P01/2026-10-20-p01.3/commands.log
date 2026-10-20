@@ -1,0 +1,48 @@
+# P01.3 执行命令记录（2026-10-20）
+
+工具链前缀（Node 按 .nvmrc 锁定，开发宿主默认 node 为 v24.15.0，不在允许范围）：
+
+    export PATH="/c/Users/huxi/AppData/Local/nvm/v22.23.3:$PATH"
+
+1. 类型检查（vue-tsc，含 .vue 模板类型）
+
+       npm --prefix web run typecheck
+
+2. ESLint 10 flat config
+
+       npm --prefix web run lint
+
+3. 前端单元测试（vitest，node 环境 + SSR 断言）
+
+       npm --prefix web run test
+
+4. 生产构建
+
+       npm --prefix web run build
+
+5. 基础页面冒烟（Playwright chromium，真实浏览器；首次运行时装了匹配 1.64.1 的 chromium）
+
+       npx playwright install chromium
+       npm --prefix web run smoke
+
+6. mock 模式构建 + 横幅冒烟（VITE_UPANEL_MODE=mock → dist-mock）
+
+       npm --prefix web run smoke:mock
+
+7. 统一检查脚本（Go 全部 + 前端四项 + OpenAPI）
+
+       sh scripts/check.sh
+
+8. 证据归档
+
+       sh scripts/check.sh > docs/evidence/P01/2026-10-20-p01.3/check-run.txt 2>&1
+       npm --prefix web run typecheck   > .../typecheck.txt 2>&1
+       npm --prefix web run lint        > .../lint.txt 2>&1
+       npx --prefix web vitest run --root web --reporter=verbose > .../test.txt 2>&1
+       npm --prefix web run build       > .../build.txt 2>&1
+       npm --prefix web run smoke       > .../smoke-production.txt 2>&1
+       npm --prefix web run smoke:mock  > .../smoke-mock.txt 2>&1
+
+# 本轮没有执行的部分（见 result.md）
+#   - 未启动 Ubuntu 虚拟机：P01.3 只交付前端骨架，同源 API + 静态页面属 P01.4 验收。
+#   - 未运行 Playwright 交互用例：仓库未落地 e2e 用例集，本轮只有 scripts/smoke.mjs。

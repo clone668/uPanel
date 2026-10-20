@@ -1,0 +1,45 @@
+Warning: Permanently added '[127.0.0.1]:2222' (ED25519) to the list of known hosts.
+== 环境 ==
+系统: Ubuntu 24.04.5 LTS
+内核: 6.8.0-147-generic
+用户: upanel (uid=1000)
+二进制目录: /tmp
+配置文件: /tmp/accept-config.json
+mock 配置: /tmp/accept-config-mock.json
+
+== 1. 版本与配置检查 ==
+PASS  ctl-version
+PASS  ctl-check-config-web
+PASS  ctl-check-config-socket
+PASS  ctl-rejects-unknown-field
+
+== 2. mock 模式 ==
+PASS  mock-listens-18881
+PASS  mock-health-live
+PASS  mock-unknown-root-404
+PASS  mock-unknown-root-json
+PASS  mock-graceful-shutdown
+PASS  mock-rejects-non-loopback
+
+== 3. production 模式 ==
+PASS  prod-listens-9443
+PASS  prod-health-live
+PASS  prod-request-id-echo
+PASS  prod-method-not-allowed
+PASS  prod-graceful-shutdown
+PASS  prod-rejects-non-loopback-before-tls
+
+== 4. 特权代理 ==
+PASS  agent-refuses-nonroot
+PASS  agent-socket-0660
+PASS  agent-no-tcp-listener
+PASS  agent-capabilities-version
+PASS  agent-capabilities-empty-actions
+PASS  agent-capabilities-mode
+PASS  agent-unknown-path-404
+PASS  agent-socket-cleanup
+PASS  agent-refuses-overwrite-file
+PASS  agent-keeps-existing-file
+
+== 汇总 ==
+PASS 26 / FAIL 0

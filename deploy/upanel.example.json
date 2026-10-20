@@ -1,0 +1,24 @@
+{
+  "web": {
+    "mode": "production",
+    "listen_address": "127.0.0.1:9443",
+    "shutdown_timeout_seconds": 10
+  },
+  "agent": {
+    "socket_path": "/run/upanel/agent.sock",
+    "shutdown_timeout_seconds": 10,
+    "web_user": "upanel-web",
+    "socket_group": "upanel-web",
+    "database_path": "/var/lib/upanel-agent/agent.db",
+    "secret_key_path": "/etc/upanel/agent.key"
+  },
+  "database": {
+    "path": "/var/lib/upanel/upanel.db",
+    "busy_timeout_ms": 5000
+  },
+  "log": {
+    "level": "info",
+    "format": "json",
+    "add_source": false
+  }
+}

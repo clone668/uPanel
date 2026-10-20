@@ -1,0 +1,34 @@
+=== 无嵌入资源的二进制：启动日志 ===
+{"time":"2026-10-20T16:56:21.9699813+08:00","level":"INFO","msg":"启动","program":"upanel-web","version":"0.0.0-dev","commit":"unknown","go_version":"go1.27.3","mode":"mock","os":"windows","arch":"amd64","config_source":"内置默认值"}
+{"time":"2026-10-20T16:56:21.9800948+08:00","level":"WARN","msg":"演示模式：使用进程内演示数据，不读取真实系统，也不写入服务器","program":"upanel-web","address":"127.0.0.1:18881"}
+{"time":"2026-10-20T16:56:21.9880922+08:00","level":"INFO","msg":"数据库已打开","program":"upanel-web","path":"H:/Code/uPanel/bin/p01-4-host.db","journal_mode":"wal","foreign_keys":true,"busy_timeout_ms":5000}
+{"time":"2026-10-20T16:56:21.9886185+08:00","level":"INFO","msg":"数据库 schema 已就绪","program":"upanel-web","path":"H:/Code/uPanel/bin/p01-4-host.db","schema_version":1,"applied_versions":[]}
+{"time":"2026-10-20T16:56:21.9886185+08:00","level":"WARN","msg":"二进制未嵌入前端资源，页面请求将返回 503","program":"upanel-web","reason":"此二进制的构建产物中没有前端资源；请在构建机上执行 scripts/build.sh（先构建 web 再同步到 internal/webui/dist）"}
+{"time":"2026-10-20T16:56:21.9901992+08:00","level":"INFO","msg":"Web 服务已开始监听","program":"upanel-web","address":"127.0.0.1:18881","network":"tcp","mode":"mock","loopback_only":true,"version":"0.0.0-dev","schema_version":1,"pid":24584,"started_at":"2026-10-20T08:56:21.9886185Z"}
+{"time":"2026-10-20T16:56:22.7865273+08:00","level":"INFO","msg":"请求完成","program":"upanel-web","request_id":"123680bfc69356855b9659133cad8b9c","request_id_inherited":false,"method":"GET","path":"/api/v1/health/live","route":"/api/v1/health/live","status":200,"bytes":73,"duration_ms":0,"remote_addr":"127.0.0.1:8247","user_agent":"curl/8.17.0"}
+
+=== GET / ===
+HTTP/1.1 503 Service Unavailable
+Cache-Control: no-store
+Content-Type: text/plain; charset=utf-8
+Cross-Origin-Opener-Policy: same-origin
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+X-Request-Id: 39365dc3e154afeb01e2105fef5af00c
+Date: Tue, 20 Oct 2026 08:56:22 GMT
+Content-Length: 145
+
+此二进制的构建产物中没有前端资源；请在构建机上执行 scripts/build.sh（先构建 web 再同步到 internal/webui/dist）
+
+[status=503]
+
+=== GET /storage ===
+此二进制的构建产物中没有前端资源；请在构建机上执行 scripts/build.sh（先构建 web 再同步到 internal/webui/dist）
+
+[status=503]
+
+=== GET /api/v1/health/live （API 不受影响） ===
+{"data":{"status":"ok"},"request_id":"fca207ee8e843abc2a7301e73d707163"}
+
+[status=200]

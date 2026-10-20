@@ -1,0 +1,50 @@
+== 0. 构建 ==
+== 1. init-admin 创建第一个管理员 ==
+PASS  init-admin 退出码
+PASS  init-admin 输出包含 admin
+PASS  init-admin 输出不含密码
+PASS  init-admin stderr 不含密码
+PASS  重复 init-admin 被拒绝
+PASS  重复 init-admin 说明原因
+== 2. 启动 mock 模式 Web 服务 ==
+PASS  健康检查
+== 3. 登录入口检查 ==
+PASS  缺少 X-UPanel-Request → 400
+PASS  非 JSON Content-Type → 400
+PASS  陌生 Origin → 403
+PASS  缺少 Origin 返回 CSRF_FAILED
+PASS  未知字段被拒绝
+PASS  错误密码 → 401
+== 4. 正确登录与 Cookie 属性 ==
+PASS  正确密码 → 200
+PASS  Cookie 名为 __Host-upanel_session
+PASS  Cookie HttpOnly
+PASS  Cookie Secure
+PASS  Cookie SameSite=Strict
+PASS  Cookie Path=/
+PASS  Cookie 不带 Domain
+PASS  登录响应不含密码
+PASS  登录响应不含哈希
+PASS  拿到会话 Cookie 与 CSRF 令牌
+== 5. session 读取与 CSRF 轮换 ==
+PASS  GET session → 200
+PASS  CSRF 令牌已轮换
+PASS  reauth_expires_at 为 null
+PASS  无 Cookie 访问 session → 401
+PASS  伪造 Cookie → 401
+== 6. 退出需要 CSRF，且立即失效 ==
+PASS  无 CSRF 头退出 → 403
+PASS  旧 CSRF 令牌退出 → 403
+PASS  正确 CSRF 退出 → 200
+PASS  退出清除 Cookie
+PASS  退出后同一 Cookie → 401
+== 7. 连续失败触发限速（429） ==
+PASS  连续失败后返回 429
+PASS  限速响应带 retry_after_seconds
+== 8. 日志不含秘密 ==
+PASS  web 日志不含密码
+PASS  web 日志不含 CSRF 令牌
+PASS  web 日志记录了登录请求
+
+结果: PASS=38 FAIL=0
+工作目录（含日志与响应）: C:\Users\huxi\AppData\Local\Temp\upanel-p021-6tgqn9so

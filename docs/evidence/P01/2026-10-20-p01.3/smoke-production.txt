@@ -1,0 +1,18 @@
+<== PASS  根路径返回 200（HTTP 200）
+<== PASS  页面语言为 zh-CN
+<== PASS  页面有标题（概览 · uPanel）
+<== PASS  前端挂载成功（#app 有内容）
+<== PASS  显示面板品牌与副标题
+<== PASS  导航只包含已实现模块（概览），未实现模块被隐藏（概览）
+<== PASS  production 构建不显示演示模式横幅
+<== PASS  概览页标注运行模式
+<== PASS  非契约响应被判为 INVALID_RESPONSE，而不是当作成功
+<== PASS  失败时给出错误码与说明
+<== PASS  没有停留在加载中
+<== PASS  未实现模块的路径落到 404 页面
+<== PASS  404 页面也渲染完整外壳
+<== PASS  没有未捕获的页面异常
+<== PASS  除预期的 API 探测外没有失败请求
+<== PASS  没有其他控制台错误
+
+PASS 16 / FAIL 0（共 16 项，production 产物 dist）

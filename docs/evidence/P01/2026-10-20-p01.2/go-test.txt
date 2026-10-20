@@ -1,0 +1,12 @@
+ok  	upanel/cmd/upanel-agent	1.240s
+ok  	upanel/cmd/upanel-web	1.924s
+ok  	upanel/cmd/upanelctl	0.943s
+ok  	upanel/internal/agent	0.713s
+ok  	upanel/internal/api	1.784s
+ok  	upanel/internal/config	0.571s
+ok  	upanel/internal/httpx	0.679s
+ok  	upanel/internal/logging	0.549s
+ok  	upanel/internal/platform	0.445s
+ok  	upanel/internal/store	1.039s
+ok  	upanel/internal/version	0.464s
+?   	upanel/migrations	[no test files]

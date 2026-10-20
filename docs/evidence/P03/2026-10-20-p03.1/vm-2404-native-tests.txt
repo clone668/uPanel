@@ -1,0 +1,37 @@
+=== RUN   TestNewSecretsValidatesArguments
+--- PASS: TestNewSecretsValidatesArguments (0.04s)
+=== RUN   TestOpenRejectsNonRootOwnedDir
+--- PASS: TestOpenRejectsNonRootOwnedDir (0.00s)
+PASS
+=== agent
+=== RUN   TestPreflightWithoutPlannerIsNotImplemented
+--- PASS: TestPreflightWithoutPlannerIsNotImplemented (0.07s)
+=== RUN   TestPreflightRejectsInconsistentPlan
+=== RUN   TestPreflightRejectsInconsistentPlan/拒绝却没有阻塞项
+=== RUN   TestPreflightRejectsInconsistentPlan/缺少目标身份指纹
+=== RUN   TestPreflightRejectsInconsistentPlan/缺少状态版本
+=== RUN   TestPreflightRejectsInconsistentPlan/缺少规范化参数
+=== RUN   TestPreflightRejectsInconsistentPlan/阻塞项缺_code
+--- PASS: TestPreflightRejectsInconsistentPlan (0.37s)
+    --- PASS: TestPreflightRejectsInconsistentPlan/拒绝却没有阻塞项 (0.08s)
+    --- PASS: TestPreflightRejectsInconsistentPlan/缺少目标身份指纹 (0.08s)
+    --- PASS: TestPreflightRejectsInconsistentPlan/缺少状态版本 (0.07s)
+    --- PASS: TestPreflightRejectsInconsistentPlan/缺少规范化参数 (0.07s)
+    --- PASS: TestPreflightRejectsInconsistentPlan/阻塞项缺_code (0.08s)
+=== RUN   TestPreflightPlannerErrorIsInternal
+--- PASS: TestPreflightPlannerErrorIsInternal (0.07s)
+=== RUN   TestPreflightBlockedPlanIsStoredWithBlockers
+--- PASS: TestPreflightBlockedPlanIsStoredWithBlockers (0.08s)
+=== RUN   TestPreflightSweepsExpiredPlans
+--- PASS: TestPreflightSweepsExpiredPlans (0.08s)
+=== RUN   TestUnknownAgentPathIs404
+--- PASS: TestUnknownAgentPathIs404 (0.08s)
+=== RUN   TestNewRejectsInvalidOptions
+--- PASS: TestNewRejectsInvalidOptions (0.04s)
+PASS
+=== agentclient
+PASS
+=== operations
+PASS
+=== syscmd
+PASS

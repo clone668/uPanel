@@ -1,0 +1,41 @@
+name: ci
+
+# uPanel 持续集成：只运行仓库中真实存在的检查。
+# 说明：本工作流由 P00 建立，尚未在远端执行过；PROGRESS.md 中标记为 NOT RUN。
+# 版本全部与 docs/DEPENDENCIES.md 一致，禁止在此处随手升级。
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: go + web + contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.27.3'
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies from lockfile
+        run: npm --prefix web ci --ignore-scripts --no-audit --no-fund
+
+      - name: Run unified checks
+        run: sh scripts/check.sh

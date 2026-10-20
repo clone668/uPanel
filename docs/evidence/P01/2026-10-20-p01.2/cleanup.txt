@@ -1,0 +1,9 @@
+$ tasklist | grep -i qemu   # 两台 VM 关机后
+(无 qemu 进程)
+
+$ netstat -ano | grep -E "127.0.0.1:(2222|2223|8899|8900) " | grep LISTENING   # 停 seed 后
+(四个端口均无 LISTENING；仅剩客户端侧 TIME_WAIT，属正常收尾)
+
+$ netstat -ano | grep -E "127.0.0.1:(2222|2223|8899|8900) "   # 原始输出
+  TCP    127.0.0.1:6025         127.0.0.1:2222         TIME_WAIT       0
+  TCP    127.0.0.1:8886         127.0.0.1:2223         TIME_WAIT       0

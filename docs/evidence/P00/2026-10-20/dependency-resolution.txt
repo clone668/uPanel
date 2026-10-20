@@ -1,0 +1,49 @@
+# 依赖版本核实（实际查询结果）
+# 采集时间: 2026-10-20T05:07:11Z
+# 方法: 查询官方 registry / module proxy / dl index；不做任何推测
+
+## Go 稳定版本 (https://go.dev/dl/?mode=json)
+go1.27.3 stable
+go1.26.10 stable
+
+## Go 模块 (@latest 与 go 指令)
+github.com/gin-gonic/gin                 v1.12.0 2026-02-28T10:10:09Z       go=1.25.0
+modernc.org/sqlite                       v1.60.1 2026-09-29T08:41:38Z       go=1.26.0
+github.com/gorilla/websocket             v1.5.3 2024-06-14T03:18:03Z        go=1.12
+github.com/creack/pty                    v1.1.24 2024-10-31T18:56:50Z       go=1.18
+golang.org/x/crypto                      v0.58.0 2026-10-09T16:24:17Z       go=1.26.0
+golang.org/x/sys                         v0.49.0 2026-10-06T18:35:47Z       go=1.26.0
+github.com/google/uuid                   v1.6.0 2024-01-23T18:54:04Z        go=未声明
+
+## Node 22 LTS 补丁版本 (https://nodejs.org/dist/index.json)
+v22.23.3 npm=10.9.9 lts=Jod 2026-09-23
+v22.23.2 npm=10.9.8 lts=Jod 2026-07-28
+v22.23.1 npm=10.9.8 lts=Jod 2026-06-22
+
+## npm 包 (registry dist-tags.latest)
+vue 3.5.44 2026-10-13
+vue-router 5.4.0 2026-10-07
+pinia 4.1.0 2026-10-14
+naive-ui 2.45.3 2026-08-27
+echarts 6.1.0 2026-05-19
+@xterm/xterm 6.0.0 2025-12-22
+@xterm/addon-fit 0.11.0 2025-12-22
+vite 8.3.4 2026-10-08
+@vitejs/plugin-vue 6.0.10 2026-10-10
+typescript 7.0.2 2026-07-08
+vue-tsc 3.3.13 2026-10-10
+vitest 5.0.5 2026-10-15
+@vue/test-utils 2.5.1 2026-09-16
+@playwright/test 1.64.1 2026-10-14
+@types/node 26.6.5 2026-10-09
+eslint 10.13.0 2026-10-16
+typescript-eslint 8.72.0 2026-10-19
+prettier 3.9.10 2026-10-10
+@redocly/cli 2.65.0 2026-10-19
+
+## 关键 peer 约束（用于解释 Typescript 选择）
+typescript-eslint@8.72.0 peers {"eslint":"^8.57.0 || ^9.0.0 || ^10.0.0","typescript":">=4.8.4 <6.1.0"}
+vue-tsc@3.3.13 peers {"typescript":">=5.0.0"}
+pinia@4.1.0 peers {"vue":"^3.5.11","typescript":">=5.6.0","@vue/devtools-api":"^8.2.1"}
+@vitejs/plugin-vue@6.0.10 peers {"vue":"^3.2.25 || ^3.6.0-rc.10","vite":"^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0"}
+vitest@5.0.5 peers {"vite":"^6.4.0 || ^7.0.0 || ^8.0.0","jsdom":"*","happy-dom":"*","@vitest/ui":"5.0.5","@types/node":"^22.0.0 || >=24.0.0","@edge-runtime/vm":"*","@opentelemetry/api":"^1.9.0","@vitest/coverage-v8":"5.0.5","@vitest/browser-preview":"5.0.5","@vitest/coverage-istanbul":"5.0.5","@vitest/browser-playwright":"5.0.5","@vitest/browser-webdriverio":"^5.0.0-beta.5 || >=5.0.0"}

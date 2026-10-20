@@ -1,0 +1,7 @@
+== 2404
+PRETTY_NAME="Ubuntu 24.04.5 LTS"
+6.8.0-147-generic
+python 3.12.3 sqlite 3.45.1
+OpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024)
+uid=999(upanel-web) gid=988(upanel-web) groups=988(upanel-web)
+upanel-web:x:988:upanel-probe

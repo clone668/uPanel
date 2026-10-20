@@ -1,0 +1,123 @@
+# P03.2 验收命令与结果（按执行顺序）
+# 记录人：实施者；日期 2026-10-20
+# 说明：本文件只记录**实际执行过**的命令。未执行的检查在 result.md 的 NOT RUN 一节列出。
+# 宿主 = 开发机（M3 Air / Windows / Git Bash）。VM = 两台独立 Ubuntu 验收虚拟机。
+
+# ─────────────────────────── 宿主：构建与单元测试 ───────────────────────────
+cd /h/Code/uPanel
+go build ./...                                  # exit 0
+go vet ./...                                    # exit 0
+gofmt -l .                                      # 无输出
+go test -count=1 ./...                          # 全部 ok，exit 0
+go test -count=1 -v ./internal/operations/ ./internal/api/ ./internal/agent/ ./internal/store/
+                                                # --- PASS 170 / --- FAIL 0
+GOPATH 记账：/c/Users/huxi/go；Go 1.27.3
+
+# ─────────────────────────── 宿主：统一闸门 ───────────────────────────
+export PATH="/c/Users/huxi/AppData/Local/nvm/v22.23.3:$PATH"
+sh scripts/check.sh                             # PASS 12 / FAIL 0 / NOT RUN 0
+                                                # 明细: go-build go-vet go-test go-build-linux
+                                                #       go-vet-linux gofmt node-version web-typecheck
+                                                #       web-lint web-test web-build openapi-lint
+web/node_modules/.bin/redocly lint --format=summary api/openapi.yaml
+                                                # valid；10 warnings（8 no-unused-components
+                                                # + 2 operation-4xx-response），exit 0
+
+# ─────────────────────────── 宿主：交叉编译与校验和 ───────────────────────────
+GOOS=linux GOARCH=amd64 go build -o /h/Code/vms/dist-p032/upanel-agent ./cmd/upanel-agent
+GOOS=linux GOARCH=amd64 go build -o /h/Code/vms/dist-p032/upanel-web   ./cmd/upanel-web
+GOOS=linux GOARCH=amd64 go build -o /h/Code/vms/dist-p032/upanelctl    ./cmd/upanelctl
+go test -c -o /h/Code/vms/dist-p032/tests/ ./internal/agentstore/ ./internal/agent/ \
+    ./internal/operations/ ./internal/agentclient/ ./internal/syscmd/
+(cd /h/Code/vms/dist-p032 && sha256sum upanel-agent upanel-web upanelctl)
+# bee08f9fe12d2f04094c51247d7c2a5510d63c72c3aa247e730ca0428876a31a  upanel-agent
+# c2c4feb12f387dd19dc9a24af7db902f07159da48ddaf2973c2b525a102530a9  upanel-web
+# aa7c86c56a9566261588caa5fa43766f58b83801982dd653cdfa1361319c085e  upanelctl
+
+# ─────────────────────────── VM：启动 ───────────────────────────
+& H:\Code\vms\launch-vm.ps1 -Name upanel-2404 -SshPort 2222 -SeedPort 8899 -MemoryMB 4096
+& H:\Code\vms\launch-vm.ps1 -Name upanel-2204 -SshPort 2223 -SeedPort 8900 -MemoryMB 4096
+# 注：宿主 PowerShell 的 ssh 不认这两把私钥（UNPROTECTED PRIVATE KEY FILE），
+#     以下 ssh/scp 全部用 Git Bash 的 ssh（/usr/bin/ssh）。
+
+ssh -i /h/Code/vms/upanel-2404/id_ed25519 -p 2222 -o StrictHostKeyChecking=no upanel@127.0.0.1 \
+    'lsb_release -ds; uname -r; nproc; free -m'
+# Ubuntu 24.04.5 LTS / 6.8.0-147-generic / 2 / 3915 MiB
+ssh -i /h/Code/vms/upanel-2204/id_ed25519 -p 2223 -o StrictHostKeyChecking=no upanel@127.0.0.1 \
+    'lsb_release -ds; uname -r; nproc; free -m'
+# Ubuntu 22.04.5 LTS / 5.15.0-198-generic / 2 / 3915 MiB
+
+# ─────────────────────────── VM：上传二进制并核对 sha256 ───────────────────────────
+scp -i .../id_ed25519 -P 2222 -r /h/Code/vms/dist-p032/upanel-agent \
+    /h/Code/vms/dist-p032/upanel-web .../dist-p032/tests upanel@127.0.0.1:/tmp/upanel-bin/
+ssh ... 'sha256sum /tmp/upanel-bin/upanel-agent /tmp/upanel-bin/upanel-web /tmp/upanel-bin/tests/*.test'
+# 与宿主 sha256sum 逐字节一致（见 vm-*-env.txt）
+
+# ─────────────────────────── VM：P03.2 验收（两台各一次） ───────────────────────────
+# 24.04（第一次运行，暴露两个缺陷，见 result.md 第 4 节）
+sudo rm -rf /var/tmp/upanel-accept-p03-2
+sudo BIN_DIR=/tmp/upanel-bin sh /tmp/upanel-src/tests/integration/p03-2-jobs-acceptance.sh
+# → 管理员登录 200: 期望 '200'，实际 '400'          （脚本缺陷：login 漏 X-UPanel-Request）
+# → PF_ID: parameter not set                        （脚本缺陷：未设变量炸成 exit 2）
+
+# 修脚本后重跑
+sudo BIN_DIR=/tmp/upanel-bin sh /tmp/upanel-src/tests/integration/p03-2-jobs-acceptance.sh
+# → 短语不符返回 400: 期望 '400'，实际 '409'          （产品缺陷 A）
+
+# 修产品 A（httpx.StatusForCode）后重跑
+sudo BIN_DIR=/tmp/upanel-bin sh /tmp/upanel-src/tests/integration/p03-2-jobs-acceptance.sh
+# → ping 任务提交 202: 期望 '202'，实际 '500'（6 项连锁）
+#   代理日志：agentstore: 消费预检失败: database is locked (5) (SQLITE_BUSY)   （产品缺陷 B）
+
+# 修产品 B（DSN _txlock=immediate）+ 新增回归测试后重跑
+go test -run TestWithTxQueuesBehindAnotherWriter -count=1 ./internal/store/   # PASS
+git stash -- internal/store/store.go   # 把 _txlock=immediate 拿掉验证测试有牙
+go test -run TestWithTxQueuesBehindAnotherWriter -count=1 ./internal/store/
+# → FAIL: 并发写事务应排队等待而不是返回 SQLITE_BUSY，实际: database is locked (5) (SQLITE_BUSY)
+git stash pop
+
+sudo BIN_DIR=/tmp/upanel-bin sh /tmp/upanel-src/tests/integration/p03-2-jobs-acceptance.sh
+# → 通过 101 项，失败 0 项 / P03.2 验收全部通过     （24.04.5）
+
+# 22.04（同一份二进制）
+sudo rm -rf /var/tmp/upanel-accept-p03-2
+sudo BIN_DIR=/tmp/upanel-bin sh /tmp/upanel-src/tests/integration/p03-2-jobs-acceptance.sh
+# → 通过 101 项，失败 0 项 / P03.2 验收全部通过     （22.04.5，一次通过）
+
+# ─────────────────────────── VM：回归（两台各跑 8 份脚本） ───────────────────────────
+# 说明：正确的目录布局是 /tmp/upanel-src 为源码树、/tmp/upanel-bin 为二进制与 tests/。
+#       早些时候从 /tmp 直接跑导致 p02-3 33/42、p02-4 44/41、p01-1 19/7 —— 那是harness 布局错，
+#       不是产品问题（详见 result.md 第 5 节）。
+cd /tmp/upanel-src
+BIN_DIR=/tmp/upanel-bin sh tests/integration/p01-1-acceptance.sh              # PASS 29 / FAIL 0
+BIN_DIR=/tmp/upanel-bin sh tests/integration/p01-2-acceptance.sh              # PASS 34 / FAIL 0
+BIN_DIR=/tmp/upanel-bin DEPLOY_DIR=/tmp/upanel-src/deploy \
+    sh tests/integration/p01-4-acceptance.sh                                  # 通过 114 / 失败 0
+BIN_DIR=/tmp/upanel-bin sh tests/integration/p02-1-acceptance.sh              # PASS=58  FAIL=0
+BIN_DIR=/tmp/upanel-bin sh tests/integration/p02-2-acceptance.sh              # PASS=103 FAIL=0
+sudo BIN_DIR=/tmp/upanel-bin sh tests/integration/p02-3-agent-acceptance.sh   # PASS 85 / FAIL 0
+sudo BIN_DIR=/tmp/upanel-bin sh tests/integration/p02-4-agent-secrets-acceptance.sh
+                                                                              # PASS=87  FAIL=0
+sudo BIN_DIR=/tmp/upanel-bin sh tests/integration/p03-1-preflight-acceptance.sh
+                                                                              # 通过 93 / 失败 0
+# 两台 VM 结果完全一致（见 vm-upanel-{2404,2204}-p0*.txt）
+
+# ─────────────────────────── VM：内核原生测试二进制 ───────────────────────────
+for t in agentstore agent operations agentclient syscmd; do
+  echo "=== $t.test"; sudo /tmp/upanel-bin/tests/$t.test -test.v; done
+# 24.04: --- PASS 169 / --- FAIL 0
+# 22.04: --- PASS 169 / --- FAIL 0
+# 注：不带 -test.v 时 go test -c 产物只打印一行 "PASS"，无法计数，故一律带 -test.v。
+
+# ─────────────────────────── 环境事件（非产品行为） ───────────────────────────
+# 24.04 内核 panic ×2：`Attempted to kill init! exitcode=0x0000008b`
+#   第一次约 4058 s uptime，第二次约 528 s uptime；H:\Code\vms\upanel-2404\console.log 可查。
+#   两次都重启 VM 后重跑全部验收并通过。22.04 全程未 panic。
+tail -40 /h/Code/vms/upanel-2404/console.log
+# 一次 panic 留下被截断的 /etc/upanel/upanel.json（内容为空），导致
+#   p01-2 的 migrate-text-uptodate / migrate-reports-failure 与 p01-4 的 mock-refuses-wildcard-message
+#   报 `解析配置文件失败 /etc/upanel/upanel.json: EOF`
+sudo rm -f /etc/upanel/upanel.json     # 删掉后 34/0 与 114/0
+# 另记：一次 PowerShell 强杀失败报「无法将类型"System.Object[]"值转换为…Int32」，
+#   随后确认只有 pid 1832（挂住的 2404）与 23164（2204）存在，未出现 qcow2 双挂载；
+#   显式 kill 1832、归档 console.log、重启动。

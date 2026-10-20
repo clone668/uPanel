@@ -1,0 +1,15 @@
+Warning: Permanently added '[127.0.0.1]:2223' (ED25519) to the list of known hosts.
+# 采集时间: 2026-10-20T09:25:26Z
+PRETTY_NAME=Ubuntu 22.04.5 LTS
+kernel=5.15.0-198-generic
+arch=x86_64
+python3=Python 3.10.12
+curl=curl 7.81.0 (x86_64-pc-linux-gnu) libcurl/7.81.0 OpenSSL/3.0.2 zlib/1.2.11 brotli/1.0.9 zstd/1.4.8 libidn2/2.3.2 libpsl/0.21.0 (+libidn2/2.3.2) libssh/0.9.6/openssl/zlib nghttp2/1.43.0 librtmp/2.3 OpenLDAP/2.5.20
+run_user=upanel uid=1000
+# 二进制:
+f5ae0052dfe5af749bf69e20db265b9314e2235712552dde80de127c1fbee660  /tmp/upanel-bin/upanel-web
+5c6f19edb83cb26edca5c122f64f0b9fab69fed9671df3b6218e68f5df2b3e41  /tmp/upanel-bin/upanelctl
+fb09f42c761f94448a474a0aee4dca5ad3f355f497784338d179afaaf7737907  /tmp/upanel-bin/upanel-agent
+upanelctl 0.0.0-dev (commit unknown, built unknown, go1.27.3)
+# 脚本 sha256:
+ac32e472b2be6f36ef9d4f02b2b3acc6a9c75b54f19a92fa7c6da07eeba73589  /tmp/upanel-accept/tests/integration/p02-1-acceptance.sh

@@ -1,0 +1,20 @@
+Web 监听: 127.0.0.1:9443（仅回环: true）
+代理 socket: /run/upanel/agent.sock
+数据库: /var/lib/upanel/upanel.db（busy_timeout=5000ms）
+日志: level=info format=json
+平台: linux/amd64（production 可用: true）
+Started upanel-agent.service - uPanel 特权代理.
+{"time":"2026-10-20T10:33:43.798308273Z","level":"INFO","msg":"启动","program":"upanel-agent","version":"0.0.0-dev","commit":"unknown","go_version":"go1.27.3","os":"linux","arch":"amd64","config_source":"/etc/upanel/upanel.json","socket":"/run/upanel/agent.sock","allowed_web_user":"upanel-web","allowed_web_uid":999,"socket_group":"upanel-web"}
+{"time":"2026-10-20T10:33:43.798763972Z","level":"INFO","msg":"代理已开始监听","program":"upanel-agent","socket":"/run/upanel/agent.sock","socket_mode":"0660","socket_gid":988,"allowed_web_user":"upanel-web","allowed_web_uid":999,"uid":0,"version":"0.0.0-dev","started_at":"2026-10-20T10:33:43.798349473Z","registered_actions":0,"registered_queries":0}
+{"time":"2026-10-20T10:33:43.979368441Z","level":"WARN","msg":"拒绝对端 UID 不在允许范围","program":"upanel-agent","uid":0,"pid":9280,"path":"/internal/v1/capabilities","allowed_uid":999,"request_id":"8ab4632bb29c0f45a97030e0dfc2c241"}
+{"time":"2026-10-20T10:33:44.009567568Z","level":"WARN","msg":"拒绝对端 UID 不在允许范围","program":"upanel-agent","uid":997,"pid":9284,"path":"/internal/v1/capabilities","allowed_uid":999,"request_id":"c371ceab05586ad5946988c7c5dcba4f"}
+{"time":"2026-10-20T10:33:44.053766962Z","level":"WARN","msg":"拒绝未登记的查询","program":"upanel-agent","query":"system.summary","request_id":"287c878db4d95dd9f1bb56740ff54af7"}
+{"time":"2026-10-20T10:33:44.089933375Z","level":"WARN","msg":"拒绝未登记的查询","program":"upanel-agent","query":"command","request_id":"983058921302fa04c39b2bb8272d8147"}
+{"time":"2026-10-20T10:33:44.10842603Z","level":"WARN","msg":"拒绝未登记的查询","program":"upanel-agent","query":"system.summary","request_id":"78eb172bd91ae13823d15a360be4597a"}
+{"time":"2026-10-20T10:33:44.181054255Z","level":"WARN","msg":"拒绝对端 UID 不在允许范围","program":"upanel-agent","uid":0,"pid":9318,"path":"/internal/v1/operations","allowed_uid":999,"request_id":"9b0176afcbd49967d88be56f1c367e6a"}
+{"time":"2026-10-20T10:33:44.191199631Z","level":"WARN","msg":"拒绝对端 UID 不在允许范围","program":"upanel-agent","uid":997,"pid":9320,"path":"/internal/v1/queries","allowed_uid":999,"request_id":"ce84a106400c8af7a76d77049761d59f"}
+Stopping upanel-agent.service - uPanel 特权代理...
+{"time":"2026-10-20T10:33:44.555399752Z","level":"INFO","msg":"收到停止信号，开始优雅停止","program":"upanel-agent"}
+{"time":"2026-10-20T10:33:44.694396817Z","level":"INFO","msg":"代理已停止","program":"upanel-agent"}
+upanel-agent.service: Deactivated successfully.
+Stopped upanel-agent.service - uPanel 特权代理.

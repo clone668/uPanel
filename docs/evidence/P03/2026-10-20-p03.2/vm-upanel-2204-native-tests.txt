@@ -1,0 +1,497 @@
+=== agentstore.test
+=== RUN   TestGenerateKeyFileThenLoad
+--- PASS: TestGenerateKeyFileThenLoad (0.00s)
+=== RUN   TestGenerateKeyFileNeverOverwrites
+--- PASS: TestGenerateKeyFileNeverOverwrites (0.00s)
+=== RUN   TestLoadKeyringRejectsMalformedFiles
+=== RUN   TestLoadKeyringRejectsMalformedFiles/标识行错误
+=== RUN   TestLoadKeyringRejectsMalformedFiles/密钥不是_base64
+=== RUN   TestLoadKeyringRejectsMalformedFiles/密钥长度不对
+=== RUN   TestLoadKeyringRejectsMalformedFiles/多余的行
+=== RUN   TestLoadKeyringRejectsMalformedFiles/只有标识行
+=== RUN   TestLoadKeyringRejectsMalformedFiles/空文件
+--- PASS: TestLoadKeyringRejectsMalformedFiles (0.00s)
+    --- PASS: TestLoadKeyringRejectsMalformedFiles/标识行错误 (0.00s)
+    --- PASS: TestLoadKeyringRejectsMalformedFiles/密钥不是_base64 (0.00s)
+    --- PASS: TestLoadKeyringRejectsMalformedFiles/密钥长度不对 (0.00s)
+    --- PASS: TestLoadKeyringRejectsMalformedFiles/多余的行 (0.00s)
+    --- PASS: TestLoadKeyringRejectsMalformedFiles/只有标识行 (0.00s)
+    --- PASS: TestLoadKeyringRejectsMalformedFiles/空文件 (0.00s)
+=== RUN   TestLoadKeyringMissingFile
+--- PASS: TestLoadKeyringMissingFile (0.00s)
+=== RUN   TestSealOpenRoundTripAndNonceUniqueness
+--- PASS: TestSealOpenRoundTripAndNonceUniqueness (0.00s)
+=== RUN   TestOpenRejectsWrongAADAndTampering
+--- PASS: TestOpenRejectsWrongAADAndTampering (0.00s)
+=== RUN   TestNewKeyringRejectsWrongKeySize
+--- PASS: TestNewKeyringRejectsWrongKeySize (0.00s)
+=== RUN   TestSecretRefFormat
+--- PASS: TestSecretRefFormat (0.00s)
+=== RUN   TestAcceptConsumesPreflightExactlyOnce
+--- PASS: TestAcceptConsumesPreflightExactlyOnce (0.06s)
+=== RUN   TestAcceptReplayReturnsExistingOperation
+--- PASS: TestAcceptReplayReturnsExistingOperation (0.08s)
+=== RUN   TestAcceptRejectsSameIDWithDifferentRequest
+--- PASS: TestAcceptRejectsSameIDWithDifferentRequest (0.06s)
+=== RUN   TestAcceptRejectsExpiredPreflight
+--- PASS: TestAcceptRejectsExpiredPreflight (0.05s)
+=== RUN   TestOperationLifecycleWritesEvents
+--- PASS: TestOperationLifecycleWritesEvents (0.08s)
+=== RUN   TestOperationTerminalStageIsFinalInDatabase
+--- PASS: TestOperationTerminalStageIsFinalInDatabase (0.07s)
+=== RUN   TestRequestCancelSemantics
+--- PASS: TestRequestCancelSemantics (0.09s)
+=== RUN   TestOperationEventsAreAppendOnly
+--- PASS: TestOperationEventsAreAppendOnly (0.06s)
+=== RUN   TestOperationValidationRejectsBadRecords
+--- PASS: TestOperationValidationRejectsBadRecords (0.05s)
+=== RUN   TestGetMissingOperation
+--- PASS: TestGetMissingOperation (0.05s)
+=== RUN   TestListUnfinished
+--- PASS: TestListUnfinished (0.07s)
+=== RUN   TestNewOperationsRequiresDB
+--- PASS: TestNewOperationsRequiresDB (0.00s)
+=== RUN   TestValidOperationID
+--- PASS: TestValidOperationID (0.00s)
+=== RUN   TestPreflightPlanRoundTrip
+--- PASS: TestPreflightPlanRoundTrip (0.05s)
+=== RUN   TestPreflightPlanStartsUnused
+--- PASS: TestPreflightPlanStartsUnused (0.05s)
+=== RUN   TestPreflightPlanRejectsUsedFlagReset
+--- PASS: TestPreflightPlanRejectsUsedFlagReset (0.05s)
+=== RUN   TestPreflightPlanDBChecksBindings
+=== RUN   TestPreflightPlanDBChecksBindings/user_id_为_0
+=== RUN   TestPreflightPlanDBChecksBindings/session_hash_长度
+=== RUN   TestPreflightPlanDBChecksBindings/到期不晚于创建
+=== RUN   TestPreflightPlanDBChecksBindings/allowed_越界
+--- PASS: TestPreflightPlanDBChecksBindings (0.05s)
+    --- PASS: TestPreflightPlanDBChecksBindings/user_id_为_0 (0.00s)
+    --- PASS: TestPreflightPlanDBChecksBindings/session_hash_长度 (0.00s)
+    --- PASS: TestPreflightPlanDBChecksBindings/到期不晚于创建 (0.00s)
+    --- PASS: TestPreflightPlanDBChecksBindings/allowed_越界 (0.00s)
+=== RUN   TestPreflightPlanValidation
+=== RUN   TestPreflightPlanValidation/计划引用不合法
+=== RUN   TestPreflightPlanValidation/缺少动作名
+=== RUN   TestPreflightPlanValidation/缺少参数
+=== RUN   TestPreflightPlanValidation/参数哈希不是摘要
+=== RUN   TestPreflightPlanValidation/用户为_0
+=== RUN   TestPreflightPlanValidation/会话哈希长度不对
+=== RUN   TestPreflightPlanValidation/会话哈希含大写
+=== RUN   TestPreflightPlanValidation/短语哈希不是摘要
+=== RUN   TestPreflightPlanValidation/缺少创建时间
+=== RUN   TestPreflightPlanValidation/到期不晚于创建
+=== RUN   TestPreflightPlanValidation/拒绝却没有阻塞项
+--- PASS: TestPreflightPlanValidation (0.05s)
+    --- PASS: TestPreflightPlanValidation/计划引用不合法 (0.00s)
+    --- PASS: TestPreflightPlanValidation/缺少动作名 (0.00s)
+    --- PASS: TestPreflightPlanValidation/缺少参数 (0.00s)
+    --- PASS: TestPreflightPlanValidation/参数哈希不是摘要 (0.00s)
+    --- PASS: TestPreflightPlanValidation/用户为_0 (0.00s)
+    --- PASS: TestPreflightPlanValidation/会话哈希长度不对 (0.00s)
+    --- PASS: TestPreflightPlanValidation/会话哈希含大写 (0.00s)
+    --- PASS: TestPreflightPlanValidation/短语哈希不是摘要 (0.00s)
+    --- PASS: TestPreflightPlanValidation/缺少创建时间 (0.00s)
+    --- PASS: TestPreflightPlanValidation/到期不晚于创建 (0.00s)
+    --- PASS: TestPreflightPlanValidation/拒绝却没有阻塞项 (0.00s)
+=== RUN   TestPreflightPlanDuplicateRejected
+--- PASS: TestPreflightPlanDuplicateRejected (0.05s)
+=== RUN   TestGetPreflightPlanMissing
+--- PASS: TestGetPreflightPlanMissing (0.05s)
+=== RUN   TestDeleteExpiredKeepsUsedPlans
+--- PASS: TestDeleteExpiredKeepsUsedPlans (0.07s)
+=== RUN   TestNewPreflightPlansRequiresDB
+--- PASS: TestNewPreflightPlansRequiresDB (0.00s)
+=== RUN   TestValidPlanRef
+--- PASS: TestValidPlanRef (0.00s)
+=== RUN   TestPutTemporarySecretAndResolve
+--- PASS: TestPutTemporarySecretAndResolve (0.05s)
+=== RUN   TestCiphertextNeverLeaksPlaintextToDisk
+--- PASS: TestCiphertextNeverLeaksPlaintextToDisk (0.06s)
+=== RUN   TestPutRejectsInvalidInput
+=== RUN   TestPutRejectsInvalidInput/未登记用途
+=== RUN   TestPutRejectsInvalidInput/空用途
+=== RUN   TestPutRejectsInvalidInput/内部用途
+=== RUN   TestPutRejectsInvalidInput/空明文
+=== RUN   TestPutRejectsInvalidInput/明文过长
+=== RUN   TestPutRejectsInvalidInput/引用含控制字符
+=== RUN   TestPutRejectsInvalidInput/引用过长
+--- PASS: TestPutRejectsInvalidInput (0.05s)
+    --- PASS: TestPutRejectsInvalidInput/未登记用途 (0.00s)
+    --- PASS: TestPutRejectsInvalidInput/空用途 (0.00s)
+    --- PASS: TestPutRejectsInvalidInput/内部用途 (0.00s)
+    --- PASS: TestPutRejectsInvalidInput/空明文 (0.00s)
+    --- PASS: TestPutRejectsInvalidInput/明文过长 (0.00s)
+    --- PASS: TestPutRejectsInvalidInput/引用含控制字符 (0.00s)
+    --- PASS: TestPutRejectsInvalidInput/引用过长 (0.00s)
+=== RUN   TestPutWithReferenceIsPersistent
+--- PASS: TestPutWithReferenceIsPersistent (0.05s)
+=== RUN   TestDestroyExpiredTemporary
+--- PASS: TestDestroyExpiredTemporary (0.06s)
+=== RUN   TestResolveExpiredTemporaryBeforeSweep
+--- PASS: TestResolveExpiredTemporaryBeforeSweep (0.05s)
+=== RUN   TestReferencePromotesTemporarySecret
+--- PASS: TestReferencePromotesTemporarySecret (0.05s)
+=== RUN   TestReferenceRejectsBadInput
+--- PASS: TestReferenceRejectsBadInput (0.05s)
+=== RUN   TestTempSecretsHaveIndependentNonces
+--- PASS: TestTempSecretsHaveIndependentNonces (0.06s)
+=== RUN   TestNewSecretsValidatesArguments
+--- PASS: TestNewSecretsValidatesArguments (0.04s)
+=== RUN   TestOpenRejectsNonRootOwnedDir
+--- PASS: TestOpenRejectsNonRootOwnedDir (0.00s)
+PASS
+=== agent.test
+=== RUN   TestLockManagerAcquireRelease
+--- PASS: TestLockManagerAcquireRelease (0.00s)
+=== RUN   TestLockManagerReentrantForSameOperation
+--- PASS: TestLockManagerReentrantForSameOperation (0.00s)
+=== RUN   TestLockManagerBusyTimesOut
+--- PASS: TestLockManagerBusyTimesOut (0.10s)
+=== RUN   TestLockManagerWaitsThenSucceeds
+--- PASS: TestLockManagerWaitsThenSucceeds (0.08s)
+=== RUN   TestLockManagerLeavesNoPartialHold
+--- PASS: TestLockManagerLeavesNoPartialHold (0.05s)
+=== RUN   TestLockManagerHonorsContext
+--- PASS: TestLockManagerHonorsContext (0.00s)
+=== RUN   TestLockManagerRequiresSortedLocks
+--- PASS: TestLockManagerRequiresSortedLocks (0.00s)
+=== RUN   TestLockManagerEmptyLocks
+--- PASS: TestLockManagerEmptyLocks (0.00s)
+=== RUN   TestOperationSubmitRunsOnceAndRecordsResult
+--- PASS: TestOperationSubmitRunsOnceAndRecordsResult (0.14s)
+=== RUN   TestOperationTenSubmissionsExecuteOnce
+--- PASS: TestOperationTenSubmissionsExecuteOnce (0.14s)
+=== RUN   TestOperationSameIDDifferentRequestIsConflict
+--- PASS: TestOperationSameIDDifferentRequestIsConflict (0.14s)
+=== RUN   TestOperationWrongPhraseRejected
+--- PASS: TestOperationWrongPhraseRejected (0.10s)
+=== RUN   TestOperationRequiresReauth
+--- PASS: TestOperationRequiresReauth (0.24s)
+=== RUN   TestOperationSessionMismatchInvalidatesPreflight
+--- PASS: TestOperationSessionMismatchInvalidatesPreflight (0.10s)
+=== RUN   TestOperationForeignPreflightForbidden
+--- PASS: TestOperationForeignPreflightForbidden (0.10s)
+=== RUN   TestOperationExpiredPreflightRejected
+--- PASS: TestOperationExpiredPreflightRejected (0.10s)
+=== RUN   TestOperationStaleStateVersionRejected
+--- PASS: TestOperationStaleStateVersionRejected (0.09s)
+=== RUN   TestOperationIdentityChangeRejected
+--- PASS: TestOperationIdentityChangeRejected (0.09s)
+=== RUN   TestOperationCancelNonCancellableRefused
+--- PASS: TestOperationCancelNonCancellableRefused (0.10s)
+=== RUN   TestOperationCancelCancellableAction
+--- PASS: TestOperationCancelCancellableAction (0.16s)
+=== RUN   TestOperationExecutionFailureRecorded
+--- PASS: TestOperationExecutionFailureRecorded (0.12s)
+=== RUN   TestReconcileMarksUnfinishedOperationsInterrupted
+--- PASS: TestReconcileMarksUnfinishedOperationsInterrupted (0.11s)
+=== RUN   TestGateRejectsRequestWithoutPeerIdentity
+--- PASS: TestGateRejectsRequestWithoutPeerIdentity (0.14s)
+=== RUN   TestGateDeniesRootOnNormalRoutes
+--- PASS: TestGateDeniesRootOnNormalRoutes (0.14s)
+=== RUN   TestGateDeniesOtherUIDs
+--- PASS: TestGateDeniesOtherUIDs (0.14s)
+=== RUN   TestGateAllowsWebUID
+--- PASS: TestGateAllowsWebUID (0.15s)
+=== RUN   TestGateRootOnlyRouting
+--- PASS: TestGateRootOnlyRouting (0.15s)
+=== RUN   TestPeerPolicyValidate
+--- PASS: TestPeerPolicyValidate (0.00s)
+=== RUN   TestResolvePeerPolicyRejectsUnknownUser
+--- PASS: TestResolvePeerPolicyRejectsUnknownUser (0.00s)
+=== RUN   TestAgentclientTalksToRealAgent
+--- PASS: TestAgentclientTalksToRealAgent (0.11s)
+=== RUN   TestPreflightCreatesBoundPlan
+--- PASS: TestPreflightCreatesBoundPlan (0.10s)
+=== RUN   TestPreflightStoresNoPlaintextPhrase
+--- PASS: TestPreflightStoresNoPlaintextPhrase (0.10s)
+=== RUN   TestPreflightWithoutPhrasePolicyHasNoPhrase
+--- PASS: TestPreflightWithoutPhrasePolicyHasNoPhrase (0.10s)
+=== RUN   TestPreflightParamsHashIsCanonical
+--- PASS: TestPreflightParamsHashIsCanonical (0.11s)
+=== RUN   TestPreflightLocksNormalized
+--- PASS: TestPreflightLocksNormalized (0.10s)
+=== RUN   TestPreflightRejectsInvalidRequests
+=== RUN   TestPreflightRejectsInvalidRequests/空请求体
+=== RUN   TestPreflightRejectsInvalidRequests/不是对象
+=== RUN   TestPreflightRejectsInvalidRequests/缺少动作名
+=== RUN   TestPreflightRejectsInvalidRequests/未登记动作
+=== RUN   TestPreflightRejectsInvalidRequests/用户为_0
+=== RUN   TestPreflightRejectsInvalidRequests/缺少会话哈希
+=== RUN   TestPreflightRejectsInvalidRequests/会话哈希长度不对
+=== RUN   TestPreflightRejectsInvalidRequests/会话哈希含大写
+=== RUN   TestPreflightRejectsInvalidRequests/再认证时间不是_RFC3339
+=== RUN   TestPreflightRejectsInvalidRequests/参数含未知字段
+=== RUN   TestPreflightRejectsInvalidRequests/参数类型不对
+=== RUN   TestPreflightRejectsInvalidRequests/请求体夹带计划外字段
+--- PASS: TestPreflightRejectsInvalidRequests (0.09s)
+    --- PASS: TestPreflightRejectsInvalidRequests/空请求体 (0.00s)
+    --- PASS: TestPreflightRejectsInvalidRequests/不是对象 (0.00s)
+    --- PASS: TestPreflightRejectsInvalidRequests/缺少动作名 (0.00s)
+    --- PASS: TestPreflightRejectsInvalidRequests/未登记动作 (0.00s)
+    --- PASS: TestPreflightRejectsInvalidRequests/用户为_0 (0.00s)
+    --- PASS: TestPreflightRejectsInvalidRequests/缺少会话哈希 (0.00s)
+    --- PASS: TestPreflightRejectsInvalidRequests/会话哈希长度不对 (0.00s)
+    --- PASS: TestPreflightRejectsInvalidRequests/会话哈希含大写 (0.00s)
+    --- PASS: TestPreflightRejectsInvalidRequests/再认证时间不是_RFC3339 (0.00s)
+    --- PASS: TestPreflightRejectsInvalidRequests/参数含未知字段 (0.00s)
+    --- PASS: TestPreflightRejectsInvalidRequests/参数类型不对 (0.00s)
+    --- PASS: TestPreflightRejectsInvalidRequests/请求体夹带计划外字段 (0.00s)
+=== RUN   TestPreflightRequiresPostAndJSON
+--- PASS: TestPreflightRequiresPostAndJSON (0.09s)
+=== RUN   TestPreflightRejectsOversizedBody
+--- PASS: TestPreflightRejectsOversizedBody (0.09s)
+=== RUN   TestPreflightDeniedForOtherUIDs
+--- PASS: TestPreflightDeniedForOtherUIDs (0.09s)
+=== RUN   TestPreflightWithoutPlannerIsNotImplemented
+--- PASS: TestPreflightWithoutPlannerIsNotImplemented (0.08s)
+=== RUN   TestPreflightRejectsInconsistentPlan
+=== RUN   TestPreflightRejectsInconsistentPlan/拒绝却没有阻塞项
+=== RUN   TestPreflightRejectsInconsistentPlan/缺少目标身份指纹
+=== RUN   TestPreflightRejectsInconsistentPlan/缺少状态版本
+=== RUN   TestPreflightRejectsInconsistentPlan/缺少规范化参数
+=== RUN   TestPreflightRejectsInconsistentPlan/阻塞项缺_code
+--- PASS: TestPreflightRejectsInconsistentPlan (0.45s)
+    --- PASS: TestPreflightRejectsInconsistentPlan/拒绝却没有阻塞项 (0.09s)
+    --- PASS: TestPreflightRejectsInconsistentPlan/缺少目标身份指纹 (0.09s)
+    --- PASS: TestPreflightRejectsInconsistentPlan/缺少状态版本 (0.09s)
+    --- PASS: TestPreflightRejectsInconsistentPlan/缺少规范化参数 (0.09s)
+    --- PASS: TestPreflightRejectsInconsistentPlan/阻塞项缺_code (0.09s)
+=== RUN   TestPreflightPlannerErrorIsInternal
+--- PASS: TestPreflightPlannerErrorIsInternal (0.09s)
+=== RUN   TestPreflightBlockedPlanIsStoredWithBlockers
+--- PASS: TestPreflightBlockedPlanIsStoredWithBlockers (0.09s)
+=== RUN   TestPreflightSweepsExpiredPlans
+--- PASS: TestPreflightSweepsExpiredPlans (0.10s)
+=== RUN   TestNewConfirmationPhraseUsesUnambiguousAlphabet
+--- PASS: TestNewConfirmationPhraseUsesUnambiguousAlphabet (0.00s)
+=== RUN   TestCanonicalJSONSortsKeys
+--- PASS: TestCanonicalJSONSortsKeys (0.00s)
+=== RUN   TestQueriesRejectsUnknownQuery
+--- PASS: TestQueriesRejectsUnknownQuery (0.14s)
+=== RUN   TestQueriesRejectsCommandStyleInput
+--- PASS: TestQueriesRejectsCommandStyleInput (0.42s)
+=== RUN   TestQueriesRejectsBadEnvelope
+--- PASS: TestQueriesRejectsBadEnvelope (0.14s)
+=== RUN   TestQueriesRejectsUnknownParams
+--- PASS: TestQueriesRejectsUnknownParams (0.14s)
+=== RUN   TestQueriesRejectsOversizeBody
+--- PASS: TestQueriesRejectsOversizeBody (0.14s)
+=== RUN   TestQueriesRejectsNonJSONContentType
+--- PASS: TestQueriesRejectsNonJSONContentType (0.14s)
+=== RUN   TestQueriesRequiresPost
+--- PASS: TestQueriesRequiresPost (0.14s)
+=== RUN   TestQueriesRunsRegisteredQuery
+--- PASS: TestQueriesRunsRegisteredQuery (0.14s)
+=== RUN   TestQueriesReportsRunFailure
+--- PASS: TestQueriesReportsRunFailure (0.14s)
+=== RUN   TestCapabilitiesListsRegisteredQueriesStably
+--- PASS: TestCapabilitiesListsRegisteredQueriesStably (0.14s)
+=== RUN   TestRegisterRejectsInvalidNames
+--- PASS: TestRegisterRejectsInvalidNames (0.00s)
+=== RUN   TestRegisterRejectsDuplicatesAndNilHandlers
+--- PASS: TestRegisterRejectsDuplicatesAndNilHandlers (0.00s)
+=== RUN   TestProductionRegistryIsEmpty
+--- PASS: TestProductionRegistryIsEmpty (0.00s)
+=== RUN   TestDecodeParamsStrictness
+--- PASS: TestDecodeParamsStrictness (0.00s)
+=== RUN   TestSortedNamesAreStable
+--- PASS: TestSortedNamesAreStable (0.00s)
+=== RUN   TestPostSecretReturnsRefWithoutPlaintext
+--- PASS: TestPostSecretReturnsRefWithoutPlaintext (0.14s)
+=== RUN   TestPostSecretWithReferenceIsPersistent
+--- PASS: TestPostSecretWithReferenceIsPersistent (0.13s)
+=== RUN   TestPostSecretRejectsGetAndNoReadRoute
+--- PASS: TestPostSecretRejectsGetAndNoReadRoute (0.13s)
+=== RUN   TestPostSecretValidatesInput
+=== RUN   TestPostSecretValidatesInput/未登记用途
+=== RUN   TestPostSecretValidatesInput/内部用途
+=== RUN   TestPostSecretValidatesInput/空明文
+=== RUN   TestPostSecretValidatesInput/缺明文
+=== RUN   TestPostSecretValidatesInput/未知字段
+=== RUN   TestPostSecretValidatesInput/非法引用
+=== RUN   TestPostSecretValidatesInput/空请求体
+=== RUN   TestPostSecretValidatesInput/不是对象
+--- PASS: TestPostSecretValidatesInput (0.13s)
+    --- PASS: TestPostSecretValidatesInput/未登记用途 (0.00s)
+    --- PASS: TestPostSecretValidatesInput/内部用途 (0.00s)
+    --- PASS: TestPostSecretValidatesInput/空明文 (0.00s)
+    --- PASS: TestPostSecretValidatesInput/缺明文 (0.00s)
+    --- PASS: TestPostSecretValidatesInput/未知字段 (0.00s)
+    --- PASS: TestPostSecretValidatesInput/非法引用 (0.00s)
+    --- PASS: TestPostSecretValidatesInput/空请求体 (0.00s)
+    --- PASS: TestPostSecretValidatesInput/不是对象 (0.00s)
+=== RUN   TestPostSecretEnforcesSizeLimits
+--- PASS: TestPostSecretEnforcesSizeLimits (0.13s)
+=== RUN   TestPostSecretRequiresJSONContentType
+--- PASS: TestPostSecretRequiresJSONContentType (0.13s)
+=== RUN   TestPostSecretDeniedForOtherUIDs
+--- PASS: TestPostSecretDeniedForOtherUIDs (0.13s)
+=== RUN   TestSweepExpiredSecrets
+--- PASS: TestSweepExpiredSecrets (0.22s)
+=== RUN   TestSecretsRouteRejectsOtherMethods
+--- PASS: TestSecretsRouteRejectsOtherMethods (0.14s)
+=== RUN   TestCapabilitiesShape
+--- PASS: TestCapabilitiesShape (0.14s)
+=== RUN   TestCapabilitiesRejectsPost
+--- PASS: TestCapabilitiesRejectsPost (0.14s)
+=== RUN   TestUnknownAgentPathIs404
+--- PASS: TestUnknownAgentPathIs404 (0.13s)
+=== RUN   TestNewRejectsInvalidOptions
+--- PASS: TestNewRejectsInvalidOptions (0.04s)
+=== RUN   TestPrepareSocketPathRefusesNonSocket
+--- PASS: TestPrepareSocketPathRefusesNonSocket (0.28s)
+=== RUN   TestPrepareSocketPathRequiresExistingDir
+--- PASS: TestPrepareSocketPathRequiresExistingDir (0.14s)
+PASS
+=== operations.test
+=== RUN   TestSubmitTenTimesExecutesOnce
+--- PASS: TestSubmitTenTimesExecutesOnce (0.08s)
+=== RUN   TestSameKeyDifferentBodyConflicts
+--- PASS: TestSameKeyDifferentBodyConflicts (0.08s)
+=== RUN   TestDifferentKeySamePreflightIsUsed
+--- PASS: TestDifferentKeySamePreflightIsUsed (0.08s)
+=== RUN   TestSubmitRejectsExpiredPreflight
+--- PASS: TestSubmitRejectsExpiredPreflight (0.07s)
+=== RUN   TestSubmitRejectsSessionChange
+--- PASS: TestSubmitRejectsSessionChange (0.07s)
+=== RUN   TestSubmitRejectsForeignPreflight
+--- PASS: TestSubmitRejectsForeignPreflight (0.07s)
+=== RUN   TestSubmitRejectsBlockedPreflight
+--- PASS: TestSubmitRejectsBlockedPreflight (0.07s)
+=== RUN   TestSubmitRequiresReauth
+--- PASS: TestSubmitRequiresReauth (0.08s)
+=== RUN   TestSubmitAgentUnavailableKeepsJobForReconcile
+--- PASS: TestSubmitAgentUnavailableKeepsJobForReconcile (0.08s)
+=== RUN   TestSubmitAgentRejectionMarksJobFailed
+--- PASS: TestSubmitAgentRejectionMarksJobFailed (0.08s)
+=== RUN   TestGetJobUnconfirmedWhenAgentHasNoRecord
+--- PASS: TestGetJobUnconfirmedWhenAgentHasNoRecord (0.08s)
+=== RUN   TestGetJobTerminalDoesNotCallAgent
+--- PASS: TestGetJobTerminalDoesNotCallAgent (0.09s)
+=== RUN   TestCancelRespectsPolicy
+--- PASS: TestCancelRespectsPolicy (0.08s)
+=== RUN   TestCancelCancellableJob
+--- PASS: TestCancelCancellableJob (0.08s)
+=== RUN   TestCancelFinishedJob
+--- PASS: TestCancelFinishedJob (0.08s)
+=== RUN   TestListAndGetRespectOwnership
+--- PASS: TestListAndGetRespectOwnership (0.09s)
+=== RUN   TestSubmitValidatesIdempotencyKey
+--- PASS: TestSubmitValidatesIdempotencyKey (0.07s)
+=== RUN   TestJobEventsRecordTransitions
+--- PASS: TestJobEventsRecordTransitions (0.08s)
+=== RUN   TestCreatePreflightStoresBindings
+--- PASS: TestCreatePreflightStoresBindings (0.06s)
+=== RUN   TestCreatePreflightRejectsBadInput
+=== RUN   TestCreatePreflightRejectsBadInput/空动作名
+=== RUN   TestCreatePreflightRejectsBadInput/动作名太长大写
+=== RUN   TestCreatePreflightRejectsBadInput/动作名没有点
+=== RUN   TestCreatePreflightRejectsBadInput/动作名含连字符
+=== RUN   TestCreatePreflightRejectsBadInput/用户为_0
+=== RUN   TestCreatePreflightRejectsBadInput/会话哈希长度不对
+=== RUN   TestCreatePreflightRejectsBadInput/参数不是对象
+=== RUN   TestCreatePreflightRejectsBadInput/参数不是_JSON
+=== RUN   TestCreatePreflightRejectsBadInput/参数过大
+--- PASS: TestCreatePreflightRejectsBadInput (0.06s)
+    --- PASS: TestCreatePreflightRejectsBadInput/空动作名 (0.00s)
+    --- PASS: TestCreatePreflightRejectsBadInput/动作名太长大写 (0.00s)
+    --- PASS: TestCreatePreflightRejectsBadInput/动作名没有点 (0.00s)
+    --- PASS: TestCreatePreflightRejectsBadInput/动作名含连字符 (0.00s)
+    --- PASS: TestCreatePreflightRejectsBadInput/用户为_0 (0.00s)
+    --- PASS: TestCreatePreflightRejectsBadInput/会话哈希长度不对 (0.00s)
+    --- PASS: TestCreatePreflightRejectsBadInput/参数不是对象 (0.00s)
+    --- PASS: TestCreatePreflightRejectsBadInput/参数不是_JSON (0.00s)
+    --- PASS: TestCreatePreflightRejectsBadInput/参数过大 (0.00s)
+=== RUN   TestCreatePreflightWithoutAgentIsUnavailable
+--- PASS: TestCreatePreflightWithoutAgentIsUnavailable (0.06s)
+=== RUN   TestCreatePreflightPassesAgentErrors
+--- PASS: TestCreatePreflightPassesAgentErrors (0.12s)
+=== RUN   TestCreatePreflightRejectsSuspiciousExpiry
+=== RUN   TestCreatePreflightRejectsSuspiciousExpiry/超过_120_秒
+=== RUN   TestCreatePreflightRejectsSuspiciousExpiry/已经过期
+=== RUN   TestCreatePreflightRejectsSuspiciousExpiry/不是_RFC3339
+--- PASS: TestCreatePreflightRejectsSuspiciousExpiry (0.18s)
+    --- PASS: TestCreatePreflightRejectsSuspiciousExpiry/超过_120_秒 (0.06s)
+    --- PASS: TestCreatePreflightRejectsSuspiciousExpiry/已经过期 (0.06s)
+    --- PASS: TestCreatePreflightRejectsSuspiciousExpiry/不是_RFC3339 (0.06s)
+=== RUN   TestCreatePreflightAcceptsClockSkewWithinAllowance
+--- PASS: TestCreatePreflightAcceptsClockSkewWithinAllowance (0.06s)
+=== RUN   TestCreatePreflightEmptyParamsBecomeObject
+--- PASS: TestCreatePreflightEmptyParamsBecomeObject (0.07s)
+=== RUN   TestNewRequiresDatabaseAndLogger
+--- PASS: TestNewRequiresDatabaseAndLogger (0.00s)
+PASS
+=== agentclient.test
+=== RUN   TestNewRejectsBadSocketPath
+--- PASS: TestNewRejectsBadSocketPath (0.00s)
+=== RUN   TestCapabilitiesParsesData
+--- PASS: TestCapabilitiesParsesData (0.00s)
+=== RUN   TestQuerySendsTypedParams
+--- PASS: TestQuerySendsTypedParams (0.00s)
+=== RUN   TestQuerySendsEmptyObjectWhenParamsNil
+--- PASS: TestQuerySendsEmptyObjectWhenParamsNil (0.00s)
+=== RUN   TestQueryReturnsTypedBusinessError
+--- PASS: TestQueryReturnsTypedBusinessError (0.00s)
+=== RUN   TestQueryReportsUnavailableWhenDialFails
+--- PASS: TestQueryReportsUnavailableWhenDialFails (0.00s)
+=== RUN   TestDoRejectsMalformedEnvelope
+--- PASS: TestDoRejectsMalformedEnvelope (0.00s)
+=== RUN   TestQueryRejectsEmptyName
+--- PASS: TestQueryRejectsEmptyName (0.00s)
+=== RUN   TestTimeoutSurfacesAsUnavailable
+--- PASS: TestTimeoutSurfacesAsUnavailable (0.20s)
+=== RUN   TestCreatePreflightSendsContractFields
+--- PASS: TestCreatePreflightSendsContractFields (0.00s)
+=== RUN   TestCreatePreflightSendsEmptyObjectWhenParamsNil
+--- PASS: TestCreatePreflightSendsEmptyObjectWhenParamsNil (0.00s)
+=== RUN   TestCreatePreflightRejectsEmptyAction
+--- PASS: TestCreatePreflightRejectsEmptyAction (0.00s)
+=== RUN   TestCreatePreflightSurfacesBusinessError
+--- PASS: TestCreatePreflightSurfacesBusinessError (0.00s)
+=== RUN   TestCreatePreflightRejectsIncompleteResponse
+=== RUN   TestCreatePreflightRejectsIncompleteResponse/data_不是对象
+=== RUN   TestCreatePreflightRejectsIncompleteResponse/没有_data
+=== RUN   TestCreatePreflightRejectsIncompleteResponse/响应不是_JSON
+=== RUN   TestCreatePreflightRejectsIncompleteResponse/错误信封但缺_code
+=== RUN   TestCreatePreflightRejectsIncompleteResponse/缺_preflight_ref
+=== RUN   TestCreatePreflightRejectsIncompleteResponse/缺_action
+=== RUN   TestCreatePreflightRejectsIncompleteResponse/缺规范化参数
+=== RUN   TestCreatePreflightRejectsIncompleteResponse/缺到期时间
+--- PASS: TestCreatePreflightRejectsIncompleteResponse (0.00s)
+    --- PASS: TestCreatePreflightRejectsIncompleteResponse/data_不是对象 (0.00s)
+    --- PASS: TestCreatePreflightRejectsIncompleteResponse/没有_data (0.00s)
+    --- PASS: TestCreatePreflightRejectsIncompleteResponse/响应不是_JSON (0.00s)
+    --- PASS: TestCreatePreflightRejectsIncompleteResponse/错误信封但缺_code (0.00s)
+    --- PASS: TestCreatePreflightRejectsIncompleteResponse/缺_preflight_ref (0.00s)
+    --- PASS: TestCreatePreflightRejectsIncompleteResponse/缺_action (0.00s)
+    --- PASS: TestCreatePreflightRejectsIncompleteResponse/缺规范化参数 (0.00s)
+    --- PASS: TestCreatePreflightRejectsIncompleteResponse/缺到期时间 (0.00s)
+=== RUN   TestPutSecretAcceptsCreatedStatus
+--- PASS: TestPutSecretAcceptsCreatedStatus (0.00s)
+=== RUN   TestPreflightReportsUnavailableWhenAgentDown
+--- PASS: TestPreflightReportsUnavailableWhenAgentDown (0.00s)
+PASS
+=== syscmd.test
+=== RUN   TestSyscmdHelper
+    syscmd_test.go:24: 不是辅助进程
+--- SKIP: TestSyscmdHelper (0.00s)
+=== RUN   TestRunRejectsRelativeAndEmptyProgram
+--- PASS: TestRunRejectsRelativeAndEmptyProgram (0.00s)
+=== RUN   TestRunRejectsCommandStrings
+--- PASS: TestRunRejectsCommandStrings (0.00s)
+=== RUN   TestRunCapturesStdoutAndExitCode
+--- PASS: TestRunCapturesStdoutAndExitCode (0.00s)
+=== RUN   TestRunPassesArgsVerbatimWithoutShell
+--- PASS: TestRunPassesArgsVerbatimWithoutShell (0.00s)
+=== RUN   TestRunUsesFixedEnvironment
+--- PASS: TestRunUsesFixedEnvironment (0.00s)
+=== RUN   TestRunTruncatesOutputAtLimit
+--- PASS: TestRunTruncatesOutputAtLimit (0.00s)
+=== RUN   TestRunTimesOutAndKillsProcess
+--- PASS: TestRunTimesOutAndKillsProcess (0.30s)
+=== RUN   TestRunHonorsParentCancellation
+--- PASS: TestRunHonorsParentCancellation (0.00s)
+=== RUN   TestLimitsDefaults
+--- PASS: TestLimitsDefaults (0.00s)
+PASS

@@ -1,0 +1,22 @@
+=== RUN   TestSyscmdHelper
+    syscmd_test.go:24: 不是辅助进程
+--- SKIP: TestSyscmdHelper (0.00s)
+=== RUN   TestRunRejectsRelativeAndEmptyProgram
+--- PASS: TestRunRejectsRelativeAndEmptyProgram (0.00s)
+=== RUN   TestRunRejectsCommandStrings
+--- PASS: TestRunRejectsCommandStrings (0.00s)
+=== RUN   TestRunCapturesStdoutAndExitCode
+--- PASS: TestRunCapturesStdoutAndExitCode (0.00s)
+=== RUN   TestRunPassesArgsVerbatimWithoutShell
+--- PASS: TestRunPassesArgsVerbatimWithoutShell (0.00s)
+=== RUN   TestRunUsesFixedEnvironment
+--- PASS: TestRunUsesFixedEnvironment (0.00s)
+=== RUN   TestRunTruncatesOutputAtLimit
+--- PASS: TestRunTruncatesOutputAtLimit (0.00s)
+=== RUN   TestRunTimesOutAndKillsProcess
+--- PASS: TestRunTimesOutAndKillsProcess (0.30s)
+=== RUN   TestRunHonorsParentCancellation
+--- PASS: TestRunHonorsParentCancellation (0.00s)
+=== RUN   TestLimitsDefaults
+--- PASS: TestLimitsDefaults (0.00s)
+PASS

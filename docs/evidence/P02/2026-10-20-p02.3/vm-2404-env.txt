@@ -1,0 +1,13 @@
+PRETTY_NAME="Ubuntu 24.04.5 LTS"
+VERSION_ID="24.04"
+6.8.0-147-generic
+Python 3.12.3
+9283c6e01c563094a6376dfc1877374ff091ed9329e8617c4f695d0cdc5c5ba0  /tmp/upanel-bin/upanel-web
+1ddbf3232dd278059b28f679b26798ff187ebb9b4a0f05aefeb939adf9d29947  /tmp/upanel-bin/upanel-agent
+01ba82dbad45741f273aa7f398dd13a09e2f577fe7861b4e9f66f0fb5804633c  /tmp/upanel-bin/upanelctl
+753f50603f1eaffc37ad2e3b846d095769ea35ab68b0d0ef4f179eba8b2616e9  /tmp/upanel-bin/tests/agent.test
+e1ff7f0f71c8e9763c53c148ec888e78649d001599a2ff5b282b4c95ccfe6b17  /tmp/upanel-bin/tests/syscmd.test
+uid=999(upanel-web) gid=988(upanel-web) groups=988(upanel-web)
+uid=997(upanel-probe) gid=987(upanel-probe) groups=987(upanel-probe),988(upanel-web)
+uid=65534(nobody) gid=65534(nogroup) groups=65534(nogroup)
+upanel-web:x:988:upanel-probe

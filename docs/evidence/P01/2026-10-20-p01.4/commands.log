@@ -1,0 +1,63 @@
+# P01.4 执行命令与结果
+
+全部命令在 2026-10-20 于宿主（Windows 11 + Git Bash）与两台 Ubuntu 验收 VM 上真实执行。
+工具链：Go 1.27.3 windows/amd64、Node v22.23.3、npm 10.9.9、curl 8.17.0。
+
+## 宿主：构建
+
+```sh
+npm --prefix web ci                       # 依赖已存在，未重装
+sh scripts/build.sh                       # 见 build.txt（exit 0）
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
+  -ldflags "-s -w -X upanel/internal/version.Version=0.0.0-p01.4" \
+  -o bin/linux-amd64/<cmd> ./cmd/<cmd>    # 见 linux-cross-build.txt（exit 0）
+```
+
+## 宿主：静态检查与测试
+
+```sh
+gofmt -l cmd internal                     # 见 gofmt.txt（空输出）
+go vet ./...                              # 见 go-vet.txt（exit 0）
+go test ./... -count=1                    # 见 go-test.txt（exit 0，12 个包）
+go test ./internal/webui ./internal/api -v -count=1   # 见 go-test-webui-api.txt（33 PASS / 0 FAIL）
+sh scripts/check.sh                       # 见 check-run.txt（PASS 12 / FAIL 0 / NOT RUN 0）
+```
+
+## 宿主：真实二进制行为
+
+```sh
+./bin/upanel-web --mode mock --db H:/Code/uPanel/bin/p01-4-host.db
+curl -sD - http://127.0.0.1:18881/                       # 见 host-checks.txt
+curl -sD - http://127.0.0.1:18881/api/v1/health/live
+curl -s  http://127.0.0.1:18881/api/v1/unknown
+curl -sX POST http://127.0.0.1:18881/
+node web/scripts/smoke.mjs --base http://127.0.0.1:18881 --expect mock
+                                                          # 见 host-smoke-mock.txt（19/19 PASS）
+./bin/upanel-web.exe --mode production --db ...           # 见 host-nonlinux-production-refusal.txt（exit 1）
+# 无嵌入资源的二进制（临时移除 dist/index.html 后构建）
+./bin/tmp-nodist.exe --mode mock --db ...                 # 见 host-missing-assets-503.txt
+```
+
+## VM：Ubuntu 24.04.5（upanel-2404，SSH 2222）
+
+```sh
+scp -P 2222 -i id_ed25519 bin/linux-amd64/upanel-web bin/linux-amd64/upanelctl \
+    upanel@127.0.0.1:/tmp/p01-4/
+scp -P 2222 -r deploy/systemd upanel@127.0.0.1:/tmp/p01-4/deploy/
+scp -P 2222 tests/integration/p01-4-acceptance.sh upanel@127.0.0.1:/tmp/p01-4/
+ssh -p 2222 upanel@127.0.0.1 \
+  'cd /tmp/p01-4 && BIN_DIR=/tmp/p01-4 DEPLOY_DIR=/tmp/p01-4/deploy sh p01-4-acceptance.sh'
+# 见 vm-2404-acceptance.txt：通过 114 / 失败 0 / 未执行 0，exit 0
+```
+
+## VM：Ubuntu 22.04.5（upanel-2204，SSH 2223）
+
+同上（端口 2223）；见 `vm-2204-acceptance.txt`：通过 114 / 失败 0 / 未执行 0，exit 0。
+
+## 说明
+
+- 两台 VM 内的验收脚本以普通用户 `upanel`（uid 1000，passwordless sudo）运行，
+  脚本本身在 root 下会直接拒绝运行，避免“Web 是否非 root”无法验证。
+- 脚本第 7 段真实安装 systemd 单元并以 `upanel-web` 用户启动服务，验证完即停止并删除单元，
+  但保留 `upanel-web` 用户与 `/var/lib/upanel`（重复运行幂等）。
+- 未执行项：无（两台 VM 的 `systemd-analyze verify` 与真实 systemd 启动均已执行）。

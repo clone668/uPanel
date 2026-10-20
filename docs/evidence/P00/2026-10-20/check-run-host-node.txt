@@ -1,0 +1,35 @@
+# 命令: sh scripts/check.sh（使用宿主默认 Node v24.15.0，演示版本闸门）
+# 执行时间: 2026-10-20T05:08:40Z
+
+<== FAIL  node-version: 期望 v22.23.3，实际 v24.15.0（请先按 .nvmrc 切换工具链）
+
+==> web-typecheck
+<== NOT RUN  web-typecheck: package.json 尚无 typecheck 脚本（P01.3 建立）
+
+==> web-lint
+<== NOT RUN  web-lint: package.json 尚无 lint 脚本（P01.3 建立）
+
+==> web-test
+<== NOT RUN  web-test: package.json 尚无 test 脚本（P01.3 建立）
+
+==> web-build
+<== NOT RUN  web-build: package.json 尚无 build 脚本（P01.3 建立）
+
+==> openapi-lint
+[90mvalidating api\openapi.yaml...
+[39m[33mwarning[39m no-unused-components: 20
+
+[90mapi\openapi.yaml: validated in 22ms
+
+[39m[32mWoohoo! Your API description is valid. 🎉
+[39m[33mYou have 20 warnings.
+[39m
+<== PASS  openapi-lint
+
+=========================== 汇总 ===========================
+PASS 1 / FAIL 1 / NOT RUN 8
+明细: go-build:NOT_RUN go-vet:NOT_RUN go-test:NOT_RUN gofmt:NOT_RUN node-version:FAIL web-typecheck:NOT_RUN web-lint:NOT_RUN web-test:NOT_RUN web-build:NOT_RUN openapi-lint:PASS
+NOT RUN 不等于通过；发布前必须按 docs/STAGES.md 补齐对应证据。
+============================================================
+
+# 退出码: 1

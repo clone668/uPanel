@@ -1,0 +1,15 @@
+== VM upanel-2404
+os: Ubuntu 24.04.5 LTS
+6.8.0-147-generic
+user: upanel uid=1000
+sudo: passwordless
+/usr/bin/curl
+/usr/bin/ss
+/usr/bin/systemctl
+/usr/bin/systemd-analyze
+/usr/sbin/useradd
+systemd: systemd 255 (255.4-1ubuntu8.18)
+--- staged hashes
+d104624f206718becca1d90225a64b962afca8009217476b9c2be7af40d0045e  /tmp/p01-4/upanel-web
+1df1afaa13b45f74d6ee220f439b4a02563ca908fb67dcc6202ccb5ea01c4735  /tmp/p01-4/upanelctl
+bcbed8a74cdf4865f7b2832c26fdc58932b604262f22fd83ba8187a55ec8fdf1  /tmp/p01-4/p01-4-acceptance.sh

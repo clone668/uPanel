@@ -1,0 +1,1680 @@
+openapi: 3.1.0
+info:
+  title: uPanel API
+  version: 0.0.0-p03.2
+  summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
+  description: |
+    uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。
+    P00 冻结了统一响应信封、错误码、安全方案、公共参数与头；P01.2 起按阶段补充
+    已经实现并通过验收的接口。每阶段只补充该阶段真正实现的接口，不得提前写入
+    未实现的“已支持”API。
+
+    通用规则（与 CONTRACTS.md 第 1 节一致）：
+    - 前缀 /api/v1，JSON 字段统一 snake_case，TypeScript DTO 不隐式转换命名。
+    - 时间为 RFC 3339 UTC；空值为 null，不用空字符串或 0 代替 unknown。
+    - 字节与其他大计数器为非负十进制字符串，前端不得用 Number 做精确运算。
+    - 百分比为 0—100 浮点数；比率带 _per_sec，时延带 _ms，温度带 _celsius。
+    - 列表默认 limit=50、最大 200，cursor 不透明；排序稳定。
+    - 每个响应带 X-Request-ID，与响应体 request_id 一致。
+    - 异步写任务创建成功返回 202，不代表业务操作成功。
+  contact:
+    name: uPanel 项目
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+x-upanel-contract-status:
+  stage: P03.2
+  implemented_paths:
+    - get /api/v1/health/live
+    - head /api/v1/health/live
+    - post /api/v1/auth/login
+    - get /api/v1/auth/session
+    - post /api/v1/auth/logout
+    - post /api/v1/auth/reauth
+    - get /api/v1/users
+    - post /api/v1/users
+    - patch /api/v1/users/{id}
+    - delete /api/v1/users/{id}
+    - post /api/v1/users/{id}/password
+    - post /api/v1/operations/preflight
+    - post /api/v1/jobs
+    - get /api/v1/jobs
+    - get /api/v1/jobs/{id}
+    - post /api/v1/jobs/{id}/cancel
+  note: 只列出已实现并通过验收的接口；未实现模块不出现在 paths 中。
+servers:
+  - url: https://127.0.0.1:9443/api/v1
+    description: 默认仅绑定回环地址的管理监听，通过 SSH 隧道访问；绑定地址由本机配置决定。
+security:
+  - upanelSession: []
+tags:
+  - name: meta
+    description: 存活、版本与能力发现
+  - name: auth
+    description: 会话、再认证与账号
+  - name: operations
+    description: 预检与任务
+  - name: system
+    description: 系统与监控
+  - name: storage
+    description: 设备、分区、卷
+  - name: shares
+    description: SMB / NFS 共享
+  - name: apps
+    description: 应用、容器与部署
+  - name: files
+    description: 受管理文件根
+  - name: proxy
+    description: 反向代理与证书
+  - name: ops
+    description: 软件更新、电源、备份、计划任务、网络、告警
+paths:
+  /api/v1/health/live:
+    get:
+      operationId: getHealthLive
+      summary: 最小存活状态
+      description: |
+        匿名可访问的最小存活检查，用于反向代理与 systemd 探活。
+        只说明进程能处理请求，不代表数据库、代理或系统操作可用；
+        不返回内部路径、版本或依赖细节（CONTRACTS.md 第 3 节）。
+      security: []
+      responses:
+        '200':
+          description: 服务可响应。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: false
+                    required: [status]
+                    properties:
+                      status:
+                        type: string
+                        enum: [ok]
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+    head:
+      operationId: headHealthLive
+      summary: 最小存活状态（仅响应头）
+      description: 与 GET 相同的状态码与响应头，响应无正文。
+      security: []
+      responses:
+        '200':
+          description: 服务可响应，无正文。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+
+  /api/v1/auth/login:
+    post:
+      operationId: postAuthLogin
+      summary: 登录并签发会话
+      description: |
+        匿名接口，但入口有四道检查：Content-Type: application/json、
+        `X-UPanel-Request: 1`、与本地配置精确匹配的 Origin、严格 JSON（拒绝未知字段与尾部内容）。
+        Origin 白名单只来自本机配置，不由 Host 或 X-Forwarded-* 推导。
+
+        失败限速按用户名与来源 IP 双维度在进程内计数（默认 5 次 / 15 分钟、20 次 / 15 分钟），
+        窗口到期自动恢复，不做永久锁定；被限速时返回 429，details 带 retry_after_seconds。
+
+        成功时通过 Set-Cookie 下发 __Host-upanel_session（HttpOnly、Secure、SameSite=Strict、
+        Path=/、无 Domain），响应体返回一次性 csrf_token 与过期时间。
+        二次验证在 P14 之前不接受 totp 字段，提交即 VALIDATION_ERROR。
+      tags: [auth]
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RequestMarker'
+        - $ref: '#/components/parameters/RequestOrigin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: 登录成功，已下发会话 Cookie。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+            Set-Cookie:
+              description: __Host-upanel_session=<随机值>; Path=/; HttpOnly; Secure; SameSite=Strict
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/LoginData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: 用户名或密码不正确（不区分账号是否存在，避免枚举）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '429':
+          description: 登录尝试被限速；details.retry_after_seconds 给出建议等待秒数。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/session:
+    get:
+      operationId: getAuthSession
+      summary: 读取当前会话
+      description: |
+        返回当前账号、一次新的 csrf_token、会话过期时间与再认证到期时间。
+        每次调用都会轮换 CSRF 令牌（服务端只保存哈希），因此前端启动或刷新后
+        先调用本接口再发其他写请求。
+      tags: [auth]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 当前会话。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SessionData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/auth/logout:
+    post:
+      operationId: postAuthLogout
+      summary: 退出登录
+      description: 删除服务端会话并清除 Cookie；退出后同一 Cookie 立即失效。
+      tags: [auth]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      responses:
+        '200':
+          description: 已退出；响应 data 为空对象，并下发清除 Cookie 的 Set-Cookie。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/EmptyData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/auth/reauth:
+    post:
+      operationId: postAuthReauth
+      summary: 密码再认证
+      description: |
+        敏感操作（账号增删改、改密码）要求在最近一次再认证窗口内执行。
+        密码正确则把当前会话的再认证有效期推到 5 分钟后，并在响应里返回新的
+        reauth_expires_at；密码错误返回 403 FORBIDDEN，会话本身仍然有效。
+
+        失败尝试与登录共用限速计数（按用户名与来源 IP 双维度），被限速时返回 429，
+        details.retry_after_seconds 给出建议等待秒数。仅供 admin 使用；P14 之前提交
+        totp 直接返回 VALIDATION_ERROR。
+      tags: [auth]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReauthRequest'
+      responses:
+        '200':
+          description: 再认证通过，会话获得新的再认证窗口。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ReauthData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: |
+            非 admin（FORBIDDEN）、CSRF 失败（CSRF_FAILED）或密码不正确（FORBIDDEN）。
+            密码错误不会结束会话，也不会获得再认证窗口。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '429':
+          description: 再认证尝试被限速；details.retry_after_seconds 给出建议等待秒数。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/users:
+    get:
+      operationId: getUsers
+      summary: 账号列表（仅 admin）
+      description: |
+        按用户名升序返回账号，字段为脱敏 DTO：不包含 password_hash、会话、CSRF 或任何
+        认证秘密。limit 默认 50、最大 200；cursor 是上一页末条的不透明编码，
+        客户端不得解析。next_cursor 为 null 表示没有下一页。
+      tags: [auth]
+      security:
+        - upanelSession: []
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: 当页账号。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/UserListData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: postUser
+      summary: 创建账号（仅 admin）
+      description: |
+        初始密码只出现在请求体里：不回显、不入日志、不写审计。用户名大小写不敏感并归一化为
+        小写；用户名已被占用返回 422（业务条件不允许），不是 500。
+      tags: [auth]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: 已创建；返回脱敏后的新账号。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AdminUser'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /api/v1/users/{id}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    patch:
+      operationId: patchUser
+      summary: 修改账号（admin + 再认证）
+      description: |
+        只能修改 display_name、role、disabled，且每一项都是可选的，至少提供一项。
+        必须携带目标的 version：不匹配返回 409 VERSION_CONFLICT；成功后 version 加一。
+
+        两条硬性约束：管理员不能改动自己的角色或启用状态（403 FORBIDDEN，防止自我提权与
+        自我锁死）；任何会让系统失去最后一个可用管理员的降级或禁用返回 422。
+      tags: [auth]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: 修改成功；返回更新后的账号（version 已加一）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AdminUser'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: |
+            非 admin（FORBIDDEN）、CSRF 失败（CSRF_FAILED）、再认证窗口已过
+            （REAUTH_REQUIRED）或试图修改自己的角色/启用状态（FORBIDDEN）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    delete:
+      operationId: deleteUser
+      summary: 删除账号（admin + 再认证）
+      description: |
+        必须携带 version：优先取请求体，其次取查询参数（DELETE 带请求体并非所有客户端都支持）。
+        不匹配返回 409 VERSION_CONFLICT。删除目标账号的同时其全部会话立即失效。
+
+        不能删除自己（403），也不能删除最后一个可用管理员（422）。
+      tags: [auth]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      parameters:
+        - name: version
+          in: query
+          required: false
+          description: 目标账号的 version；请求体里也接受同名字段。
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteUserRequest'
+      responses:
+        '200':
+          description: 已删除；响应 data 为空对象。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/EmptyData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: 非 admin、CSRF 失败、再认证窗口已过或试图删除自己。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /api/v1/users/{id}/password:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      operationId: postUserPassword
+      summary: 重置账号密码（admin + 再认证）
+      description: |
+        直接设置新密码（不生成临时密码、不要求旧密码）。新密码必须通过同一套口令策略。
+        成功后目标账号的全部会话立即失效；若目标就是自己，当前会话也随之失效，
+        调用方必须重新登录。响应不回显新密码，也不把它写进审计。
+      tags: [auth]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetPasswordRequest'
+      responses:
+        '200':
+          description: 密码已更新；返回更新后的账号（version 已加一）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AdminUser'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+
+  /api/v1/operations/preflight:
+    post:
+      operationId: postOperationsPreflight
+      summary: 生成预检（仅 admin）
+      description: |
+        系统写动作的第一步（CONTRACTS.md 4.1）。预检本身不写磁盘、不停止服务、不安装软件：
+        它向特权代理要一份计划——规范化参数、目标身份指纹与状态版本快照、影响、阻塞项、
+        是否需要再认证与确认短语——并把绑定信息（用户、会话、动作、参数哈希、状态版本、
+        到期时间）记在服务端。
+
+        有效期 120 秒，从代理签发的时刻起算。expires_at 是代理给出的唯一真值：
+        客户端只做展示与倒计时，不得自己推算或修改。
+
+        allowed=false 仍返回 200：这表示“计划已经生成，但当前条件不允许执行”，
+        blockers 说明原因。真正提交在 POST /jobs（P03.2），那一步会重新校验有效期、
+        用户与会话绑定、目标状态版本、再认证窗口和确认短语。
+
+        确认短语由服务端生成，只在本响应里出现一次明文；服务端保存的是它的哈希，
+        日志、审计与数据库都不记录明文。不要求短语的动作返回 confirmation_phrase=null，
+        而不是省略字段——省略会让客户端分不清“不需要”和“服务端漏给了”。
+
+        响应刻意不含目标状态版本与代理内部引用：它们是服务端绑定信息，前端拿到也没有正当用途。
+
+        本接口不检查再认证窗口：再认证在执行阶段强制，提前拒绝只会让人看不到预检里
+        的影响与阻塞项。params 缺省按空对象 {} 处理；是否已登记这个动作由代理的动作
+        注册表决定，未登记的动作返回 400 VALIDATION_ERROR。
+      tags: [operations]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreflightRequest'
+      responses:
+        '200':
+          description: 预检已生成；allowed 说明当前是否允许执行。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PreflightData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          description: |
+            请求体不是 application/json、不是合法 JSON、含未知字段（VALIDATION_ERROR），
+            动作名形状不合法或代理不认这个动作（VALIDATION_ERROR），或参数不是 JSON 对象
+            或超过 64 KiB（VALIDATION_ERROR）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '503':
+          description: 特权代理不可用（AGENT_UNAVAILABLE）；客户端应提示稍后重试。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/jobs:
+    post:
+      operationId: postJobs
+      summary: 提交任务（仅 admin）
+      description: |
+        系统写动作的第二步（CONTRACTS.md 4.2）。请求只带预检标识与确认短语：
+        不接受 action 或 params，因此提交阶段无法替换目标，参数一律按预检恢复。
+
+        必须携带 Idempotency-Key。相同用户 + 相同接口 + 相同键 + 相同请求返回原任务
+        （202，同一个 job_id）；相同键但请求不同返回 409 IDEMPOTENCY_CONFLICT。
+
+        预检是一次性凭据：已被使用、已过期、绑定的会话已轮换、用户已变化的预检都不能再提交。
+        动作是否可安全取消由动作策略决定，客户端不得自行显示取消入口。
+
+        服务端先写 durable job 与稳定的 operation_id，再向代理提交。因此本接口返回 202
+        只表示“任务已被接受”，不表示系统动作已成功；结果必须通过 GET /jobs/{id} 读取。
+        代理连不上时任务保持 queued（待对账），客户端应稍后重试同一键或查询任务，
+        不得生成新的预检再提交一次。
+      tags: [operations]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobSubmitRequest'
+      responses:
+        '202':
+          description: 任务已持久接受并已向代理提交（或留待对账）；不代表动作成功。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/JobSubmitData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          description: |
+            缺少或不合法的 Idempotency-Key、请求体不是 application/json、含未知字段、
+            不是合法 JSON（VALIDATION_ERROR）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: 不是 admin（FORBIDDEN），或不在 5 分钟再认证窗口内（REAUTH_REQUIRED）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 预检不存在或不属于当前账号（NOT_FOUND）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: |
+            幂等键已用于另一个请求（IDEMPOTENCY_CONFLICT）；预检已过期（PREFLIGHT_EXPIRED）；
+            预检已被使用或会话已轮换（PREFLIGHT_STALE）；预检结论为不允许（DEPENDENCY_BLOCKED）；
+            或代理在提交时判定目标已变化（PREFLIGHT_STALE / DEVICE_IDENTITY_CHANGED）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '503':
+          description: 特权代理不可用（AGENT_UNAVAILABLE）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      operationId: getJobs
+      summary: 任务摘要列表
+      description: |
+        返回当前账号提交的任务摘要，按创建时间倒序（CONTRACTS.md 4.3）。
+        列表不做逐条对账：它只反映服务端最后一次与代理同步的状态；要精确状态请读单条任务。
+        不包含原始参数与日志——这两样在 P03.3 才按 admin 权限开放。
+      tags: [operations]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 任务摘要列表。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/JobListData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          description: limit 不是 1—200 的整数（VALIDATION_ERROR）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /api/v1/jobs/{id}:
+    get:
+      operationId: getJob
+      summary: 任务状态、步骤、结果与错误
+      description: |
+        读取单个任务（CONTRACTS.md 4.3）。非终态任务会按稳定的 operation_id 向代理对账一次，
+        因此浏览器关闭、Web 重启后仍能找到同一次执行——对账只读，绝不重新提交。
+
+        progress_percent 在不知道进度时是 null：不得用一个假定时器从 0 涨到 100。
+        result 至少包含 outcome（verified、accepted、rolled_back、partial、unknown）、
+        verified_at、observed_state、recovery_hint；只有核验过真实结果的任务才是 succeeded。
+        cancellation_requested 是独立布尔字段：它表示“已请求取消”，不是“已取消”。
+      tags: [operations]
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: 任务视图。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/JobData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          description: 任务不存在或不属于当前账号（NOT_FOUND）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/jobs/{id}/cancel:
+    post:
+      operationId: postJobsCancel
+      summary: 请求安全取消（仅 admin）
+      description: |
+        请求安全取消（CONTRACTS.md 4.3）。只有动作策略允许取消、且任务尚未进入终态时才接受。
+
+        返回 202 表示“取消请求已记录”，不表示动作已经停下：随后的状态可能是 canceled，
+        也可能因为已经进入不可打断阶段而以 failed 结束。cancellation_requested 会如实回显。
+
+        不可取消的动作（例如格式化、分区写入这类一旦开始必须走完的操作）返回 409：
+        客户端本来就不该显示取消入口——cancellable 字段在预检与任务视图里都给出了。
+      tags: [operations]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '202':
+          description: 取消请求已记录。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/JobData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: 任务不存在或不属于当前账号（NOT_FOUND）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: |
+            该动作不可取消（VALIDATION_ERROR，HTTP 409），或任务已进入终态（VERSION_CONFLICT）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    upanelSession:
+      type: apiKey
+      in: cookie
+      name: __Host-upanel_session
+      description: |
+        会话 Cookie：HttpOnly、Secure、SameSite=Strict、Path=/，不设置 Domain。
+        服务端只保存哈希；默认 30 分钟空闲超时、12 小时绝对超时。
+        不使用 localStorage 保存认证令牌。
+    csrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: |
+        所有已登录的非 GET/HEAD 请求必须携带，令牌绑定会话，前端只保存在内存。
+        缺失或不匹配返回 403 CSRF_FAILED。
+
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: 列表条数，默认 50，最大 200。
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: 不透明游标，只用于翻页；不得解析其内容。
+      schema:
+        type: string
+        maxLength: 512
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        客户端生成的 UUID，同一次提交意图重试时复用。
+        相同用户 + 接口 + 键 + 相同请求返回原任务；相同键但请求不同返回 409 IDEMPOTENCY_CONFLICT。
+      schema:
+        type: string
+        format: uuid
+    IfMatchVersion:
+      name: If-Match-Version
+      in: header
+      required: true
+      description: 乐观并发版本，等于目标对象的 version；不匹配返回 409 VERSION_CONFLICT。
+      schema:
+        type: integer
+        minimum: 1
+
+    RequestMarker:
+      name: X-UPanel-Request
+      in: header
+      required: true
+      description: 固定值 1。用于区分前端 JSON 请求与跨站的表单/图片请求。
+      schema:
+        type: string
+        enum: ['1']
+    RequestOrigin:
+      name: Origin
+      in: header
+      required: true
+      description: |
+        必须与本地配置的允许源精确一致（scheme://host[:port]）。
+        不匹配或缺失返回 403 CSRF_FAILED；期望值绝不从 Host 或 X-Forwarded-* 推导。
+      schema:
+        type: string
+        maxLength: 255
+
+    UserId:
+      name: id
+      in: path
+      required: true
+      description: 账号的整数主键。
+      schema:
+        type: integer
+        minimum: 1
+
+    JobId:
+      name: id
+      in: path
+      required: true
+      description: 任务标识（job_ + 32 位小写十六进制）。不可解析内部结构。
+      schema:
+        type: string
+        pattern: '^job_[0-9a-f]{32}$'
+
+  headers:
+    RequestId:
+      description: 与响应体 request_id 相同的请求标识，用于客服与审计关联。
+      required: true
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 64
+
+  schemas:
+    RequestId:
+      type: string
+      minLength: 8
+      maxLength: 64
+      description: 不透明请求标识，不包含用户输入或秘密。
+
+    Rfc3339Utc:
+      type: string
+      format: date-time
+      pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$'
+      description: RFC 3339 UTC 时间，必须带 Z 后缀。界面按浏览器时区显示并标注时区。
+
+    ByteString:
+      type: string
+      pattern: '^(0|[1-9][0-9]*)$'
+      description: |
+        非负十进制字节数或其他可能超过 JavaScript 安全整数范围的计数器。
+        前端使用 BigInt 或安全格式化工具，禁止 Number 精确运算。
+
+    Percent:
+      type: number
+      minimum: 0
+      maximum: 100
+      description: 百分比 0—100；未知值为 null，不得用 0 代替。
+
+    GenericData:
+      description: 具体 DTO，由各接口内联定义；每阶段实现时替换为严格 schema。
+      type: object
+      additionalProperties: true
+
+    DataEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties:
+        data:
+          $ref: '#/components/schemas/GenericData'
+        request_id:
+          $ref: '#/components/schemas/RequestId'
+
+    ListEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data, request_id]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [items, next_cursor]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/GenericData'
+            next_cursor:
+              type: [string, 'null']
+        request_id:
+          $ref: '#/components/schemas/RequestId'
+
+    User:
+      type: object
+      additionalProperties: false
+      required: [id, username, display_name, role]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        username:
+          type: string
+          pattern: '^[a-z][a-z0-9._-]{2,31}$'
+          description: 归一化为小写；用户名大小写不敏感。
+        display_name:
+          type: string
+          maxLength: 64
+        role:
+          type: string
+          enum: [admin, viewer]
+
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 32
+        password:
+          type: string
+          minLength: 12
+          maxLength: 256
+          description: 仅在请求体中出现；不得进入日志、不得回显。
+        totp:
+          type: string
+          pattern: '^[0-9]{6}$'
+          description: P14 之前提交该字段直接返回 VALIDATION_ERROR。
+
+    LoginData:
+      type: object
+      additionalProperties: false
+      required: [user, csrf_token, expires_at]
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        csrf_token:
+          type: string
+          minLength: 43
+          description: 绑定会话的一次性 CSRF 令牌，前端只保存在内存。
+        expires_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
+    SessionData:
+      type: object
+      additionalProperties: false
+      required: [user, csrf_token, expires_at, reauth_expires_at]
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        csrf_token:
+          type: string
+          minLength: 43
+        expires_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        reauth_expires_at:
+          type: [string, 'null']
+          format: date-time
+          description: 最近一次再认证的有效期；从未再认证时为 null。
+
+    EmptyData:
+      type: object
+      additionalProperties: false
+
+    ErrorCode:
+      type: string
+      description: |
+        可翻译的稳定错误码。新增错误码必须先更新本枚举与 CONTRACTS.md。
+
+        唯一例外：服务端程序故障（panic、响应序列化失败）返回 500，并使用枚举外的
+        INTERNAL_ERROR。它只表示“程序本身出错”，业务逻辑永远不会主动返回它；
+        客户端应把它当作未知错误处理并提示重试或联系管理员。详见 docs/DECISIONS.md Q17。
+      enum:
+        - VALIDATION_ERROR
+        - UNAUTHENTICATED
+        - FORBIDDEN
+        - REAUTH_REQUIRED
+        - CSRF_FAILED
+        - NOT_FOUND
+        - VERSION_CONFLICT
+        - RESOURCE_BUSY
+        - DEVICE_IN_USE
+        - PROTECTED_DEVICE
+        - UNSUPPORTED_DEVICE
+        - DEVICE_IDENTITY_CHANGED
+        - PATH_OUTSIDE_ROOT
+        - DEPENDENCY_BLOCKED
+        - PREFLIGHT_EXPIRED
+        - PREFLIGHT_STALE
+        - CONFIRMATION_MISMATCH
+        - IDEMPOTENCY_CONFLICT
+        - AGENT_UNAVAILABLE
+        - DEPENDENCY_MISSING
+        - NOT_IMPLEMENTED
+        - COMMAND_FAILED
+        - OPERATION_INTERRUPTED
+        - ROLLBACK_FAILED
+
+    ErrorBody:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        message:
+          type: string
+          description: 面向用户的中文可读说明，不包含堆栈、命令原文或秘密。
+          maxLength: 400
+        details:
+          type: object
+          additionalProperties: true
+          description: 结构化细节，例如 blockers、字段名或冲突对象；不得包含秘密。
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error, request_id]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorBody'
+        request_id:
+          $ref: '#/components/schemas/RequestId'
+
+    AdminUser:
+      type: object
+      additionalProperties: false
+      description: |
+        账号管理接口的脱敏 DTO。password_hash、会话、CSRF 与再认证时间一律不出现。
+      required: [id, username, display_name, role, disabled, version, created_at, updated_at]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        username:
+          type: string
+          pattern: '^[a-z][a-z0-9._-]{2,31}$'
+        display_name:
+          type: string
+          maxLength: 64
+        role:
+          type: string
+          enum: [admin, viewer]
+        disabled:
+          type: boolean
+        version:
+          type: integer
+          minimum: 1
+          description: 乐观并发版本，每次成功修改加一；写操作必须回传。
+        created_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        updated_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
+    UserListData:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminUser'
+        next_cursor:
+          type: [string, 'null']
+          description: 下一页游标；为 null 表示没有更多账号。
+
+    CreateUserRequest:
+      type: object
+      additionalProperties: false
+      required: [username, role, initial_password]
+      properties:
+        username:
+          type: string
+          pattern: '^[a-zA-Z][a-zA-Z0-9._-]{2,31}$'
+          description: 大小写不敏感，服务端归一化为小写。
+        display_name:
+          type: string
+          maxLength: 64
+          description: 省略时使用用户名。
+        role:
+          type: string
+          enum: [admin, viewer]
+        initial_password:
+          type: string
+          minLength: 12
+          maxLength: 256
+          description: 只在请求体中出现；不回显、不入日志、不写审计。
+
+    UpdateUserRequest:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        display_name:
+          type: string
+          maxLength: 64
+        role:
+          type: string
+          enum: [admin, viewer]
+        disabled:
+          type: boolean
+
+    SetPasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [new_password]
+      properties:
+        new_password:
+          type: string
+          minLength: 12
+          maxLength: 256
+          description: 同样受口令策略校验；不回显、不入日志、不写审计。
+
+    DeleteUserRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        version:
+          type: integer
+          minimum: 1
+          description: 省略时从查询参数 version 读取；两处都缺失返回 400。
+
+    ReauthRequest:
+      type: object
+      additionalProperties: false
+      required: [password]
+      properties:
+        password:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: 当前账号密码；只在请求体中出现。
+        totp:
+          type: string
+          pattern: '^[0-9]{6}$'
+          description: P14 之前提交该字段直接返回 VALIDATION_ERROR。
+
+    ReauthData:
+      type: object
+      additionalProperties: false
+      required: [reauth_expires_at]
+      properties:
+        reauth_expires_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
+    PreflightRequest:
+      type: object
+      additionalProperties: false
+      description: |
+        预检请求只有动作名与参数。身份来自会话，结论与确认短语来自服务端：
+        提交 user_id、allowed、preflight_id 或任何短语都属于未知字段，返回 400。
+      required: [action]
+      properties:
+        action:
+          type: string
+          minLength: 1
+          maxLength: 96
+          pattern: '^[a-z0-9._]+$'
+          description: |
+            公开动作名，小写点分（例如 storage.filesystem.format），必须含至少一个点。
+            Web 只校验形状，具体是否已登记由代理的动作注册表决定。
+        params:
+          type: object
+          additionalProperties: true
+          description: |
+            动作自己的参数对象，缺省为 {}。代理负责按动作 DTO 校验并规范化：
+            未登记字段与类型不符返回 400。超过 64 KiB 直接拒绝，不送到代理。
+
+    PreflightTarget:
+      type: object
+      additionalProperties: false
+      description: |
+        预检目标。identity_fingerprint 是代理算出的稳定指纹，用于在执行前确认
+        “还是同一个目标”；它只用于区分，不用于保密。
+      required: [display_name, identity_fingerprint]
+      properties:
+        display_name:
+          type: string
+          maxLength: 200
+          description: 面向用户的目标描述；后端按动作给出，前端不自行拼接。
+        identity_fingerprint:
+          type: string
+          maxLength: 128
+          description: 目标身份指纹；执行时若不一致会以 DEVICE_IDENTITY_CHANGED 或 PREFLIGHT_STALE 拒绝。
+
+    PreflightNotice:
+      type: object
+      additionalProperties: false
+      description: |
+        阻塞项（allowed=false 的原因）或告警项。code 是稳定的机器码，前端按码翻译；
+        集合会随动作增加，客户端不得假设它封闭，未知码用通用文案展示。
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 64
+        message:
+          type: string
+          minLength: 1
+          maxLength: 400
+          description: 面向用户的中文说明，不含命令原文、路径以外的内部细节或秘密。
+
+    PreflightImpact:
+      type: object
+      additionalProperties: false
+      description: |
+        操作影响。kind 是稳定分类（例如 data_loss、service_restart、none），
+        description 是给人看的一句话。影响是展示依据，不参与执行判断。
+      required: [kind, description]
+      properties:
+        kind:
+          type: string
+          minLength: 1
+          maxLength: 64
+        description:
+          type: string
+          minLength: 1
+          maxLength: 400
+
+    PreflightData:
+      type: object
+      additionalProperties: false
+      description: |
+        预检结果。不含目标状态版本与代理内部引用：它们由服务端保存，用于在提交时
+        复核“计划没被偷换”。confirmation_phrase 不要求短语时为 null。
+      required:
+        - preflight_id
+        - action
+        - normalized_params
+        - target
+        - expires_at
+        - allowed
+        - blockers
+        - warnings
+        - impacts
+        - requires_reauth
+        - confirmation_phrase
+        - cancellable
+        - locks
+      properties:
+        preflight_id:
+          type: string
+          pattern: '^pf_[0-9a-f]{32}$'
+          description: 预检标识，一次性；过期、已用或绑定不再匹配即失效。
+        action:
+          type: string
+          maxLength: 96
+          description: 回显的动作名，与请求一致。
+        normalized_params:
+          type: object
+          additionalProperties: true
+          description: |
+            代理规范化后的参数（键有序、无多余空白）。提交时按这份参数执行，
+            而不是前端手里的原始参数——这是“提交时不能替换目标”的基础。
+        target:
+          $ref: '#/components/schemas/PreflightTarget'
+        expires_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        allowed:
+          type: boolean
+          description: 当前是否允许执行；false 时 blockers 非空且仍返回 200。
+        blockers:
+          type: array
+          items:
+            $ref: '#/components/schemas/PreflightNotice'
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/PreflightNotice'
+        impacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/PreflightImpact'
+        requires_reauth:
+          type: boolean
+          description: |
+            提交时是否必须在再认证窗口内。预检阶段不检查它，执行阶段强制；
+            不足时提交返回 403 REAUTH_REQUIRED。
+        confirmation_phrase:
+          type: [string, 'null']
+          pattern: '^[A-Z][A-Z0-9]{1,15} [ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$'
+          description: |
+            服务端生成的确认短语，形如 "FORMAT K7M2QX"，仅在要求短语时给出明文，
+            否则为 null。客户端只做展示与回传，不得解析、缓存到磁盘或写进日志。
+        cancellable:
+          type: boolean
+          description: 执行阶段是否允许安全取消；由动作策略决定，不代表任务一定能被打断。
+        locks:
+          type: array
+          items:
+            type: string
+            maxLength: 128
+          description: 该计划占用的资源锁（例如 disk:dev_123），按升序去重。
+    JobSubmitRequest:
+      type: object
+      additionalProperties: false
+      description: |
+        提交一次系统写动作。刻意不含 action 与 params：目标与参数只能来自预检，
+        这样“提交时替换目标”在协议层就不可能发生。
+      required: [preflight_id, confirmation_phrase]
+      properties:
+        preflight_id:
+          type: string
+          pattern: '^pf_[0-9a-f]{32}$'
+          description: 预检标识，一次性；过期、已用或绑定变化即失效。
+        confirmation_phrase:
+          type: string
+          maxLength: 128
+          pattern: '^[A-Z][A-Z0-9]{1,15} [ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$'
+          description: |
+            服务端在预检里给出的确认短语。只用于回传，客户端不得解析或持久化。
+            不要求短语的动作可以传空串；短语不符返回 400 CONFIRMATION_MISMATCH。
+
+    JobSubmitData:
+      type: object
+      additionalProperties: false
+      description: 任务已被持久接受。202 只表示“已接受”，不表示动作成功。
+      required: [job_id, status, events_url]
+      properties:
+        job_id:
+          type: string
+          pattern: '^job_[0-9a-f]{32}$'
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        events_url:
+          type: string
+          maxLength: 128
+          description: |
+            SSE 事件端点（P03.3 实现，支持 Last-Event-ID）。P03.2 只给出地址：
+            客户端在它实现之前应轮询 GET /jobs/{id}，而不是依赖一个还不存在的流。
+
+    JobStatus:
+      type: string
+      enum: [queued, running, succeeded, failed, canceled, interrupted]
+      description: |
+        状态机：queued → running → succeeded / failed / canceled / interrupted；
+        queued 也可直接 canceled / failed。终态不可回到 running。
+
+    Job:
+      type: object
+      additionalProperties: false
+      description: |
+        任务视图。不含 operation_id、预检引用与原始参数：它们是服务端绑定或内部标识。
+        viewer 与 admin 看到同一组字段——这里本来就没有原始参数或日志可裁剪。
+      required:
+        - job_id
+        - action
+        - status
+        - step
+        - progress_percent
+        - result
+        - error
+        - cancellable
+        - cancellation_requested
+        - created_at
+        - updated_at
+        - started_at
+        - finished_at
+      properties:
+        job_id:
+          type: string
+          pattern: '^job_[0-9a-f]{32}$'
+        action:
+          type: string
+          maxLength: 96
+          description: 动作登记名（来自预检）。
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        step:
+          type: string
+          maxLength: 64
+          description: 稳定的步骤码；空串表示尚未进入任何步骤。可读描述由前端按码表映射。
+        progress_percent:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 100
+          description: 0—100 的整数，或 null 表示“不知道”。不得用假进度填充。
+        result:
+          type: object
+          additionalProperties: true
+          description: |
+            代理核验后的结果：outcome（verified、accepted、rolled_back、partial、unknown）、
+            verified_at、observed_state、recovery_hint。未完成时为 {}。
+        error:
+          type: object
+          additionalProperties: true
+          description: 失败信息 {code, message}，不含堆栈与命令原文；未失败时为 {}。
+        cancellable:
+          type: boolean
+          description: 动作策略是否允许安全取消。false 时客户端不得显示取消入口。
+        cancellation_requested:
+          type: boolean
+          description: 是否已请求取消（独立字段：它不是“已取消”）。
+        created_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        updated_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        started_at:
+          type: [string, 'null']
+          description: 开始执行的时间；尚未开始为 null（不是空串）。
+        finished_at:
+          type: [string, 'null']
+          description: 进入终态的时间；未结束为 null。
+
+    JobData:
+      $ref: '#/components/schemas/Job'
+
+    JobListData:
+      type: object
+      additionalProperties: false
+      required: [jobs]
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/Job'
+          description: 按 created_at 倒序；最多 limit 条（默认 50，最大 200）。
+
+  responses:
+    BadRequest:
+      description: 语法或参数错误（400）。
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthenticated:
+      description: 未登录或会话失效（401）。
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: 权限不足、缺少 CSRF 或再认证不足（403）。
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: 目标不存在（404）。
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: 冲突、忙或预检失效（409）。
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    PayloadTooLarge:
+      description: 超过大小限制（413）。
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unprocessable:
+      description: 参数合法但业务条件不允许（422）。
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    TooManyRequests:
+      description: 触发限速（429）。
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotImplemented:
+      description: 功能尚未实现（501）。未实现模块必须隐藏或显示 NOT_IMPLEMENTED，不得返回伪成功。
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ServiceUnavailable:
+      description: 代理或依赖不可用（503）。
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

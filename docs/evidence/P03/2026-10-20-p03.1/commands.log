@@ -1,0 +1,69 @@
+P03.1 命令记录 — 2026-10-20
+============================================================
+顺序即实际执行顺序。宿主命令在 /h/Code/uPanel（Git Bash）执行；
+VM 命令经 ssh 在对应虚拟机内执行。所有输出都已落盘到本目录。
+
+# 0. 机器可校验契约：补上已实现的预检接口
+$ grep -n "operations/preflight\|preflight" api/openapi.yaml      # 之前：无输出（接口未记录）
+$ $EDITOR api/openapi.yaml                                        # 新增 path + 6 个 schema，version→0.0.0-p03.1，stage→P03.1
+$ web/node_modules/.bin/redocly lint --format=summary api/openapi.yaml
+  -> valid；11 warnings（9 no-unused-components + 2 operation-4xx-response，均为既有的 health 端点，数量与改动前一致）
+
+# 1. 宿主闸门
+$ go build ./...                                                  # exit 0
+$ go vet ./...                                                    # exit 0，无输出
+$ gofmt -l .                                                      # exit 0，0 个文件
+$ go test ./...                                                   # exit 0，全部包 ok
+$ sh scripts/check.sh                                             # PASS 12 / FAIL 0 / NOT RUN 0
+
+# 2. 交叉编译（宿主）
+$ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o .tmp-linux-bin/upanel-agent ./cmd/upanel-agent
+$ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o .tmp-linux-bin/upanel-web   ./cmd/upanel-web
+$ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o .tmp-linux-bin/upanelctl    ./cmd/upanelctl
+$ for p in agent agentstore agentclient operations syscmd; do GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+    go test -c -o .tmp-linux-bin/tests/$p.test ./internal/$p; done
+$ sha256sum .tmp-linux-bin/upanel-* .tmp-linux-bin/tests/*.test   # 见 cross-build-sha256.txt
+
+# 3. 分发到两台 VM（/tmp/upanel-bin 与 /tmp/upanel-src 每次重建）
+$ ssh  ... 'rm -rf /tmp/upanel-bin /tmp/upanel-src && mkdir -p /tmp/upanel-bin/tests /tmp/upanel-src'
+$ scp  .tmp-linux-bin/upanel-{agent,web,ctl}  -> /tmp/upanel-bin/
+$ scp  .tmp-linux-bin/tests/*.test            -> /tmp/upanel-bin/tests/
+$ scp -r tests deploy                         -> /tmp/upanel-src/
+$ ssh  ... 'chmod 755 /tmp/upanel-bin/* /tmp/upanel-bin/tests/*; sha256sum ...'
+  -> 两台 VM 的哈希与宿主逐一相同
+
+# 4. 清空验收工作目录（上一次 root 运行的残留会污染下一次非 root 运行）
+$ ssh ... 'sudo rm -rf /var/tmp/upanel-accept-*'
+
+# 5. P03.1 验收（root，两台 VM）
+$ ssh upanel@127.0.0.1 -p 2222 'sudo bash /tmp/upanel-src/tests/integration/p03-1-preflight-acceptance.sh'
+  -> 通过 93 项，失败 0 项（exit 0）
+$ ssh upanel@127.0.0.1 -p 2223 'sudo bash /tmp/upanel-src/tests/integration/p03-1-preflight-acceptance.sh'
+  -> 通过 93 项，失败 0 项（exit 0）
+
+# 6. P02 回归（两台 VM；脚本要求的运行角色不同，见 env.txt）
+$ ssh ... 'bash /tmp/upanel-src/tests/integration/p02-1-acceptance.sh'   # 非 root
+  -> 2404: PASS=58  FAIL=0    2204: PASS=58  FAIL=0
+$ ssh ... 'bash /tmp/upanel-src/tests/integration/p02-2-acceptance.sh'   # 非 root
+  -> 2404: PASS=103 FAIL=0    2204: PASS=103 FAIL=0
+$ ssh ... 'sudo bash /tmp/upanel-src/tests/integration/p02-3-agent-acceptance.sh'
+  -> 2404: PASS 84 / FAIL 0   2204: PASS 84 / FAIL 0
+$ ssh ... 'sudo bash /tmp/upanel-src/tests/integration/p02-4-agent-secrets-acceptance.sh'
+  -> 2404: PASS=87 FAIL=0     2204: PASS=87 FAIL=0
+
+# 7. VM 内核上原生执行交叉编译的测试二进制（2404，root）
+$ ssh ... 'sudo /tmp/upanel-bin/tests/agentstore.test -test.v'
+$ ssh ... 'sudo /tmp/upanel-bin/tests/agent.test -test.run "TestPreflight|TestNewRejects|TestUnknownAgentPath" -test.v'
+$ ssh ... 'for t in agentclient operations syscmd; do sudo /tmp/upanel-bin/tests/$t.test; done'
+  -> 五个包全部 PASS（见 vm-2404-native-tests.txt）
+
+# 8. 失败与修正（如实记录，不隐藏）
+(a) 首次把 p02-1/p02-2 用 sudo 跑 → 两个脚本各 FAIL 2 项：
+    "验收脚本以非 root 用户运行" 与 "Web 进程不以 root 运行"。
+    这是脚本设计如此（它们要证明 Web 不是 root），不是产品缺陷：
+    改为以 upanel 用户直接运行。
+(b) 上述 root 运行还在 /var/tmp/upanel-accept-p02-1 留下 root 属主目录和
+    root 属主的 Web 库，导致紧接着的非 root 运行 PASS=27/FAIL=31、
+    PASS=34/FAIL=65（init-admin 认为账号已存在、curl 打到旧进程）。
+    清理 /var/tmp/upanel-accept-* 后按正确角色重跑 → 58/0 与 103/0。
+    两次失败都没有通过改断言或放宽条件来“修复”。

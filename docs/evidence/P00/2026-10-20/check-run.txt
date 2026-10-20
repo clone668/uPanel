@@ -1,0 +1,68 @@
+# 命令: PATH=<node-22.23.3>:$PATH sh scripts/check.sh
+# 执行时间: 2026-10-20T05:08:36Z
+
+
+--- 仓库结构（P00 交付物）
+  present  go.mod
+  present  .nvmrc
+  present  .node-version
+  present  docs/DECISIONS.md
+  present  docs/DEPENDENCIES.md
+  present  docs/TEST_ENVIRONMENT.md
+  present  api/openapi.yaml
+  present  scripts/check.sh
+  present  web/package-lock.json
+
+--- Go 工具链
+  go.mod 约束: 1.27.3
+  本机 go 版本: go version go1.27.3 windows/amd64
+
+==> go-build
+<== NOT RUN  go-build: 仓库尚无 Go 源码（P01.1 建立入口后启用）
+
+==> go-vet
+<== NOT RUN  go-vet: 仓库尚无 Go 源码（P01.1 建立入口后启用）
+
+==> go-test
+<== NOT RUN  go-test: 仓库尚无 Go 源码（P01.1 建立入口后启用）
+
+==> gofmt
+<== NOT RUN  gofmt: 仓库尚无 Go 源码（P01.1 建立入口后启用）
+
+--- Node 工具链
+  .nvmrc 约束: 22.23.3
+  本机 node 版本: v22.23.3
+
+==> node-version
+<== PASS  node-version
+
+==> web-typecheck
+<== NOT RUN  web-typecheck: package.json 尚无 typecheck 脚本（P01.3 建立）
+
+==> web-lint
+<== NOT RUN  web-lint: package.json 尚无 lint 脚本（P01.3 建立）
+
+==> web-test
+<== NOT RUN  web-test: package.json 尚无 test 脚本（P01.3 建立）
+
+==> web-build
+<== NOT RUN  web-build: package.json 尚无 build 脚本（P01.3 建立）
+
+==> openapi-lint
+[90mvalidating api\openapi.yaml...
+[39m[33mwarning[39m no-unused-components: 20
+
+[90mapi\openapi.yaml: validated in 24ms
+
+[39m[32mWoohoo! Your API description is valid. 🎉
+[39m[33mYou have 20 warnings.
+[39m
+<== PASS  openapi-lint
+
+=========================== 汇总 ===========================
+PASS 2 / FAIL 0 / NOT RUN 8
+明细: go-build:NOT_RUN go-vet:NOT_RUN go-test:NOT_RUN gofmt:NOT_RUN node-version:PASS web-typecheck:NOT_RUN web-lint:NOT_RUN web-test:NOT_RUN web-build:NOT_RUN openapi-lint:PASS
+NOT RUN 不等于通过；发布前必须按 docs/STAGES.md 补齐对应证据。
+============================================================
+
+# 退出码: 0

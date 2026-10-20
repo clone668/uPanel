@@ -1,0 +1,12 @@
+Ubuntu 24.04.5 LTS
+6.8.0-147-generic
+2
+               total        used        free      shared  buff/cache   available
+Mem:            3915         375        3304           0         457        3540
+bee08f9fe12d2f04094c51247d7c2a5510d63c72c3aa247e730ca0428876a31a  /tmp/upanel-bin/upanel-agent
+c2c4feb12f387dd19dc9a24af7db902f07159da48ddaf2973c2b525a102530a9  /tmp/upanel-bin/upanel-web
+2c2d0dc962e755279842a57bd9c18fb34dcf49f8f4e62b901edff0adc824e761  /tmp/upanel-bin/tests/agent.test
+a72c4cadc543c7b314821dbf0b7c88a759c1636a6b052fe8a55c568fc9a0e366  /tmp/upanel-bin/tests/agentclient.test
+a4e5e9653f870276e4d8b0f684c87f2f4ebc3b5969b372ccd147e3b592fc523a  /tmp/upanel-bin/tests/agentstore.test
+0b811a7547d60289139972c574df2f8f1ec01bb5425e1218a0f2d964b14cae5e  /tmp/upanel-bin/tests/operations.test
+e1ff7f0f71c8e9763c53c148ec888e78649d001599a2ff5b282b4c95ccfe6b17  /tmp/upanel-bin/tests/syscmd.test

@@ -1,0 +1,56 @@
+# P02.1 执行的命令（2026-10-20，宿主 Windows + Git Bash）
+
+# 依赖（冻结版本，go get 精确版本，未用 replace）
+go get golang.org/x/crypto@v0.58.0 golang.org/x/term@v0.47.0
+go list -m all | grep -E "golang.org/x/(crypto|term|sys|net|text)"
+
+# 编译与静态检查
+go build ./...
+go vet ./...
+gofmt -l cmd internal          # 空输出
+
+# 单元/集成测试（真实 SQLite 临时库，不用内存替身）
+go test ./...
+go test ./internal/auth/ -v
+go test ./internal/api/ ./internal/httpx/ ./internal/config/ ./cmd/upanelctl/
+
+# Argon2id 参数基准（临时用例，跑完即删除，不入库）
+#   64 MiB t=3 p=2 → 44.58 ms
+#   64 MiB t=5 p=2 → 74.10 ms
+#  128 MiB t=3 p=2 → 109.49 ms   ← 采用
+#  128 MiB t=4 p=2 → 131.24 ms
+#   96 MiB t=4 p=2 → 97.06 ms
+go test ./internal/auth/ -run TestBenchParams -v
+go test ./internal/auth/ -run TestDefaultPasswordParamsTiming -v
+
+# 宿主冒烟（真实二进制、mock 模式、回环端口 18881、临时数据库）
+bash tests/smoke/p02-1-auth-smoke.sh
+
+# OpenAPI 校验（补 /auth/* 后解析一次，确认 YAML 合法、路径已列出）
+python -c "import yaml;d=yaml.safe_load(open('api/openapi.yaml',encoding='utf-8'));print(list(d['paths']))"
+
+# ---- 2026-10-20 追加：VM 复跑与库文件权限修复 ----
+
+# 交叉编译 Linux 二进制（宿主 Windows）
+GOOS=linux GOARCH=amd64 go build -o /tmp/upanel-linux/ ./cmd/upanel-web ./cmd/upanelctl ./cmd/upanel-agent
+
+# 启动验收 VM（仓库外，见 docs/TEST_ENVIRONMENT.md）
+powershell -NoProfile -ExecutionPolicy Bypass -File "H:\Code\vms\launch-vm.ps1" -Name upanel-2404 -SshPort 2222 -SeedPort 8899 -MemoryMB 4096
+powershell -NoProfile -ExecutionPolicy Bypass -File "H:\Code\vms\launch-vm.ps1" -Name upanel-2204 -SshPort 2223 -SeedPort 8900 -MemoryMB 4096
+
+# 拷贝二进制、脚本与 systemd 单元到 VM，然后以非 root 用户执行
+scp -i <vm key> -P <port> /tmp/upanel-linux/* tests/integration/p02-1-acceptance.sh upanel@127.0.0.1:/tmp/upanel-bin/
+scp -i <vm key> -P <port> deploy/systemd/upanel-web.service upanel@127.0.0.1:/tmp/upanel-accept/deploy/systemd/
+ssh -i <vm key> -p <port> upanel@127.0.0.1 'BIN_DIR=/tmp/upanel-bin sh /tmp/upanel-accept/tests/integration/p02-1-acceptance.sh'
+
+# 首轮结果：两台 VM 均 PASS 55 / FAIL 2
+#   FAIL 1 = 脚本自身的假阴性（upanelctl version 输出形如 "upanelctl 0.0.0-dev (…)"，断言写的是 grep version）
+#   FAIL 2 = 真实缺陷：库文件权限 644（见下）
+# 修正断言、修掉权限缺陷后复跑：两台均 PASS 58 / FAIL 0
+
+# 库文件权限缺陷的验证与修复
+go test ./internal/store -run TestOpenTightensDatabaseFileMode -v   # 宿主 Windows：SKIP（chmod 不控制权限位）
+go build ./... && go vet ./... && gofmt -l cmd internal
+go test ./...                                                       # 13 包 ok
+bash tests/smoke/p02-1-auth-smoke.sh                                # PASS 38 / FAIL 0（复跑）
+# VM 侧断言：stat -c %a <db> == 600，且 -wal/-shm 同样不对 group/other 开放

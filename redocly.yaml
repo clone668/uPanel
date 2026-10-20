@@ -1,0 +1,9 @@
+# Redocly 配置：uPanel 公开契约的校验规则。
+#
+# 骨架阶段（P00）paths 为空，公共组件必然“未被引用”，因此 no-unused-components 保持 warn。
+# 每阶段补齐已实现接口后应保持本规则开启；不要把规则整体关闭来消除告警。
+extends:
+  - recommended
+
+rules:
+  no-unused-components: warn

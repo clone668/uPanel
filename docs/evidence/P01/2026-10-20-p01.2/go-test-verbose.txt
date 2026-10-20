@@ -1,0 +1,212 @@
+=== RUN   TestRequestIDGeneratedWhenAbsent
+--- PASS: TestRequestIDGeneratedWhenAbsent (0.00s)
+=== RUN   TestRequestIDInheritedOnlyWhenValid
+=== RUN   TestRequestIDInheritedOnlyWhenValid/合法值沿用
+=== RUN   TestRequestIDInheritedOnlyWhenValid/空值重新生成
+=== RUN   TestRequestIDInheritedOnlyWhenValid/含空格被丢弃
+=== RUN   TestRequestIDInheritedOnlyWhenValid/含控制字符被丢弃
+=== RUN   TestRequestIDInheritedOnlyWhenValid/超长被丢弃
+--- PASS: TestRequestIDInheritedOnlyWhenValid (0.00s)
+    --- PASS: TestRequestIDInheritedOnlyWhenValid/合法值沿用 (0.00s)
+    --- PASS: TestRequestIDInheritedOnlyWhenValid/空值重新生成 (0.00s)
+    --- PASS: TestRequestIDInheritedOnlyWhenValid/含空格被丢弃 (0.00s)
+    --- PASS: TestRequestIDInheritedOnlyWhenValid/含控制字符被丢弃 (0.00s)
+    --- PASS: TestRequestIDInheritedOnlyWhenValid/超长被丢弃 (0.00s)
+=== RUN   TestUnknownPathsReturnJSON404
+=== RUN   TestUnknownPathsReturnJSON404//
+=== RUN   TestUnknownPathsReturnJSON404//index.html
+=== RUN   TestUnknownPathsReturnJSON404//api/v1
+=== RUN   TestUnknownPathsReturnJSON404//api/v1/
+=== RUN   TestUnknownPathsReturnJSON404//api/v1/unknown
+=== RUN   TestUnknownPathsReturnJSON404//api/v1/health
+=== RUN   TestUnknownPathsReturnJSON404//api/v1/health/live/
+=== RUN   TestUnknownPathsReturnJSON404//assets/app.js
+--- PASS: TestUnknownPathsReturnJSON404 (0.00s)
+    --- PASS: TestUnknownPathsReturnJSON404// (0.00s)
+    --- PASS: TestUnknownPathsReturnJSON404//index.html (0.00s)
+    --- PASS: TestUnknownPathsReturnJSON404//api/v1 (0.00s)
+    --- PASS: TestUnknownPathsReturnJSON404//api/v1/ (0.00s)
+    --- PASS: TestUnknownPathsReturnJSON404//api/v1/unknown (0.00s)
+    --- PASS: TestUnknownPathsReturnJSON404//api/v1/health (0.00s)
+    --- PASS: TestUnknownPathsReturnJSON404//api/v1/health/live/ (0.00s)
+    --- PASS: TestUnknownPathsReturnJSON404//assets/app.js (0.00s)
+=== RUN   TestMethodNotAllowedIsJSONWithAllow
+--- PASS: TestMethodNotAllowedIsJSONWithAllow (0.00s)
+=== RUN   TestHeadHealthLiveHasNoBody
+--- PASS: TestHeadHealthLiveHasNoBody (0.00s)
+=== RUN   TestRecoveryTurnsPanicInto500WithoutLeakingStack
+--- PASS: TestRecoveryTurnsPanicInto500WithoutLeakingStack (0.01s)
+=== RUN   TestBodyLimitMiddlewareRejectsOversizedBody
+--- PASS: TestBodyLimitMiddlewareRejectsOversizedBody (0.00s)
+=== RUN   TestIsBodyTooLargeFalseForOtherErrors
+--- PASS: TestIsBodyTooLargeFalseForOtherErrors (0.00s)
+=== RUN   TestHealthLiveShape
+--- PASS: TestHealthLiveShape (0.00s)
+=== RUN   TestHealthLiveRejectsOtherMethods
+--- PASS: TestHealthLiveRejectsOtherMethods (0.00s)
+=== RUN   TestUnknownPathReturnsJSON404
+--- PASS: TestUnknownPathReturnsJSON404 (0.00s)
+=== RUN   TestMockModeMustBindLoopback18881
+--- PASS: TestMockModeMustBindLoopback18881 (0.00s)
+=== RUN   TestNewRejectsInvalidOptions
+--- PASS: TestNewRejectsInvalidOptions (0.00s)
+=== RUN   TestServeBindsAndStops
+--- PASS: TestServeBindsAndStops (0.10s)
+PASS
+ok  	upanel/internal/api	1.667s
+=== RUN   TestMigrateAppliesRealMigrations
+--- PASS: TestMigrateAppliesRealMigrations (0.03s)
+=== RUN   TestMigrateSequenceAndChecksum
+--- PASS: TestMigrateSequenceAndChecksum (0.09s)
+=== RUN   TestMigrateFailureStopsAndRollsBack
+--- PASS: TestMigrateFailureStopsAndRollsBack (0.03s)
+=== RUN   TestLoadMigrationsValidation
+--- PASS: TestLoadMigrationsValidation (0.00s)
+=== RUN   TestMigrationsReportsStatus
+--- PASS: TestMigrationsReportsStatus (0.05s)
+=== RUN   TestOpenAppliesPragmas
+--- PASS: TestOpenAppliesPragmas (0.02s)
+=== RUN   TestOpenRejectsBadPaths
+--- PASS: TestOpenRejectsBadPaths (0.00s)
+=== RUN   TestWithTxCommitsAndRollsBack
+--- PASS: TestWithTxCommitsAndRollsBack (0.03s)
+=== RUN   TestDataSurvivesReopen
+--- PASS: TestDataSurvivesReopen (0.03s)
+PASS
+ok  	upanel/internal/store	0.844s
+=== RUN   TestDefaultsValid
+--- PASS: TestDefaultsValid (0.00s)
+=== RUN   TestLoadExplicitMissingFileIsError
+--- PASS: TestLoadExplicitMissingFileIsError (0.00s)
+=== RUN   TestLoadRejectsUnknownField
+--- PASS: TestLoadRejectsUnknownField (0.00s)
+=== RUN   TestLoadRejectsTrailingContent
+--- PASS: TestLoadRejectsTrailingContent (0.00s)
+=== RUN   TestLoadTracksListenExplicit
+--- PASS: TestLoadTracksListenExplicit (0.00s)
+=== RUN   TestLoadPartialConfigKeepsDefaults
+--- PASS: TestLoadPartialConfigKeepsDefaults (0.00s)
+=== RUN   TestValidateRejectsBadValues
+=== RUN   TestValidateRejectsBadValues/未知模式
+=== RUN   TestValidateRejectsBadValues/端口越界
+=== RUN   TestValidateRejectsBadValues/省略主机
+=== RUN   TestValidateRejectsBadValues/停止超时过小
+=== RUN   TestValidateRejectsBadValues/socket_相对路径
+=== RUN   TestValidateRejectsBadValues/代理停止超时过大
+=== RUN   TestValidateRejectsBadValues/未知日志级别
+=== RUN   TestValidateRejectsBadValues/未知日志格式
+--- PASS: TestValidateRejectsBadValues (0.00s)
+    --- PASS: TestValidateRejectsBadValues/未知模式 (0.00s)
+    --- PASS: TestValidateRejectsBadValues/端口越界 (0.00s)
+    --- PASS: TestValidateRejectsBadValues/省略主机 (0.00s)
+    --- PASS: TestValidateRejectsBadValues/停止超时过小 (0.00s)
+    --- PASS: TestValidateRejectsBadValues/socket_相对路径 (0.00s)
+    --- PASS: TestValidateRejectsBadValues/代理停止超时过大 (0.00s)
+    --- PASS: TestValidateRejectsBadValues/未知日志级别 (0.00s)
+    --- PASS: TestValidateRejectsBadValues/未知日志格式 (0.00s)
+=== RUN   TestResolveListen
+=== RUN   TestResolveListen/mock_未显式指定
+=== RUN   TestResolveListen/mock_显式正确
+=== RUN   TestResolveListen/mock_显式错误
+=== RUN   TestResolveListen/mock_显式_0.0.0.0
+=== RUN   TestResolveListen/production_默认
+=== RUN   TestResolveListen/production_自定义
+=== RUN   TestResolveListen/production_非法
+--- PASS: TestResolveListen (0.00s)
+    --- PASS: TestResolveListen/mock_未显式指定 (0.00s)
+    --- PASS: TestResolveListen/mock_显式正确 (0.00s)
+    --- PASS: TestResolveListen/mock_显式错误 (0.00s)
+    --- PASS: TestResolveListen/mock_显式_0.0.0.0 (0.00s)
+    --- PASS: TestResolveListen/production_默认 (0.00s)
+    --- PASS: TestResolveListen/production_自定义 (0.00s)
+    --- PASS: TestResolveListen/production_非法 (0.00s)
+=== RUN   TestIsLoopbackAddress
+--- PASS: TestIsLoopbackAddress (0.00s)
+=== RUN   TestShutdownTimeoutConversions
+--- PASS: TestShutdownTimeoutConversions (0.00s)
+=== RUN   TestDatabaseDefaults
+--- PASS: TestDatabaseDefaults (0.00s)
+=== RUN   TestDatabaseValidate
+=== RUN   TestDatabaseValidate/默认值合法
+=== RUN   TestDatabaseValidate/路径可留空由_--db_提供
+=== RUN   TestDatabaseValidate/相对路径拒绝
+=== RUN   TestDatabaseValidate/问号拒绝
+=== RUN   TestDatabaseValidate/井号拒绝
+=== RUN   TestDatabaseValidate/busy_timeout_过小拒绝
+=== RUN   TestDatabaseValidate/busy_timeout_过大拒绝
+=== RUN   TestDatabaseValidate/busy_timeout_边界值接受
+--- PASS: TestDatabaseValidate (0.00s)
+    --- PASS: TestDatabaseValidate/默认值合法 (0.00s)
+    --- PASS: TestDatabaseValidate/路径可留空由_--db_提供 (0.00s)
+    --- PASS: TestDatabaseValidate/相对路径拒绝 (0.00s)
+    --- PASS: TestDatabaseValidate/问号拒绝 (0.00s)
+    --- PASS: TestDatabaseValidate/井号拒绝 (0.00s)
+    --- PASS: TestDatabaseValidate/busy_timeout_过小拒绝 (0.00s)
+    --- PASS: TestDatabaseValidate/busy_timeout_过大拒绝 (0.00s)
+    --- PASS: TestDatabaseValidate/busy_timeout_边界值接受 (0.00s)
+=== RUN   TestLoadDatabaseSection
+--- PASS: TestLoadDatabaseSection (0.00s)
+PASS
+ok  	upanel/internal/config	0.408s
+=== RUN   TestVersion
+--- PASS: TestVersion (0.00s)
+=== RUN   TestVersionJSON
+--- PASS: TestVersionJSON (0.00s)
+=== RUN   TestCheckConfigWithValidFile
+--- PASS: TestCheckConfigWithValidFile (0.00s)
+=== RUN   TestCheckConfigJSON
+--- PASS: TestCheckConfigJSON (0.00s)
+=== RUN   TestCheckConfigRejectsInvalid
+--- PASS: TestCheckConfigRejectsInvalid (0.00s)
+=== RUN   TestCheckConfigMissingFileIsError
+--- PASS: TestCheckConfigMissingFileIsError (0.00s)
+=== RUN   TestUnknownSubcommand
+--- PASS: TestUnknownSubcommand (0.00s)
+=== RUN   TestPlannedSubcommandIsNotImplemented
+--- PASS: TestPlannedSubcommandIsNotImplemented (0.00s)
+=== RUN   TestNoArgumentsShowsUsage
+--- PASS: TestNoArgumentsShowsUsage (0.00s)
+=== RUN   TestMigrateFreshDatabaseThenIdempotent
+--- PASS: TestMigrateFreshDatabaseThenIdempotent (0.05s)
+=== RUN   TestMigrateTextOutput
+--- PASS: TestMigrateTextOutput (0.05s)
+=== RUN   TestMigrateRequiresDatabasePath
+--- PASS: TestMigrateRequiresDatabasePath (0.00s)
+=== RUN   TestMigrateRejectsUnusablePaths
+=== RUN   TestMigrateRejectsUnusablePaths/相对路径
+=== RUN   TestMigrateRejectsUnusablePaths/目录不存在
+--- PASS: TestMigrateRejectsUnusablePaths (0.00s)
+    --- PASS: TestMigrateRejectsUnusablePaths/相对路径 (0.00s)
+    --- PASS: TestMigrateRejectsUnusablePaths/目录不存在 (0.00s)
+=== RUN   TestMigrateRefusesDatabaseAheadOfBinary
+--- PASS: TestMigrateRefusesDatabaseAheadOfBinary (0.06s)
+=== RUN   TestCheckConfigReportsDatabase
+--- PASS: TestCheckConfigReportsDatabase (0.00s)
+PASS
+ok  	upanel/cmd/upanelctl	0.710s
+=== RUN   TestProductionRefusedOnNonLinux
+--- PASS: TestProductionRefusedOnNonLinux (0.00s)
+=== RUN   TestVersionFlag
+--- PASS: TestVersionFlag (0.00s)
+=== RUN   TestUnknownFlag
+--- PASS: TestUnknownFlag (0.00s)
+=== RUN   TestPositionalArgumentsRejected
+--- PASS: TestPositionalArgumentsRejected (0.00s)
+=== RUN   TestMissingExplicitConfigExitsWithConfigError
+--- PASS: TestMissingExplicitConfigExitsWithConfigError (0.00s)
+=== RUN   TestInvalidModeRejected
+--- PASS: TestInvalidModeRejected (0.00s)
+=== RUN   TestBadConfigFileRejected
+--- PASS: TestBadConfigFileRejected (0.00s)
+=== RUN   TestProductionRefusesNonLoopbackBeforeTLS
+--- PASS: TestProductionRefusesNonLoopbackBeforeTLS (0.00s)
+=== RUN   TestDBFlagMustBeAbsolute
+--- PASS: TestDBFlagMustBeAbsolute (0.00s)
+=== RUN   TestMissingDatabasePathRefused
+--- PASS: TestMissingDatabasePathRefused (0.00s)
+=== RUN   TestDatabaseOpenFailureRefusesStart
+--- PASS: TestDatabaseOpenFailureRefusesStart (0.01s)
+=== RUN   TestMigrationFailureRefusesStart
+--- PASS: TestMigrationFailureRefusesStart (0.03s)
+PASS
+ok  	upanel/cmd/upanel-web	1.700s

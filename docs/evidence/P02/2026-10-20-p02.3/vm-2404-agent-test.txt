@@ -1,0 +1,57 @@
+=== RUN   TestGateRejectsRequestWithoutPeerIdentity
+--- PASS: TestGateRejectsRequestWithoutPeerIdentity (0.00s)
+=== RUN   TestGateDeniesRootOnNormalRoutes
+--- PASS: TestGateDeniesRootOnNormalRoutes (0.00s)
+=== RUN   TestGateDeniesOtherUIDs
+--- PASS: TestGateDeniesOtherUIDs (0.00s)
+=== RUN   TestGateAllowsWebUID
+--- PASS: TestGateAllowsWebUID (0.00s)
+=== RUN   TestGateRootOnlyRouting
+--- PASS: TestGateRootOnlyRouting (0.00s)
+=== RUN   TestPeerPolicyValidate
+--- PASS: TestPeerPolicyValidate (0.00s)
+=== RUN   TestResolvePeerPolicyRejectsUnknownUser
+--- PASS: TestResolvePeerPolicyRejectsUnknownUser (0.00s)
+=== RUN   TestQueriesRejectsUnknownQuery
+--- PASS: TestQueriesRejectsUnknownQuery (0.00s)
+=== RUN   TestQueriesRejectsCommandStyleInput
+--- PASS: TestQueriesRejectsCommandStyleInput (0.00s)
+=== RUN   TestQueriesRejectsBadEnvelope
+--- PASS: TestQueriesRejectsBadEnvelope (0.00s)
+=== RUN   TestQueriesRejectsUnknownParams
+--- PASS: TestQueriesRejectsUnknownParams (0.00s)
+=== RUN   TestQueriesRejectsOversizeBody
+--- PASS: TestQueriesRejectsOversizeBody (0.00s)
+=== RUN   TestQueriesRejectsNonJSONContentType
+--- PASS: TestQueriesRejectsNonJSONContentType (0.00s)
+=== RUN   TestQueriesRequiresPost
+--- PASS: TestQueriesRequiresPost (0.00s)
+=== RUN   TestQueriesRunsRegisteredQuery
+--- PASS: TestQueriesRunsRegisteredQuery (0.00s)
+=== RUN   TestQueriesReportsRunFailure
+--- PASS: TestQueriesReportsRunFailure (0.00s)
+=== RUN   TestCapabilitiesListsRegisteredQueriesStably
+--- PASS: TestCapabilitiesListsRegisteredQueriesStably (0.00s)
+=== RUN   TestRegisterRejectsInvalidNames
+--- PASS: TestRegisterRejectsInvalidNames (0.00s)
+=== RUN   TestRegisterRejectsDuplicatesAndNilHandlers
+--- PASS: TestRegisterRejectsDuplicatesAndNilHandlers (0.00s)
+=== RUN   TestProductionRegistryIsEmpty
+--- PASS: TestProductionRegistryIsEmpty (0.00s)
+=== RUN   TestDecodeParamsStrictness
+--- PASS: TestDecodeParamsStrictness (0.00s)
+=== RUN   TestSortedNamesAreStable
+--- PASS: TestSortedNamesAreStable (0.00s)
+=== RUN   TestCapabilitiesShape
+--- PASS: TestCapabilitiesShape (0.00s)
+=== RUN   TestCapabilitiesRejectsPost
+--- PASS: TestCapabilitiesRejectsPost (0.00s)
+=== RUN   TestUnknownAgentPathIs404
+--- PASS: TestUnknownAgentPathIs404 (0.00s)
+=== RUN   TestNewRejectsInvalidOptions
+--- PASS: TestNewRejectsInvalidOptions (0.00s)
+=== RUN   TestPrepareSocketPathRefusesNonSocket
+--- PASS: TestPrepareSocketPathRefusesNonSocket (0.00s)
+=== RUN   TestPrepareSocketPathRequiresExistingDir
+--- PASS: TestPrepareSocketPathRequiresExistingDir (0.00s)
+PASS

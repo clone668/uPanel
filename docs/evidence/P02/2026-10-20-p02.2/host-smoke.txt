@@ -1,0 +1,98 @@
+== 0. 构建 ==
+== 1. init-admin 与启动 mock 服务 ==
+PASS  init-admin 退出码
+PASS  健康检查
+== 2. admin 登录 ==
+PASS  admin 登录 → 200
+== 3. 未登录与 viewer 权限边界 ==
+PASS  未登录 GET /users → 401
+PASS  未登录 GET /users 错误码
+PASS  未登录建账号 → 401
+== 4. 创建 viewer 与输入校验 ==
+PASS  创建 viewer → 201
+PASS  创建响应不回显密码
+PASS  创建响应不含哈希
+PASS  新账号 version = 1
+PASS  重复用户名 → 422
+PASS  SQL 注入形状的用户名 → 400
+PASS  未知字段 → 400
+PASS  未知角色 → 400
+PASS  弱密码 → 400
+PASS  缺 CSRF → 403
+== 5. 列表脱敏与分页 ==
+PASS  账号列表 → 200
+PASS  列表有 next_cursor 字段
+PASS  列表含 username
+PASS  列表脱敏：不含 password
+PASS  列表脱敏：不含 argon2
+PASS  列表脱敏：不含 csrf
+PASS  列表脱敏：不含 session_hash
+PASS  列表脱敏：不含 reauth
+PASS  limit=1 只返回一条
+PASS  游标不含明文用户名
+PASS  翻页 → 200
+PASS  第二页是 alice
+PASS  第二页无 next_cursor
+PASS  limit=0 → 400
+PASS  limit=201 → 400
+PASS  坏游标 → 400
+== 6. viewer 会话越权 ==
+PASS  viewer 登录 → 200
+PASS  viewer 读取账号列表 → 403
+PASS  viewer 建账号 → 403
+PASS  viewer 再认证 → 403
+== 7. 再认证窗口 ==
+PASS  未再认证 PATCH → 403
+PASS  未再认证错误码
+PASS  错误密码再认证 → 403
+PASS  失败的再认证不获得窗口
+PASS  正确密码再认证 → 200
+PASS  再认证返回 RFC3339 UTC
+PASS  再认证响应不含密码
+PASS  P14 之前提交 totp → 400
+== 8. 修改账号与 version 并发 ==
+PASS  再认证后 PATCH → 200
+PASS  PATCH 后 version 自增
+PASS  PATCH 后 display_name 生效
+PASS  过期 version → 409
+PASS  没有任何可改字段 → 400
+PASS  改自己的角色 → 403
+PASS  禁用自己 → 403
+PASS  自己被拒后仍是可用管理员
+== 9. 重置密码使目标会话失效 ==
+PASS  重置密码 → 200
+PASS  重置后旧会话 → 401
+PASS  旧密码登录 → 401
+PASS  新密码登录 → 200
+PASS  重置成弱密码 → 400
+== 10. 删除账号 ==
+PASS  缺 version 删除 → 400
+PASS  错误 version 删除 → 409
+PASS  删除自己 → 403
+PASS  正确 version 删除 → 200
+PASS  删除后目标会话 → 401
+PASS  重复删除 → 404
+PASS  删除后列表只剩 admin
+== 11. 审计：追加式记录且不含口令 ==
+PASS  审计至少记录 4 条（创建/修改/重置/删除）
+PASS  审计包含 user.create
+PASS  审计包含 user.update
+PASS  审计包含 user.password.reset
+PASS  审计包含 user.delete
+PASS  审计结果为 success
+PASS  审计 target 带对象类型
+PASS  审计不含登录口令
+PASS  审计不含 viewer 口令
+PASS  审计不含新口令
+PASS  审计不含口令哈希
+APPEND_ONLY=YES
+== 12. 日志与数据库文件不含秘密 ==
+PASS  日志不含 admin 口令
+PASS  日志不含 viewer 口令
+PASS  日志不含 CSRF 令牌
+PASS  日志不含会话 Cookie
+PASS  数据库不含明文 admin 口令
+PASS  数据库不含明文 viewer 口令
+
+结果: PASS=81 FAIL=0
+工作目录（含日志与响应）: /h/Code/uPanel/.tmp-evidence-smoke

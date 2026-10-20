@@ -1,0 +1,54 @@
+== 环境 ==
+系统: Ubuntu 22.04.5 LTS
+内核: 5.15.0-198-generic
+用户: upanel (uid=1000)
+二进制目录: /tmp/upanel-bin
+数据库目录: /var/tmp/upanel-accept-p01-2
+数据库文件: /var/tmp/upanel-accept-p01-2/upanel.db
+
+== 1. check-config 报告数据库配置 ==
+PASS  check-config-database-path
+PASS  check-config-busy-timeout
+PASS  check-config-text-database
+
+== 2. 首次迁移（真实文件） ==
+PASS  migrate-fresh-exit0
+PASS  migrate-fresh-path
+PASS  migrate-fresh-from
+PASS  migrate-fresh-version
+PASS  migrate-fresh-applied
+PASS  migrate-created-db-file
+PASS  migrate-sqlite-header
+PASS  migrate-db-owner-is-runner
+
+== 3. 重复迁移幂等 ==
+PASS  migrate-repeat-exit0
+PASS  migrate-repeat-version
+PASS  migrate-repeat-no-apply
+PASS  migrate-text-uptodate
+
+== 4. Web 使用该数据库启动 ==
+PASS  web-health-with-db
+PASS  web-opened-db
+PASS  web-wal-enabled
+PASS  web-foreign-keys-on
+PASS  web-busy-timeout
+PASS  web-schema-ready
+PASS  web-no-reapply-after-restart
+PASS  web-wal-file-present
+PASS  web-db-graceful-shutdown
+
+== 5. 数据库不可用必须拒绝启动 ==
+PASS  web-refuses-missing-db-dir
+PASS  web-reports-db-open-failure
+PASS  web-does-not-listen-without-db
+PASS  web-refuses-unwritable-db-dir
+PASS  web-reports-unwritable
+PASS  migrate-rejects-non-sqlite
+PASS  migrate-reports-failure
+PASS  migrate-no-success-on-failure
+PASS  migrate-rejects-relative-path
+PASS  migrate-requires-path
+
+== 汇总 ==
+PASS 34 / FAIL 0

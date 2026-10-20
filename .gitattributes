@@ -1,0 +1,10 @@
+# 换行符策略：shell 脚本与 systemd 单元必须是 LF，否则在 Linux 上
+# 会以 "#!/bin/sh\r" 或 "set: Illegal option -" 的形式直接崩溃。
+* text=auto eol=lf
+*.sh text eol=lf
+*.service text eol=lf
+*.sql text eol=lf
+*.go text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.ps1 text eol=crlf

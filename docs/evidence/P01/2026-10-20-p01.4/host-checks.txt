@@ -1,0 +1,97 @@
+=== 启动日志 ===
+{"time":"2026-10-20T16:55:21.1755643+08:00","level":"INFO","msg":"启动","program":"upanel-web","version":"0.0.0-dev","commit":"unknown","go_version":"go1.27.3","mode":"mock","os":"windows","arch":"amd64","config_source":"内置默认值"}
+{"time":"2026-10-20T16:55:21.1854813+08:00","level":"WARN","msg":"演示模式：使用进程内演示数据，不读取真实系统，也不写入服务器","program":"upanel-web","address":"127.0.0.1:18881"}
+{"time":"2026-10-20T16:55:21.1965172+08:00","level":"INFO","msg":"数据库已打开","program":"upanel-web","path":"H:/Code/uPanel/bin/p01-4-host.db","journal_mode":"wal","foreign_keys":true,"busy_timeout_ms":5000}
+{"time":"2026-10-20T16:55:21.2037991+08:00","level":"INFO","msg":"已应用数据库迁移","program":"upanel-web","version":1,"name":"settings","applied_at":"2026-10-20T08:55:21Z"}
+{"time":"2026-10-20T16:55:21.2048052+08:00","level":"INFO","msg":"数据库 schema 已就绪","program":"upanel-web","path":"H:/Code/uPanel/bin/p01-4-host.db","schema_version":1,"applied_versions":[1]}
+{"time":"2026-10-20T16:55:21.2048052+08:00","level":"INFO","msg":"前端资源已就绪","program":"upanel-web","source":"嵌入二进制"}
+{"time":"2026-10-20T16:55:21.2058132+08:00","level":"INFO","msg":"Web 服务已开始监听","program":"upanel-web","address":"127.0.0.1:18881","network":"tcp","mode":"mock","loopback_only":true,"version":"0.0.0-dev","schema_version":1,"pid":23592,"started_at":"2026-10-20T08:55:21.2048052Z"}
+{"time":"2026-10-20T16:55:21.9863591+08:00","level":"INFO","msg":"请求完成","program":"upanel-web","request_id":"ec43b964e51d6aad3f5cf9de3c53ddde","request_id_inherited":false,"method":"GET","path":"/api/v1/health/live","route":"/api/v1/health/live","status":200,"bytes":73,"duration_ms":0,"remote_addr":"127.0.0.1:8157","user_agent":"curl/8.17.0"}
+
+=== GET / （响应头） ===
+HTTP/1.1 200 OK
+Accept-Ranges: bytes
+Cache-Control: no-store
+Content-Length: 1375
+Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-c5c20659fd23ed95dbaba4de6cf3201c'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'
+Content-Type: text/html; charset=utf-8
+Cross-Origin-Opener-Policy: same-origin
+Last-Modified: Tue, 20 Oct 2026 08:55:21 GMT
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+X-Request-Id: 11dca1db7f62c7d069cd7220dc38bea4
+Date: Tue, 20 Oct 2026 08:55:22 GMT
+
+
+=== 注入脚本 ===
+<script nonce="c5c20659fd23ed95dbaba4de6cf3201c">window.__UPANEL_MODE__="mock";</script>
+
+=== GET /api/v1/health/live ===
+HTTP/1.1 200 OK
+Cache-Control: no-store
+Content-Type: application/json; charset=utf-8
+X-Content-Type-Options: nosniff
+X-Request-Id: 343dad8849ee2b6832961149326ef30b
+Date: Tue, 20 Oct 2026 08:55:22 GMT
+Content-Length: 73
+
+{"data":{"status":"ok"},"request_id":"343dad8849ee2b6832961149326ef30b"}
+
+=== GET /api ===
+{"error":{"code":"NOT_FOUND","message":"资源不存在"},"request_id":"cbe57e868a0a586b9c295a51fbf88d10"}
+
+[status=404 type=application/json; charset=utf-8]
+
+=== GET /api/ ===
+{"error":{"code":"NOT_FOUND","message":"资源不存在"},"request_id":"fcef3ea67fdb809049739c014fd13334"}
+
+[status=404 type=application/json; charset=utf-8]
+
+=== GET /api/v1/unknown ===
+{"error":{"code":"NOT_FOUND","message":"资源不存在"},"request_id":"9c5390c1196ae7d4152beeab45f72d1c"}
+
+[status=404 type=application/json; charset=utf-8]
+
+=== GET /api/v2/health/live ===
+{"error":{"code":"NOT_FOUND","message":"资源不存在"},"request_id":"74f9e0795d6b4f21ecab1cdb38a5cae9"}
+
+[status=404 type=application/json; charset=utf-8]
+
+=== GET /assets/missing-abc.js ===
+资源不存在
+
+[status=404 type=text/plain; charset=utf-8]
+
+=== POST / ===
+HTTP/1.1 405 Method Not Allowed
+Allow: GET, HEAD
+Cache-Control: no-store
+Content-Type: text/plain; charset=utf-8
+Cross-Origin-Opener-Policy: same-origin
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+X-Request-Id: 18d8793661f731542d660987a08155b3
+Date: Tue, 20 Oct 2026 08:55:22 GMT
+Content-Length: 35
+
+=== GET /storage （SPA 深链接） ===
+200 text/html; charset=utf-8
+=== GET /assets/index-BkZukPSC.js ===
+HTTP/1.1 200 OK
+Accept-Ranges: bytes
+Cache-Control: public, max-age=31536000, immutable
+Content-Length: 413536
+Content-Type: text/javascript; charset=utf-8
+Cross-Origin-Opener-Policy: same-origin
+Last-Modified: Tue, 20 Oct 2026 08:55:21 GMT
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+X-Request-Id: a476beda07dca75c0907405a0658ae46
+Date: Tue, 20 Oct 2026 08:55:22 GMT
+
+=== mock 拒绝非固定地址 ===
+配置错误: web.listen_address: mock 模式只能绑定 127.0.0.1:18881，当前配置为 "0.0.0.0:18881"（演示数据不得暴露到其他地址）
+exit=2

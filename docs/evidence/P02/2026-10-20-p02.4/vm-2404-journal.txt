@@ -1,0 +1,18 @@
+== 2404 — upanel-agent 的 journal 摘录（sudo journalctl，最近一次运行）
+
+2026-10-20T11:26:32+00:00 upanel-2404 upanelctl[7983]: 数据库: /var/lib/upanel/upanel.db（busy_timeout=5000ms）
+2026-10-20T11:26:32+00:00 upanel-2404 upanelctl[7983]: 日志: level=info format=json
+2026-10-20T11:26:32+00:00 upanel-2404 upanelctl[7983]: 平台: linux/amd64（production 可用: true）
+2026-10-20T11:26:32+00:00 upanel-2404 systemd[1]: Started upanel-agent.service - uPanel 特权代理.
+2026-10-20T11:26:32+00:00 upanel-2404 upanel-agent[7988]: {"time":"2026-10-20T11:26:32.80407465Z","level":"INFO","msg":"数据库已打开","program":"upanel-agent","path":"/var/lib/upanel-agent/agent.db","journal_mode":"wal","foreign_keys":true,"busy_timeout_ms":5000}
+2026-10-20T11:26:32+00:00 upanel-2404 upanel-agent[7988]: {"time":"2026-10-20T11:26:32.804342448Z","level":"INFO","msg":"启动","program":"upanel-agent","version":"0.0.0-dev","commit":"unknown","go_version":"go1.27.3","os":"linux","arch":"amd64","config_source":"/etc/upanel/upanel.json","socket":"/run/upanel/agent.sock","allowed_web_user":"upanel-web","allowed_web_uid":999,"socket_group":"upanel-web","agent_database":"/var/lib/upanel-agent/agent.db","agent_schema_version":1,"key_path":"/etc/upanel/agent.key","key_version":1,"key_fingerprint":"b30ee460e61f540a"}
+2026-10-20T11:26:32+00:00 upanel-2404 upanel-agent[7988]: {"time":"2026-10-20T11:26:32.804755646Z","level":"INFO","msg":"代理已开始监听","program":"upanel-agent","socket":"/run/upanel/agent.sock","socket_mode":"0660","socket_gid":988,"allowed_web_user":"upanel-web","allowed_web_uid":999,"uid":0,"version":"0.0.0-dev","started_at":"2026-10-20T11:26:32.804453848Z","registered_actions":0,"registered_queries":0}
+2026-10-20T11:26:33+00:00 upanel-2404 systemd[1]: Stopping upanel-agent.service - uPanel 特权代理...
+2026-10-20T11:26:33+00:00 upanel-2404 upanel-agent[7988]: {"time":"2026-10-20T11:26:33.942451945Z","level":"INFO","msg":"收到停止信号，开始优雅停止","program":"upanel-agent"}
+2026-10-20T11:26:33+00:00 upanel-2404 upanel-agent[7988]: {"time":"2026-10-20T11:26:33.942672444Z","level":"INFO","msg":"代理已停止","program":"upanel-agent"}
+2026-10-20T11:26:33+00:00 upanel-2404 systemd[1]: upanel-agent.service: Deactivated successfully.
+2026-10-20T11:26:33+00:00 upanel-2404 systemd[1]: Stopped upanel-agent.service - uPanel 特权代理.
+
+--- 本次启动的字段（root 视角）：
+{"time":"2026-10-20T11:26:31.996087032Z","level":"INFO","msg":"启动","program":"upanel-agent","version":"0.0.0-dev","commit":"unknown","go_version":"go1.27.3","os":"linux","arch":"amd64","config_source":"/etc/upanel/upanel.json","socket":"/run/upanel/agent.sock","allowed_web_user":"upanel-web","allowed_web_uid":999,"socket_group":"upanel-web","agent_database":"/var/lib/upanel-agent/agent.db","agent_schema_version":1,"key_path":"/etc/upanel/agent.key","key_version":1,"key_fingerprint":"b30ee460e61f540a"}
+{"time":"2026-10-20T11:26:32.804342448Z","level":"INFO","msg":"启动","program":"upanel-agent","version":"0.0.0-dev","commit":"unknown","go_version":"go1.27.3","os":"linux","arch":"amd64","config_source":"/etc/upanel/upanel.json","socket":"/run/upanel/agent.sock","allowed_web_user":"upanel-web","allowed_web_uid":999,"socket_group":"upanel-web","agent_database":"/var/lib/upanel-agent/agent.db","agent_schema_version":1,"key_path":"/etc/upanel/agent.key","key_version":1,"key_fingerprint":"b30ee460e61f540a"}

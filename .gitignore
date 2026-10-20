@@ -1,0 +1,55 @@
+# 构建产物与本地文件
+/web/node_modules/
+/web/dist/
+/web/dist-mock/
+/internal/webui/dist/*
+!/internal/webui/dist/.keep
+/web/coverage/
+/web/.vite/
+/web/test-results/
+/web/playwright-report/
+/web/blob-report/
+
+# 数据库与运行时数据（本机调试用，不提交）
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+/tmp/
+/var/
+
+# 二进制与发布包
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+*.tar.gz
+*.zip
+
+# 秘密与本地配置
+.env
+.env.*
+*.pem
+*.key
+!web/node_modules/**/*.key
+!/docs/**/*.key.example
+secrets/
+
+# 测试磁盘镜像与 VM 证据（绝不入库）
+*.qcow2
+*.vdi
+*.vmdk
+*.iso
+*.raw
+
+# 编辑器与系统
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# 交叉编译产物（P02.3 起的 VM 验收用）
+/.tmp-linux-bin/

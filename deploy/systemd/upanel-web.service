@@ -1,0 +1,66 @@
+; uPanel Web 服务单元（初版模板，P01.4）
+;
+; 安装步骤与前置条件见 docs/LOCAL_START.md 第 4 节。约定路径：
+;   二进制  /usr/local/bin/upanel-web、/usr/local/bin/upanelctl
+;   配置    /etc/upanel/upanel.json（见 deploy/upanel.example.json）
+;   数据库  /var/lib/upanel/upanel.db（由 StateDirectory 创建并授权）
+;
+; 权限边界（PLAN.md 第 2、4 节）：Web 以专用非 root 账号 upanel-web 运行，
+; 无 sudo、无登录 shell、不加入 docker 组。系统写操作只能经 root 代理执行，
+; 因此本单元**不**授予任何额外的 capabilities。
+;
+; 本文件是模板而不是已验证的发行包：改动后至少运行
+;   systemd-analyze verify /etc/systemd/system/upanel-web.service
+
+[Unit]
+Description=uPanel Web 管理面板
+Documentation=file:/usr/local/share/doc/upanel/LOCAL_START.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=upanel-web
+Group=upanel-web
+
+ExecStartPre=/usr/local/bin/upanelctl check-config --config /etc/upanel/upanel.json
+ExecStart=/usr/local/bin/upanel-web --config /etc/upanel/upanel.json
+
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=30s
+
+; 状态与配置目录由 systemd 创建并设定属主：
+;   StateDirectory      → /var/lib/upanel（数据库与 WAL 文件）
+;   ConfigurationDirectory → /etc/upanel（只读使用）
+StateDirectory=upanel
+StateDirectoryMode=0750
+ConfigurationDirectory=upanel
+ConfigurationDirectoryMode=0750
+
+; 运行时目录 /run/upanel 归 root 代理所有（代理 socket 为 root:upanel-web 0660），
+; Web 只读取该 socket，因此不在本单元里创建目录（代理单元在 P02 提供）。
+
+; ---- 加固（与本阶段功能兼容的最小集合）----
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RemoveIPC=yes
+; Web 只与本机回环、Unix socket 通信，不需要其他地址族。
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+; 不启用 PrivateUsers / PrivateMounts / MemoryDenyWriteExecute：
+; Web 后续需要读取真实系统信息，且这些选项会与代理的挂载视图产生歧义
+; （PLAN.md 第 6 节对代理有明确禁止，Web 侧保持一致以免误导）。
+
+[Install]
+WantedBy=multi-user.target

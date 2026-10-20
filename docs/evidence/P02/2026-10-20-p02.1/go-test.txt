@@ -1,0 +1,14 @@
+ok  	upanel/cmd/upanel-agent	(cached)
+ok  	upanel/cmd/upanel-web	1.725s
+ok  	upanel/cmd/upanelctl	0.995s
+ok  	upanel/internal/agent	(cached)
+ok  	upanel/internal/api	(cached)
+ok  	upanel/internal/auth	(cached)
+ok  	upanel/internal/config	(cached)
+ok  	upanel/internal/httpx	(cached)
+ok  	upanel/internal/logging	(cached)
+ok  	upanel/internal/platform	(cached)
+ok  	upanel/internal/store	(cached)
+ok  	upanel/internal/version	(cached)
+ok  	upanel/internal/webui	(cached)
+?   	upanel/migrations	[no test files]

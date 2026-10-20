@@ -1,0 +1,92 @@
+# P02.3 证据：实际执行的命令
+#
+# 环境：开发宿主 Windows（M3 Air），验收 VM 为本机 QEMU（WHPC 加速）里的
+#        upanel-2404（Ubuntu 24.04.5 / 6.8.0-147，SSH 127.0.0.1:2222）
+#        upanel-2204（Ubuntu 22.04.5 / 5.15.0-198，SSH 127.0.0.1:2223）
+# 每条命令都是本轮真实执行过的；未执行的检查在本文件与 result.md 里标为 NOT RUN。
+
+## 宿主：静态检查与单元测试（工作目录 H:\Code\uPanel）
+
+    export PATH=/c/Users/huxi/AppData/Local/nvm/v22.23.3:$PATH   # nvm 的 Node 22.23.3，见 DECISIONS Q14
+    go build ./...                  > docs/evidence/P02/2026-10-20-p02.3/host-build.txt   # rc=0
+    go vet ./...                    > docs/evidence/P02/2026-10-20-p02.3/go-vet.txt       # rc=0，无输出
+    gofmt -l .                      > docs/evidence/P02/2026-10-20-p02.3/gofmt.txt        # rc=0，0 行
+    go test ./... -count=1          > docs/evidence/P02/2026-10-20-p02.3/go-test.txt      # rc=0
+    sh scripts/check.sh             > docs/evidence/P02/2026-10-20-p02.3/check.txt        # PASS 12 / FAIL 0 / NOT RUN 0
+
+## 宿主：交叉编译 + 测试二进制（VM 内没有 Go 工具链，见 DECISIONS Q9）
+
+    GOOS=linux GOARCH=amd64 go build -o .tmp-linux-bin/upanel-web   ./cmd/upanel-web
+    GOOS=linux GOARCH=amd64 go build -o .tmp-linux-bin/upanel-agent ./cmd/upanel-agent
+    GOOS=linux GOARCH=amd64 go build -o .tmp-linux-bin/upanelctl    ./cmd/upanelctl
+    GOOS=linux GOARCH=amd64 go test -c -o .tmp-linux-bin/tests/agent.test  ./internal/agent
+    GOOS=linux GOARCH=amd64 go test -c -o .tmp-linux-bin/tests/syscmd.test ./internal/syscmd
+    sha256sum .tmp-linux-bin/... > docs/evidence/P02/2026-10-20-p02.3/cross-build-sha256.txt
+
+    9283c6e0…  upanel-web
+    1ddbf323…  upanel-agent
+    01ba82db…  upanelctl
+    753f5060…  tests/agent.test
+    e1ff7f0f…  tests/syscmd.test
+    （VM 内 `sha256sum /tmp/upanel-bin/*` 与上表逐字一致，见 vm-2404-env.txt / vm-2204-env.txt）
+
+## VM：投放二进制与脚本
+
+    scp -P 2222 .tmp-linux-bin/upanel-web .tmp-linux-bin/upanel-agent .tmp-linux-bin/upanelctl upanel@127.0.0.1:/tmp/upanel-bin/
+    scp -P 2222 .tmp-linux-bin/tests/agent.test .tmp-linux-bin/tests/syscmd.test                 upanel@127.0.0.1:/tmp/upanel-bin/tests/
+    scp -P 2222 tests/integration/p02-3-agent-acceptance.sh upanel@127.0.0.1:/tmp/upanel-src/tests/integration/
+    scp -P 2222 tests/integration/p02-2-acceptance.sh      upanel@127.0.0.1:/tmp/upanel-src/tests/integration/
+    scp -r -P 2222 deploy/systemd upanel@127.0.0.1:/tmp/upanel-src/deploy/
+    ssh … 'chmod +x /tmp/upanel-bin/* /tmp/upanel-bin/tests/*'
+    （2204 同上，端口 2223）
+
+## VM：P02.3 验收（必须以 root 运行；脚本自己装 systemd 单元、按 UID 切换调用、最后清理）
+
+    sudo setsid nohup env BIN_DIR=/tmp/upanel-bin \
+      sh /tmp/upanel-src/tests/integration/p02-3-agent-acceptance.sh \
+      > /tmp/p023-<vm>.log 2>&1 < /dev/null &
+
+    结果（两台 VM 各自独立跑完）：
+      24.04：PASS 84 / FAIL 0
+      22.04：PASS 84 / FAIL 0（另有 1 条 NOTE，见下）
+
+## VM：环境事实采集（os-release / 内核 / 二进制 sha256 / 身份）
+
+    ssh … '(grep -E "^(PRETTY_NAME|VERSION_ID)=" /etc/os-release; uname -r; python3 -V;
+            sha256sum /tmp/upanel-bin/upanel-web /tmp/upanel-bin/upanel-agent /tmp/upanel-bin/upanelctl \
+                      /tmp/upanel-bin/tests/agent.test /tmp/upanel-bin/tests/syscmd.test;
+            id upanel-web; id upanel-probe; id nobody; getent group upanel-web)' > vm-<vm>-env.txt
+
+## VM：P02.2 回归（非 root 运行，证明本轮对 config/agent 的改动没有破坏账号与审计侧）
+
+    cd /tmp/upanel-src && setsid nohup env BIN_DIR=/tmp/upanel-bin \
+      sh tests/integration/p02-2-acceptance.sh > /tmp/p022-<vm>.log 2>&1 < /dev/null &
+
+    结果：24.04 `结果: PASS=99 FAIL=0`；22.04 `结果: PASS=99 FAIL=0`
+    日志：vm-2404-p022-regression.txt / vm-2204-p022-regression.txt
+
+## VM：日志证据
+
+    sudo journalctl -u upanel-agent --no-pager -o cat | tail -20 > vm-<vm>-journal.txt
+    cp /var/tmp/upanel-accept-p02-3/logs/{agent-test,syscmd-test,systemd-analyze-verify}.log …
+
+# ---------------------------------------------------------------------------
+# 本轮踩到的坑（记录下来，避免下轮重犯）
+# ---------------------------------------------------------------------------
+#
+# 1) `systemd-analyze verify <unit>` 会把依赖单元一起加载。22.04 的系统自带
+#    snapd.service 在 systemd 249 下报 `Unknown key name 'RestartMode'`，首轮因此
+#    FAIL 1（83/84）。这不是 uPanel 的单元问题，但断言不能"看到任何输出就失败"，
+#    也不能"忽略一切输出"（那会掩盖自己单元的真问题）。
+#    处理：只对本单元文件名相关的行判失败，其余原文写进 logs/systemd-analyze-verify.log
+#    并输出一条不计分的 NOTE。改完两台 VM 均 84/84。
+#
+# 2) 测试二进制的哈希对不上：VM 里那次的 tests/agent.test 是旧的（0ccb8633…），
+#    宿主重新 `go test -c` 得到 753f5060…。`go test -c` 的输出是可复现的
+#    （连续构建两次字节相同），所以哈希不同只能说明**投放的是旧构建**。
+#    处理：重新投放 5 个文件、核对 sha256 后再完整重跑 p02.3 验收（84/84 为这次重跑结果）。
+#    没这一步的话，"VM 上 28 个 agent 用例通过"证明的是旧代码。
+#
+# 3) 轮询等待时用了 `grep -q '^PASS [0-9]* / FAIL'`，而 P02.2 脚本的结尾行是
+#    `结果: PASS=99 FAIL=0`（格式不同），轮询一直不返回、误判成"还在跑"。
+#    处理：直接读日志尾部确认。轮询条件要对着脚本真实的收尾格式写。

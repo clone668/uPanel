@@ -1,0 +1,75 @@
+# P01.2 实际执行的命令（按时间顺序，宿主 Git Bash / Ubuntu VM）
+
+所有命令都在 `H:\Code\uPanel` 或验收 VM 内执行；以下为实际运行的命令，不是计划。
+
+## 1. 代码与文档编辑
+
+    # 阅读/修改（编辑器操作，不产生输出）
+    cmd/upanelctl/main.go            # 实现 migrate 子命令，check-config 增加 database 字段
+    internal/httpx/httpx.go          # 删除未使用的 ErrAlreadyWritten
+    internal/store/store.go          # verifyPragmas 返回读回的实际值并记入日志
+    internal/api/middleware_test.go  # 新建（中间件行为）
+    internal/config/config_test.go   # 追加 database 段校验
+    internal/config/defaults_linux_test.go  # 新建（Linux 默认路径）
+    cmd/upanelctl/main_test.go       # 追加 migrate 测试
+    cmd/upanel-web/main_test.go      # 追加 --db / 数据库失败拒绝启动测试
+    api/openapi.yaml                 # 登记 /api/v1/health/live，说明 INTERNAL_ERROR
+    tests/integration/p01-2-acceptance.sh   # 新建
+    tests/integration/p01-1-acceptance.sh   # 补 --db（数据库成为硬依赖）
+    tests/integration/p01-1-host-refusal.sh # 补 --db
+    README.md / docs/PROGRESS.md / docs/DECISIONS.md / docs/DEPENDENCIES.md
+
+## 2. 宿主构建与测试
+
+    go build ./... && go vet ./...                       # 退出码 0
+    gofmt -l .                                           # 输出为空
+    go test ./... -count=1                               # 退出码 0，11 个包 ok
+    go test ./internal/api ./internal/store ./internal/config \
+            ./cmd/upanelctl ./cmd/upanel-web -count=1 -v  # 63 PASS / 0 FAIL
+    go mod tidy                                          # 退出码 0
+    go mod download                                      # 退出码 0
+    go mod verify                                        # all modules verified
+    go list -m all                                       # 解析出的完整模块图（34 个 indirect）
+    PATH="/c/Users/huxi/AppData/Local/nvm/v22.23.3:$PATH" sh scripts/check.sh
+                                                         # 退出码 0，PASS 8 / FAIL 0 / NOT RUN 4
+    sh tests/integration/p01-1-host-refusal.sh           # 退出码 0，PASS 16 / FAIL 0
+
+## 3. 交叉编译与分发
+
+    GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" \
+        -o dist/p01-2/upanel-web   ./cmd/upanel-web
+    GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" \
+        -o dist/p01-2/upanel-agent ./cmd/upanel-agent
+    GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" \
+        -o dist/p01-2/upanelctl   ./cmd/upanelctl
+    sha256sum dist/p01-2/upanel-web dist/p01-2/upanel-agent dist/p01-2/upanelctl
+
+    # seed HTTP（cloud-init NoCloud）与 VM 启动
+    node serve-seed.js "H:\Code\vms\upanel-2404\seed" 8899 &
+    node serve-seed.js "H:\Code\vms\upanel-2204\seed" 8900 &
+    powershell -NoProfile -ExecutionPolicy Bypass -File "H:\Code\vms\launch-vm.ps1" \
+        -Name "upanel-2404" -SshPort 2222 -SeedPort 8899
+    powershell -NoProfile -ExecutionPolicy Bypass -File "H:\Code\vms\launch-vm.ps1" \
+        -Name "upanel-2204" -SshPort 2223 -SeedPort 8900
+
+    scp -i .../id_ed25519 -P 2222 dist/p01-2/upanel-* tests/integration/*.sh \
+        upanel@127.0.0.1:/tmp/
+    ssh ... 'chmod +x /tmp/upanel-web /tmp/upanel-agent /tmp/upanelctl'
+
+## 4. Ubuntu VM 内
+
+    sha256sum /tmp/upanel-web /tmp/upanel-agent /tmp/upanelctl   # 与仓库 dist/p01-2 一致
+    BIN_DIR=/tmp sh /tmp/p01-2-acceptance.sh   # 2404: PASS 34 / FAIL 0；2204: PASS 34 / FAIL 0
+    BIN_DIR=/tmp sh /tmp/p01-1-acceptance.sh   # 2404: PASS 26 / FAIL 0；2204: PASS 26 / FAIL 0（回归）
+
+## 5. 清理
+
+    ssh ... 'sudo systemctl poweroff'         # 两台 VM
+    # 宿主：QEMU 进程全部退出；停掉两个 seed 服务；确认 2222/2223/8899/8900 全部关闭
+
+## 6. 修正记录（保留以便复查）
+
+- `tests/integration/p01-2-acceptance.sh` 首轮在 2404 上 FAIL 1 项（`migrate-fresh-applied`）：
+  断言里把 JSON 的 `[` 写成了 `\[`，是脚本写法错误，不是产品问题。修正后重跑，最终证据为 34/34。
+- P01.1 的两个脚本在数据库成为硬依赖后需要 `--db`，否则 Web 会按设计拒绝启动。
+  这是测试夹具更新；产品行为未变，已在脚本里注明原因。

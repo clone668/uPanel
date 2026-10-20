@@ -1,0 +1,114 @@
+== 0. 环境与交付物 ==
+PASS  验收脚本以非 root 用户运行（upanel）
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanelctl
+PASS  systemd 单元指定非 root 用户
+PASS  systemd 单元不以 root 运行
+== 1. init-admin 与 production 启动 ==
+PASS  init-admin 退出码
+PASS  输出含用户名 admin
+PASS  输出不含明文口令
+PASS  production 模式在 127.0.0.1:9443 启动
+PASS  健康检查
+PASS  Web 进程 uid=1000（非 root）
+== 2. 管理员登录 ==
+PASS  admin 登录 → 200
+PASS  拿到管理员会话与 CSRF
+== 3. 创建账号与输入校验 ==
+PASS  创建 viewer → 201
+PASS  创建响应不回显口令
+PASS  创建响应不含哈希
+PASS  display_name 原样保存
+PASS  新账号 version = 1
+PASS  重复用户名 → 422
+PASS  SQL 注入形状用户名 → 400
+PASS  未知字段 → 400
+PASS  未知角色 → 400
+PASS  弱口令 → 400
+PASS  缺 CSRF 的写操作 → 403
+== 4. 列表脱敏与分页 ==
+PASS  账号列表 → 200
+PASS  列表带 next_cursor 字段
+PASS  列表含 username
+PASS  列表脱敏：不含 password
+PASS  列表脱敏：不含 argon2
+PASS  列表脱敏：不含 csrf
+PASS  列表脱敏：不含 reauth
+PASS  列表脱敏：不含 session_hash
+PASS  列表里 alice 是 viewer
+PASS  limit=1 只返回一条
+PASS  第一页有游标
+PASS  游标不含明文用户名
+PASS  第二页是 alice
+PASS  第二页无 next_cursor
+PASS  limit=0 → 400
+PASS  limit=201 → 400
+PASS  坏游标 → 400
+== 5. viewer 越权一律 403 ==
+PASS  viewer 登录 → 200
+PASS  viewer 读账号列表 → 403
+PASS  viewer 建账号 → 403
+PASS  viewer 改账号 → 403
+PASS  viewer 重置口令 → 403
+PASS  viewer 删账号 → 403
+PASS  viewer 再认证 → 403
+== 6. 再认证窗口 ==
+PASS  未再认证 PATCH → 403
+PASS  错误码 REAUTH_REQUIRED
+PASS  错误口令再认证 → 403
+PASS  失败的再认证不获得窗口
+PASS  正确口令再认证 → 200
+PASS  再认证时间戳是 UTC
+PASS  再认证响应不含口令
+PASS  P14 之前提交 totp → 400
+== 7. 修改账号与 version 并发 ==
+PASS  再认证后 PATCH → 200
+PASS  PATCH 后 version 自增
+PASS  过期 version → 409
+PASS  没有任何可改字段 → 400
+PASS  改自己的角色 → 403
+PASS  禁用自己 → 403
+PASS  删除自己 → 403
+PASS  仍是可用管理员
+== 8. 重置口令使目标会话失效 ==
+PASS  重置口令 → 200
+PASS  重置响应不回显新口令
+PASS  重置后目标旧会话 → 401
+PASS  旧口令登录 → 401
+PASS  新口令登录 → 200
+PASS  重置成弱口令 → 400
+== 9. 删除账号 ==
+PASS  缺 version 删除 → 400
+PASS  错误 version 删除 → 409
+PASS  正确 version 删除 → 200
+PASS  删除后目标会话 → 401
+PASS  重复删除 → 404
+PASS  删除后列表只剩 admin
+== 10. 审计：追加式记录且不含口令 ==
+PASS  审计至少 4 条（创建/修改/重置/删除）
+PASS  审计含 user.create
+PASS  审计含 user.update
+PASS  审计含 user.password.reset
+PASS  审计含 user.delete
+PASS  审计结果均为 success
+PASS  审计 target 带对象类型
+PASS  审计不含管理员口令
+PASS  审计不含 viewer 口令
+PASS  审计不含口令哈希
+PASS  UPDATE/DELETE 被触发器拒绝
+== 11. 文件权限、库内容与日志 ==
+PASS  upanel.db 权限不向其他用户开放（600）
+PASS  upanel.db 属于运行用户
+PASS  upanel.db-wal 权限不向其他用户开放（600）
+PASS  upanel.db-wal 属于运行用户
+PASS  upanel.db-shm 权限不向其他用户开放（600）
+PASS  upanel.db-shm 属于运行用户
+PASS  库里不含明文管理员口令
+PASS  库里不含明文 viewer 口令
+PASS  日志不含管理员口令
+PASS  日志不含 viewer 口令
+PASS  日志不含 CSRF 令牌
+
+结果: PASS=99 FAIL=0
+工作目录: /var/tmp/upanel-accept-p02-2

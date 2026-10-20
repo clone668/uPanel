@@ -1,0 +1,65 @@
+# P02.2 实际执行的命令（宿主 Windows + PowerShell/bash，VM 内为 bash）
+
+日期：2026-10-20。以下命令按执行顺序记录；被放弃或失败的尝试也保留，并在行尾注明结果。
+
+## 宿主：实现与静态检查
+
+    go build ./...
+    go vet ./...
+    gofmt -l cmd internal
+    go test ./internal/auth/ -run 'TestListUsers' -count=1 -v
+    go test ./internal/api/ -run 'TestUsers|TestCreateUser|TestUpdateUser|TestSetUserPassword|TestDeleteUser' -count=1 -v
+    go test ./...
+    PATH="/c/Users/huxi/AppData/Local/nvm/v22.23.3:$PATH" sh scripts/check.sh   # PASS 12 / FAIL 0 / NOT RUN 0
+    npx --yes @redocly/cli@2.4.0 lint api/openapi.yaml                          # valid, 11 warnings（未使用组件）
+    bash tests/smoke/p02-2-account-smoke.sh                                     # PASS 81 / FAIL 0
+
+### 冒烟脚本调试过程中遇到的问题（都已修正，记录以免重犯）
+
+- `curl -d "<含中文的 JSON>"` 在 Windows 上会把 argv 按 ANSI 代码页转换，中文变成 U+FFFD。
+  改为把请求体写文件再 `--data-binary @file`（脚本里有注释说明）。
+- `python -c` 读 JSON 默认用 GBK，导致 `UnicodeDecodeError`；改为 `open(..., encoding="utf-8")`
+  并 `export PYTHONIOENCODING=utf-8`。
+- 首次跑验收时 9443 上有上次遗留的 `upanel-web`，后续请求打到旧进程，出现大面积假失败；
+  脚本现在启动前先探测 9443，已有服务就退出并提示。VM 上用 `pkill -x upanel-web` 清理。
+- `api()` 把请求体文件当成第 6 个参数读（实际是第 5 个），导致所有写操作发出空请求体（400
+  “请求体不能为空”）。修正后 `expect_eq` 的期望/实际顺序也一并纠正。
+
+## 宿主：交叉编译并分发到两台 VM
+
+    GOOS=linux GOARCH=amd64 go build -o .tmp-linux-bin/upanel-web ./cmd/upanel-web
+    GOOS=linux GOARCH=amd64 go build -o .tmp-linux-bin/upanel-agent ./cmd/upanel-agent
+    GOOS=linux GOARCH=amd64 go build -o .tmp-linux-bin/upanelctl ./cmd/upanelctl
+    sha256sum .tmp-linux-bin/* tests/integration/p02-2-acceptance.sh tests/smoke/p02-2-account-smoke.sh
+    scp -P 2222 .tmp-linux-bin/* upanel@127.0.0.1:/tmp/upanel-bin/         # VM-B 24.04
+    scp -P 2223 .tmp-linux-bin/* upanel@127.0.0.1:/tmp/upanel-bin/         # VM-A 22.04
+    scp -P <port> tests/integration/p02-2-acceptance.sh upanel@127.0.0.1:/tmp/upanel-src/tests/integration/
+    scp -P <port> tests/integration/p02-1-acceptance.sh upanel@127.0.0.1:/tmp/upanel-src/tests/integration/
+    scp -r -P <port> deploy/systemd upanel@127.0.0.1:/tmp/upanel-src/deploy/
+
+## VM：环境与验收（两台 VM 各跑一遍）
+
+    grep -E "^(PRETTY_NAME|VERSION_ID)=" /etc/os-release; uname -r; python3 -V; curl --version
+    sha256sum /tmp/upanel-bin/* /tmp/upanel-src/tests/integration/p02-2-acceptance.sh
+    /tmp/upanel-bin/upanelctl version
+    cd /tmp/upanel-src && BIN_DIR=/tmp/upanel-bin sh tests/integration/p02-2-acceptance.sh
+
+    # 首轮 24.04：PASS 60 / FAIL 39（脚本自身的参数错位与遗留进程，见上）
+    # 修正后 24.04：PASS 99 / FAIL 0
+    # 22.04：     PASS 99 / FAIL 0
+
+    cd /tmp/upanel-src && BIN_DIR=/tmp/upanel-bin sh tests/integration/p02-1-acceptance.sh
+    # 24.04：PASS 58 / FAIL 0    22.04：PASS 58 / FAIL 0（回归）
+
+    pgrep -x upanel-web    # 每轮结束后确认没有遗留进程
+
+## 证据归档
+
+    mkdir -p docs/evidence/P02/2026-10-20-p02.2
+    go build ./... > host-build.txt; go vet ./... >> host-build.txt; gofmt -l cmd internal >> host-build.txt
+    go test ./... -count=1 > go-test.txt
+    sh scripts/check.sh > check.txt
+    UPANEL_SMOKE_DIR=... bash tests/smoke/p02-2-account-smoke.sh > host-smoke.txt
+    ssh ... 'sh tests/integration/p02-2-acceptance.sh' > vm-2404-acceptance.txt / vm-2204-acceptance.txt
+    ssh ... 'sh tests/integration/p02-1-acceptance.sh' > vm-2404-p021-regression.txt / vm-2204-p021-regression.txt
+    scp ... vm-2404-env.txt / vm-2204-env.txt

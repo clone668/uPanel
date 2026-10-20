@@ -1,0 +1,4 @@
+go-build: OK
+go-vet: OK
+gofmt -l cmd internal:
+(空行以上为空即无未格式化文件)

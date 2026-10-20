@@ -1,0 +1,39 @@
+# 采集时间: 2026-10-20T05:25:23Z
+# 方式: 宿主 PowerShell 采集（QEMU 启动参数 / 进程 / 磁盘文件 / 宿主物理磁盘对照）
+# 说明: 真实命令输出，未经编辑
+
+=== 宿主物理磁盘（均不得出现在 VM 的 -drive 参数中） ===
+Number FriendlyName                 SerialNumber                              SizeGB BusType
+------ ------------                 ------------                              ------ -------
+     0 ST2000DM006-2DM164                       Z4Z8X457                     1863.00 SATA
+     1 ST4000VN008-2DR166                       S0I6L66G                     3726.00 SATA
+     3 Lexar SSD ARES 2TB           0000_0006_2308_3057_CAF2_5B03_4000_0142. 1907.70 NVMe
+     2 Samsung SSD 990 EVO Plus 2TB 0025_385A_4141_0946.                     1863.00 NVMe
+
+=== 运行中的 QEMU 进程命令行 ===
+PID 17656  RSS=755MB
+  CMD: "H:\Code\.toolchains\qemu\qemu-system-x86_64.exe" -machine pc -accel whpx -smp 2 -m 4096 -drive file=H:\Code\vms\upanel-2404\system.qcow2,if=none,id=drv_sys,format=qcow2 -device virtio-scsi-pci,id=scsi0 -device scsi-hd,drive=drv_sys,bus=scsi0.0,serial=UPANEL-SYS-40G -drive file=H:\Code\vms\upanel-2404\data-a.qcow2,if=none,id=drv_a,format=qcow2 -device scsi-hd,drive=drv_a,bus=scsi0.0,serial=UPANEL-DATA-A-8G -drive file=H:\Code\vms\upanel-2404\data-b.qcow2,if=none,id=drv_b,format=qcow2 -device scsi-hd,drive=drv_b,bus=scsi0.0,serial=UPANEL-DATA-B-4G -drive file=H:\Code\vms\upanel-2404\data-c.qcow2,if=none,id=drv_c,format=qcow2 -device scsi-hd,drive=drv_c,bus=scsi0.0,serial=UPANEL-DATA-C-4G -netdev user,id=net0,hostfwd=tcp:127.0.0.1:2222-:22 -device virtio-net-pci,netdev=net0 -smbios type=1,serial=ds=nocloud;s=http://10.0.2.2:8899/ -display none -monitor none -serial file:H:\Code\vms\upanel-2404\console.log -pidfile H:\Code\vms\upanel-2404\qemu.pid
+
+PID 21628  RSS=878MB
+  CMD: "H:\Code\.toolchains\qemu\qemu-system-x86_64.exe" -machine pc -accel whpx -smp 2 -m 4096 -drive file=H:\Code\vms\upanel-2204\system.qcow2,if=none,id=drv_sys,format=qcow2 -device virtio-scsi-pci,id=scsi0 -device scsi-hd,drive=drv_sys,bus=scsi0.0,serial=UPANEL-SYS-40G -drive file=H:\Code\vms\upanel-2204\data-a.qcow2,if=none,id=drv_a,format=qcow2 -device scsi-hd,drive=drv_a,bus=scsi0.0,serial=UPANEL-DATA-A-8G -drive file=H:\Code\vms\upanel-2204\data-b.qcow2,if=none,id=drv_b,format=qcow2 -device scsi-hd,drive=drv_b,bus=scsi0.0,serial=UPANEL-DATA-B-4G -drive file=H:\Code\vms\upanel-2204\data-c.qcow2,if=none,id=drv_c,format=qcow2 -device scsi-hd,drive=drv_c,bus=scsi0.0,serial=UPANEL-DATA-C-4G -netdev user,id=net0,hostfwd=tcp:127.0.0.1:2223-:22 -device virtio-net-pci,netdev=net0 -smbios type=1,serial=ds=nocloud;s=http://10.0.2.2:8900/ -display none -monitor none -serial file:H:\Code\vms\upanel-2204\console.log -pidfile H:\Code\vms\upanel-2204\qemu.pid
+
+=== VM 磁盘文件（位于仓库之外 H:\Code\vms） ===
+H:\Code\vms\upanel-2204\data-a.qcow2  197120 bytes（稀疏分配，已提交 197120 bytes）
+H:\Code\vms\upanel-2204\data-b.qcow2  197120 bytes（稀疏分配，已提交 197120 bytes）
+H:\Code\vms\upanel-2204\data-c.qcow2  197120 bytes（稀疏分配，已提交 197120 bytes）
+H:\Code\vms\upanel-2204\system.qcow2  112656384 bytes（稀疏分配，已提交 112656384 bytes）
+H:\Code\vms\upanel-2404\data-a.qcow2  197120 bytes（稀疏分配，已提交 197120 bytes）
+H:\Code\vms\upanel-2404\data-b.qcow2  197120 bytes（稀疏分配，已提交 197120 bytes）
+H:\Code\vms\upanel-2404\data-c.qcow2  197120 bytes（稀疏分配，已提交 197120 bytes）
+H:\Code\vms\upanel-2404\system.qcow2  90112000 bytes（稀疏分配，已提交 90112000 bytes）
+
+=== 宿主端口转发（仅 127.0.0.1 回环） ===
+LocalAddress LocalPort OwningProcess
+------------ --------- -------------
+127.0.0.1         8900         12200
+127.0.0.1         8899         16404
+127.0.0.1         2223         21628
+127.0.0.1         2222         17656
+
+=== 仓库内不得存在虚拟机磁盘镜像 ===
+无（通过）

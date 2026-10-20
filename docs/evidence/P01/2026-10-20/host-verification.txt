@@ -1,0 +1,50 @@
+== 构建 Windows 二进制 ==
+
+== 1. CLI ==
+$ bin/upanel-web.exe --version
+upanel-web 0.0.0-dev (commit unknown, built unknown, go1.27.3)
+$ bin/upanelctl.exe version
+upanelctl 0.0.0-dev (commit unknown, built unknown, go1.27.3)
+
+== 2. 非 Linux 上 production 必须拒绝启动 ==
+$ bin/upanel-web.exe --mode production
+拒绝启动: production 模式仅支持 Linux：当前平台为 windows/amd64。本地演示请显式使用 --mode mock（绑定 127.0.0.1:18881）
+PASS  web-production-refused
+$ bin/upanel-web.exe --mode production --listen 0.0.0.0:9443
+配置错误: web.listen_address: P10 接入 TLS 之前 production 只能绑定回环地址（当前 "0.0.0.0:9443"）
+PASS  web-production-nonloopback-refused
+$ bin/upanel-agent.exe
+拒绝启动: upanel-agent 只能在 Linux 上运行：当前平台为 windows/amd64
+PASS  agent-refused-on-windows
+$ bin/upanel-agent.exe --mode mock
+PASS  agent-has-no-mode-flag
+
+== 3. mock 模式契约 ==
+PASS  mock-health-live
+PASS  mock-request-id-in-body
+PASS  mock-request-id-header
+PASS  mock-root-404
+PASS  mock-root-json
+PASS  mock-index-html-not-served
+PASS  mock-method-not-allowed
+$ bin/upanel-web.exe --mode mock --listen 0.0.0.0:18881
+PASS  mock-nonloopback-refused
+PASS  mock-sigterm-exit
+PASS  mock-port-released
+
+== 4. 配置文件与 CLI ==
+$ bin/upanelctl.exe check-config --config /tmp/upanel-host.json
+配置来源: C:/Users/huxi/AppData/Local/Temp/upanel-host.json
+运行模式: production
+Web 监听: 127.0.0.1:18881（仅回环: true）
+代理 socket: /run/upanel/agent.sock
+日志: level=debug format=text
+平台: windows/amd64（production 可用: false）
+注意: production 模式仅支持 Linux：当前平台为 windows/amd64。本地演示请显式使用 --mode mock（绑定 127.0.0.1:18881）
+PASS  ctl-check-config
+$ bin/upanelctl.exe check-config --config /tmp/not-exist.json
+PASS  ctl-missing-config-refused
+
+== 汇总 ==
+PASS 16 / FAIL 0
+脚本退出码=0

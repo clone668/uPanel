@@ -1,0 +1,37 @@
+== 2404 — 交叉编译测试二进制在 VM 内核上原生执行（root）
+
+-- agentstore.test
+exit=0
+cases=32 pass=19 fail=0 skip=0
+--- PASS: TestLoadKeyringRejectsMalformedFiles (0.00s)
+--- PASS: TestLoadKeyringMissingFile (0.00s)
+--- PASS: TestSealOpenRoundTripAndNonceUniqueness (0.00s)
+--- PASS: TestOpenRejectsWrongAADAndTampering (0.00s)
+--- PASS: TestNewKeyringRejectsWrongKeySize (0.00s)
+--- PASS: TestSecretRefFormat (0.00s)
+--- PASS: TestPutTemporarySecretAndResolve (0.03s)
+--- PASS: TestCiphertextNeverLeaksPlaintextToDisk (0.04s)
+--- PASS: TestPutWithReferenceIsPersistent (0.04s)
+--- PASS: TestDestroyExpiredTemporary (0.04s)
+--- PASS: TestResolveExpiredTemporaryBeforeSweep (0.03s)
+--- PASS: TestReferencePromotesTemporarySecret (0.04s)
+--- PASS: TestReferenceRejectsBadInput (0.03s)
+--- PASS: TestTempSecretsHaveIndependentNonces (0.05s)
+--- PASS: TestNewSecretsValidatesArguments (0.03s)
+--- PASS: TestOpenRejectsNonRootOwnedDir (0.00s)
+
+-- agent.test
+exit=0
+cases=45 pass=37 fail=0 skip=0
+--- PASS: TestQueriesRequiresPost (0.03s)
+--- PASS: TestPostSecretReturnsRefWithoutPlaintext (0.03s)
+--- PASS: TestPostSecretWithReferenceIsPersistent (0.03s)
+--- PASS: TestPostSecretRejectsGetAndNoReadRoute (0.03s)
+--- PASS: TestPostSecretValidatesInput (0.03s)
+--- PASS: TestPostSecretEnforcesSizeLimits (0.03s)
+--- PASS: TestPostSecretRequiresJSONContentType (0.03s)
+--- PASS: TestPostSecretDeniedForOtherUIDs (0.03s)
+--- PASS: TestSweepExpiredSecrets (0.12s)
+--- PASS: TestSecretsRouteRejectsOtherMethods (0.03s)
+--- PASS: TestCapabilitiesRejectsPost (0.03s)
+

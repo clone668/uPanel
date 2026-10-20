@@ -1,0 +1,116 @@
+# P00.3 验收 VM 创建与核验 — 实际执行命令记录
+# 采集日期: 2026-10-20
+# 说明:
+#   - 下列命令均为实际执行的命令（按执行顺序整理），宿主为 Windows 10.0.26300，
+#     宿主命令在 PowerShell / Git Bash 中执行，VM 内命令经 SSH 执行。
+#   - 退出码列只记录实际观察到的值；未单独捕获退出码的步骤标 "未单独捕获"
+#     （其成功与否由后续步骤的可观察结果证明，例如 SSH 能连上说明 VM 已启动）。
+#   - 未执行的命令不出现在本文件中。
+
+## 0. 环境探测（确认无管理员权限下可用方案）
+
+Get-CimInstance Win32_ComputerSystem | Select HypervisorPresent
+# 结果: HypervisorPresent = True；退出码 0
+
+Test-Path C:\Windows\System32\WinHvPlatform.dll
+# 结果: True；退出码 0
+
+(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB
+# 结果: ~63.9 GB；LogicalProcessors = 16；退出码 0
+
+# 结果说明: VirtualBox / VMware / virsh / qemu 均未安装（命令不存在），
+#           因此改用用户级便携 QEMU（H:\Code\.toolchains\qemu），不做系统级安装。
+
+## 1. 镜像获取与校验（宿主，仓库之外 H:\Code\vms\images）
+
+# 下载 Ubuntu cloud image（22.04 / 24.04）与各自 SHA256SUMS
+curl.exe -L -o ubuntu-22.04-server-cloudimg-amd64.img  <官方 cloud-images 地址>
+curl.exe -L -o ubuntu-24.04-server-cloudimg-amd64.img  <官方 cloud-images 地址>
+curl.exe -L -o SHA256SUMS-22.04                          <官方 SHA256SUMS>
+curl.exe -L -o SHA256SUMS                                <官方 SHA256SUMS>
+# 结果: 下载完成；退出码 0
+# 实际落地文件（H:\Code\vms\images）:
+#   ubuntu-22.04-server-cloudimg-amd64.img  696.7 MB
+#   ubuntu-24.04-server-cloudimg-amd64.img  592.5 MB
+#   SHA256SUMS-22.04 / SHA256SUMS
+
+sha256sum -c SHA256SUMS-22.04 --ignore-missing
+sha256sum -c SHA256SUMS --ignore-missing
+# 结果: OK（两份均通过校验）；退出码 0
+
+## 2. SSH 密钥与 VM 磁盘
+
+ssh-keygen -t ed25519 -f H:\Code\vms\upanel-2204\id_ed25519 -N ""
+ssh-keygen -t ed25519 -f H:\Code\vms\upanel-2404\id_ed25519 -N ""
+# 结果: 两套密钥生成；公钥写入各自 cloud-init user-data；退出码 0
+
+# 系统盘：以 cloud image 为后备文件创建可写 qcow2
+qemu-img create -f qcow2 -F qcow2 -b ..\images\ubuntu-24.04-server-cloudimg-amd64.img system.qcow2 40G
+qemu-img create -f qcow2 -F qcow2 -b ..\images\ubuntu-22.04-server-cloudimg-amd64.img system.qcow2 40G
+# 数据盘：空白 qcow2，容量与序列号一一对应
+qemu-img create -f qcow2 data-a.qcow2 8G
+qemu-img create -f qcow2 data-b.qcow2 4G
+qemu-img create -f qcow2 data-c.qcow2 4G
+# 结果: 创建成功；退出码 0
+
+qemu-img info --backing-chain H:\Code\vms\upanel-2404\system.qcow2
+# 结果: virtual size: 40 GiB；backing file: images\ubuntu-24.04-server-cloudimg-amd64.img
+#       （2026-10-20 复验输出，确认 40 GiB 规格与后备链完整）；退出码 0
+
+## 3. cloud-init seed 服务（宿主回环，只读白名单）
+
+node H:\Code\vms\upanel-2404\serve-seed.js 8899   # 后台运行
+node H:\Code\vms\upanel-2204\serve-seed.js 8900   # 后台运行
+# 结果: 两个服务监听 127.0.0.1:8899 / 127.0.0.1:8900；退出码 0（后台常驻）
+# 只返回白名单文件: user-data / meta-data / vendor-data / network-config
+
+## 4. 启动 VM（H:\Code\vms\launch-vm.ps1，参数化封装下列 QEMU 参数）
+
+& H:\Code\vms\launch-vm.ps1 -Name upanel-2404 -SshPort 2222 -SeedPort 8899 -MemoryMB 4096
+# 结果: started upanel-2404 pid=17656  ssh=127.0.0.1:2222  mem=4096MB；退出码 0
+
+& H:\Code\vms\launch-vm.ps1 -Name upanel-2204 -SshPort 2223 -SeedPort 8900 -MemoryMB 4096
+# 结果: started upanel-2204 pid=21628  ssh=127.0.0.1:2223  mem=4096MB；退出码 0
+
+# 等价原始命令（以 VM-B 为例）:
+# qemu-system-x86_64.exe -machine pc -accel whpx -smp 2 -m 4096 \
+#   -drive file=...\upanel-2404\system.qcow2,if=none,id=drv_sys,format=qcow2 \
+#   -device virtio-scsi-pci,id=scsi0 \
+#   -device scsi-hd,drive=drv_sys,bus=scsi0.0,serial=UPANEL-SYS-40G \
+#   -drive file=...\upanel-2404\data-a.qcow2,if=none,id=drv_a,format=qcow2 \
+#   -device scsi-hd,drive=drv_a,bus=scsi0.0,serial=UPANEL-DATA-A-8G \
+#   -drive file=...\upanel-2404\data-b.qcow2,if=none,id=drv_b,format=qcow2 \
+#   -device scsi-hd,drive=drv_b,bus=scsi0.0,serial=UPANEL-DATA-B-4G \
+#   -drive file=...\upanel-2404\data-c.qcow2,if=none,id=drv_c,format=qcow2 \
+#   -device scsi-hd,drive=drv_c,bus=scsi0.0,serial=UPANEL-DATA-C-4G \
+#   -netdev user,id=net0,hostfwd=tcp:127.0.0.1:2222-:22 -device virtio-net-pci,netdev=net0 \
+#   -smbios type=1,serial=ds=nocloud;s=http://10.0.2.2:8899/ \
+#   -display none -monitor none -serial file:...\console.log -pidfile ...\qemu.pid
+
+## 5. 等待 SSH 就绪（Git Bash）
+
+for i in $(seq 1 40); do ssh -i id_ed25519 -o BatchMode=yes -p 2222 upanel@127.0.0.1 true && break; sleep 5; done
+# 结果: 端口 2222 约 10s 内就绪；退出码 0
+# 同法验证 2223 -> 约 5s 内就绪；退出码 0
+
+## 6. VM 内核验（命令全文见 vm-2404-verification.txt / vm-2204-verification.txt）
+
+ssh -i id_ed25519 -p 2222 upanel@127.0.0.1 '<第 3 节核验脚本>' > vm-2404-verification.txt
+ssh -i id_ed25519 -p 2223 upanel@127.0.0.1 '<第 3 节核验脚本>' > vm-2204-verification.txt
+# 结果: 输出写入证据文件；退出码 0
+
+## 7. 宿主侧隔离核验（PowerShell）
+
+Get-Disk | Select Number,FriendlyName,SerialNumber,@{n='SizeGB';e={$_.Size/1GB}},BusType
+Get-CimInstance Win32_Process -Filter "Name='qemu-system-x86_64.exe'" | Select ProcessId,CommandLine
+Get-ChildItem H:\Code\vms -Recurse -Filter *.qcow2
+Get-NetTCPConnection -State Listen | Where LocalPort -in 2222,2223,8899,8900
+Get-ChildItem H:\Code\uPanel -Recurse -Include *.qcow2,*.vdi,*.vmdk,*.iso
+# 结果: 见 host-isolation.txt；退出码 0
+
+## 8. 关闭与清理
+
+ssh -i id_ed25519 -p 2222 upanel@127.0.0.1 'sudo systemctl poweroff'
+ssh -i id_ed25519 -p 2223 upanel@127.0.0.1 'sudo systemctl poweroff'
+# 结果: VM 关机；退出码 0（SSH 连接随关机断开，属预期）
+# 清理: 停止 8899 / 8900 的 seed HTTP 服务

@@ -1,0 +1,7 @@
+== 2204
+PRETTY_NAME="Ubuntu 22.04.5 LTS"
+5.15.0-198-generic
+python 3.10.12 sqlite 3.37.2
+OpenSSL 3.0.2 15 Mar 2022 (Library: OpenSSL 3.0.2 15 Mar 2022)
+uid=997(upanel-web) gid=997(upanel-web) groups=997(upanel-web)
+upanel-web:x:997:upanel-probe

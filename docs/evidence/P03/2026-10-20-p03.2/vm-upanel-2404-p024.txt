@@ -1,0 +1,109 @@
+== 0. 环境
+PASS  acceptance-runs-as-root
+PASS  agent-binary-present
+PASS  ctl-binary-present
+PASS  agentstore-test-binary-present
+PASS  agent-test-binary-present
+PASS  python3-present
+PASS  systemd-present
+PASS  web-user-exists
+
+== 1. 安装与首次生成密钥
+PASS  check-config-passes
+PASS  start-refused-without-key
+PASS  start-without-key-hint
+PASS  no-implicit-key-generation
+PASS  init-key-succeeds
+PASS  init-key-prints-fingerprint
+PASS  init-key-fingerprint-16-hex
+PASS  key-file-exists
+PASS  key-file-owner
+PASS  key-file-mode
+PASS  key-file-lines
+PASS  key-file-header
+PASS  key-file-holds-32-bytes
+PASS  key-dir-owner
+PASS  init-key-refuses-overwrite
+PASS  key-unchanged-after-refusal
+
+== 2. 启动代理并检查数据库/密钥的归属
+PASS  agent-socket-created
+PASS  systemd-service-active
+PASS  agent-db-created
+PASS  agent-db-owner
+PASS  agent-db-mode
+PASS  agent-data-dir-owner
+PASS  agent-data-dir-mode
+PASS  agent-db-wal-mode
+PASS  agent-db-shm-mode
+PASS  schema-version
+PASS  migration-name
+PASS  secrets-table-exists
+PASS  web-user-cannot-read-agent-db
+PASS  web-user-cannot-read-key
+PASS  web-user-cannot-list-agent-data-dir
+PASS  journal-reports-key-fingerprint
+PASS  journal-reports-schema-version
+PASS  journal-reports-db-path
+
+== 3. POST /internal/v1/secrets（Web 身份）
+PASS  post-secret-created
+PASS  post-secret-returns-ref
+PASS  post-secret-state-temporary
+PASS  post-secret-response-has-no-plaintext
+PASS  post-secret-expires-in-10m
+PASS  post-persistent-created
+PASS  post-persistent-state
+PASS  post-persistent-has-no-expiry
+PASS  get-secrets-rejected
+PASS  get-secrets-allow-header
+PASS  secret-by-ref-not-found
+PASS  secret-value-route-not-found
+PASS  unknown-purpose-rejected
+PASS  unknown-purpose-message
+PASS  internal-purpose-rejected
+PASS  internal-purpose-message
+PASS  empty-value-rejected
+PASS  oversize-value-rejected
+PASS  unknown-field-rejected
+PASS  root-denied-on-normal-route
+PASS  same-group-other-uid-denied
+PASS  outsider-cannot-connect
+
+== 4. 落盘的是密文
+PASS  secret-row-count
+PASS  temporary-row-state
+PASS  persistent-row-state
+PASS  persistent-row-reference
+PASS  ciphertext-has-auth-tag
+PASS  nonce-length
+PASS  nonce-unique
+PASS  key-version-recorded
+PASS  no-plaintext-on-disk
+
+== 5. 重启后秘密仍在（不是内存态）
+PASS  socket-after-restart
+PASS  secret-row-count-after-restart
+PASS  persistent-row-survives-restart
+
+== 6. 到期销毁与加密实现的真实执行（交叉编译的测试二进制）
+PASS  agentstore-test-failures
+PASS  agentstore-test-passes
+PASS  root-only-dir-enforced
+PASS  agent-secrets-test-failures
+PASS  agent-secrets-test-passes
+NOTE  NOT RUN: 服务进程上 10 分钟挂钟到期销毁（需要等待 10 分钟；到期逻辑已由上一步
+NOTE           TestDestroyExpiredTemporary / TestResolveExpiredTemporaryBeforeSweep 用真实
+NOTE           SQLite 与真实 AEAD 在短 TTL 下执行，服务端扫描器本身只做定时调用）
+
+== 7. 日志与响应里没有明文
+PASS  journal-has-no-temporary-plaintext
+PASS  journal-has-no-persistent-plaintext
+PASS  journal-has-no-key-body
+PASS  journal-records-secret-write
+
+== 8. 停止后清理
+PASS  service-inactive-after-stop
+PASS  socket-removed-after-stop
+
+结果: PASS=87 FAIL=0

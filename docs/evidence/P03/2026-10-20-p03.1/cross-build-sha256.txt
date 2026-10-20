@@ -1,0 +1,8 @@
+da0a88633283c2a05d9f6f7bc6d838c87810e9a766abb75381708775d3845e3d *.tmp-linux-bin/upanel-agent
+2be9337bf0d3080a110595a308998815fd2f13647e4a0db4f3525ccfff8c2748 *.tmp-linux-bin/upanel-web
+9783a359c5786d787db27992a9a5b56f55e3791e1267b7c5415c94b54284903c *.tmp-linux-bin/upanelctl
+ff7d88f838ebc99caa49e7fa834efef1383ab21f7370502230583d20168caae8 *.tmp-linux-bin/tests/agent.test
+ed46ee9aad862baf1b679d5d77614adb953b43025c7982624188e5406ac2f603 *.tmp-linux-bin/tests/agentclient.test
+211c6cd7ac36f7f8f17145d855f0f8914e91e26ee2152d4be9db8ddcf319e673 *.tmp-linux-bin/tests/agentstore.test
+244bb5a6548ec5ccf1c739f4bbf83d3c2148494cf577c29325593aa31d5b0149 *.tmp-linux-bin/tests/operations.test
+e1ff7f0f71c8e9763c53c148ec888e78649d001599a2ff5b282b4c95ccfe6b17 *.tmp-linux-bin/tests/syscmd.test

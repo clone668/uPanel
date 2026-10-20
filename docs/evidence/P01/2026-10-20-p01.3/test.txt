@@ -1,0 +1,59 @@
+
+ RUN  v5.0.5 H:/Code/uPanel/web
+
+ ✓ src/modules/registry.test.ts > 模块清单 > 包含且仅包含 PLAN 第 7 节的 16 项，顺序一致 5ms
+ ✓ src/modules/registry.test.ts > 模块清单 > key 与 path 都是唯一的，避免菜单标记和路由互相覆盖 1ms
+ ✓ src/modules/registry.test.ts > 模块清单 > 未实现模块不出现在导航里 0ms
+ ✓ src/modules/registry.test.ts > 模块清单 > 未标记实现的模块也没有被偷偷登记阶段 1ms
+ ✓ src/modules/registry.test.ts > 模块清单 > 每个模块都有一句话说明，不留下无文案的空页面 1ms
+ ✓ src/modules/registry.test.ts > 模块清单 > findModule 按 key 命中，未知 key 返回 undefined 0ms
+ ✓ src/modules/registry.test.ts > 模块清单 > 可见模块的 path 都以 / 开头（便于 createWebHistory 解析） 0ms
+ ✓ src/router/routes.test.ts > 路由表 > 每个可见模块都有真实登记的路由，且 meta 指回模块键 4ms
+ ✓ src/router/routes.test.ts > 路由表 > 未实现模块没有路由：直接访问会落到 404，而不是空白页 1ms
+ ✓ src/router/routes.test.ts > 路由表 > 兜底路由存在且排在最后，不会被前面的路径抢先命中 0ms
+ ✓ src/router/routes.test.ts > 路由表 > moduleTitle 只翻译已知模块键 1ms
+ ✓ src/api/errors.test.ts > describeApiError > 按 code 分支：401 判定为需要重新登录且不可重试 3ms
+ ✓ src/api/errors.test.ts > describeApiError > 403/404/409 不提供盲目重试 1ms
+ ✓ src/api/errors.test.ts > describeApiError > 503 代理不可用允许重试，并说明只读功能不受影响 0ms
+ ✓ src/api/errors.test.ts > describeApiError > 客户端网络故障与服务端错误分开描述 1ms
+ ✓ src/api/errors.test.ts > describeApiError > 未知服务端错误码不隐藏，按 5xx 判定是否可重试 0ms
+ ✓ src/api/client.test.ts > request > 解包成功信封并返回 data 与 request_id 36ms
+ ✓ src/api/client.test.ts > request > GET 不带 Content-Type 与 CSRF 头（避免简单请求被升级成预检） 2ms
+ ✓ src/api/client.test.ts > request > 写请求自动带 JSON Content-Type、X-UPanel-Request、CSRF 与幂等键 1ms
+ ✓ src/api/client.test.ts > request > 没有 CSRF 令牌时不伪造该头（交给服务端返回 403） 1ms
+ ✓ src/api/client.test.ts > request > 序列化 query，跳过 null 与 undefined 1ms
+ ✓ src/api/client.test.ts > request > 服务端错误信封转成 ApiError，保留 code/details/request_id/状态码 1ms
+ ✓ src/api/client.test.ts > request > 反向代理返回 HTML 时判为 INVALID_RESPONSE，不猜业务原因 1ms
+ ✓ src/api/client.test.ts > request > 成功响应缺少 data 或 request_id 时判为 INVALID_RESPONSE 3ms
+ ✓ src/api/client.test.ts > request > 网络异常转成 NETWORK_ERROR，并带上原因 1ms
+ ✓ src/api/client.test.ts > request > 调用方取消请求时抛 ABORTED 1ms
+ ✓ src/api/client.test.ts > request > 拒绝给 GET 携带请求体（接线错误要在本地就报，不要发出去） 1ms
+ ✓ src/api/client.test.ts > request > API 前缀默认同源 /api/v1（生产与开发一致，不做跨域） 0ms
+ ✓ src/stores/mode.test.ts > 运行模式 > 只接受两个已知字面值，其余一律判为未知 2ms
+ ✓ src/stores/mode.test.ts > 运行模式 > 服务端注入值优先于构建期变量 0ms
+ ✓ src/stores/mode.test.ts > 运行模式 > 注入值非法时不报错，回落到构建期变量 0ms
+ ✓ src/stores/mode.test.ts > 运行模式 > 两个来源都无法判定时兜底 production 0ms
+ ✓ src/stores/mode.test.ts > 运行模式 > 非浏览器环境（单测 / SSR）读不到注入值，不抛异常 0ms
+ ✓ src/components/panels.test.ts > MockBanner > mock 模式下持续显示“演示数据、未操作服务器” 14ms
+ ✓ src/components/panels.test.ts > MockBanner > production 模式不显示横幅 1ms
+ ✓ src/components/panels.test.ts > StatePanel > 状态 loading 有明确的中文标签，不靠颜色区分 3ms
+ ✓ src/components/panels.test.ts > StatePanel > 状态 empty 有明确的中文标签，不靠颜色区分 1ms
+ ✓ src/components/panels.test.ts > StatePanel > 状态 forbidden 有明确的中文标签，不靠颜色区分 1ms
+ ✓ src/components/panels.test.ts > StatePanel > 状态 dependency_missing 有明确的中文标签，不靠颜色区分 1ms
+ ✓ src/components/panels.test.ts > StatePanel > 状态 unsupported 有明确的中文标签，不靠颜色区分 1ms
+ ✓ src/components/panels.test.ts > StatePanel > 状态 error 有明确的中文标签，不靠颜色区分 1ms
+ ✓ src/components/panels.test.ts > StatePanel > 状态 partial 有明确的中文标签，不靠颜色区分 2ms
+ ✓ src/components/panels.test.ts > StatePanel > 失败状态可以展示错误码与 request_id 1ms
+ ✓ src/components/panels.test.ts > StatePanel > 部分可用状态列出缺失项 1ms
+ ✓ src/components/panels.test.ts > StatePanel > 只有标记为可重试时才出现重试按钮 4ms
+ ✓ src/components/panels.test.ts > StatePanel > 未提供覆盖文案时使用状态默认说明 1ms
+ ✓ src/components/panels.test.ts > ApiErrorPanel > 展示 message、错误码与 request_id 2ms
+ ✓ src/components/panels.test.ts > ApiErrorPanel > 可重试的错误给出重试按钮 2ms
+ ✓ src/components/panels.test.ts > ApiErrorPanel > 401 说明需要重新登录，且不提供重试 1ms
+ ✓ src/components/panels.test.ts > ApiErrorPanel > 调用方禁止重试时不渲染按钮，即使错误本身可重试 1ms
+
+ Test Files  6 passed (6)
+      Tests  50 passed (50)
+   Start at  16:40:55
+   Duration  1.41s (import 84%, tests 8%, transform 6%, worker 2%)
+

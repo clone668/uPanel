@@ -1,0 +1,5 @@
+=== RUN   TestOpenTightensDatabaseFileMode
+    store_test.go:185: Windows 上 chmod 不控制权限位，本用例在 Linux 验收 VM 上执行
+--- SKIP: TestOpenTightensDatabaseFileMode (0.00s)
+PASS
+ok  	upanel/internal/store	0.770s

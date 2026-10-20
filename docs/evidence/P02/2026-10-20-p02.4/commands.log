@@ -1,0 +1,66 @@
+# P02.4 命令记录（2026-10-20）
+# 说明：只记录**实际执行**的命令。宿主为 Windows + Git Bash；Go 为 1.27.3（GOTOOLCHAIN 自动获取），
+# Node 22.23.3 通过把 nvm 目录前置到 PATH 使用（DECISIONS Q14）。
+
+## 宿主：构建与检查
+
+cd /h/Code/uPanel
+go build ./...                                   # host-build.txt（无输出）
+go vet ./...                                     # go-vet.txt（无输出）
+gofmt -l .                                       # gofmt.txt（无输出）
+go test ./...                                    # go-test.txt（全部包 ok）
+sh scripts/check.sh                              # check.txt（PASS 12 / FAIL 0 / NOT RUN 0）
+
+# 交叉编译（VM 内没有 Go 工具链，DECISIONS Q9）
+mkdir -p .tmp-linux-bin/tests
+GOOS=linux GOARCH=amd64 go build -o .tmp-linux-bin/upanel-web   ./cmd/upanel-web
+GOOS=linux GOARCH=amd64 go build -o .tmp-linux-bin/upanel-agent ./cmd/upanel-agent
+GOOS=linux GOARCH=amd64 go build -o .tmp-linux-bin/upanelctl    ./cmd/upanelctl
+GOOS=linux GOARCH=amd64 go test -c -o .tmp-linux-bin/tests/agent.test      ./internal/agent
+GOOS=linux GOARCH=amd64 go test -c -o .tmp-linux-bin/tests/agentstore.test ./internal/agentstore
+GOOS=linux GOARCH=amd64 go test -c -o .tmp-linux-bin/tests/syscmd.test     ./internal/syscmd
+sha256sum .tmp-linux-bin/upanel-web .tmp-linux-bin/upanel-agent .tmp-linux-bin/upanelctl \
+          .tmp-linux-bin/tests/agent.test .tmp-linux-bin/tests/agentstore.test \
+          .tmp-linux-bin/tests/syscmd.test > docs/evidence/P02/2026-10-20-p02.4/cross-build-sha256.txt
+
+# 脚本换行与语法（CRLF 会让 sh 报 set: Illegal option -）
+python -c "…CRLF→LF…"                            # 见 .gitattributes
+sh -n tests/integration/p02-2-acceptance.sh
+sh -n tests/integration/p02-3-agent-acceptance.sh
+sh -n tests/integration/p02-4-agent-secrets-acceptance.sh
+
+## VM 准备（两台各一次，upanel-2404 走 2222，upanel-2204 走 2223）
+
+ssh -i /h/Code/vms/upanel-2404/id_ed25519 -p 2222 upanel@127.0.0.1 \
+  "mkdir -p /tmp/upanel-bin/tests /tmp/upanel-src"
+scp -i /h/Code/vms/upanel-2404/id_ed25519 -P 2222 .tmp-linux-bin/upanel-agent \
+  .tmp-linux-bin/upanelctl .tmp-linux-bin/upanel-web .tmp-linux-bin/tests/*.test \
+  upanel@127.0.0.1:/tmp/upanel-bin/
+tar -czf - tests/integration deploy | ssh … "tar -xzf - -C /tmp/upanel-src"
+ssh … "chmod 0755 /tmp/upanel-bin/upanel-* /tmp/upanel-bin/tests/*.test"
+ssh … "sha256sum /tmp/upanel-bin/upanel-agent /tmp/upanel-bin/tests/agent.test"   # 与 cross-build-sha256.txt 一致
+
+## VM：最终一轮验收（两台各一条链）
+
+ssh … "cd /tmp/upanel-src &&
+  BIN_DIR=/tmp/upanel-bin sh tests/integration/p02-1-acceptance.sh            > /tmp/final-p021.log 2>&1 &&
+  BIN_DIR=/tmp/upanel-bin sh tests/integration/p02-2-acceptance.sh            > /tmp/final-p022.log 2>&1 &&
+  sudo -n BIN_DIR=/tmp/upanel-bin sh tests/integration/p02-3-agent-acceptance.sh         > /tmp/final-p023.log 2>&1 &&
+  sudo -n BIN_DIR=/tmp/upanel-bin sh tests/integration/p02-4-agent-secrets-acceptance.sh > /tmp/final-p024.log 2>&1"
+# 结果：2404 = 58/0、103/0、84/0、87/0；2204 = 58/0、103/0、84/0、87/0
+
+## VM：原生执行测试二进制（root）
+
+ssh … "cd /var/tmp && sudo -n /tmp/upanel-bin/tests/agentstore.test -test.v -test.count=1"   # 32 用例 / 0 FAIL
+ssh … "cd /var/tmp && sudo -n /tmp/upanel-bin/tests/agent.test      -test.v -test.count=1"   # 45 用例 / 0 FAIL
+
+## VM：journal 摘录（必须 root 才能看到系统单元的消息）
+
+ssh … "sudo -n journalctl -u upanel-agent --no-pager -o short-iso | tail -n 12"
+
+## 环境事故（如实记录）
+
+# 24.04 VM 在回归途中内核 panic（systemd/PID 1 段错误，UTC 时间见 console.log 的 3451 s uptime）。
+# 处理：Stop-Process 掉卡死的 qemu（pid 取自 qemu.pid）→ 用 H:\Code\vms\launch-vm.ps1 重新启动
+#      → /tmp 被清空，重新上传二进制与脚本并核对 sha256 → 整套验收重跑。
+powershell -File H:\Code\vms\launch-vm.ps1 -Name upanel-2404 -SshPort 2222 -SeedPort 8899

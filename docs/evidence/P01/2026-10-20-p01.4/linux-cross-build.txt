@@ -1,0 +1,10 @@
+$ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o bin/linux-amd64/<cmd> ./cmd/<cmd>
+== upanel-web
+== upanelctl
+== upanel-agent
+exit=0
+total 33180
+-rw-r--r-- 1 huxi 197609  6811808 Oct 20 16:56 upanel-agent
+-rw-r--r-- 1 huxi 197609 19419296 Oct 20 16:56 upanel-web
+-rw-r--r-- 1 huxi 197609  7733408 Oct 20 16:56 upanelctl
+bin/linux-amd64/upanel-web: ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, Go BuildID=SCHOKMMmnRHHtAUsyqBP/qwHpMThJuu9jLILl1SoC/5fINin8xo-8D3xyIeGJW/KJNBKHMXK6gRQNQtvlrW, BuildID[sha1]=99ac2fc874be35a6ce5717dceec747f893da2cf5, stripped

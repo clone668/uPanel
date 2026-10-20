@@ -1,0 +1,20 @@
+== os-release
+PRETTY_NAME="Ubuntu 22.04.5 LTS"
+VERSION_ID="22.04"
+== kernel
+5.15.0-198-generic
+== arch
+x86_64
+== python3
+Python 3.10.12
+== curl
+curl 7.81.0 (x86_64-pc-linux-gnu) libcurl/7.81.0 OpenSSL/3.0.2 zlib/1.2.11 brotli/1.0.9 zstd/1.4.8 libidn2/2.3.2 libpsl/0.21.0 (+libidn2/2.3.2) libssh/0.9.6/openssl/zlib nghttp2/1.43.0 librtmp/2.3 OpenLDAP/2.5.20
+== sqlite3 module
+3.37.2
+== sha256
+fb09f42c761f94448a474a0aee4dca5ad3f355f497784338d179afaaf7737907  /tmp/upanel-bin/upanel-agent
+551f924b98f45426929624d60c494995b5258351fad2309b3e0012c04be18229  /tmp/upanel-bin/upanel-web
+3e335e8d62776c7290206e637e0a027e8342ca3d0aaa9966b449276a41ff384b  /tmp/upanel-bin/upanelctl
+076b0e9ae6fbcab8570578b7d0e0737e81fdcb31300261e37594ebd0aee9903b  /tmp/upanel-src/tests/integration/p02-2-acceptance.sh
+== version
+upanelctl 0.0.0-dev (commit unknown, built unknown, go1.27.3)

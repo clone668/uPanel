@@ -1,0 +1,10 @@
+[90mvalidating api\openapi.yaml...
+[39m[33mwarning[39m no-unused-components: 8
+[33mwarning[39m operation-4xx-response: 2
+
+[90mapi\openapi.yaml: validated in 43ms
+
+[39m[32mWoohoo! Your API description is valid. 🎉
+[39m[33mYou have 10 warnings.
+[39m
+exit=0
