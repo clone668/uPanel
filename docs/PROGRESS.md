@@ -1301,6 +1301,11 @@ exitcode=0x8b，systemd/PID 1 段错误），重启 VM、重传二进制（sha25
 把“操作接口未实现 404”改成了“未知字段 400”，并新增了 `unknown-path-404-for-web` 一条，
 改名 + 新增后净增一条。两台 VM 上 85/0 与脚本一致。
 
+**交付去向**：本轮结束时仓库已纳入 git 并推送到 <https://github.com/clone668/uPanel>
+（`main`，首个提交 `d76e339`，379 个文件 / 56812 行；`.gitignore` 排除 `web/node_modules`、
+`bin/`、`dist/`、`*.db`、`*.test`、`*.key`、磁盘镜像）。推完核对 `git ls-remote origin` 的
+`refs/heads/main` 与本地 `HEAD` 同一个 sha，工作区干净。
+
 **环境事实（不记作产品缺陷）**：24.04 VM 本轮 panic 两次（约 4058 s 与约 528 s uptime，
 同一条 `Attempted to kill init! exitcode=0x8b`），重启重跑后全绿；其中一次留下被截断的
 `/etc/upanel/upanel.json`（内容为空），三项断言报 `解析配置文件失败 … EOF`，删文件后恢复。
