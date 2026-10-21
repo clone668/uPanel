@@ -1,0 +1,915 @@
+== 0. 环境 ==
+PASS  验收脚本以 root 运行
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  载荷校验程序存在
+PASS  python3 可用
+PASS  系统工具有 lsblk/df，可以做交叉验证
+PASS  本机有 smartctl（/usr/sbin/smartctl）
+PASS  Web 账号 upanel-web 存在
+
+== 1. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19448 启动
+PASS  监听 19448 的 Web 进程不是 root（pid=4469 uid=999）
+PASS  Web 身份是 upanel-web
+PASS  agent.sock 归 root:upanel-web
+PASS  agent.sock 不是 0666
+PASS  管理员登录
+
+== 1b. 等第一次 SMART 采集落地 ==
+PASS  首次 SMART 采集已完成（等待 5s，全部整盘都有 checked_at）
+
+== 2. 抓四份真实响应 ==
+PASS  GET /system/summary
+PASS  GET /storage/topology
+PASS  GET /storage/devices
+      整盘: sda sdb sdc sdd
+PASS  GET /storage/devices/sda
+PASS  GET /storage/devices/sdb
+PASS  GET /storage/devices/sdc
+PASS  GET /storage/devices/sdd
+PASS  路径穿越式设备 id 被拒绝（HTTP 404）
+PASS  路径穿越响应里不含系统文件内容
+
+== 3. 载荷与契约、与系统工具一致 ==
+== A. /system/summary ==
+PASS  /system/summary 字段齐全
+PASS  /system/summary 没有契约外字段
+PASS  interval_ms ≥ 1
+PASS  stale 是布尔
+PASS  degraded 是布尔
+PASS  段 host.status 在闭集内
+PASS  段 cpu.status 在闭集内
+PASS  段 memory.status 在闭集内
+PASS  段 load.status 在闭集内
+PASS  段 network.status 在闭集内
+PASS  degraded 与各段状态一致
+PASS  内存字节是十进制字符串
+PASS  已用内存不超过总量
+PASS  load1 是非负数
+PASS  load5 是非负数
+PASS  load15 是非负数
+PASS  logical_cores ≥ 1
+PASS  per_cpu 数量与 logical_cores 一致
+PASS  核 0 的 index 是整数
+PASS  核 0 使用率是 null 或 0—100
+PASS  核 1 的 index 是整数
+PASS  核 1 使用率是 null 或 0—100
+
+== B. /storage/topology 与 /storage/devices 是同一份快照 ==
+PASS  topology.snapshot_version 形如 sha256:<64hex>
+PASS  devices.snapshot_version 与 topology 相同
+PASS  devices.collected_at 与 topology 相同
+PASS  devices.interval_ms 与 topology 相同
+PASS  topology.status 为 ok
+PASS  拓扑节点数 = 设备列表条数
+PASS  设备 id 唯一
+
+== C. 每台设备（字段、健康、I/O、容量、保护、写动作） ==
+PASS  sda 设备字段 字段齐全
+PASS  sda 设备字段 没有契约外字段
+PASS  sda kind 在闭集内
+PASS  sda transport 是已知取值或 null
+PASS  sda size_bytes 是十进制字符串
+PASS  sda collected_at 是 RFC3339
+PASS  sda rotational 是布尔
+PASS  sda read_only 是布尔
+PASS  sda online 是布尔
+PASS  sda identity_confidence 在闭集内
+PASS  sda identity_fingerprint 是 sha256
+PASS  sda health 字段齐全
+PASS  sda health 没有契约外字段
+PASS  sda health.status 在闭集内
+PASS  sda 温度是 null 或正数（不得为 0）
+PASS  sda io 字段齐全
+PASS  sda io 没有契约外字段
+PASS  sda io.read_bytes_total 是十进制字符串
+PASS  sda io.write_bytes_total 是十进制字符串
+PASS  sda io.reads_total 是十进制字符串
+PASS  sda io.writes_total 是十进制字符串
+PASS  sda io.rate 字段齐全
+PASS  sda io.rate 没有契约外字段
+PASS  sda io.rate.interval_ms ≥ 1
+PASS  sda 速率用十进制字符串
+PASS  sda read_latency_ms 是 null 或非负数
+PASS  sda write_latency_ms 是 null 或非负数
+PASS  sda 没有文件系统信息（未挂载或读不到就是 null）
+PASS  sda protection 字段齐全
+PASS  sda protection 没有契约外字段
+PASS  sda 系统盘保护给出理由
+PASS  sda capabilities 是数组
+PASS  sda 本阶段没有任何可用写动作
+PASS  sda partition_table 字段齐全
+PASS  sda partition_table 没有契约外字段
+PASS  sda 分区 sda1 不超过整盘
+PASS  sda 分区 start_bytes 是十进制字符串
+PASS  sda 分区 sda14 不超过整盘
+PASS  sda 分区 start_bytes 是十进制字符串
+PASS  sda 分区 sda15 不超过整盘
+PASS  sda 分区 start_bytes 是十进制字符串
+PASS  sda 分区 sda16 不超过整盘
+PASS  sda 分区 start_bytes 是十进制字符串
+PASS  sdb 设备字段 字段齐全
+PASS  sdb 设备字段 没有契约外字段
+PASS  sdb kind 在闭集内
+PASS  sdb transport 是已知取值或 null
+PASS  sdb size_bytes 是十进制字符串
+PASS  sdb collected_at 是 RFC3339
+PASS  sdb rotational 是布尔
+PASS  sdb read_only 是布尔
+PASS  sdb online 是布尔
+PASS  sdb identity_confidence 在闭集内
+PASS  sdb identity_fingerprint 是 sha256
+PASS  sdb health 字段齐全
+PASS  sdb health 没有契约外字段
+PASS  sdb health.status 在闭集内
+PASS  sdb 温度是 null 或正数（不得为 0）
+PASS  sdb io 字段齐全
+PASS  sdb io 没有契约外字段
+PASS  sdb io.read_bytes_total 是十进制字符串
+PASS  sdb io.write_bytes_total 是十进制字符串
+PASS  sdb io.reads_total 是十进制字符串
+PASS  sdb io.writes_total 是十进制字符串
+PASS  sdb io.rate 字段齐全
+PASS  sdb io.rate 没有契约外字段
+PASS  sdb io.rate.interval_ms ≥ 1
+PASS  sdb 速率用十进制字符串
+PASS  sdb read_latency_ms 是 null 或非负数
+PASS  sdb write_latency_ms 是 null 或非负数
+PASS  sdb 没有文件系统信息（未挂载或读不到就是 null）
+PASS  sdb protection 字段齐全
+PASS  sdb protection 没有契约外字段
+PASS  sdb capabilities 是数组
+PASS  sdb 本阶段没有任何可用写动作
+PASS  sdb partition_table 字段齐全
+PASS  sdb partition_table 没有契约外字段
+PASS  sdc 设备字段 字段齐全
+PASS  sdc 设备字段 没有契约外字段
+PASS  sdc kind 在闭集内
+PASS  sdc transport 是已知取值或 null
+PASS  sdc size_bytes 是十进制字符串
+PASS  sdc collected_at 是 RFC3339
+PASS  sdc rotational 是布尔
+PASS  sdc read_only 是布尔
+PASS  sdc online 是布尔
+PASS  sdc identity_confidence 在闭集内
+PASS  sdc identity_fingerprint 是 sha256
+PASS  sdc health 字段齐全
+PASS  sdc health 没有契约外字段
+PASS  sdc health.status 在闭集内
+PASS  sdc 温度是 null 或正数（不得为 0）
+PASS  sdc io 字段齐全
+PASS  sdc io 没有契约外字段
+PASS  sdc io.read_bytes_total 是十进制字符串
+PASS  sdc io.write_bytes_total 是十进制字符串
+PASS  sdc io.reads_total 是十进制字符串
+PASS  sdc io.writes_total 是十进制字符串
+PASS  sdc io.rate 字段齐全
+PASS  sdc io.rate 没有契约外字段
+PASS  sdc io.rate.interval_ms ≥ 1
+PASS  sdc 速率用十进制字符串
+PASS  sdc read_latency_ms 是 null 或非负数
+PASS  sdc write_latency_ms 是 null 或非负数
+PASS  sdc 没有文件系统信息（未挂载或读不到就是 null）
+PASS  sdc protection 字段齐全
+PASS  sdc protection 没有契约外字段
+PASS  sdc capabilities 是数组
+PASS  sdc 本阶段没有任何可用写动作
+PASS  sdc partition_table 字段齐全
+PASS  sdc partition_table 没有契约外字段
+PASS  sdd 设备字段 字段齐全
+PASS  sdd 设备字段 没有契约外字段
+PASS  sdd kind 在闭集内
+PASS  sdd transport 是已知取值或 null
+PASS  sdd size_bytes 是十进制字符串
+PASS  sdd collected_at 是 RFC3339
+PASS  sdd rotational 是布尔
+PASS  sdd read_only 是布尔
+PASS  sdd online 是布尔
+PASS  sdd identity_confidence 在闭集内
+PASS  sdd identity_fingerprint 是 sha256
+PASS  sdd health 字段齐全
+PASS  sdd health 没有契约外字段
+PASS  sdd health.status 在闭集内
+PASS  sdd 温度是 null 或正数（不得为 0）
+PASS  sdd io 字段齐全
+PASS  sdd io 没有契约外字段
+PASS  sdd io.read_bytes_total 是十进制字符串
+PASS  sdd io.write_bytes_total 是十进制字符串
+PASS  sdd io.reads_total 是十进制字符串
+PASS  sdd io.writes_total 是十进制字符串
+PASS  sdd io.rate 字段齐全
+PASS  sdd io.rate 没有契约外字段
+PASS  sdd io.rate.interval_ms ≥ 1
+PASS  sdd 速率用十进制字符串
+PASS  sdd read_latency_ms 是 null 或非负数
+PASS  sdd write_latency_ms 是 null 或非负数
+PASS  sdd 没有文件系统信息（未挂载或读不到就是 null）
+PASS  sdd protection 字段齐全
+PASS  sdd protection 没有契约外字段
+PASS  sdd capabilities 是数组
+PASS  sdd 本阶段没有任何可用写动作
+PASS  sdd partition_table 字段齐全
+PASS  sdd partition_table 没有契约外字段
+PASS  sda1 设备字段 字段齐全
+PASS  sda1 设备字段 没有契约外字段
+PASS  sda1 kind 在闭集内
+PASS  sda1 transport 是已知取值或 null
+PASS  sda1 size_bytes 是十进制字符串
+PASS  sda1 collected_at 是 RFC3339
+PASS  sda1 rotational 是布尔
+PASS  sda1 read_only 是布尔
+PASS  sda1 online 是布尔
+PASS  sda1 identity_confidence 在闭集内
+PASS  sda1 identity_fingerprint 是 sha256
+PASS  sda1 health 字段齐全
+PASS  sda1 health 没有契约外字段
+PASS  sda1 health.status 在闭集内
+PASS  sda1 温度是 null 或正数（不得为 0）
+PASS  sda1 非物理盘的 health 是 unsupported
+PASS  sda1 io 字段齐全
+PASS  sda1 io 没有契约外字段
+PASS  sda1 io.read_bytes_total 是十进制字符串
+PASS  sda1 io.write_bytes_total 是十进制字符串
+PASS  sda1 io.reads_total 是十进制字符串
+PASS  sda1 io.writes_total 是十进制字符串
+PASS  sda1 io.rate 字段齐全
+PASS  sda1 io.rate 没有契约外字段
+PASS  sda1 io.rate.interval_ms ≥ 1
+PASS  sda1 速率用十进制字符串
+PASS  sda1 read_latency_ms 是 null 或非负数
+PASS  sda1 write_latency_ms 是 null 或非负数
+PASS  sda1 filesystem 字段齐全
+PASS  sda1 filesystem 没有契约外字段
+PASS  sda1 mount 字段齐全
+PASS  sda1 mount 没有契约外字段
+PASS  sda1 capacity 字段齐全
+PASS  sda1 capacity 没有契约外字段
+PASS  sda1 capacity.total_bytes 是十进制字符串
+PASS  sda1 capacity.available_bytes 是十进制字符串
+PASS  sda1 capacity.inode_total 是十进制字符串
+PASS  sda1 capacity.inode_available 是十进制字符串
+PASS  sda1 可用容量不超过总容量
+PASS  sda1 capacity.used_percent 在 0—100
+PASS  sda1 capacity.inode_used_percent 在 0—100
+PASS  sda1 protection 字段齐全
+PASS  sda1 protection 没有契约外字段
+PASS  sda1 系统盘保护给出理由
+PASS  sda1 capabilities 是数组
+PASS  sda1 本阶段没有任何可用写动作
+PASS  sda14 设备字段 字段齐全
+PASS  sda14 设备字段 没有契约外字段
+PASS  sda14 kind 在闭集内
+PASS  sda14 transport 是已知取值或 null
+PASS  sda14 size_bytes 是十进制字符串
+PASS  sda14 collected_at 是 RFC3339
+PASS  sda14 rotational 是布尔
+PASS  sda14 read_only 是布尔
+PASS  sda14 online 是布尔
+PASS  sda14 identity_confidence 在闭集内
+PASS  sda14 identity_fingerprint 是 sha256
+PASS  sda14 health 字段齐全
+PASS  sda14 health 没有契约外字段
+PASS  sda14 health.status 在闭集内
+PASS  sda14 温度是 null 或正数（不得为 0）
+PASS  sda14 非物理盘的 health 是 unsupported
+PASS  sda14 io 字段齐全
+PASS  sda14 io 没有契约外字段
+PASS  sda14 io.read_bytes_total 是十进制字符串
+PASS  sda14 io.write_bytes_total 是十进制字符串
+PASS  sda14 io.reads_total 是十进制字符串
+PASS  sda14 io.writes_total 是十进制字符串
+PASS  sda14 io.rate 字段齐全
+PASS  sda14 io.rate 没有契约外字段
+PASS  sda14 io.rate.interval_ms ≥ 1
+PASS  sda14 速率用十进制字符串
+PASS  sda14 read_latency_ms 是 null 或非负数
+PASS  sda14 write_latency_ms 是 null 或非负数
+PASS  sda14 没有文件系统信息（未挂载或读不到就是 null）
+PASS  sda14 protection 字段齐全
+PASS  sda14 protection 没有契约外字段
+PASS  sda14 capabilities 是数组
+PASS  sda14 本阶段没有任何可用写动作
+PASS  sda15 设备字段 字段齐全
+PASS  sda15 设备字段 没有契约外字段
+PASS  sda15 kind 在闭集内
+PASS  sda15 transport 是已知取值或 null
+PASS  sda15 size_bytes 是十进制字符串
+PASS  sda15 collected_at 是 RFC3339
+PASS  sda15 rotational 是布尔
+PASS  sda15 read_only 是布尔
+PASS  sda15 online 是布尔
+PASS  sda15 identity_confidence 在闭集内
+PASS  sda15 identity_fingerprint 是 sha256
+PASS  sda15 health 字段齐全
+PASS  sda15 health 没有契约外字段
+PASS  sda15 health.status 在闭集内
+PASS  sda15 温度是 null 或正数（不得为 0）
+PASS  sda15 非物理盘的 health 是 unsupported
+PASS  sda15 io 字段齐全
+PASS  sda15 io 没有契约外字段
+PASS  sda15 io.read_bytes_total 是十进制字符串
+PASS  sda15 io.write_bytes_total 是十进制字符串
+PASS  sda15 io.reads_total 是十进制字符串
+PASS  sda15 io.writes_total 是十进制字符串
+PASS  sda15 io.rate 字段齐全
+PASS  sda15 io.rate 没有契约外字段
+PASS  sda15 io.rate.interval_ms ≥ 1
+PASS  sda15 速率用十进制字符串
+PASS  sda15 read_latency_ms 是 null 或非负数
+PASS  sda15 write_latency_ms 是 null 或非负数
+PASS  sda15 filesystem 字段齐全
+PASS  sda15 filesystem 没有契约外字段
+PASS  sda15 mount 字段齐全
+PASS  sda15 mount 没有契约外字段
+PASS  sda15 capacity 字段齐全
+PASS  sda15 capacity 没有契约外字段
+PASS  sda15 capacity.total_bytes 是十进制字符串
+PASS  sda15 capacity.available_bytes 是十进制字符串
+PASS  sda15 capacity.inode_total 是十进制字符串
+PASS  sda15 capacity.inode_available 是十进制字符串
+PASS  sda15 可用容量不超过总容量
+PASS  sda15 capacity.used_percent 在 0—100
+PASS  sda15 capacity.inode_used_percent 在 0—100
+PASS  sda15 protection 字段齐全
+PASS  sda15 protection 没有契约外字段
+PASS  sda15 系统盘保护给出理由
+PASS  sda15 capabilities 是数组
+PASS  sda15 本阶段没有任何可用写动作
+PASS  sda16 设备字段 字段齐全
+PASS  sda16 设备字段 没有契约外字段
+PASS  sda16 kind 在闭集内
+PASS  sda16 transport 是已知取值或 null
+PASS  sda16 size_bytes 是十进制字符串
+PASS  sda16 collected_at 是 RFC3339
+PASS  sda16 rotational 是布尔
+PASS  sda16 read_only 是布尔
+PASS  sda16 online 是布尔
+PASS  sda16 identity_confidence 在闭集内
+PASS  sda16 identity_fingerprint 是 sha256
+PASS  sda16 health 字段齐全
+PASS  sda16 health 没有契约外字段
+PASS  sda16 health.status 在闭集内
+PASS  sda16 温度是 null 或正数（不得为 0）
+PASS  sda16 非物理盘的 health 是 unsupported
+PASS  sda16 io 字段齐全
+PASS  sda16 io 没有契约外字段
+PASS  sda16 io.read_bytes_total 是十进制字符串
+PASS  sda16 io.write_bytes_total 是十进制字符串
+PASS  sda16 io.reads_total 是十进制字符串
+PASS  sda16 io.writes_total 是十进制字符串
+PASS  sda16 io.rate 字段齐全
+PASS  sda16 io.rate 没有契约外字段
+PASS  sda16 io.rate.interval_ms ≥ 1
+PASS  sda16 速率用十进制字符串
+PASS  sda16 read_latency_ms 是 null 或非负数
+PASS  sda16 write_latency_ms 是 null 或非负数
+PASS  sda16 filesystem 字段齐全
+PASS  sda16 filesystem 没有契约外字段
+PASS  sda16 mount 字段齐全
+PASS  sda16 mount 没有契约外字段
+PASS  sda16 capacity 字段齐全
+PASS  sda16 capacity 没有契约外字段
+PASS  sda16 capacity.total_bytes 是十进制字符串
+PASS  sda16 capacity.available_bytes 是十进制字符串
+PASS  sda16 capacity.inode_total 是十进制字符串
+PASS  sda16 capacity.inode_available 是十进制字符串
+PASS  sda16 可用容量不超过总容量
+PASS  sda16 capacity.used_percent 在 0—100
+PASS  sda16 capacity.inode_used_percent 在 0—100
+PASS  sda16 protection 字段齐全
+PASS  sda16 protection 没有契约外字段
+PASS  sda16 系统盘保护给出理由
+PASS  sda16 capabilities 是数组
+PASS  sda16 本阶段没有任何可用写动作
+PASS  loop0 设备字段 字段齐全
+PASS  loop0 设备字段 没有契约外字段
+PASS  loop0 kind 在闭集内
+PASS  loop0 transport 是已知取值或 null
+PASS  loop0 size_bytes 是十进制字符串
+PASS  loop0 collected_at 是 RFC3339
+PASS  loop0 rotational 是布尔
+PASS  loop0 read_only 是布尔
+PASS  loop0 online 是布尔
+PASS  loop0 identity_confidence 在闭集内
+PASS  loop0 identity_fingerprint 是 sha256
+PASS  loop0 health 字段齐全
+PASS  loop0 health 没有契约外字段
+PASS  loop0 health.status 在闭集内
+PASS  loop0 温度是 null 或正数（不得为 0）
+PASS  loop0 非物理盘的 health 是 unsupported
+PASS  loop0 io 字段齐全
+PASS  loop0 io 没有契约外字段
+PASS  loop0 io.read_bytes_total 是十进制字符串
+PASS  loop0 io.write_bytes_total 是十进制字符串
+PASS  loop0 io.reads_total 是十进制字符串
+PASS  loop0 io.writes_total 是十进制字符串
+PASS  loop0 io.rate 字段齐全
+PASS  loop0 io.rate 没有契约外字段
+PASS  loop0 io.rate.interval_ms ≥ 1
+PASS  loop0 速率用十进制字符串
+PASS  loop0 read_latency_ms 是 null 或非负数
+PASS  loop0 write_latency_ms 是 null 或非负数
+PASS  loop0 没有文件系统信息（未挂载或读不到就是 null）
+PASS  loop0 protection 字段齐全
+PASS  loop0 protection 没有契约外字段
+PASS  loop0 capabilities 是数组
+PASS  loop0 本阶段没有任何可用写动作
+PASS  loop1 设备字段 字段齐全
+PASS  loop1 设备字段 没有契约外字段
+PASS  loop1 kind 在闭集内
+PASS  loop1 transport 是已知取值或 null
+PASS  loop1 size_bytes 是十进制字符串
+PASS  loop1 collected_at 是 RFC3339
+PASS  loop1 rotational 是布尔
+PASS  loop1 read_only 是布尔
+PASS  loop1 online 是布尔
+PASS  loop1 identity_confidence 在闭集内
+PASS  loop1 identity_fingerprint 是 sha256
+PASS  loop1 health 字段齐全
+PASS  loop1 health 没有契约外字段
+PASS  loop1 health.status 在闭集内
+PASS  loop1 温度是 null 或正数（不得为 0）
+PASS  loop1 非物理盘的 health 是 unsupported
+PASS  loop1 io 字段齐全
+PASS  loop1 io 没有契约外字段
+PASS  loop1 io.read_bytes_total 是十进制字符串
+PASS  loop1 io.write_bytes_total 是十进制字符串
+PASS  loop1 io.reads_total 是十进制字符串
+PASS  loop1 io.writes_total 是十进制字符串
+PASS  loop1 io.rate 字段齐全
+PASS  loop1 io.rate 没有契约外字段
+PASS  loop1 io.rate.interval_ms ≥ 1
+PASS  loop1 速率用十进制字符串
+PASS  loop1 read_latency_ms 是 null 或非负数
+PASS  loop1 write_latency_ms 是 null 或非负数
+PASS  loop1 没有文件系统信息（未挂载或读不到就是 null）
+PASS  loop1 protection 字段齐全
+PASS  loop1 protection 没有契约外字段
+PASS  loop1 capabilities 是数组
+PASS  loop1 本阶段没有任何可用写动作
+PASS  loop2 设备字段 字段齐全
+PASS  loop2 设备字段 没有契约外字段
+PASS  loop2 kind 在闭集内
+PASS  loop2 transport 是已知取值或 null
+PASS  loop2 size_bytes 是十进制字符串
+PASS  loop2 collected_at 是 RFC3339
+PASS  loop2 rotational 是布尔
+PASS  loop2 read_only 是布尔
+PASS  loop2 online 是布尔
+PASS  loop2 identity_confidence 在闭集内
+PASS  loop2 identity_fingerprint 是 sha256
+PASS  loop2 health 字段齐全
+PASS  loop2 health 没有契约外字段
+PASS  loop2 health.status 在闭集内
+PASS  loop2 温度是 null 或正数（不得为 0）
+PASS  loop2 非物理盘的 health 是 unsupported
+PASS  loop2 io 字段齐全
+PASS  loop2 io 没有契约外字段
+PASS  loop2 io.read_bytes_total 是十进制字符串
+PASS  loop2 io.write_bytes_total 是十进制字符串
+PASS  loop2 io.reads_total 是十进制字符串
+PASS  loop2 io.writes_total 是十进制字符串
+PASS  loop2 io.rate 字段齐全
+PASS  loop2 io.rate 没有契约外字段
+PASS  loop2 io.rate.interval_ms ≥ 1
+PASS  loop2 速率用十进制字符串
+PASS  loop2 read_latency_ms 是 null 或非负数
+PASS  loop2 write_latency_ms 是 null 或非负数
+PASS  loop2 没有文件系统信息（未挂载或读不到就是 null）
+PASS  loop2 protection 字段齐全
+PASS  loop2 protection 没有契约外字段
+PASS  loop2 capabilities 是数组
+PASS  loop2 本阶段没有任何可用写动作
+PASS  loop3 设备字段 字段齐全
+PASS  loop3 设备字段 没有契约外字段
+PASS  loop3 kind 在闭集内
+PASS  loop3 transport 是已知取值或 null
+PASS  loop3 size_bytes 是十进制字符串
+PASS  loop3 collected_at 是 RFC3339
+PASS  loop3 rotational 是布尔
+PASS  loop3 read_only 是布尔
+PASS  loop3 online 是布尔
+PASS  loop3 identity_confidence 在闭集内
+PASS  loop3 identity_fingerprint 是 sha256
+PASS  loop3 health 字段齐全
+PASS  loop3 health 没有契约外字段
+PASS  loop3 health.status 在闭集内
+PASS  loop3 温度是 null 或正数（不得为 0）
+PASS  loop3 非物理盘的 health 是 unsupported
+PASS  loop3 io 字段齐全
+PASS  loop3 io 没有契约外字段
+PASS  loop3 io.read_bytes_total 是十进制字符串
+PASS  loop3 io.write_bytes_total 是十进制字符串
+PASS  loop3 io.reads_total 是十进制字符串
+PASS  loop3 io.writes_total 是十进制字符串
+PASS  loop3 io.rate 字段齐全
+PASS  loop3 io.rate 没有契约外字段
+PASS  loop3 io.rate.interval_ms ≥ 1
+PASS  loop3 速率用十进制字符串
+PASS  loop3 read_latency_ms 是 null 或非负数
+PASS  loop3 write_latency_ms 是 null 或非负数
+PASS  loop3 没有文件系统信息（未挂载或读不到就是 null）
+PASS  loop3 protection 字段齐全
+PASS  loop3 protection 没有契约外字段
+PASS  loop3 capabilities 是数组
+PASS  loop3 本阶段没有任何可用写动作
+PASS  loop4 设备字段 字段齐全
+PASS  loop4 设备字段 没有契约外字段
+PASS  loop4 kind 在闭集内
+PASS  loop4 transport 是已知取值或 null
+PASS  loop4 size_bytes 是十进制字符串
+PASS  loop4 collected_at 是 RFC3339
+PASS  loop4 rotational 是布尔
+PASS  loop4 read_only 是布尔
+PASS  loop4 online 是布尔
+PASS  loop4 identity_confidence 在闭集内
+PASS  loop4 identity_fingerprint 是 sha256
+PASS  loop4 health 字段齐全
+PASS  loop4 health 没有契约外字段
+PASS  loop4 health.status 在闭集内
+PASS  loop4 温度是 null 或正数（不得为 0）
+PASS  loop4 非物理盘的 health 是 unsupported
+PASS  loop4 io 字段齐全
+PASS  loop4 io 没有契约外字段
+PASS  loop4 io.read_bytes_total 是十进制字符串
+PASS  loop4 io.write_bytes_total 是十进制字符串
+PASS  loop4 io.reads_total 是十进制字符串
+PASS  loop4 io.writes_total 是十进制字符串
+PASS  loop4 io.rate 字段齐全
+PASS  loop4 io.rate 没有契约外字段
+PASS  loop4 io.rate.interval_ms ≥ 1
+PASS  loop4 速率用十进制字符串
+PASS  loop4 read_latency_ms 是 null 或非负数
+PASS  loop4 write_latency_ms 是 null 或非负数
+PASS  loop4 没有文件系统信息（未挂载或读不到就是 null）
+PASS  loop4 protection 字段齐全
+PASS  loop4 protection 没有契约外字段
+PASS  loop4 capabilities 是数组
+PASS  loop4 本阶段没有任何可用写动作
+PASS  loop5 设备字段 字段齐全
+PASS  loop5 设备字段 没有契约外字段
+PASS  loop5 kind 在闭集内
+PASS  loop5 transport 是已知取值或 null
+PASS  loop5 size_bytes 是十进制字符串
+PASS  loop5 collected_at 是 RFC3339
+PASS  loop5 rotational 是布尔
+PASS  loop5 read_only 是布尔
+PASS  loop5 online 是布尔
+PASS  loop5 identity_confidence 在闭集内
+PASS  loop5 identity_fingerprint 是 sha256
+PASS  loop5 health 字段齐全
+PASS  loop5 health 没有契约外字段
+PASS  loop5 health.status 在闭集内
+PASS  loop5 温度是 null 或正数（不得为 0）
+PASS  loop5 非物理盘的 health 是 unsupported
+PASS  loop5 io 字段齐全
+PASS  loop5 io 没有契约外字段
+PASS  loop5 io.read_bytes_total 是十进制字符串
+PASS  loop5 io.write_bytes_total 是十进制字符串
+PASS  loop5 io.reads_total 是十进制字符串
+PASS  loop5 io.writes_total 是十进制字符串
+PASS  loop5 io.rate 字段齐全
+PASS  loop5 io.rate 没有契约外字段
+PASS  loop5 io.rate.interval_ms ≥ 1
+PASS  loop5 速率用十进制字符串
+PASS  loop5 read_latency_ms 是 null 或非负数
+PASS  loop5 write_latency_ms 是 null 或非负数
+PASS  loop5 没有文件系统信息（未挂载或读不到就是 null）
+PASS  loop5 protection 字段齐全
+PASS  loop5 protection 没有契约外字段
+PASS  loop5 capabilities 是数组
+PASS  loop5 本阶段没有任何可用写动作
+PASS  loop6 设备字段 字段齐全
+PASS  loop6 设备字段 没有契约外字段
+PASS  loop6 kind 在闭集内
+PASS  loop6 transport 是已知取值或 null
+PASS  loop6 size_bytes 是十进制字符串
+PASS  loop6 collected_at 是 RFC3339
+PASS  loop6 rotational 是布尔
+PASS  loop6 read_only 是布尔
+PASS  loop6 online 是布尔
+PASS  loop6 identity_confidence 在闭集内
+PASS  loop6 identity_fingerprint 是 sha256
+PASS  loop6 health 字段齐全
+PASS  loop6 health 没有契约外字段
+PASS  loop6 health.status 在闭集内
+PASS  loop6 温度是 null 或正数（不得为 0）
+PASS  loop6 非物理盘的 health 是 unsupported
+PASS  loop6 io 字段齐全
+PASS  loop6 io 没有契约外字段
+PASS  loop6 io.read_bytes_total 是十进制字符串
+PASS  loop6 io.write_bytes_total 是十进制字符串
+PASS  loop6 io.reads_total 是十进制字符串
+PASS  loop6 io.writes_total 是十进制字符串
+PASS  loop6 io.rate 字段齐全
+PASS  loop6 io.rate 没有契约外字段
+PASS  loop6 io.rate.interval_ms ≥ 1
+PASS  loop6 速率用十进制字符串
+PASS  loop6 read_latency_ms 是 null 或非负数
+PASS  loop6 write_latency_ms 是 null 或非负数
+PASS  loop6 没有文件系统信息（未挂载或读不到就是 null）
+PASS  loop6 protection 字段齐全
+PASS  loop6 protection 没有契约外字段
+PASS  loop6 capabilities 是数组
+PASS  loop6 本阶段没有任何可用写动作
+PASS  loop7 设备字段 字段齐全
+PASS  loop7 设备字段 没有契约外字段
+PASS  loop7 kind 在闭集内
+PASS  loop7 transport 是已知取值或 null
+PASS  loop7 size_bytes 是十进制字符串
+PASS  loop7 collected_at 是 RFC3339
+PASS  loop7 rotational 是布尔
+PASS  loop7 read_only 是布尔
+PASS  loop7 online 是布尔
+PASS  loop7 identity_confidence 在闭集内
+PASS  loop7 identity_fingerprint 是 sha256
+PASS  loop7 health 字段齐全
+PASS  loop7 health 没有契约外字段
+PASS  loop7 health.status 在闭集内
+PASS  loop7 温度是 null 或正数（不得为 0）
+PASS  loop7 非物理盘的 health 是 unsupported
+PASS  loop7 io 字段齐全
+PASS  loop7 io 没有契约外字段
+PASS  loop7 io.read_bytes_total 是十进制字符串
+PASS  loop7 io.write_bytes_total 是十进制字符串
+PASS  loop7 io.reads_total 是十进制字符串
+PASS  loop7 io.writes_total 是十进制字符串
+PASS  loop7 io.rate 字段齐全
+PASS  loop7 io.rate 没有契约外字段
+PASS  loop7 io.rate.interval_ms ≥ 1
+PASS  loop7 速率用十进制字符串
+PASS  loop7 read_latency_ms 是 null 或非负数
+PASS  loop7 write_latency_ms 是 null 或非负数
+PASS  loop7 没有文件系统信息（未挂载或读不到就是 null）
+PASS  loop7 protection 字段齐全
+PASS  loop7 protection 没有契约外字段
+PASS  loop7 capabilities 是数组
+PASS  loop7 本阶段没有任何可用写动作
+PASS  fd0 设备字段 字段齐全
+PASS  fd0 设备字段 没有契约外字段
+PASS  fd0 kind 在闭集内
+PASS  fd0 transport 是已知取值或 null
+PASS  fd0 size_bytes 是十进制字符串
+PASS  fd0 collected_at 是 RFC3339
+PASS  fd0 rotational 是布尔
+PASS  fd0 read_only 是布尔
+PASS  fd0 online 是布尔
+PASS  fd0 identity_confidence 在闭集内
+PASS  fd0 identity_fingerprint 是 sha256
+PASS  fd0 health 字段齐全
+PASS  fd0 health 没有契约外字段
+PASS  fd0 health.status 在闭集内
+PASS  fd0 温度是 null 或正数（不得为 0）
+PASS  fd0 io 字段齐全
+PASS  fd0 io 没有契约外字段
+PASS  fd0 io.read_bytes_total 是十进制字符串
+PASS  fd0 io.write_bytes_total 是十进制字符串
+PASS  fd0 io.reads_total 是十进制字符串
+PASS  fd0 io.writes_total 是十进制字符串
+PASS  fd0 io.rate 字段齐全
+PASS  fd0 io.rate 没有契约外字段
+PASS  fd0 io.rate.interval_ms ≥ 1
+PASS  fd0 速率用十进制字符串
+PASS  fd0 read_latency_ms 是 null 或非负数
+PASS  fd0 write_latency_ms 是 null 或非负数
+PASS  fd0 没有文件系统信息（未挂载或读不到就是 null）
+PASS  fd0 protection 字段齐全
+PASS  fd0 protection 没有契约外字段
+PASS  fd0 capabilities 是数组
+PASS  fd0 本阶段没有任何可用写动作
+PASS  边 sda1→sda 字段齐全
+PASS  边 sda1→sda 没有契约外字段
+PASS  边关系在闭集内
+PASS  边的两端都在节点里
+PASS  边 sda14→sda 字段齐全
+PASS  边 sda14→sda 没有契约外字段
+PASS  边关系在闭集内
+PASS  边的两端都在节点里
+PASS  边 sda15→sda 字段齐全
+PASS  边 sda15→sda 没有契约外字段
+PASS  边关系在闭集内
+PASS  边的两端都在节点里
+PASS  边 sda16→sda 字段齐全
+PASS  边 sda16→sda 没有契约外字段
+PASS  边关系在闭集内
+PASS  边的两端都在节点里
+
+== D. 设备详情 ==
+PASS  详情 sda 字段齐全
+PASS  详情 sda 没有契约外字段
+PASS  详情 sda snapshot_version 与列表一致
+PASS  详情 sda 设备字段 字段齐全
+PASS  详情 sda 设备字段 没有契约外字段
+PASS  详情 sda kind 在闭集内
+PASS  详情 sda transport 是已知取值或 null
+PASS  详情 sda size_bytes 是十进制字符串
+PASS  详情 sda collected_at 是 RFC3339
+PASS  详情 sda rotational 是布尔
+PASS  详情 sda read_only 是布尔
+PASS  详情 sda online 是布尔
+PASS  详情 sda identity_confidence 在闭集内
+PASS  详情 sda identity_fingerprint 是 sha256
+PASS  详情 sda health 字段齐全
+PASS  详情 sda health 没有契约外字段
+PASS  详情 sda health.status 在闭集内
+PASS  详情 sda 温度是 null 或正数（不得为 0）
+PASS  详情 sda io 字段齐全
+PASS  详情 sda io 没有契约外字段
+PASS  详情 sda io.read_bytes_total 是十进制字符串
+PASS  详情 sda io.write_bytes_total 是十进制字符串
+PASS  详情 sda io.reads_total 是十进制字符串
+PASS  详情 sda io.writes_total 是十进制字符串
+PASS  详情 sda io.rate 字段齐全
+PASS  详情 sda io.rate 没有契约外字段
+PASS  详情 sda io.rate.interval_ms ≥ 1
+PASS  详情 sda 速率用十进制字符串
+PASS  详情 sda read_latency_ms 是 null 或非负数
+PASS  详情 sda write_latency_ms 是 null 或非负数
+PASS  详情 sda 没有文件系统信息（未挂载或读不到就是 null）
+PASS  详情 sda protection 字段齐全
+PASS  详情 sda protection 没有契约外字段
+PASS  详情 sda 系统盘保护给出理由
+PASS  详情 sda capabilities 是数组
+PASS  详情 sda 本阶段没有任何可用写动作
+PASS  详情 sda partition_table 字段齐全
+PASS  详情 sda partition_table 没有契约外字段
+PASS  详情 sda 分区 sda1 不超过整盘
+PASS  详情 sda 分区 start_bytes 是十进制字符串
+PASS  详情 sda 分区 sda14 不超过整盘
+PASS  详情 sda 分区 start_bytes 是十进制字符串
+PASS  详情 sda 分区 sda15 不超过整盘
+PASS  详情 sda 分区 start_bytes 是十进制字符串
+PASS  详情 sda 分区 sda16 不超过整盘
+PASS  详情 sda 分区 start_bytes 是十进制字符串
+PASS  详情 sda 的边与这台设备直接相关
+PASS  详情 sda 的边与这台设备直接相关
+PASS  详情 sda 的边与这台设备直接相关
+PASS  详情 sda 的边与这台设备直接相关
+PASS  详情 sdb 字段齐全
+PASS  详情 sdb 没有契约外字段
+PASS  详情 sdb snapshot_version 与列表一致
+PASS  详情 sdb 设备字段 字段齐全
+PASS  详情 sdb 设备字段 没有契约外字段
+PASS  详情 sdb kind 在闭集内
+PASS  详情 sdb transport 是已知取值或 null
+PASS  详情 sdb size_bytes 是十进制字符串
+PASS  详情 sdb collected_at 是 RFC3339
+PASS  详情 sdb rotational 是布尔
+PASS  详情 sdb read_only 是布尔
+PASS  详情 sdb online 是布尔
+PASS  详情 sdb identity_confidence 在闭集内
+PASS  详情 sdb identity_fingerprint 是 sha256
+PASS  详情 sdb health 字段齐全
+PASS  详情 sdb health 没有契约外字段
+PASS  详情 sdb health.status 在闭集内
+PASS  详情 sdb 温度是 null 或正数（不得为 0）
+PASS  详情 sdb io 字段齐全
+PASS  详情 sdb io 没有契约外字段
+PASS  详情 sdb io.read_bytes_total 是十进制字符串
+PASS  详情 sdb io.write_bytes_total 是十进制字符串
+PASS  详情 sdb io.reads_total 是十进制字符串
+PASS  详情 sdb io.writes_total 是十进制字符串
+PASS  详情 sdb io.rate 字段齐全
+PASS  详情 sdb io.rate 没有契约外字段
+PASS  详情 sdb io.rate.interval_ms ≥ 1
+PASS  详情 sdb 速率用十进制字符串
+PASS  详情 sdb read_latency_ms 是 null 或非负数
+PASS  详情 sdb write_latency_ms 是 null 或非负数
+PASS  详情 sdb 没有文件系统信息（未挂载或读不到就是 null）
+PASS  详情 sdb protection 字段齐全
+PASS  详情 sdb protection 没有契约外字段
+PASS  详情 sdb capabilities 是数组
+PASS  详情 sdb 本阶段没有任何可用写动作
+PASS  详情 sdb partition_table 字段齐全
+PASS  详情 sdb partition_table 没有契约外字段
+PASS  详情 sdc 字段齐全
+PASS  详情 sdc 没有契约外字段
+PASS  详情 sdc snapshot_version 与列表一致
+PASS  详情 sdc 设备字段 字段齐全
+PASS  详情 sdc 设备字段 没有契约外字段
+PASS  详情 sdc kind 在闭集内
+PASS  详情 sdc transport 是已知取值或 null
+PASS  详情 sdc size_bytes 是十进制字符串
+PASS  详情 sdc collected_at 是 RFC3339
+PASS  详情 sdc rotational 是布尔
+PASS  详情 sdc read_only 是布尔
+PASS  详情 sdc online 是布尔
+PASS  详情 sdc identity_confidence 在闭集内
+PASS  详情 sdc identity_fingerprint 是 sha256
+PASS  详情 sdc health 字段齐全
+PASS  详情 sdc health 没有契约外字段
+PASS  详情 sdc health.status 在闭集内
+PASS  详情 sdc 温度是 null 或正数（不得为 0）
+PASS  详情 sdc io 字段齐全
+PASS  详情 sdc io 没有契约外字段
+PASS  详情 sdc io.read_bytes_total 是十进制字符串
+PASS  详情 sdc io.write_bytes_total 是十进制字符串
+PASS  详情 sdc io.reads_total 是十进制字符串
+PASS  详情 sdc io.writes_total 是十进制字符串
+PASS  详情 sdc io.rate 字段齐全
+PASS  详情 sdc io.rate 没有契约外字段
+PASS  详情 sdc io.rate.interval_ms ≥ 1
+PASS  详情 sdc 速率用十进制字符串
+PASS  详情 sdc read_latency_ms 是 null 或非负数
+PASS  详情 sdc write_latency_ms 是 null 或非负数
+PASS  详情 sdc 没有文件系统信息（未挂载或读不到就是 null）
+PASS  详情 sdc protection 字段齐全
+PASS  详情 sdc protection 没有契约外字段
+PASS  详情 sdc capabilities 是数组
+PASS  详情 sdc 本阶段没有任何可用写动作
+PASS  详情 sdc partition_table 字段齐全
+PASS  详情 sdc partition_table 没有契约外字段
+PASS  详情 sdd 字段齐全
+PASS  详情 sdd 没有契约外字段
+PASS  详情 sdd snapshot_version 与列表一致
+PASS  详情 sdd 设备字段 字段齐全
+PASS  详情 sdd 设备字段 没有契约外字段
+PASS  详情 sdd kind 在闭集内
+PASS  详情 sdd transport 是已知取值或 null
+PASS  详情 sdd size_bytes 是十进制字符串
+PASS  详情 sdd collected_at 是 RFC3339
+PASS  详情 sdd rotational 是布尔
+PASS  详情 sdd read_only 是布尔
+PASS  详情 sdd online 是布尔
+PASS  详情 sdd identity_confidence 在闭集内
+PASS  详情 sdd identity_fingerprint 是 sha256
+PASS  详情 sdd health 字段齐全
+PASS  详情 sdd health 没有契约外字段
+PASS  详情 sdd health.status 在闭集内
+PASS  详情 sdd 温度是 null 或正数（不得为 0）
+PASS  详情 sdd io 字段齐全
+PASS  详情 sdd io 没有契约外字段
+PASS  详情 sdd io.read_bytes_total 是十进制字符串
+PASS  详情 sdd io.write_bytes_total 是十进制字符串
+PASS  详情 sdd io.reads_total 是十进制字符串
+PASS  详情 sdd io.writes_total 是十进制字符串
+PASS  详情 sdd io.rate 字段齐全
+PASS  详情 sdd io.rate 没有契约外字段
+PASS  详情 sdd io.rate.interval_ms ≥ 1
+PASS  详情 sdd 速率用十进制字符串
+PASS  详情 sdd read_latency_ms 是 null 或非负数
+PASS  详情 sdd write_latency_ms 是 null 或非负数
+PASS  详情 sdd 没有文件系统信息（未挂载或读不到就是 null）
+PASS  详情 sdd protection 字段齐全
+PASS  详情 sdd protection 没有契约外字段
+PASS  详情 sdd capabilities 是数组
+PASS  详情 sdd 本阶段没有任何可用写动作
+PASS  详情 sdd partition_table 字段齐全
+PASS  详情 sdd partition_table 没有契约外字段
+
+== E. 与系统自带工具对照 ==
+PASS  lsblk 看到 17 台块设备（其中 5 块整盘）
+PASS  kind=disk 的设备在 lsblk 里也是 disk
+PASS  lsblk 的每台块设备都在 DTO 里
+PASS  DTO 里没有内核不认识的设备
+PASS  分区/整盘的类型与 lsblk 一致
+PASS  sda size_bytes 与 lsblk -b 一致
+PASS  sdb size_bytes 与 lsblk -b 一致
+PASS  sdc size_bytes 与 lsblk -b 一致
+PASS  sdd size_bytes 与 lsblk -b 一致
+PASS  / 容量与 df -B1 一致
+PASS  /boot/efi 容量与 df -B1 一致
+PASS  /boot 容量与 df -B1 一致
+PASS  有 smartctl 的情况下整盘都做过一次健康采集（checked_at 不为 null）
+PASS  sda 的 smart_support.available=false 时 DTO 是 unsupported
+PASS  sda 的 unsupported 有检查时间
+PASS  sdb 的 smart_support.available=false 时 DTO 是 unsupported
+PASS  sdb 的 unsupported 有检查时间
+PASS  sdc 的 smart_support.available=false 时 DTO 是 unsupported
+PASS  sdc 的 unsupported 有检查时间
+PASS  sdd 的 smart_support.available=false 时 DTO 是 unsupported
+PASS  sdd 的 unsupported 有检查时间
+INFO  与 smartctl 逐盘对照了 4 块盘：sda sdb sdc sdd
+PASS  sda io.reads_total 不超过 /proc/diskstats
+PASS  sdb io.reads_total 不超过 /proc/diskstats
+PASS  sdc io.reads_total 不超过 /proc/diskstats
+PASS  sdd io.reads_total 不超过 /proc/diskstats
+PASS  sda1 io.reads_total 不超过 /proc/diskstats
+PASS  sda14 io.reads_total 不超过 /proc/diskstats
+PASS  sda15 io.reads_total 不超过 /proc/diskstats
+PASS  sda16 io.reads_total 不超过 /proc/diskstats
+PASS  loop0 io.reads_total 不超过 /proc/diskstats
+PASS  loop1 io.reads_total 不超过 /proc/diskstats
+PASS  loop2 io.reads_total 不超过 /proc/diskstats
+PASS  loop3 io.reads_total 不超过 /proc/diskstats
+PASS  loop4 io.reads_total 不超过 /proc/diskstats
+PASS  loop5 io.reads_total 不超过 /proc/diskstats
+PASS  loop6 io.reads_total 不超过 /proc/diskstats
+PASS  loop7 io.reads_total 不超过 /proc/diskstats
+PASS  fd0 io.reads_total 不超过 /proc/diskstats
+
+结果: PASS=856 FAIL=0
+PASS  载荷校验全部通过
+
+== 4. 日志卫生 ==
+PASS  日志不含管理员密码
+
+结果: PASS=31 FAIL=0 NOT RUN=0
+载荷目录（可拷回宿主做前端渲染回归）: /var/tmp/upanel-accept-p04-4/payloads
+EXIT=0

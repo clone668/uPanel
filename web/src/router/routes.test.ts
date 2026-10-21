@@ -27,6 +27,12 @@ describe('路由表', () => {
     expect(last?.name).toBe('not-found')
   })
 
+  it('设备详情路由限定 id 字符集，不合法的 id 落到 404 而不是进页面', () => {
+    const route = appRoutes.find((entry) => entry.name === 'storage-device')
+    expect(route?.path).toBe('/storage/devices/:id([A-Za-z0-9._-]+)')
+    expect(route?.meta?.moduleKey).toBe('storage')
+  })
+
   it('moduleTitle 只翻译已知模块键', () => {
     expect(moduleTitle('overview')).toBe('概览')
     expect(moduleTitle('settings')).toBe('设置')

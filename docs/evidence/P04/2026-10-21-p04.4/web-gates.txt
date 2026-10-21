@@ -1,0 +1,32 @@
+$ cd web && npx vue-tsc --noEmit
+OK: 0 errors
+
+$ cd web && npx eslint .
+OK: 0 problems
+
+$ cd web && npx vitest run
+
+ RUN  v5.0.5 H:/Code/uPanel/web
+
+ ✓ src/api/system.test.ts (5 tests) 48ms
+ ✓ src/utils/viewstate.test.ts (7 tests) 9ms
+ ✓ src/api/client.test.ts (12 tests) 65ms
+ ✓ src/api/storage.test.ts (16 tests) 66ms
+ ✓ src/api/jobs.test.ts (17 tests) 14ms
+ ✓ src/modules/registry.test.ts (7 tests) 12ms
+ ✓ src/api/jobstream.test.ts (19 tests) 22ms
+ ✓ src/utils/format.test.ts (27 tests) 46ms
+ ✓ src/router/routes.test.ts (5 tests) 8ms
+ ✓ src/utils/polling.test.ts (5 tests) 18ms
+ ✓ src/api/errors.test.ts (5 tests) 6ms
+ ✓ src/stores/mode.test.ts (5 tests) 4ms
+ ✓ src/router/redirect.test.ts (4 tests) 5ms
+ ✓ src/components/panels.test.ts (17 tests) 36ms
+ ✓ src/components/storage.test.ts (24 tests) 79ms
+ ✓ src/components/realdata.test.ts (17 tests) 83ms
+
+ Test Files  16 passed (16)
+      Tests  192 passed (192)
+   Start at  08:24:42
+   Duration  1.38s (import 78%, tests 11%, transform 7%, worker 3%)
+

@@ -116,7 +116,7 @@ NVMe 上是真实 `healthy` 且温度 > 0，并与机器自己的 `smartctl -j` 
 
 ## 1. 当前任务
 
-- 当前阶段：P04（首页和存储只读）—— **in_progress**（P04.1、P04.2、P04.3 已 passed；P04.4 未开始）。
+- 当前阶段：P04（首页和存储只读）—— **passed**（P04.1、P04.2、P04.3、P04.4 全部 passed）。下一阶段 P05 未开始。
 - 已完成子任务：P00.1—P00.3、**P01.1**—**P01.4**、**P02.1**（首个管理员、密码哈希、登录、
   退出、会话轮换、CSRF、Origin、限速；无默认密码）、**P02.2**（admin/viewer、账号管理、
   最后管理员保护、再认证、脱敏 DTO、审计事件起步）、**P02.3**（代理 Unix socket + SO_PEERCRED
@@ -154,10 +154,14 @@ NVMe 上是真实 `healthy` 且温度 > 0，并与机器自己的 `smartctl -j` 
   （并发 2、默认 10 秒超时、失败后隔离 5 分钟），拓扑新增 `network_mounts`/`Device.io`/`Mount.capacity_error`，
   `io` 与网络盘容量不进 `snapshot_version`；健康采集是独立 goroutine、默认 15 分钟（可配 5—60）；
   两台 VM 各 77 项、`upanel-smart`（QEMU NVMe）62 项断言通过，原生 `storage.test` 三台 VM 103/0，
-  **statfs 挂住时登录 332 ms / 271 ms**）。
-- 下一子任务：**P04.4**（首页与磁盘列表前端：把 P04.1 的系统概览、P04.2 的拓扑与 P04.3 的健康/IO
-  渲染成页面，含七状态组件、降级/未执行状态与轮询节奏）。P04.3 之后**接口侧已经齐全**——健康、温度、
-  速率、网络挂载可达性都有真实读数与证据；缺的只是浏览器里的呈现。
+  **statfs 挂住时登录 332 ms / 271 ms**）、**P04.4**（首页、磁盘列表、拓扑/分区详情、健康与容量卡片的浏览器呈现：
+  前端 DTO 与 `api/openapi.yaml` 同源、七状态组件 + 空/错误/依赖未安装、`null` 一律显示 `—`、
+  容量/百分比/速率照实渲染、`capabilities` 为空就明说“当前阶段没有可执行的动作”而不是摆按钮；
+  宿主 Playwright 冒烟 31/0/5（真实 `upanel-web --mode mock`）+ dist 预览 10/10、前端 **192** 个用例、
+  VM 上四份真实响应的载荷校验 **856/0** 与脚本 **31/0**；本轮修掉 Q105/Q106，详见 §5）。
+- 下一子任务：**P05.1**（服务列表、详情与保护名单；通过 P03 的任务链路执行允许的启停/重启/开机启动，
+  且先只做“读 + 拒绝逻辑”，破坏性动作按 STAGES 的顺序逐项放开）。P05 尚未开始：本轮只做到 P04.4，
+  没有提前写任何服务/进程/日志代码。
 - 下游是否可继续：**是**；但任何系统写操作必须走 P03 建成的链路（预检 → 任务 → 幂等 → 对账），
   不允许绕过。P04.1 的 `system.summary` 是**查询**，不产生任务，也不落写审计。
 - 当前版本：未发布。
@@ -203,7 +207,7 @@ NVMe 上是真实 `healthy` 且温度 > 0，并与机器自己的 `smartctl -j` 
 | P01 | 最小可运行骨架 | **passed** | P01.1 骨架/配置/日志/健康检查、P01.2 SQLite 迁移/事务/错误码/request_id/Gin 路由、P01.3 前端骨架/路由/中文导航/统一 API 客户端/七状态组件/mock 横幅、P01.4 前端嵌入二进制/mock 与 production 配置/systemd 单元/本地启动文档，均有宿主 + 两台 VM 证据；P01.4 各 VM 114 项断言通过。证据 `docs/evidence/P01/2026-10-20*/` |
 | P02 | 认证、权限、审计、代理 | **passed** | P02.1 **passed**：users/sessions 表、Argon2id、登录/退出/会话轮换/CSRF/Origin/限速、`upanelctl init-admin`（无默认密码），证据 `docs/evidence/P02/2026-10-20-p02.1/`（宿主 38 项 + 两台 VM 各 58 项断言）。P02.2 **passed**：admin/viewer 边界、账号增删改查（脱敏 DTO + 分页 + 乐观并发）、最后管理员保护、5 分钟再认证、追加式审计表，证据 `docs/evidence/P02/2026-10-20-p02.2/`（宿主 81 项 + 两台 VM 各 99 项断言，P02.1 回归各 58 项）。P02.3 **passed**：代理 socket 与 SO_PEERCRED UID 边界、固定登记表（生产为空）、结构化只读查询、命令执行器超时/输出上限、systemd 真实托管，证据 `docs/evidence/P02/2026-10-20-p02.3/`（两台 VM 各 84 项断言 + VM 内核原生 28 + 9 个用例，P02.2 回归各 99 项）。P02.4 **passed**：审计跟随业务事务（被拒绝请求独立记 failure 行）、日志脱敏做进记录器、代理独立 root-only 库（`/var/lib/upanel-agent/agent.db`，目录 0700 / 文件 0600，启动自校验）、AES-256-GCM 秘密存储（独立 nonce、AAD 绑引用与用途、`/etc/upanel/agent.key` 0600 且 `-init-key` 不覆盖）、临时秘密 10 分钟销毁与墓碑行、无明文读取路由，证据 `docs/evidence/P02/2026-10-20-p02.4/`（两台 VM 各 87 项断言 + VM 内核原生 agentstore 32 / agent 45 个用例，P02.1/P02.2/P02.3 回归各 58 / 103 / 84 项）。**阶段结论：P02 全部子任务完成** |
 | P03 | 预检、任务、幂等、对账 | **passed** | P03.1 **passed**：预检由代理生成（规范化参数、目标身份指纹、状态版本、影响、阻塞项、锁、再认证与短语策略），Web 只保存绑定并返回公开 DTO；有效期 120 秒且两端同一时间戳；用户/会话/动作/`params_hash`/`state_version` 双侧一致；短语只回一次明文、代理库只存哈希；未登记动作 400、缺规划器 501、`GET` 405。证据 `docs/evidence/P03/2026-10-20-p03.1/`（两台 VM 各 93 项断言 + VM 内核原生 5 个测试二进制，P02.1—P02.4 回归各 58/103/84/87 项）。P03.2 **passed**：持久 jobs、幂等链、`operation_id` 去重、代理执行记录与事件、资源锁与 30 秒排队、取消规则、先落库再提交、按 `operation_id` 对账；证据 `docs/evidence/P03/2026-10-20-p03.2/`（两台 VM 各 101 项断言 + VM 内核原生 169 用例 0 FAIL + p01-1/p01-2/p01-4/p02-1—p02-4/p03-1 回归各 29/34/114/58/103/85/87/93；宿主 check.sh PASS 12/0/NOT RUN 0）。验收期间抓到并修掉两个真缺陷：`CONFIRMATION_MISMATCH` 应为 400（DECISIONS Q64）、SQLite WAL DEFERRED 事务升级不调 busy handler → `_txlock=immediate`（DECISIONS Q65）。P03.3 **passed**：SSE 事件流（`id:`/`event:`/`data:`、`: connected`、15 秒 keepalive、`Last-Event-ID` 续传、日志环被裁后先发 `event: gap`）、代理事件镜像（先事件后状态）、日志分页与每任务 1000 行上限、任务中心与错误详情、最小登录页与路由守卫；证据 `docs/evidence/P03/2026-10-20-p03.3/`（两台 VM 各 73 项断言 + 原生 346 用例 0 FAIL + P03 前序回归）。验收期间抓到并修掉代理侧“阶段与事件分两笔写”的原子性缺陷（DECISIONS Q67）。P03.4 **passed**：Web 启动立刻 + 每 30 秒的对账循环（只查不跑，`grep CreateOperation` 在 `reconcile.go` 无调用点）、提交在途不判定、`NOT_FOUND` 按 `needs_sync` 分流（`failed`/`unconfirmed` vs `interrupted`/`unknown_result`）、幂等记录到期清理、验收注册表约束变成断言；证据 `docs/evidence/P03/2026-10-20-p03.4/`（两台 VM 各 78 项断言 + 原生 360 用例 0 FAIL + 全量 11 脚本 0 失败）。**阶段结论：P03 全部子任务完成，生产登记表仍为空（无真实写动作）** |
-| P04 | 首页和存储只读 | **in_progress** | P04.1 **passed**：`internal/monitoring` 纯文件读取采集（`/proc/stat`、`meminfo`、`loadavg`、`net/dev`、`os-release`、`uptime`、`cpuinfo` + `uname`），代理侧 5 秒轮询缓存（`collected_at`/`interval_ms`/`stale`/`degraded` + 分节 `status`），速率只由相邻样本差分给出、算不出来为 `null`，`boot_id` 变化让 CPU 窗口失效；查询登记表新增唯一查询 `system.summary`（`DecodeParams` 拒绝任何字段），Web 侧 `GET /api/v1/system/summary`（权限 V）只透传、不做第二层缓存，代理不可用 503 `AGENT_UNAVAILABLE` 且不影响登录；能力只上报真实存在的东西。证据 `docs/evidence/P04/2026-10-20-p04.1/`（两台 VM 各 **72** 项断言 + VM 内核原生 **401** 用例 0 FAIL + 12 脚本全量回归 930/0；宿主 check.sh PASS 12/0/NOT RUN 0，redocly valid 9 warnings）。**生产登记表仍为空，本轮没有新增任何写动作**。P04.2 **passed**：`internal/storage` 只读块设备拓扑（`/sys/block` + `/sys/class/block`，整盘/分区/lvm/raid/crypt/loop/rom/other）、边 `partition_of`/`depends_on`（from=子→to=父）、设备身份 `sha256:` 指纹 + 诚实的 `identity_confidence`、系统盘保护从 mountinfo/swaps 出发沿边递归向上、分区表读盘头部只补类型与 free_regions（内核结果优先）、容量 30 秒缓存取 `f_bavail`、`snapshot_version` 只由内容决定；代理查询 `storage.topology`、Web `GET /api/v1/storage/{topology,devices,devices/:id}`（V 权限、只透传）；`health.status` 一律 `unknown`、`capabilities` 一律 `[]`。证据 `docs/evidence/P04/2026-10-20-p04.2/`（两台 VM 各 **108** 项断言 + VM 内核原生 **473** 用例 0 FAIL + 13 脚本全量回归 1038/0；宿主 check.sh PASS 12/0/NOT RUN 0）。本轮修掉 Q89（块设备被当普通文件读 → 代理 OOM）、Q90（快照版本依赖时间）、Q91（by-id 链接缺已知设备约束）、Q96（一个测试抖动）。P04.3 **passed**（SMART/NVMe 健康与 diskstats：15 分钟采集节奏、睡眠盘不唤醒）——`internal/storage` 新增 `smart.go`/`diskstats.go`/`capacity*.go`：smartctl `-j -H -A -i` 按**退出状态位掩码**判读（失效/预失效 → `critical`，历史位/日志位 → `warning`，命令失败/打开失败 → `unknown`），先读 sysfs 电源状态、非 NVMe 再加 `-n standby`，**不为读健康唤醒休眠盘**；`/proc/diskstats` 每台设备只取自己那一行、计数转十进制字符串，速率由相邻两次采样差分（归零/回绕/窗口异常 → `null`），平均延迟只在完成次数 > 0 时给，扇区固定 512 字节；网络文件系统容量在代理自己的 `--statfs-helper` 子进程里查（并发 2、默认 10 秒超时、失败后隔离 5 分钟不再重试），拓扑新增 `network_mounts`（无块设备的网络挂载单独成表）、`Device.io`、`Mount.capacity_error`，`io` 不进 `snapshot_version`。证据 `docs/evidence/P04/2026-10-21-p04.3/`：24.04.5 与 22.04.5 各 **77** 项通过、`upanel-smart`（QEMU NVMe）**62** 项通过，0 失败（未执行项各 1/1/2，均写明原因）；**statfs 挂在内核里时登录仍 332 ms / 271 ms 返回 200**；原生 `storage.test` 三台 VM **103/0**；22.04 VM 内 `go test -race ./...` 19 包 ok、**0 条 DATA RACE**。P04.3 补强（第二轮）：QEMU USB 盘的两个真实反例（“桥不认识”“`-d sat` 打不开”）+ 真实 `mount --bind` 多挂载点用例 + `smartctl` 原话透进 `health.details`（Q104），三台 VM 重跑 77/77/**63**、0 失败，原生 `storage.test` **106/0**、`-race` 19 包 ok / 0 DATA RACE。P04.4（首页与磁盘列表前端）未开始 |
+| P04 | 首页和存储只读 | **passed** | P04.1 **passed**：`internal/monitoring` 纯文件读取采集（`/proc/stat`、`meminfo`、`loadavg`、`net/dev`、`os-release`、`uptime`、`cpuinfo` + `uname`），代理侧 5 秒轮询缓存（`collected_at`/`interval_ms`/`stale`/`degraded` + 分节 `status`），速率只由相邻样本差分给出、算不出来为 `null`，`boot_id` 变化让 CPU 窗口失效；查询登记表新增唯一查询 `system.summary`（`DecodeParams` 拒绝任何字段），Web 侧 `GET /api/v1/system/summary`（权限 V）只透传、不做第二层缓存，代理不可用 503 `AGENT_UNAVAILABLE` 且不影响登录；能力只上报真实存在的东西。证据 `docs/evidence/P04/2026-10-20-p04.1/`（两台 VM 各 **72** 项断言 + VM 内核原生 **401** 用例 0 FAIL + 12 脚本全量回归 930/0；宿主 check.sh PASS 12/0/NOT RUN 0，redocly valid 9 warnings）。**生产登记表仍为空，本轮没有新增任何写动作**。P04.2 **passed**：`internal/storage` 只读块设备拓扑（`/sys/block` + `/sys/class/block`，整盘/分区/lvm/raid/crypt/loop/rom/other）、边 `partition_of`/`depends_on`（from=子→to=父）、设备身份 `sha256:` 指纹 + 诚实的 `identity_confidence`、系统盘保护从 mountinfo/swaps 出发沿边递归向上、分区表读盘头部只补类型与 free_regions（内核结果优先）、容量 30 秒缓存取 `f_bavail`、`snapshot_version` 只由内容决定；代理查询 `storage.topology`、Web `GET /api/v1/storage/{topology,devices,devices/:id}`（V 权限、只透传）；`health.status` 一律 `unknown`、`capabilities` 一律 `[]`。证据 `docs/evidence/P04/2026-10-20-p04.2/`（两台 VM 各 **108** 项断言 + VM 内核原生 **473** 用例 0 FAIL + 13 脚本全量回归 1038/0；宿主 check.sh PASS 12/0/NOT RUN 0）。本轮修掉 Q89（块设备被当普通文件读 → 代理 OOM）、Q90（快照版本依赖时间）、Q91（by-id 链接缺已知设备约束）、Q96（一个测试抖动）。P04.3 **passed**（SMART/NVMe 健康与 diskstats：15 分钟采集节奏、睡眠盘不唤醒）——`internal/storage` 新增 `smart.go`/`diskstats.go`/`capacity*.go`：smartctl `-j -H -A -i` 按**退出状态位掩码**判读（失效/预失效 → `critical`，历史位/日志位 → `warning`，命令失败/打开失败 → `unknown`），先读 sysfs 电源状态、非 NVMe 再加 `-n standby`，**不为读健康唤醒休眠盘**；`/proc/diskstats` 每台设备只取自己那一行、计数转十进制字符串，速率由相邻两次采样差分（归零/回绕/窗口异常 → `null`），平均延迟只在完成次数 > 0 时给，扇区固定 512 字节；网络文件系统容量在代理自己的 `--statfs-helper` 子进程里查（并发 2、默认 10 秒超时、失败后隔离 5 分钟不再重试），拓扑新增 `network_mounts`（无块设备的网络挂载单独成表）、`Device.io`、`Mount.capacity_error`，`io` 不进 `snapshot_version`。证据 `docs/evidence/P04/2026-10-21-p04.3/`：24.04.5 与 22.04.5 各 **77** 项通过、`upanel-smart`（QEMU NVMe）**62** 项通过，0 失败（未执行项各 1/1/2，均写明原因）；**statfs 挂在内核里时登录仍 332 ms / 271 ms 返回 200**；原生 `storage.test` 三台 VM **103/0**；22.04 VM 内 `go test -race ./...` 19 包 ok、**0 条 DATA RACE**。P04.3 补强（第二轮）：QEMU USB 盘的两个真实反例（“桥不认识”“`-d sat` 打不开”）+ 真实 `mount --bind` 多挂载点用例 + `smartctl` 原话透进 `health.details`（Q104），三台 VM 重跑 77/77/**63**、0 失败，原生 `storage.test` **106/0**、`-race` 19 包 ok / 0 DATA RACE。P04.4 **passed**（首页、磁盘列表、拓扑/分区详情、健康与容量卡片；**写操作能力此时不启用**）：前端 DTO 与 `api/openapi.yaml` 同源，页面把 `null` 一律显示 `—`、容量与百分比照实、`unsupported/unknown` 不挂告警、`capabilities` 为空就明说没有动作；Playwright 冒烟 31/0/5 + dist 预览 10/10，前端 **192** 用例；VM 上四份真实响应载荷校验 **856/0**、脚本 **31/0 NOT RUN 0**；证据 `docs/evidence/P04/2026-10-21-p04.4/`。**P04 到此全部 passed** |
 | P05 | 服务、进程、日志 | not_started | — |
 | P06 | 文件和受限终端 | not_started | — |
 | P07 | 分区、格式化、挂载 | not_started | 需独立 VM 数据盘 |
@@ -2022,6 +2026,96 @@ VM-E 从 62 涨到 63，多的就是“USB 盘在拓扑里可见（transport=usb
 `usb-sdb-and-nvme-health.jsonl`、`hardening.md`。
 
 
+### P04.4（2026-10-21）— 首页、磁盘列表、拓扑/分区详情、健康与容量卡片（只读）
+
+**范围**：`STAGES.md` §6 P04.4。**写操作能力此时不启用**——`capabilities` 仍是空数组，界面上没有一个
+动作按钮，只在空位写“当前阶段没有可执行的动作”，绝不预告 P07 才登记的能力。服务端代码本轮
+**零改动**：这一阶段全部是浏览器里的呈现与验证，接口与 DTO 沿用 P04.1—P04.3 已验过的那一套。
+
+| 文件 | 改动 |
+|---|---|
+| `web/src/views/OverviewView.vue`、`StorageView.vue`（新）、`StorageDeviceView.vue`（新） | 概览（主机/CPU/内存/负载/网络 + 磁盘概要）、存储（整盘与分区、loop 背景区、不可达网络挂载）、设备详情；每页都有加载 / 空 / 错误 / 依赖未安装四种状态，采集时间与刷新节奏照实显示 |
+| `web/src/components/{SystemOverviewPanel,StatTile,CapacityBar,HealthBadge,DeviceCard,IoStats,DeviceDetailPanel}.vue`（新） | 纯展示，只接收 DTO，不自己造数据；字节走十进制字符串 + `BigInt`，`null` 一律渲染成 `—`（不写成 0、不写成“未知 0 B”）；七状态里只有 `warning/critical` 会挂告警样式 |
+| `web/src/api/system.ts`、`storage.ts`（新） | 与 `api/openapi.yaml` 同源的 DTO 与闭集标签；`healthNeedsAttention()` 只对 `warning/critical` 为真 |
+| `web/src/utils/{format,polling,viewstate}.ts`（新） | 字节/百分比/速率格式化（K/M/G 与精确字节分开）；轮询只有一份实现——按服务端 `interval_ms` 调度、不叠请求、页面隐藏时停、重新可见立刻补一次；错误码 → 页面状态的唯一映射（不看文案） |
+| `web/src/router/routes.ts`、`modules/registry.ts`、`components/AppShell.vue` | `/storage`、`/storage/devices/:id([A-Za-z0-9._-]+)`（非法 id 直接落 404）；子页面高亮所属模块；概览与存储的模块说明从“未实现”改成已实现 |
+| `api/openapi.yaml` | 版本 `0.0.0-p04.4`、`x-upanel-contract-status.stage: P04.4`，补登四个已实现路径；`StorageDevice.io` 进 `required`（P04.3 起就已返回、契约漏登记）；`health` 说明改为“由 SMART/NVMe 填写，读不到只能是 unknown/sleeping” |
+| `web/src/{api,utils,components}/*.test.ts` | 16 个文件 / **192** 个用例。vitest 环境是 node，没有 jsdom，组件用 `vue/server-renderer` 的 `renderToString` 渲染纯函数式组件；数据获取在视图里，所以这里验的是“同一份 DTO → 同一段 DOM” |
+| `web/src/fixtures/p04-4-vm/{summary,devices,topology,detail-sda}.json`、`README.md`（新） | VM 上抓的四份真实响应，**逐字节**保存（与 `docs/evidence/P04/2026-10-21-p04.4/payloads/` 相同，`sha256:fd6bdf50…`、`collected_at 2026-10-21T00:19:31Z`）；README 写明采集命令、同一快照规则、“不要手改”与 NOT RUN 边界 |
+| `web/src/components/realdata.test.ts`（新，17 个用例） | 用上面四份真实载荷跑 SSR：四份响应自洽（同一 `snapshot_version`/`collected_at`、拓扑节点 = 设备 id、边端点存在）、系统概况照实、设备卡片照实（40 GiB 与精确字节、未挂载、系统盘受保护、`unsupported` 不挂告警、不出现 `0 °C`）、详情页照实（GPT、分区表读自磁盘、保护理由与来源、`capabilities` 为空 → “当前阶段没有可执行的动作”、页面上没有 `<button>`） |
+| `web/src/components/storage.test.ts`（24 个用例） | 新增两条：两块容量完全相同的盘（`sdc`/`sdd` 同 4 GiB、`serial` 都 `null`）各自显示自己的名字/序列号/稳定标识前缀，不互相顶替；dm/LVM 盘与其下分区各显示自己的 931.51 GiB，界面上不出现 1.82 TiB |
+| `web/scripts/smoke.mjs`（重写）、`tests/smoke/p04-4-ui-smoke.sh`（新） | 真浏览器（`@playwright/test` 自带 chromium，没引入新框架）：未登录 `/` 与 `/storage` 都落到登录页、登录后回原地址、导航只列已实现模块、概览页与存储页逐段断言、依赖不可用时显示“依赖未安装”而不是 0、深链接 `/storage/devices/sda` 不落 404 而显示依赖未安装、未知路径 404 且外壳完整、无未捕获异常、无多余失败请求 |
+| `scripts/check.sh` | 新增 `web-smoke` 一步（13 步）：找不到 Playwright 浏览器就 `SKIP` 并给出 `npx playwright install chromium`，不假装通过 |
+| `tests/integration/p04-4-ui-acceptance.sh`、`tests/integration/p04-4-payload-validate.py`（新） | 真 Ubuntu 上起 root 代理 + **非 root** Web，抓四份真实响应；先等首次 SMART 采集落地；按契约 + `lsblk -P`/`df -B1`/`smartctl -j -i -H -A`/`/proc/diskstats` 逐项交叉校验 |
+| `docs/DECISIONS.md` Q105 / Q106 | Q105：验收必须先等 `checked_at`，且必须用**产品自己的** `smartctl` 参数做对照（`available=false → unsupported` 是断言，不是豁免）；Q106：`unknown/unsupported` 不挂“健康未通过”，测试断言“健康判定的解释文案不存在”，而不是断言“正常”二字不存在 |
+
+**页面里刻意不做的事**：不摆任何动作按钮（写操作 P07 才有）；`unsupported/unknown` 不用红色，
+只说明理由；容量与百分比不做四舍五入美化（40 GiB 的盘就写 40 GiB，精确字节放 `title`）；
+`null` 不当 0——速率 `null` 时写“没有可用采样窗口，不是 0”，温度 `null` 写 `—`；
+不接受任何设备 id 之外的参数拼进接口路径。
+
+**本轮验收**
+
+| 检查 | 结果 | 证据 |
+|---|---|---|
+| VM 载荷校验（契约 + `lsblk`/`df`/`smartctl`/`diskstats`） | **PASS=856 FAIL=0** | `docs/evidence/P04/2026-10-21-p04.4/p04-4-acceptance-2404.txt` |
+| VM 验收脚本自身断言（身份、socket、抓取、遍历式 id、日志卫生） | **PASS=31 / FAIL=0 / NOT RUN=0** | 同上 |
+| 宿主 `sh scripts/check.sh` | **PASS 13 / FAIL 0 / NOT RUN 0** | `.../check.txt` |
+| 前端 `vue-tsc -b` / `eslint` / `vitest run` | 0 error / 0 problem / **192 passed（16 文件）** | `.../web-gates.txt`、`.../check.txt` |
+| 页面冒烟：真实 `upanel-web --mode mock` + Playwright（已登录） | **PASS 31 / FAIL 0 / SKIP 5**（SKIP 全是“mock 二进制没有 agent socket，没有设备可渲染”，如实记 SKIP 而不是通过） | `.../p04-4-ui-smoke.txt` |
+| 页面冒烟：`dist` 预览（未登录守卫） | **PASS 10 / FAIL 0 / SKIP 0** | `.../check.txt` 的 `web-smoke` 段 |
+| 契约 lint（redocly） | valid，9 warning（未使用组件 7 + 4xx 说明 2，历史遗留、与上一阶段同量） | `.../check.txt` |
+
+VM 上的关键断言（可逐条对照）：监听 19448 的进程是 `upanel-web`（**uid 999**），代理是 root，
+`agent.sock` 为 `root:upanel-web` 且非 0666；四份响应结构与闭集一致、字节全是十进制字符串、
+未知值一律 `null`；`lsblk -P` 的 17 台块设备与 DTO 一一对应；`/`、`/boot`、`/boot/efi` 容量与
+`df -B1` 相同；16 台设备的 `io.reads_total` 都不超过 `/proc/diskstats` 对应行；4 块盘的 `health`
+与 `smartctl -j -i -H -A` 的结论一致（`smart_support.available=false → unsupported`，`checked_at` 非空）；
+`/storage/devices/..%2F..%2Fetc%2Fshadow` 返回 404 且响应体里没有 `root:`；`web.log`/`agent.log`
+里没有管理员明文密码。
+
+**本轮发现并修掉的问题**
+
+1. **界面把“未知/不支持”说成“健康未通过”**（产品缺陷）：`DeviceCard` 原先对 `unknown` 与
+   `unsupported` 都挂“健康未通过”，于是每一个分区、每一个 loop 设备都在报警。改成只对
+   `warning/critical` 挂“健康需要处理”，并补了断言（Q106）。
+2. **验收脚本抓得太早**（harness 缺陷）：首次健康探测在独立 goroutine 里，脚本启动 Web 后立刻抓，
+   拿到的是 `"SMART 采集尚未完成"` 的占位，整块健康校验空转；旧日志还把 SKIP 原因写成
+   “本机没有能被 smartctl 读到的盘”，不是真实原因。现在先等所有整盘都有 `checked_at`
+   （`HEALTH_WAIT`，默认 120 秒，**实测 5 秒**），超时如实记 NOT RUN。
+3. **健康对照两边参数不一致**（harness 缺陷）：旧校验用 `smartctl -H -j`，产品用 `-j -i -H -A -n standby`。
+   同一块 QEMU 盘，前者 `smart_status.passed=true`，后者 `smart_support.available=false`、没有
+   `smart_status`——按旧写法会把“产品正确判为不支持”误报成失败。现在用产品同一组参数，
+   并把 `available=false → unsupported` 变成断言（4 块盘全部 PASS，见 Q105）。
+
+**顺带补齐的记录**：`StorageDevice.io` 从 P04.3 起就已在响应里，契约一直漏登记 `required`，
+本轮补上（前端也因此能在类型层面拿到 `io`，而不是当可选字段猜）。
+
+**NOT RUN（未验证，含原因）**
+
+- **VM 上的浏览器渲染**：验收 VM 没装浏览器，像素级证据只有宿主上的 Playwright 冒烟
+  （真实 `upanel-web --mode mock`，已登录，31 项）。VM 上只证明“前端拿到的数据是真的”。
+- **真机 SATA / NVMe / USB / 睡眠盘的健康显示**：这台 VM 的盘全是 QEMU 虚拟盘，`smartctl` 说它们
+  不支持 SMART，所以真实数据里只有 `unsupported` 一条分支；`healthy`/`warning` 的显示由合成夹具
+  覆盖，真实 `healthy` 的采集证据在 P04.3 的 `upanel-smart` 验收里（不属于本阶段）。
+- **真实 LVM/RAID/dm 拓扑**：“多层不重复累计”只有合成用例；验收 VM 单盘 + 三个空盘，没有 dm/md 设备
+  （P00-VM-C 仍未创建，见 §7 索引表末尾两行）。
+- **写操作**：按计划不启用，界面上没有按钮、`capabilities` 恒空——这是本阶段的验收条件，不是未完成项。
+- **`viewer` 角色看这些页面**：本轮只用 `admin` 登录；读取接口对两种角色都开放，
+  没有单独的“无权限”界面可验。
+
+**环境事故（不记作产品缺陷）**：`upanel-2404` 在 uptime 3096 s 时再次
+`Kernel panic - not syncing: Attempted to kill init! exitcode=0x0000008b`（PID 1 自己吃 SIGSEGV，
+与 P04.3 记录的形态一致），`upanel-smart` 在 3200 s 时同样。冷启动后立即恢复，本轮数据是在冷启动后的
+干净实例上采集的，console 存为 `console.panic-5-2026-10-21.log`。
+
+**交付去向**：随本次提交入库（前端页面、组件、DTO、192 个用例、四份真实夹具、页面冒烟脚本、
+VM 验收脚本与校验程序、`api/openapi.yaml` 补登、`check.sh` 的 `web-smoke`、Q105/Q106、§8.7 测试环境）。
+证据目录 `docs/evidence/P04/2026-10-21-p04.4/`：`p04-4-acceptance-2404.txt`、`payloads/`（8 份响应）、
+`vm-env-2404.txt`、`web-gates.txt`、`check.txt`、`p04-4-ui-smoke.txt`、`commands.log`、`result.md`。
+`result.md` 里有逐条对应 STAGES §6 P04.4 的验收条目表、三个缺陷的修法与复核命令。
+
+
 ## 6. 未决问题与范围变更
 
 未批准任何范围变更。DECISIONS.md 第 8 节记录 Q1—Q80；P03.3 新增六条：Q67（阶段与事件必须同事务，
@@ -2272,6 +2366,12 @@ Q103（`cmd/upanel-web` 的用例会读机器上的 `/etc/upanel/upanel.json`，
 | P04.3-H2-UNIT-VM | P04 | 已执行通过：三台 VM 原生 `storage.test` 均 **106 个顶层用例 PASS / FAIL 0**（第一轮 103，新增 USB 桥/`-d sat`/多挂载点三条）；宿主 `go test ./... -v` 计 571 个顶层 PASS（含子测试 176，合计 747）/ 0 FAIL / 6 SKIP。 | docs/evidence/P04/2026-10-21-p04.3/{native-storage-2404-h2.txt,native-storage-2204-h2.txt,native-storage-smart-h2.txt,go-test-verbose-h2.txt} |
 | P04.3-H2-RESULT | P04 | 已产出：为什么补（三个缺口）、改了什么（逐文件）、真实捕获命令与原话、产品行为变化前后的 `details` 对照、本轮结果表、环境事故（两台 NFS 机 `reboot` 在 WHPX 挂死、VM-E 又一次 `exitcode=0x0000008b`）、NOT RUN（真实可读 USB 盘、休眠盘、ATA）与复现命令。 | docs/evidence/P04/2026-10-21-p04.3/{hardening.md,check-h2.txt,host-gates-h2.txt} |
 | P04.3-H2-RACE | P04 | **已执行通过**：VM-2204（22.04.5，gcc 11.4，Go 1.27.3）内**以 root** `go test -race -count=1 ./...` → **19 包 ok、0 条 `WARNING: DATA RACE`**；唯一失败 `TestDefaultPasswordParamsTiming` 是 `-race` 把 Argon2id 单次校验放大到 **2.39 秒**（用例上界 1 秒），与第一轮同一原因。普通用户跑会在 `internal/agentstore` 因“代理数据目录属主必须是 root”失败（预期行为）。 | docs/evidence/P04/2026-10-21-p04.3/{race-h2-2204.txt} |
+| P04.4-UNIT | P04 | 已执行通过：前端 `vue-tsc -b` 0 error、`eslint .` 0 problem、`vitest run` **16 文件 / 192 用例全 passed**（新增 `realdata.test.ts` 17 个真实载荷 SSR 用例、`storage.test.ts` 的两条同容量/多层容量用例）。vitest 环境是 node，没有 jsdom：组件走 `renderToString`，`onMounted` 不执行，所以验的是“同一份 DTO → 同一段 DOM”。 | docs/evidence/P04/2026-10-21-p04.4/{web-gates.txt,check.txt} |
+| P04.4-CHECK | P04 | 已执行通过：`sh scripts/check.sh` → **PASS 13 / FAIL 0 / NOT RUN 0**（新增第 13 步 `web-smoke`）；`redocly lint api/openapi.yaml` valid + 9 warnings（与上一阶段同类同量）。第一次跑时 `web-typecheck` 失败过一次：`realdata.test.ts(138,12): error TS18048: 'summary.cpu.per_cpu' is possibly 'undefined'`——只有 `npm run typecheck`（`vue-tsc -b`）能抓到，`vue-tsc --noEmit` 抓不到；改成 `per_cpu?.length` 后通过。 | docs/evidence/P04/2026-10-21-p04.4/{check.txt,web-gates.txt,commands.log} |
+| P04.4-SMOKE | P04 | **已执行通过（宿主，真浏览器）**：真实 `upanel-web --mode mock` + Playwright（已登录）→ **PASS 31 / FAIL 0 / SKIP 5**，SKIP 全是“mock 二进制没有 agent socket，没有设备可渲染”，如实记 SKIP；`dist` 预览（未登录守卫）→ **PASS 10 / FAIL 0 / SKIP 0**。覆盖未登录拦截、登录回跳、导航只列已实现模块、概览/存储逐段断言、`AGENT_UNAVAILABLE` → “依赖未安装”而非 0、深链接不落 404、未知路径 404、无未捕获异常与多余失败请求。 | docs/evidence/P04/2026-10-21-p04.4/{p04-4-ui-smoke.txt,check.txt} |
+| P04.4-VM | P04 | **已执行通过（Ubuntu 24.04.5 / 6.8.0-147，root 起代理、非 root 起 Web）**：`p04-4-ui-acceptance.sh` **PASS=31 / FAIL=0 / NOT RUN=0**，载荷校验 `p04-4-payload-validate.py` **PASS=856 / FAIL=0**。含 uid 999 的 Web 进程、`agent.sock` 为 `root:upanel-web` 且非 0666、四份响应同快照自洽、17 台块设备与 `lsblk -P` 一一对应、容量与 `df -B1` 相同、16 台设备 `io.reads_total` 不超 `/proc/diskstats`、4 块盘健康与 `smartctl -j -i -H -A` 一致（`available=false → unsupported`）、遍历式 id → 404 且无 `root:`、日志无明文口令。 | docs/evidence/P04/2026-10-21-p04.4/{p04-4-acceptance-2404.txt,payloads/,vm-env-2404.txt} |
+| P04.4-DATA | P04 | 已产出：VM 上抓的 8 份真实响应（summary/topology/devices/detail-sda..sdd/traversal）逐字节存入证据目录，其中四份同时放进 `web/src/fixtures/p04-4-vm/` 作前端回归夹具（同一 `snapshot_version: sha256:fd6bdf50…`、`collected_at 2026-10-21T00:19:31Z`），README 写明采集命令、同快照规则、“不要手改”与 NOT RUN 边界。 | docs/evidence/P04/2026-10-21-p04.4/payloads/ 与 web/src/fixtures/p04-4-vm/{README.md,*.json} |
+| P04.4-RESULT | P04 | 已产出：范围与逐文件改动、实际执行的检查表、**与 STAGES §6 P04.4 验收条目逐条对应表**、三个缺陷（DeviceCard 把 unknown/unsupported 挂成“健康未通过”；验收脚本早于首次 SMART 采集；校验程序与产品用的 smartctl 参数不一致）与修法、NOT RUN 清单（VM 无浏览器、真实 SATA/NVMe/USB/睡眠盘、真实 dm/LVM/RAID、写操作按计划不启用、viewer 角色）、环境事故（2404/smart 各 panic 一次）与复核命令。 | docs/evidence/P04/2026-10-21-p04.4/{result.md,commands.log} |
 | P00-VM-C（LVM 根） | P00/P04 | **NOT RUN**（未创建） | 需在 P04 前补齐 |
 | P00-VM-D（SMB 客户端） | P00/P08 | **NOT RUN**（未创建） | 需在 P08 前补齐 |
 
@@ -2410,7 +2510,9 @@ Q103（`cmd/upanel-web` 的用例会读机器上的 `/etc/upanel/upanel.json`，
   温度、功耗，也没有 cgroup 口径（容器里看宿主数据的问题未处理）。
 - `host` 段只有 `os_id`/`os_name`/`kernel_release`/`hostname`/`uptime` 一类只读信息；
   发行版名称取自 `/etc/os-release` 的 `PRETTY_NAME`，没有做版本语义化。
-- P04.1 没有首页：接口在，页面要到 P04.4；因此也**没有取值的浏览器证据**（只有 curl）。
+- P04.1 在当轮没有首页（页面属 P04.4）。P04.4 补上之后，取值的证据是 **SSR 渲染真实载荷**
+  （`realdata.test.ts`，17 个用例）与**宿主上的 Playwright 冒烟**（mock，已登录）；
+  验收 VM 上没有装浏览器，所以“真实数据在真浏览器里渲染”的像素级证据仍然没有。
 - 宿主上**没有** `go test -race` 证据（本机无 cgo/gcc）；VM 上的 `-race` 全绿见上一条。
   5 秒 ticker 与 15 分钟健康采集两个 goroutine 的并发读写在本轮 `-race` 下没有报竞争，
   但长时间（小时级）运行的内存/fd 稳定性仍未观测。
@@ -2434,7 +2536,8 @@ Q103（`cmd/upanel-web` 的用例会读机器上的 `/etc/upanel/upanel.json`，
 - 分区表探测只读盘头部有限字节，MBR 扩展分区链过深、坏表、非 512/4096 逻辑扇区的盘只会给
   `warning` 或 `source=kernel`，不做修复也不抛错；`free_regions` 只是“探测到的空闲区间”，
   不能直接当作分区建议。
-- 存储拓扑的浏览器证据同样没有：接口在，页面要到 P04.4。
+- 存储拓扑在当轮没有浏览器证据。P04.4 之后：真实载荷的 SSR 回归 + 宿主 mock 冒烟的依赖缺失/空状态
+  都有；**真实拓扑在真浏览器里渲染**仍无证据（VM 无浏览器）。
 - P04.3 的健康采集是**独立 goroutine**（默认 15 分钟），因此 `health.checked_at` 与
   `collected_at` 通常相差几分钟：页面必须用 `checked_at` 讲“健康数据有多旧”，不能拿
   `collected_at` 顶替；代理刚启动时（第一轮采集还没回来）`health` 的 `status` 是 `unknown`、
@@ -2473,4 +2576,6 @@ Q103（`cmd/upanel-web` 的用例会读机器上的 `/etc/upanel/upanel.json`，
   SMART 与温度）与 USB-ATA 桥的 SAT 透传都没有样本。
 - “同一设备多个挂载点”只有一条真实 `mount --bind` 的 `mountinfo` 行（同为 `8:1`、ext4）；
   同一设备跨不同文件系统类型、NFS 上再 bind 的两级叠加都没验。
-- P04.3 的所有页面仍然没有：`io`/健康/网络挂载都只有接口与 curl 证据，浏览器渲染属 P04.4。
+- P04.3 当轮没有任何页面：`io`/健康/网络挂载都只有接口与 curl 证据。P04.4 起 `io`、健康、
+  不可达网络挂载都已进入页面并有 SSR 真实载荷断言；但真实 `healthy`/`sleeping` 状态的
+  浏览器呈现仍只有合成夹具（见 §5 P04.4 的 NOT RUN）。

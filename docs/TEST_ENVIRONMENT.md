@@ -275,3 +275,38 @@ P04.3 需要一块**能读出真实 SMART 结论**的盘。两台既有 VM 都�
   显式 `-d sat` 是 `Read Device Identity failed: scsi error unsupported scsi opcode`（退出状态 2）。
   两份原样输出都在 `tests/fixtures/smart/`，用来钉住“桥不认识 → `unknown`，不是 unsupported、更不是 healthy”。
   换句话说，这台 VM 提供的 USB 证据是**真实的反例**，不是一块能读出 SMART 的 USB 盘。
+
+### 8.7 前端验收（P04.4）所需的额外步骤
+
+前端验收分两头：**数据在 VM 上验，像素在宿主上验**。
+
+VM 侧（`tests/integration/p04-4-ui-acceptance.sh`，root，只需 Python 3 与 util-linux）：
+
+```sh
+# 宿主：交叉编译（不入库），拷进 VM
+mkdir -p /tmp/upanel-bin
+for b in upanel-web upanel-agent upanelctl; do
+  GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /tmp/upanel-bin/$b ./cmd/$b
+done
+scp -i H:\Code\vms\upanel-2404\id_ed25519 -P 2222 /tmp/upanel-bin/* upanel@127.0.0.1:/tmp/upanel-bin/
+
+# VM：跑验收（脚本自己建 upanel-web 账号、写 /etc/upanel/upanel.json、起代理与 Web）
+sudo BIN_DIR=/tmp/upanel-bin sh tests/integration/p04-4-ui-acceptance.sh
+```
+
+两个坑，脚本已经处理，改动时别退回去：
+
+1. **不能启动完 Web 就抓响应**。健康采集是独立 goroutine，比拓扑慢，早抓会拿到
+   `SMART 采集尚未完成` 的占位。脚本先轮询整盘的 `health.checked_at`（`HEALTH_WAIT`，默认 120 秒，
+   实测 5 秒），超时就记 `NOT RUN` 并写出是哪几块盘。
+2. **健康对照必须用产品同一组参数**（`-j -i -H -A -n standby`）。只用 `smartctl -H` 时，
+   QEMU 的虚拟盘会返回 `smart_status.passed=true`；带上 `-i -A` 后同一块盘是
+   `smart_support.available=false`。两边看不同的输出，等于在测两件事。
+
+载荷会留在 `/var/tmp/upanel-accept-p04-4/payloads/`，拷回宿主后既进 `docs/evidence/`，
+也是 `web/src/fixtures/p04-4-vm/` 的来源（逐字节相同）。
+
+宿主侧（页面冒烟，需要 Playwright chromium）：`sh tests/smoke/p04-4-ui-smoke.sh`。
+它跑的是真实 `upanel-web --mode mock`（端口固定 127.0.0.1:18881），因此与 `p02-1-*` 冒烟不能同时跑。
+
+VM 上**不装浏览器**：VM 只证明“前端拿到的数据是真的”，像素证据在宿主。

@@ -1,0 +1,115 @@
+== 0. 构建（前端 → internal/webui/dist → bin/upanel-web）==
+==> 构建前端（Node v22.23.3）
+
+> upanel-web@0.0.0 build
+> vite build
+
+[36mvite v8.3.4 [32mbuilding client environment for production...[36m[39m
+transforming...
+✓ 2740 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                               1.36 kB │ gzip:  0.96 kB
+dist/assets/ApiErrorPanel-C64pX_HY.css        0.28 kB │ gzip:  0.18 kB
+dist/assets/LoginView-cud7mG0l.css            0.32 kB │ gzip:  0.19 kB
+dist/assets/StatTile-DColcoO1.css             0.56 kB │ gzip:  0.27 kB
+dist/assets/HealthBadge-B8QssTuN.css          0.77 kB │ gzip:  0.28 kB
+dist/assets/StorageView-dMAcJKKp.css          1.27 kB │ gzip:  0.46 kB
+dist/assets/JobsView-CadWjv_X.css             1.31 kB │ gzip:  0.44 kB
+dist/assets/OverviewView-DANrO981.css         1.40 kB │ gzip:  0.43 kB
+dist/assets/index-im0KM59u.css                1.49 kB │ gzip:  0.62 kB
+dist/assets/StorageDeviceView-BwPiuJyi.css    1.76 kB │ gzip:  0.52 kB
+dist/assets/NotFoundView-QiqNAuWp.js          0.51 kB │ gzip:  0.44 kB
+dist/assets/StatTile-CGINB1Kp.js              0.55 kB │ gzip:  0.36 kB
+dist/assets/ApiErrorPanel-DaZj2UN2.js         3.30 kB │ gzip:  1.79 kB
+dist/assets/HealthBadge-DruS1RbS.js           3.60 kB │ gzip:  1.73 kB
+dist/assets/polling-DK2FHAtO.js               5.48 kB │ gzip:  2.79 kB
+dist/assets/OverviewView-CX5_NQeF.js         11.32 kB │ gzip:  4.09 kB
+dist/assets/StorageDeviceView-CvYW_ORF.js    13.70 kB │ gzip:  4.81 kB
+dist/assets/Progress-Dxvg4Pzj.js             16.44 kB │ gzip:  4.41 kB
+dist/assets/StorageView-DpaaFfcS.js          20.00 kB │ gzip:  7.47 kB
+dist/assets/JobsView-kGZ_icBK.js             23.97 kB │ gzip:  8.45 kB
+dist/assets/LoginView-Bl1FBNty.js            70.71 kB │ gzip: 21.46 kB
+dist/assets/Button-DY86joZa.js              144.03 kB │ gzip: 51.75 kB
+dist/assets/index-6poAVAha.js               289.09 kB │ gzip: 87.14 kB
+
+[32m✓ built in 465ms[39m
+==> 同步前端产物到 internal/webui/dist
+==> 构建 Go 二进制（版本 0.0.0-dev，commit unknown）
+==> 完成
+total 111872
+-rw-r--r-- 1 huxi 197609     4096 Oct 20 16:23 accept-host.db
+-rw-r--r-- 1 huxi 197609    32768 Oct 20 16:23 accept-host.db-shm
+-rw-r--r-- 1 huxi 197609    28872 Oct 20 16:23 accept-host.db-wal
+-rw-r--r-- 1 huxi 197609   147456 Oct 20 21:54 dev-p032.db
+-rw-r--r-- 1 huxi 197609    32768 Oct 20 21:54 dev-p032.db-shm
+-rw-r--r-- 1 huxi 197609        0 Oct 20 21:54 dev-p032.db-wal
+drwxr-xr-x 1 huxi 197609        0 Oct 21 05:42 linux-amd64
+-rw-r--r-- 1 huxi 197609     4096 Oct 20 16:55 p01-4-host.db
+-rw-r--r-- 1 huxi 197609    32768 Oct 20 16:56 p01-4-host.db-shm
+-rw-r--r-- 1 huxi 197609    28872 Oct 20 16:55 p01-4-host.db-wal
+-rwxr-xr-x 1 huxi 197609 15464960 Oct 21 08:22 upanel-agent
+-rwxr-xr-x 1 huxi 197609 10227712 Oct 20 16:23 upanel-agent.exe
+-rwxr-xr-x 1 huxi 197609 30408192 Oct 21 08:22 upanel-web
+-rw-r--r-- 1 huxi 197609     4895 Oct 21 08:00 upanel-web-dev.log
+-rwxr-xr-x 1 huxi 197609 30065664 Oct 20 21:54 upanel-web.exe
+-rwxr-xr-x 1 huxi 197609 14031360 Oct 21 08:22 upanelctl
+-rwxr-xr-x 1 huxi 197609 14023680 Oct 20 21:54 upanelctl.exe
+嵌入的前端入口: internal/webui/dist/index.html (1364 字节)
+== 1. 初始化管理员 ==
+   {
+  "database_path": "C:\\Users\\huxi\\AppData\\Local\\Temp\\upanel-p044-ggfhoo0a/upanel.db",
+  "user_id": 1,
+  "username": "admin",
+  "display_name": "admin",
+  "role": "admin",
+  "schema_version": 6
+}
+== 2. 启动 mock 模式 Web 服务（127.0.0.1:18881）==
+   健康检查: 200
+== 3. 记录存储接口的可信失败响应（没有 agent socket 时应为 503 AGENT_UNAVAILABLE）==
+   /api/v1/system/summary          503 {"error":{"code":"AGENT_UNAVAILABLE","message":"系统信息不可用：未配置代理连接"},"request_id":"27d2b136072006603edc36c49657e147"}
+   /api/v1/storage/topology        503 {"error":{"code":"AGENT_UNAVAILABLE","message":"存储拓扑不可用：未配置代理连接"},"request_id":"04fea4d6ae64c3b1c452172c287ac322"}
+   /api/v1/storage/devices         503 {"error":{"code":"AGENT_UNAVAILABLE","message":"设备列表不可用：未配置代理连接"},"request_id":"e624b586cf918cfac0a987ad4a581c86"}
+   /api/v1/storage/devices/sda     503 {"error":{"code":"AGENT_UNAVAILABLE","message":"设备详情不可用：未配置代理连接"},"request_id":"466ad159ba464fd1029491c2ca8ad389"}
+== 4. 浏览器页面冒烟（Playwright，登录后逐页检查）==
+<== PASS  根路径返回 200（HTTP 200）
+<== PASS  页面语言为 zh-CN
+<== PASS  页面有标题（uPanel）
+<== PASS  前端挂载成功（#app 有内容）
+<== PASS  显示面板品牌与副标题
+<== PASS  mock 构建持续显示演示模式横幅
+<== PASS  未登录访问 / 落到登录页
+<== PASS  未登录访问 /storage 同样落到登录页
+<== PASS  登录后回到被拦截的地址（/storage）（http://127.0.0.1:18881/storage）
+<== PASS  登录后导航包含已实现模块（概览、存储、任务中心）（概览 存储 任务中心）
+<== PASS  导航不包含未实现模块（终端、设置）（概览 存储 任务中心）
+<== PASS  概览页渲染标题与模块说明
+<== PASS  概览页显示面板服务连通性
+<== PASS  概览页没有停在“加载中”
+<== PASS  运行模式与后端一致
+<== PASS  代理不可用时概览显示依赖未安装
+<== PASS  代理不可用时概览给出错误码
+<== PASS  代理不可用时概览说明原因
+<== PASS  代理不可用时概览不出现假的 0%
+<== SKIP  概览页显示采集时间与刷新节奏: 代理不可用（mock 二进制没有 agent socket），没有系统快照
+<== PASS  存储页渲染标题
+<== PASS  存储页没有停在“加载中”
+<== PASS  代理不可用时存储页显示依赖未安装
+<== PASS  代理不可用时存储页给出错误码与说明
+<== PASS  代理不可用时存储页不显示任何设备卡片
+<== SKIP  存储页渲染设备卡片与 diskstats 口径说明: 代理不可用，拓扑卡片整体不渲染
+<== SKIP  存储页渲染设备卡片、健康与容量: 代理不可用（mock 二进制没有 agent socket），没有真实设备可渲染
+<== SKIP  设备卡片与详情页跳转: 同上：没有设备可点
+<== PASS  设备深链接不会落到“页面不存在”（代理不可用 → 依赖未安装）
+<== PASS  代理不可用时设备详情页显示依赖未安装
+<== SKIP  设备详情页的“设备不存在”空状态: 代理不可用，拿不到拓扑，无法区分“不存在”与“读不到”
+<== PASS  未知路径落到 404 页面
+<== PASS  404 页面也渲染完整外壳
+<== PASS  没有未捕获的页面异常
+<== PASS  除预期的 401/404/503 外没有失败请求
+<== PASS  没有其他控制台错误
+
+PASS 31 / FAIL 0 / SKIP 5（共 36 项，mock，目标 http://127.0.0.1:18881，已登录）
+
+工作目录（含 web.log 与数据库）: C:\Users\huxi\AppData\Local\Temp\upanel-p044-ggfhoo0a

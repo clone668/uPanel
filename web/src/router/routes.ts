@@ -22,6 +22,20 @@ export const appRoutes: readonly RouteRecordRaw[] = [
     meta: { moduleKey: 'overview' },
   },
   {
+    path: '/storage',
+    name: 'storage',
+    component: () => import('@/views/StorageView.vue'),
+    meta: { moduleKey: 'storage' },
+  },
+  {
+    // 设备 id 是内核设备名，只允许契约里的字符集；非法值直接落 404，
+    // 不会把一个奇怪的参数带进页面再让它自己出错。
+    path: '/storage/devices/:id([A-Za-z0-9._-]+)',
+    name: 'storage-device',
+    component: () => import('@/views/StorageDeviceView.vue'),
+    meta: { moduleKey: 'storage' },
+  },
+  {
     path: '/jobs',
     name: 'jobs',
     component: () => import('@/views/JobsView.vue'),

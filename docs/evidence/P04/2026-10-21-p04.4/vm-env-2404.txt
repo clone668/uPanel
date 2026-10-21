@@ -1,0 +1,66 @@
+# 采集时间（宿主）: 2026-10-21 08:17:35    
+# VM: upanel-2404 (QEMU/WHPX, 4 GiB, 2 vCPU)，冷启动后采集
+
+$ hostnamectl
+ Static hostname: upanel-2404
+       Icon name: computer-vm
+         Chassis: vm 🖴
+      Machine ID: d9941cb74fc54df3a23d5c7e82560c5f
+         Boot ID: c7d42bfa3ac046a3a1396dece210d92a
+  Virtualization: microsoft
+Operating System: Ubuntu 24.04.5 LTS
+          Kernel: Linux 6.8.0-147-generic
+    Architecture: x86-64
+ Hardware Vendor: QEMU
+  Hardware Model: Standard PC _i440FX + PIIX, 1996_
+Firmware Version: rel-1.17.0-0-gb52ca86e094d-prebuilt.qemu.org
+   Firmware Date: Tue 2014-04-01
+    Firmware Age: 12y 6month 2w 6d
+
+$ uname -a
+Linux upanel-2404 6.8.0-147-generic #147-Ubuntu SMP PREEMPT_DYNAMIC Thu Sep 24 11:33:16 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+
+$ lsblk -o NAME,TYPE,SIZE,TRAN,MODEL,SERIAL,MOUNTPOINTS
+NAME    TYPE  SIZE TRAN MODEL         SERIAL           MOUNTPOINTS
+fd0     disk    4K                                     
+sda     disk   40G      QEMU HARDDISK UPANEL-SYS-40G   
+├─sda1  part   39G                                     /
+├─sda14 part    4M                                     
+├─sda15 part  106M                                     /boot/efi
+└─sda16 part  913M                                     /boot
+sdb     disk    8G      QEMU HARDDISK UPANEL-DATA-A-8G 
+sdc     disk    4G      QEMU HARDDISK UPANEL-DATA-B-4G 
+sdd     disk    4G      QEMU HARDDISK UPANEL-DATA-C-4G 
+
+$ lsblk -bdn -o NAME,SIZE,ROTA
+fd0         4096    1
+sda  42949672960    1
+sdb   8589934592    1
+sdc   4294967296    1
+sdd   4294967296    1
+
+$ df -B1 --output=source,fstype,size,used,avail,pcent,target --exclude-type=tmpfs --exclude-type=devtmpfs
+Filesystem     Type   1B-blocks       Used       Avail Use% Mounted on
+/dev/sda1      ext4 40483942400 2563379200 37903785984   7% /
+/dev/sda16     ext4   923156480   66379776   792133632   8% /boot
+/dev/sda15     vfat   109395456    6399488   102995968   6% /boot/efi
+
+$ smartctl --version | head -3
+smartctl 7.4 2023-08-01 r5530 [x86_64-linux-6.8.0-147-generic] (local build)
+Copyright (C) 2002-23, Bruce Allen, Christian Franke, www.smartmontools.org
+
+
+$ smartctl -H /dev/sda; echo exit=$?
+smartctl 7.4 2023-08-01 r5530 [x86_64-linux-6.8.0-147-generic] (local build)
+Copyright (C) 2002-23, Bruce Allen, Christian Franke, www.smartmontools.org
+
+=== START OF READ SMART DATA SECTION ===
+SMART Health Status: OK
+
+exit=0
+
+$ python3 -V
+Python 3.12.3
+
+$ getent passwd upanel-web
+upanel-web:x:999:988::/var/lib/upanel:/usr/sbin/nologin

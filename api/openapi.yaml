@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: uPanel API
-  version: 0.0.0-p04.3
+  version: 0.0.0-p04.4
   summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
   description: |
     uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。
@@ -23,7 +23,7 @@ info:
     name: Proprietary
     identifier: LicenseRef-Proprietary
 x-upanel-contract-status:
-  stage: P03.3
+  stage: P04.4
   implemented_paths:
     - get /api/v1/health/live
     - head /api/v1/health/live
@@ -36,6 +36,10 @@ x-upanel-contract-status:
     - patch /api/v1/users/{id}
     - delete /api/v1/users/{id}
     - post /api/v1/users/{id}/password
+    - get /api/v1/system/summary
+    - get /api/v1/storage/topology
+    - get /api/v1/storage/devices
+    - get /api/v1/storage/devices/{id}
     - post /api/v1/operations/preflight
     - post /api/v1/jobs
     - get /api/v1/jobs
@@ -681,7 +685,10 @@ paths:
         每台设备至少包含 Device 必需字段。P04.2 起另有三个附加字段（见 CONTRACTS.md 第 6 节）：
         protection（系统盘保护与理由）、holders（谁依赖它）、swap（活动交换区）。
 
-        health 在本阶段恒为 unknown：SMART/NVMe 采集属 P04.3，没采到就不能写 healthy。
+        health 在 P04.3 起由 SMART / NVMe 健康日志填充，判定依据见 StorageHealth；
+        读不到、盘在休眠或桥接不被支持时是 unknown 或 sleeping，绝不写成 healthy。
+
+        io 在 P04.3 起填充：每台设备只报自己那一行 diskstats 计数，从不相加。
 
         capabilities 在本阶段恒为空数组：写动作登记表要到 P07 才开始有内容，
         这里不能预告未实现的能力。未知类型的设备更不能暗示可以破坏性操作。
@@ -2408,7 +2415,7 @@ components:
       required: [id, kind, name, size_bytes, logical_sector_bytes, physical_sector_bytes,
                  model, serial, wwn, transport, rotational, read_only, online,
                  identity_confidence, identity_fingerprint, filesystem, partition_table,
-                 health, capabilities, protection, collected_at]
+                 health, capabilities, protection, io, collected_at]
       properties:
         id:
           type: string
@@ -2475,6 +2482,14 @@ components:
             $ref: '#/components/schemas/StorageCapability'
         protection:
           $ref: '#/components/schemas/StorageProtection'
+        io:
+          oneOf:
+            - $ref: '#/components/schemas/StorageIO'
+            - type: 'null'
+          description: |
+            这块设备自己的 I/O 计数与速率（/proc/diskstats 里它那一行），P04.3 起填充；
+            读不到 /proc/diskstats 时为 null。字段恒存在（不是可省略）。
+            每台设备只报自己的计数，从不相加：分区的 I/O 已含在整盘里，dm 与底层盘也重复。
         holders:
           type: array
           description: 直接依赖这台设备的设备 id（sysfs holders：dm/md 消费它）。
@@ -2637,8 +2652,11 @@ components:
       type: object
       additionalProperties: false
       description: |
-        设备健康。P04.2 恒为 unknown：SMART/NVMe 采集属 P04.3。
-        没采到温度时 temperature_celsius 是 null，不能写成 0 °C。
+        设备健康（CONTRACTS.md 第 6.2 节，P04.3 起由 SMART / NVMe 健康日志填充）。
+        healthy 必须由 smartctl 自己的 smart_status.passed=true，或 NVMe 健康日志判定，
+        不能因为“没读出问题”就写 healthy；sleeping 表示盘在看健康之前就睡下了（读 sysfs
+        电源状态即停，不唤醒它）。没采到温度时 temperature_celsius 是 null，不能写成 0 °C。
+        details 存放来源原话（smartctl 的 messages，优先报警级别最高的那条），便于解释判定。
       required: [status, temperature_celsius, source, checked_at, details]
       properties:
         status:
@@ -2700,6 +2718,63 @@ components:
         relation:
           type: string
           enum: [partition_of, depends_on]
+
+    StorageIO:
+      type: object
+      additionalProperties: false
+      description: |
+        单台设备的 I/O 计数与速率（CONTRACTS.md 第 6.2 节，P04.3 起）。
+        计数来自 /proc/diskstats 里这台设备自己的那一行；速率是相邻两次采样的差值
+        除以真实时间窗。计数是累计值，重启或换盘后会变小，因此不能跨启动比较。
+      required: [sampled_at, read_bytes_total, write_bytes_total, reads_total, writes_total, rate]
+      properties:
+        sampled_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        read_bytes_total:
+          $ref: '#/components/schemas/ByteString'
+        write_bytes_total:
+          $ref: '#/components/schemas/ByteString'
+        reads_total:
+          $ref: '#/components/schemas/ByteString'
+          description: 完成的读次数（不是字节）。
+        writes_total:
+          $ref: '#/components/schemas/ByteString'
+        rate:
+          oneOf:
+            - $ref: '#/components/schemas/StorageIORate'
+            - type: 'null'
+          description: |
+            null 表示本次没有可用的采样窗口：首次采样、计数器变小（重启/换盘）、
+            或时间窗异常。此时不能把速率画成 0——那是编造。
+
+    StorageIORate:
+      type: object
+      additionalProperties: false
+      description: |
+        一个采样窗口内的速率。interval_ms 是这两个采样的真实间隔，与采集节奏无关：
+        进程被挂起或机器休眠后间隔会明显变大，界面据此说明“这一份数据隔了多久”。
+      required: [interval_ms, read_bytes_per_second, write_bytes_per_second, read_iops, write_iops,
+                 read_latency_ms, write_latency_ms]
+      properties:
+        interval_ms:
+          type: integer
+          minimum: 1
+        read_bytes_per_second:
+          $ref: '#/components/schemas/ByteString'
+        write_bytes_per_second:
+          $ref: '#/components/schemas/ByteString'
+        read_iops:
+          type: number
+          minimum: 0
+          description: 每秒完成的读次数，保留两位小数。
+        write_iops:
+          type: number
+          minimum: 0
+        read_latency_ms:
+          type: [number, 'null']
+          description: 平均单次读时延；没有完成任何读时为 null（不是 0 ms）。
+        write_latency_ms:
+          type: [number, 'null']
 
     NullableByteString:
       type: [string, 'null']

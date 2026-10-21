@@ -26,8 +26,11 @@ const menuOptions = computed<MenuOption[]>(() =>
 )
 
 // 只有会出现在导航里的路径才高亮；未知路径（404 页面）不高亮任何项。
+// 子页面（例如 /storage/devices/sda）同样高亮它所属的模块。
 const activeKey = computed<string | null>(() => {
-  const hit = visibleModules().find((module) => module.path === route.path)
+  const hit = visibleModules().find(
+    (module) => route.path === module.path || route.path.startsWith(`${module.path}/`),
+  )
   return hit ? hit.path : null
 })
 

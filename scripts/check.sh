@@ -176,6 +176,24 @@ else
     else
       skip "web-build" "package.json 尚无 build 脚本（P01.3 建立）"
     fi
+    # 页面冒烟：preview 托管刚构建的 web/dist，用 Playwright 走一遍“未登录必须落到登录页”。
+    # 需要 Playwright 的浏览器二进制（npx playwright install chromium）；没有就如实标 NOT RUN。
+    if has_script smoke; then
+      PLAYWRIGHT_BROWSERS="${PLAYWRIGHT_BROWSERS_PATH:-}"
+      if [ -z "$PLAYWRIGHT_BROWSERS" ]; then
+        case "$(uname -s 2>/dev/null)" in
+          MINGW*|MSYS*|CYGWIN*) PLAYWRIGHT_BROWSERS="${LOCALAPPDATA:-$HOME/AppData/Local}/ms-playwright" ;;
+          *) PLAYWRIGHT_BROWSERS="$HOME/.cache/ms-playwright" ;;
+        esac
+      fi
+      if [ -d "$PLAYWRIGHT_BROWSERS" ]; then
+        run "web-smoke" npm --prefix web run --silent smoke
+      else
+        skip "web-smoke" "未找到 Playwright 浏览器（$PLAYWRIGHT_BROWSERS），先运行 npx --prefix web playwright install chromium"
+      fi
+    else
+      skip "web-smoke" "package.json 尚无 smoke 脚本（P01.3 建立）"
+    fi
   fi
 
   if [ -x web/node_modules/.bin/redocly ]; then

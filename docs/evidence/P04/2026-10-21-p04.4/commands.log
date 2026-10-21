@@ -1,0 +1,63 @@
+# 命令与结果（P04.4 验收，2026-10-21）
+
+只记真正跑过的命令。宿主为 Windows 11 + Git Bash，`PATH` 里加了
+`/h/Code/.toolchains/node-v22.23.3-win-x64`；VM 为 `upanel-2404`（Ubuntu 24.04.5，6.8.0-147-generic，
+QEMU/WHPX），SSH 转发 `127.0.0.1:2222`，密钥 `H:\Code\vms\upanel-2404\id_ed25519`。
+
+## 宿主
+
+| 命令 | 退出码 | 结果 |
+|---|---|---|
+| `cd web && npx vitest run` | 0 | 16 files / 189 tests passed |
+| `cd web && npx eslint .` | 0 | 0 problems |
+| `cd web && npx vue-tsc --noEmit` | 0 | 0 errors（注意：闸门用的是 `npm run typecheck` = `vue-tsc -b`，后者才把 `per_cpu?:` 的可选性抓出来） |
+| `sh scripts/check.sh` | 0 | PASS 13 / FAIL 0 / NOT RUN 0（`check.txt`） |
+| `sh tests/smoke/p04-4-ui-smoke.sh` | 0 | PASS 31 / FAIL 0 / SKIP 5（`p04-4-ui-smoke.txt`） |
+
+`sh scripts/check.sh` 第一次跑时 `web-typecheck` 失败过一次：
+`src/components/realdata.test.ts(138,12): error TS18048: 'summary.cpu.per_cpu' is possibly 'undefined'`。
+改成 `per_cpu?.length` 后重跑通过，`check.txt` 是修好之后那一次的输出。
+
+## 交叉编译与拷贝（宿主 → VM）
+
+| 命令 | 结果 |
+|---|---|
+| `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /tmp/upanel-bin/<b> ./cmd/<b>`（三个二进制） | 成功 |
+| `scp -i .../id_ed25519 -P 2222 /tmp/upanel-bin/* upanel@127.0.0.1:/tmp/upanel-bin/` | 成功 |
+| `scp ... tests/integration/p04-4-ui-acceptance.sh tests/integration/p04-4-payload-validate.py upanel@127.0.0.1:/tmp/p044/tests/integration/` | 成功 |
+
+VM 上校验和（第一次运行，修好健康等待之前）：
+
+```
+c72af4bbc88397e2ee1decb2c0a3e06a908923af50063489517943c805ae288c  /tmp/upanel-bin/upanel-agent
+d5ac664cf4c6ba722ccd0dd9f193a88f1354b9afc2dd1ce95316dd8ffc1000c9  /tmp/upanel-bin/upanel-web
+77825aaa78a03c1a42cf366b6ba8aca339232c9f296eea8d8fcdb887b64aa7be  /tmp/upanel-bin/upanelctl
+2d134a9775cb3e94800531729f1886781a8b38cd7417030da3e9627a45267329  p04-4-payload-validate.py（修前）
+5f283b138601ed9cc6b51c78a1b0b771a3cbdd1b83e06373f97e05e84a57939e  p04-4-ui-acceptance.sh（修前）
+```
+
+修好后重拷的两个脚本：
+
+```
+462338a4998a0dabf22135dd3367cee9ea99de0df75b1ceaefaf783161a01281  p04-4-payload-validate.py
+3859d39fe3e89ef87e37859cb865613cd6d166e6deaa9bde347a9289cfaf0909  p04-4-ui-acceptance.sh
+```
+
+二进制没有再重编（这一轮只改了脚本与前端）。
+
+## VM
+
+| 命令 | 退出码 | 结果 |
+|---|---|---|
+| `sudo -n BIN_DIR=/tmp/upanel-bin sh /tmp/p044/tests/integration/p04-4-ui-acceptance.sh`（修前） | 0 | 载荷 `PASS=742 FAIL=0`，脚本 `PASS=30 FAIL=0`；`health` 全是占位，smartctl 对照 SKIP |
+| 同上（修后，`p04-4-acceptance-2404.txt`） | 0 | 载荷 `PASS=856 FAIL=0`，脚本 `PASS=31 FAIL=0 NOT RUN=0`；等待首次 SMART 采集 5s；4 块盘与 smartctl 逐盘对照 PASS |
+| `sudo -n smartctl -j -i -H -A -n standby /dev/sda` | 0 | `smart_support.available=false`、无 `smart_status`、`temperature.current=0` → 产品必须报 `unsupported` |
+| `sudo -n smartctl -H -j /dev/sda` | 0 | `smart_status.passed=true`（只用 `-H` 时的结论，和上面不同，见 result.md） |
+| `ssh ... 'lsblk -o NAME,TYPE,SIZE,TRAN,MODEL,SERIAL,MOUNTPOINTS'` | 0 | 17 行，见 `vm-env-2404.txt` |
+| `ssh ... 'df -B1 --output=...'` | 0 | `/` 40483942400、`/boot` 923156480、`/boot/efi` 109395456，见 `vm-env-2404.txt` |
+
+## 没跑的命令（NOT RUN）
+
+- 在 VM 里跑浏览器冒烟：VM 上没有 chromium/Playwright，也没有打算装。
+- 在 VM 里跑 `go test`：这一轮没有改 Go 代码，VM 上没有 Go 工具链，按 `.toolchains` 的约定不在 guest 里编译。
+- 真实 SATA/NVMe/USB/睡眠盘的健康显示：这台 VM 的盘全是 QEMU 虚拟盘。
