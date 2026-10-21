@@ -6,7 +6,8 @@
   `PREFLIGHT_STALE`，见 §6），
   VM 内核原生 **587 个顶层用例 PASS / 0 FAIL / 1 SKIP**（storage 162 / agent 161 / api 161 /
   operations 45 / files 58），宿主 `go test -count=1 ./...` **26 包 ok**、
-  `check.sh` **PASS 13 / FAIL 0 / NOT RUN 0**、前端 **29 文件 / 445 用例**、`api/openapi.yaml` valid（7 warning）。
+  `check.sh` **PASS 13 / FAIL 0 / NOT RUN 0**、前端 **29 文件 / 445 用例**、`api/openapi.yaml` valid（7 warning）、
+  同机定向回归 `p04-2-storage-acceptance.sh` **112 / 0 / 0**（改动过 `scan.go`，必须证明只读拓扑没被带坏）。
 - 这一轮**不写盘**：四个存储动作只登记参数解码与预检，`Execute` 为 nil，提交必 501 `NOT_IMPLEMENTED`。
   交付的是“该拒的都拒了”的真机证据，以及被真机改掉的**两个**产品缺陷（交换区魔数位置、holders/slaves 的读取方式）。
 
@@ -138,6 +139,21 @@
    `-test.timeout 10m` 不够。修法：脚本加两条前置检查（不是 root 就 `exit 2`、没有夹具就 `exit 2`），
    显式 `export UPANEL_FIXTURES`，超时放到 1 小时，并把 `tests/fixtures` 传到 VM 的 `/tmp/fixtures`。
    **这条记在这里是因为它差点把“环境没配对”写成“产品坏了”。**
+8. **`p04-2-storage-acceptance.sh` 里有四处陈旧断言和一处脆弱断言**（同机回归时暴露，105 通过 / 5 失败）：
+   - 能力表被写死成 P04 时代的两条动作、六条查询；P05 加了服务/进程、P06 加了文件/终端、P07.1 加了
+     设备能力投影，于是“完全等于”的断言必然红。**改钉跨阶段不变量**：`storage.topology` 在表里、
+     **没有任何 `storage.*` 写动作被登记成可执行**（这正是 Q170 的不变量）、查询表有序无重复。
+     写死清单只会让每个阶段都“改期望值把灯变绿”，那是橡皮图章。
+   - “`health.checked_at` 一律是 null”在 P04.3 之后就不成立（物理盘启动即检查一次）。改成诚实性
+     不变量：**状态不是 unknown 就必须有检查时间**——“说健康就得有检查时间”。
+   - “`capabilities` 一律是空数组”在 P07.1 之后不成立。改成：设备能力只能引用 `storage.*` 动作、
+     状态必须在 `available/blocked/unsupported` 闭集内。
+   - §9「`collected_at` 在一个间隔之后前进了」拿的是 §2 那份快照的 `T1`，而 §3—§8（回环挂载、
+     statvfs、卸载）在 TCG 客机上要跑几分钟，于是 `T3−T1` 早就超过断言里的 30 秒上限——它其实在
+     断言“前面几节跑得快不快”。改成**本节现取基线 T2** 再等 6 秒比较。这一条本轮确实假红过一次。
+
+   修完后同机重跑 **112 / 0 / 0**（断言从 110 条增加到 112 条，只增不减），
+   证明 `holders`/`slaves` 读取方式的改动没有带坏只读拓扑。
 
 第一轮真机跑在 §5（提交门）、§7（LUKS 快照）、§8（整盘忙时建分区）三处报失败，逐条定位后全部落在
 上面 1—5 上；两条产品缺陷（§3.1、§3.2）也在这轮被抓出。修掉 §4 的第 1—5 条后只剩第 3 条（与 Q159 的语义
@@ -161,6 +177,7 @@
 | 环境事实 | 内核、磁盘布局、二进制 sha256、工具版本 | `env.txt` |
 | 实测脚本（交换区魔数、dm holders） | 见 §3 | `probe-swap-holder.sh`、`probe-holder.sh` |
 | 排查脚本（整盘忙时建分区预检） | 见 §4 第 5 条 | `repro-create-busy.sh` |
+| 定向回归：`p04-2-storage-acceptance.sh`（存储只读拓扑，被本轮改过 `scan.go`） | **通过 112 / 失败 0 / 未执行 0**（同机重跑；第一轮 105/5 全部是脚本自身的陈旧/脆弱断言，见 §4 第 8 条） | `regression-p04-2.txt`、`regression-p04-2-first.txt` |
 
 ---
 

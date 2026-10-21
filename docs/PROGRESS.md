@@ -2723,6 +2723,7 @@ files 80 / monitoring 30 / journal 40 / logs 22 / store 11 / syscmd 13）；宿�
 | `internal/storage/{assess,capabilities,busy,signature,scan}_test.go`（新增/改） | 判决、能力、占用、签名、拓扑关系读取的原生用例 |
 | `tests/integration/p07-1-storage-guard-acceptance.sh`（新增，13 节） | 真机验收：先算出承载 `/` 的整盘并拒绝任何与它同源的一次性盘；能力真实性；系统盘与它 4 个分区的拒绝；空白盘允许的预检（影响、整盘锁、短语、再认证）且前后哈希不变；提交的两道门（未再认证 403、再认证后 501）与任务表形态；已有 GPT 时的拒绝与建分区的五种区间错误；整盘 ext4 / 整盘 swap / LUKS 头三种签名；挂载、活动交换区、dm holders、进程打开四类占用（含父盘占用传递到分区）；分区身份指纹的稳定性；权限；日志卫生；收尾后能力回到 `available` |
 | `scripts/capture-storage-fixtures.sh`、`tests/integration/run-all.sh`（改） | 分区 holders 的捕获形状改成 `holders/list`（与真实形状一致）；`run-all.sh` 的 root 脚本清单补上 p06-1/p06-2/p06-3/p07-1（P06 三个脚本此前不在清单里，全量回归从来没跑到它们） |
+| `tests/integration/p04-2-storage-acceptance.sh`（改） | 同机回归暴露的 4 处陈旧断言 + 1 处脆弱断言改成跨阶段不变量（详见下文“验收脚本自身的缺陷”第 8 条），断言数从 110 增加到 112 |
 | `docs/DECISIONS.md`（Q170—Q176） | 决策与缺陷记录；`docs/CONTRACTS.md` 本轮**未改**——四个动作、锁、短语与再认证策略在 P03.1/P04.2 已写进契约（§5 表、§4.1），本轮的实现与之一致 |
 
 **刻意不做的事**：不登记任何执行器（P07.2/P07.3）；不做挂载/卷管理（P07.4）；不实现 MBR 分区表修改；
@@ -2761,6 +2762,15 @@ files 80 / monitoring 30 / journal 40 / logs 22 / store 11 / syscmd 13）；宿�
    api 包在 TCG 客机上跑 argon2id 登录超过 `-test.timeout 10m`。改成“不是 root / 没有夹具就 `exit 2`”、
    显式导出 `UPANEL_FIXTURES`、超时 1 小时，并从 root 重跑才得到 587/0/1。**记在这里是因为它差点把
    “环境没配对”写成“产品坏了”。**
+8. **`p04-2-storage-acceptance.sh` 的四处陈旧断言与一处脆弱断言**（同机定向回归 105/5 暴露）：
+   能力表被写死成 P04 时代的两条动作六条查询（P05/P06/P07.1 各自加过东西）、
+   “`health.checked_at` 一律是 null”（P04.3 起物理盘启动即检查）、“`capabilities` 一律是空数组”
+   （P07.1 起有设备能力投影）、§9 的 `collected_at` 用 §2 的旧基线（§3—§8 在 TCG 上要跑几分钟，
+   `T3−T1` 必然超过 30 秒上限，断言变成了“前面几节跑得快不快”）。全部改成**跨阶段不变量**：
+   存储查询在表里、**没有任何 `storage.*` 写动作被登记成可执行**（Q170 的不变量）、
+   查询表有序无重复、“说健康就必须有检查时间”、设备能力只引用 `storage.*` 且状态在闭集内、
+   §9 现取基线再等 6 秒比较。改完同机重跑 **112/0/0**（断言只增不减），
+   证明 `holders`/`slaves` 读取方式的改动没有带坏只读拓扑。
 
 **实际执行的检查与证据**：VM 24.04.5 上 **PASS=189 / FAIL=0 / NOT RUN=1**（唯一 NOT RUN 是
 `PREFLIGHT_STALE`：没有执行器时提交在复核之前就 501）；VM 内核原生
@@ -2769,7 +2779,8 @@ SKIP 是 `TestNestedMountRejectedByXDEV`——“需要 root 执行 mount，由 
 该路径在 P06.1 的真机验收里已经跑过；五个交叉编译的测试二进制）；
 宿主 `go test -count=1 ./...` **26 包 ok**、`gofmt -l` 无输出、`go vet ./...` 退出码 0、
 `check.sh` **PASS 13 / FAIL 0 / NOT RUN 0**（Node 22.23.3 固定工具链）、前端 **29 文件 / 445 用例**、
-`api/openapi.yaml` valid（7 warning，本轮未改契约文件）。证据 `docs/evidence/P07/2026-10-21-p07.1/`。
+`api/openapi.yaml` valid（7 warning，本轮未改契约文件）；同机定向回归 `p04-2-storage-acceptance.sh`
+**112 / 0 / 0**（改动过 `scan.go`，必须证明只读拓扑没被带坏）。证据 `docs/evidence/P07/2026-10-21-p07.1/`。
 
 **未验证（NOT RUN，逐条原因见 result.md §6）**：执行前复核（`PREFLIGHT_STALE`，没有执行器时提交在复核之前
 就 501）、RAID（md）成员的 holders 现场、离线/只读设备、应用/共享/备份依赖、并发抢同一块盘、
@@ -3086,6 +3097,7 @@ Q103（`cmd/upanel-web` 的用例会读机器上的 `/etc/upanel/upanel.json`，
 | P07.1-FRONT | P07 | 已执行通过（本轮**没有前端改动**，跑的是回归）：`vue-tsc --noEmit` 0 error、`eslint .` 0 problem、`vitest run` **29 文件 / 445 用例全 passed**。设备页仍不渲染任何动作按钮（`StorageDeviceView` 无 capability 渲染），写操作界面等 P07.2 | docs/evidence/P07/2026-10-21-p07.1/{web-test.txt,check.txt} |
 | P07.1-RESULT | P07 | 已产出：范围与逐文件改动、13 节验收覆盖表、2 个产品缺陷（交换区魔数在 4096−10 而非盘尾、`holders`/`slaves` 是符号链接目录没有 `list`）、验收脚本自身的 6 处缺陷（含 `lsblk` 树形前缀导致整节“什么都没断言”）、实际执行的检查表、9 条 NOT RUN 与原因、环境备注、复现命令 | docs/evidence/P07/2026-10-21-p07.1/{result.md,probe-swap-holder.sh,probe-holder.sh,repro-create-busy.sh,collect-native.sh} |
 | P07.1-UNIT-VM | P07 | 已执行通过：VM 内核上跑五个交叉编译的测试二进制，**587 个顶层用例 PASS / 0 FAIL / 1 SKIP**（storage 162 / agent 161 / api 161 / operations 45 / files 58；SKIP 是 `TestNestedMountRejectedByXDEV`——“需要 root 执行 mount，由 P06.1 验收脚本在 VM 上覆盖”）。本轮两条缺陷的照妖镜：`TestClassifySignature` 的交换区用例与「盘中间出现字面量 `SWAPSPACE2` 必须仍是 unknown」反例（Q171）、`TestLinkNamesReadsDirectoryEntries`（Q172）。采集脚本有两条前置检查：不是 root 就 `exit 2`（`agentstore` 校验数据目录属主 root 0700）、`UPANEL_FIXTURES` 找不到 `storage-2404` 就 `exit 2` | docs/evidence/P07/2026-10-21-p07.1/{native-tests.txt,native-tests-summary.txt,native-storage.txt,native-agent.txt,native-api.txt,native-operations.txt,native-files.txt,env.txt} |
+| P07.1-REGRESSION | P07 | 已执行通过（同机定向回归）：`p04-2-storage-acceptance.sh` **通过 112 / 失败 0 / 未执行 0**。第一轮 105/5，五条失败全部是脚本自身的陈旧/脆弱断言（能力表写死、`health.checked_at` 一律 null、`capabilities` 一律空数组、§9 用 §2 的旧基线算间距），改法见 result.md §4 第 8 条；改完断言从 110 增加到 112。这一轮要证明的是：**`linkNames()` 改成读目录项之后，只读拓扑没有被带坏**（系统盘保护、`snapshot_version` 只由内容决定、容量与 statvfs 一致、回环挂载的进出都在） | docs/evidence/P07/2026-10-21-p07.1/{regression-p04-2.txt,regression-p04-2-first.txt} |
 | P00-VM-C（LVM 根） | P00/P04 | **NOT RUN**（未创建） | 需在 P04 前补齐 |
 | P00-VM-D（SMB 客户端） | P00/P08 | **NOT RUN**（未创建） | 需在 P08 前补齐 |
 
