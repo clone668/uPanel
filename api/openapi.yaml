@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: uPanel API
-  version: 0.0.0-p06.1
+  version: 0.0.0-p06.2
   summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
   description: |
     uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。
@@ -23,7 +23,7 @@ info:
     name: Proprietary
     identifier: LicenseRef-Proprietary
 x-upanel-contract-status:
-  stage: P06.1
+  stage: P06.2
   implemented_paths:
     - get /api/v1/health/live
     - head /api/v1/health/live
@@ -56,6 +56,10 @@ x-upanel-contract-status:
     - get /api/v1/files/list
     - get /api/v1/files/text
     - get /api/v1/files/download
+    - post /api/v1/files/uploads
+    - put /api/v1/files/uploads/{id}/content
+    - get /api/v1/files/uploads/{id}
+    - delete /api/v1/files/uploads/{id}
   note: 只列出已实现并通过验收的接口；未实现模块不出现在 paths 中。
 servers:
   - url: https://127.0.0.1:9443/api/v1
@@ -1970,6 +1974,283 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
+  /api/v1/files/uploads:
+    post:
+      operationId: createFileUpload
+      summary: 创建暂存上传（仅 admin）
+      description: |
+        CONTRACTS.md 第 11 节（P06.2 起），权限 admin + CSRF。声明“要把多少字节放到
+        哪个根内的哪个路径”，代理在**根内的保留目录** `.upanel/staging` 上建立暂存，
+        返回一次性 upload_id 与过期时间。
+
+        **上传不等于落地**：创建暂存与写入内容都不会改变目标路径的任何一个字节。
+        要变成真文件必须再走 file.commit_upload 的预检与任务（POST /operations/preflight
+        + POST /jobs），因此审计里是两条记录，而不是一条“POST 之后什么都可能已经发生”。
+
+        size_bytes 是十进制字符串（与列表里的 size_bytes 同一套规则，前端不得用
+        Number 做精确运算）。它同时是两个东西：容量预留的依据，以及传输完整性的判据——
+        实收字节数必须刚好等于它，少一个字节也不提交。
+
+        expected_version 描述的是**目标文件**此刻的版本：非空表示“我知道它现在是这一份”，
+        目标已存在而它为空时，提交阶段会被拒绝（409 VERSION_CONFLICT）。目标不存在时
+        它必须为空。
+
+        `.upanel` 是面板的保留目录：它不出现在列目录结果里，任何指向它的路径在形状层
+        就被拒绝（422 PATH_OUTSIDE_ROOT）。
+      tags: [files]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FileUploadCreateRequest'
+      responses:
+        '201':
+          description: 暂存已创建，内容还没收（state=open）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/FileUploadData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: root_id 未登记（NOT_FOUND）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: |
+            根不可用（ROOT_UNAVAILABLE），或目标当前版本与 expected_version 不一致
+            （VERSION_CONFLICT）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: |
+            声明的 size_bytes 超过单次上传上限（默认 2 GiB，可配置），或根所在文件系统
+            在扣掉已预留容量之后放不下（VALIDATION_ERROR）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/files/uploads/{id}/content:
+    put:
+      operationId: putFileUploadContent
+      summary: 把字节流送进暂存区（仅 admin）
+      description: |
+        CONTRACTS.md 第 11 节（P06.2 起），权限 admin + CSRF。请求体是**原始字节**
+        （application/octet-stream），不是 JSON、不是 multipart：多一层编码就多一次
+        把整份内容读进内存的机会。Web 侧不缓存内容，边读边转发给代理；代理边读边写
+        暂存文件，同时算摘要。
+
+        必须声明 Content-Length 且它必须等于创建上传时的 size_bytes：不支持分块传输，
+        也不支持断点续传。一次只发一半的传输不会变成“一半的文件”，而是 400；
+        长度不符的上传在入口就被拒绝，不让它先传 2 GiB 再失败。
+
+        收完之后 state=received，**目标路径仍然一个字节都没变**。落地要
+        file.commit_upload；在那之前放弃这次上传（DELETE）不会影响任何文件。
+      tags: [files]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/FilesUploadID'
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: 内容已收完（state=received），字节数与声明一致。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/FileUploadData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          description: |
+            upload_id 形状不合法、缺少 Content-Length、Content-Length 与声明的
+            size_bytes 不一致（VALIDATION_ERROR）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: 没有这个上传（不存在、已过期、已提交）：NOT_FOUND。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: |
+            上传状态不允许接收内容（已 received 或已 failed），或实收字节数与声明不符
+            （VERSION_CONFLICT）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: 写入过程中空间不足（VALIDATION_ERROR）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/files/uploads/{id}:
+    get:
+      operationId: getFileUpload
+      summary: 查询暂存上传（仅 admin）
+      description: |
+        CONTRACTS.md 第 11 节（P06.2 起），权限 admin。返回 received_bytes、state 与
+        expires_at：界面据此显示进度与“还剩多久过期”。
+
+        state 是暂存的闭集 open|received|failed，**不描述目标文件**：目标只有在
+        file.commit_upload 成功之后才会改变，而那时上传记录已经不存在了。
+        failed 表示传输失败（大小不符、空间不足、超限），error 说明原因。
+      tags: [files]
+      parameters:
+        - $ref: '#/components/parameters/FilesUploadID'
+      responses:
+        '200':
+          description: 上传暂存的当前状态。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/FileUploadData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    delete:
+      operationId: deleteFileUpload
+      summary: 放弃暂存上传（仅 admin）
+      description: |
+        CONTRACTS.md 第 11 节（P06.2 起），权限 admin + CSRF。删除暂存数据并释放容量
+        预留，**不影响目标文件**：这次上传从来没有落地过。
+
+        未完成或未提交的暂存在 UploadTTL（24 小时）之后由代理定期清理，清理时释放预留；
+        这个接口只是“我现在就放弃”。
+      tags: [files]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/FilesUploadID'
+      responses:
+        '200':
+          description: 暂存已删除。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/FileUploadDeletedData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
 
 components:
   securitySchemes:
@@ -2158,6 +2439,15 @@ components:
       schema:
         type: string
         maxLength: 255
+    FilesUploadID:
+      name: id
+      in: path
+      required: true
+      description: 创建上传时返回的 upload_id，形如 `up_` 加 32 位小写十六进制。
+      schema:
+        type: string
+        pattern: '^up_[0-9a-f]{32}$'
+
     FilesExpectedVersion:
       name: expected_version
       in: query
@@ -4144,6 +4434,78 @@ components:
           type: string
           maxLength: 1048576
           description: UTF-8 文本，不含 NUL；超过 1 MiB 的文件不返回文本（413）。
+
+    FileUploadCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [root_id, path, size_bytes, expected_version]
+      properties:
+        root_id:
+          type: string
+          minLength: 1
+          maxLength: 32
+          pattern: '^[a-z0-9_-]+$'
+        path:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          description: |
+            目标文件的根内相对路径。绝对路径与 `..` 段返回 422 PATH_OUTSIDE_ROOT；
+            `.upanel` 是保留目录，同样拒绝。
+        size_bytes:
+          $ref: '#/components/schemas/ByteString'
+        expected_version:
+          type: [string, 'null']
+          maxLength: 128
+          description: |
+            目标文件此刻的版本；目标不存在时为 null 或省略。目标已存在而这里为空时，
+            提交阶段会被拒绝（409 VERSION_CONFLICT）。
+
+    FileUploadData:
+      type: object
+      additionalProperties: false
+      required: [upload_id, root_id, path, size_bytes, received_bytes, state, created_at, expires_at]
+      properties:
+        upload_id:
+          type: string
+          pattern: '^up_[0-9a-f]{32}$'
+        root_id:
+          type: string
+        path:
+          type: string
+          description: 目标文件的根内相对路径（不是暂存路径）。
+        size_bytes:
+          $ref: '#/components/schemas/ByteString'
+        received_bytes:
+          $ref: '#/components/schemas/ByteString'
+        state:
+          type: string
+          enum: [open, received, failed]
+          description: |
+            暂存状态闭集，不描述目标文件。received 只说明“暂存里有一份完整字节”，
+            落地仍然要 file.commit_upload。
+        expected_version:
+          type: string
+          description: 创建时声明的目标版本；没有则为空。
+        created_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        expires_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        error:
+          type: string
+          description: 只在 state=failed 时出现，说明失败原因。
+
+    FileUploadDeletedData:
+      type: object
+      additionalProperties: false
+      required: [upload_id, state]
+      properties:
+        upload_id:
+          type: string
+          pattern: '^up_[0-9a-f]{32}$'
+        state:
+          type: string
+          enum: [deleted]
 
 
   responses:

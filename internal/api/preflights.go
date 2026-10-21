@@ -77,7 +77,9 @@ func (s *Server) handleCreatePreflight(c *gin.Context) {
 		return
 	}
 	var req preflightRequest
-	if !decodeJSONBody(c, &req) {
+	// 上限放到 MaxPreflightBodyBytes：预检参数可能是 file.write_text 的 1 MiB 文本。
+	// 逐动作的严格上限（64 KiB / 2 MiB）由代理在解码前执行，不在这里重算一遍。
+	if !decodeJSONBodyLimit(c, &req, MaxPreflightBodyBytes) {
 		return
 	}
 

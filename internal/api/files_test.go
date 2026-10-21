@@ -137,6 +137,14 @@ func sampleFilePage() files.ListPage {
 
 func filesFixture(t *testing.T, reader FilesReader) (*Server, *http.Cookie) {
 	t.Helper()
+	srv, cookie, _ := filesSession(t, reader)
+	return srv, cookie
+}
+
+// filesSession 与 filesFixture 是同一套装置，但把 CSRF 令牌也交出来：
+// 只读路由不要它，上传与写操作要（P06.2）。
+func filesSession(t *testing.T, reader FilesReader) (*Server, *http.Cookie, string) {
+	t.Helper()
 	authSvc, aud, db := newTestServicesWithDB(t)
 	srv, err := New(Options{
 		ListenAddress:   config.ListenProduction,
@@ -154,8 +162,8 @@ func filesFixture(t *testing.T, reader FilesReader) (*Server, *http.Cookie) {
 		t.Fatalf("New 失败: %v", err)
 	}
 	seedTestUser(t, srv.opts.Auth, testUser, testUserPass)
-	cookie, _ := loginOK(t, srv)
-	return srv, cookie
+	cookie, csrf := loginOK(t, srv)
+	return srv, cookie, csrf
 }
 
 // filePaths 是所有文件接口，权限用例逐条覆盖：只挡其中一条等于没挡。

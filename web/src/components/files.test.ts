@@ -1,4 +1,4 @@
-// 文件页与文件行的渲染用例（P06.1）。
+// 文件页与文件行的渲染用例（P06.1 读取 + P06.2 写入）。
 //
 // 环境是 node，没有 DOM，所以用 vue/server-renderer 渲染成字符串再断言：验的是
 // "这份数据最终显示成什么文字"，不是交互（见 docs/DECISIONS.md Q21）。
@@ -9,10 +9,12 @@
 //     **不出现**"整个服务器""浏览服务器"这类说法。
 //   - 符号链接与特殊文件必须在行内写明"不跟随/不读取"，而不是给一个灰按钮不解释。
 //   - 超过文本上限的文件仍然可以下载：上限是预览的上限，不是文件的上限。
+//   - 写入口只在可写根上出现，而且按类型分开给：只读根上一颗按钮都不画，
+//     目录不给"编辑文本"，符号链接不给"权限/所有者"（P06.2）。
 //
 // 数据是**手写形状样本**，与 files.test.ts 的分工一致：这里验"每种状态怎么画"，
 // 那边验"参数怎么拼、错误码怎么分支"。真机回放用例在 tests/integration 的
-// P06.1 验收脚本抓到真实响应后补。
+// P06.1/P06.2 验收脚本抓到真实响应后补。
 
 import { describe, expect, it, vi } from 'vitest'
 import { createSSRApp, h, type Component, type VNodeChild } from 'vue'
@@ -58,12 +60,35 @@ vi.mock('naive-ui', async () => {
       }
     },
   })
+  // 对话框只在 show 为真时渲染内容：关着的对话框不该在页面里留下输入框，
+  // 否则“首屏没有输入路径”这条断言会变成测一个假象。
+  const modal = (name: string) => ({
+    name: `Stub${name}`,
+    props: ['show', 'title', 'preset', 'maskClosable', 'class'],
+    setup(
+      props: { show?: unknown; title?: unknown },
+      ctx: { slots: { default?: () => unknown; 'header-extra'?: () => unknown } },
+    ) {
+      return () => {
+        if (props.show !== true) return null
+        const children: VNodeChild[] = []
+        if (typeof props.title === 'string') children.push(props.title)
+        const slot = ctx.slots.default?.()
+        if (slot !== undefined) children.push(slot as VNodeChild)
+        const extra = ctx.slots['header-extra']?.()
+        if (extra !== undefined) children.push(extra as VNodeChild)
+        return h('div', { 'data-naive': name }, children)
+      }
+    },
+  })
   return {
     NAlert: stub('alert'),
     NButton: stub('button'),
     NCard: stub('card'),
+    NCheckbox: stub('checkbox'),
     NEmpty: stub('empty'),
     NInput: stub('input'),
+    NModal: modal('modal'),
     NResult: stub('result'),
     NSelect: stub('select'),
     NSpin: stub('spin'),
@@ -150,6 +175,52 @@ describe('FileEntryRow', () => {
     const html = await render(FileEntryRow, { entry: entry(), downloading: true })
     expect(html).toContain('data-naive="button"')
   })
+
+  it('只读根上的行不给任何写入口（画一个点了必然 403 的按钮等于骗人）', async () => {
+    const html = await render(FileEntryRow, { entry: entry(), canWrite: false })
+
+    expect(html).not.toContain('编辑')
+    expect(html).not.toContain('改名/移动')
+    expect(html).not.toContain('权限')
+    expect(html).not.toContain('所有者')
+    expect(html).not.toContain('删除')
+  })
+
+  it('可写根上的普通文件：编辑、改名/移动、权限、所有者、删除都给', async () => {
+    const html = await render(FileEntryRow, { entry: entry(), canWrite: true })
+
+    expect(html).toContain('编辑')
+    expect(html).toContain('改名/移动')
+    expect(html).toContain('权限')
+    expect(html).toContain('所有者')
+    expect(html).toContain('删除')
+    // 读入口仍然在：写权限不是替换读权限。
+    expect(html).toContain('预览')
+    expect(html).toContain('下载')
+  })
+
+  it('可写根上的目录：没有"编辑"（不给目录开文本编辑器），但有改名与删除', async () => {
+    const html = await render(FileEntryRow, {
+      entry: entry({ name: 'nginx', type: 'dir', size_bytes: '0' }),
+      canWrite: true,
+    })
+
+    expect(html).not.toContain('编辑')
+    expect(html).toContain('改名/移动')
+    expect(html).toContain('删除')
+  })
+
+  it('可写根上的符号链接：只给改名与删除，不给权限/所有者（删链接就是删链接本身）', async () => {
+    const html = await render(FileEntryRow, {
+      entry: entry({ name: 'shadow', type: 'symlink' }),
+      canWrite: true,
+    })
+
+    expect(html).toContain('改名/移动')
+    expect(html).toContain('删除')
+    expect(html).not.toContain('编辑')
+    expect(html).not.toContain('所有者')
+  })
 })
 
 describe('FilesView', () => {
@@ -182,10 +253,21 @@ describe('FilesView', () => {
     expect(html).not.toContain('所有目录')
   })
 
-  it('不提供"输入路径"的入口：读文件只能从根点下去', async () => {
+  it('页面写明写操作走预检、上传不等于落地', async () => {
     sessionState.isAdmin = true
     const html = await render(FilesView)
 
+    expect(html).toContain('全部走预检 → 任务')
+    expect(html).toContain('落地是单独一步')
+  })
+
+  it('首屏没有任何输入框：读文件只能从根点下去', async () => {
+    sessionState.isAdmin = true
+    const html = await render(FilesView)
+
+    // 写动作的对话框里确实有一个“目标路径”输入框，但那是**写目标**，
+    // 而且只在用户点了具体动作之后才出现；首屏没有任何可输入的读路径。
     expect(html).not.toContain('data-naive="input"')
+    expect(html).not.toContain('data-naive="modal"')
   })
 })

@@ -2,7 +2,7 @@
 
 最后更新：2026-10-21。
 
-当前事实：**P00—P05 全部 passed，P06 进行中（P06.1 已 passed）**（权威状态见 §1 的“当前阶段”与 §7 的阶段表；下面这段是交付历程摘要，按轮次追加，个别中间轮次没写进来）。P01.1 交付 Go 最小可运行骨架
+当前事实：**P00—P05 全部 passed，P06 进行中（P06.1、P06.2 已 passed）**（权威状态见 §1 的“当前阶段”与 §7 的阶段表；下面这段是交付历程摘要，按轮次追加，个别中间轮次没写进来）。P01.1 交付 Go 最小可运行骨架
 （两个服务入口 + CLI、严格 JSON 配置、结构化日志、`/api/v1/health/live`、代理 `capabilities`、
 Linux/mock 分离）；P01.2 交付持久层基础（SQLite 打开与 PRAGMA 校验、显式 SQL 迁移与校验和锁定、
 事务工具、封闭错误码与统一错误信封、request_id、Gin 路由与中间件组织、`upanelctl migrate`），
@@ -124,9 +124,23 @@ TERM 与 KILL 是两次独立操作，关键进程零能力；P05.3 journal 结�
 
 **P06.1 打开了文件管理：只读，但边界是真的**：代理在根句柄上用一次 `openat2` 完成路径解析（`RESOLVE_BENEATH|RESOLVE_NO_MAGICLINKS|RESOLVE_NO_XDEV|RESOLVE_NO_SYMLINKS` + `O_NOFOLLOW`），打开后对同一个句柄 `fstat` 核对普通文件 / nlink==1 / dev 与根相同 / 大小上限，版本也取自这次 stat；根的身份（dev/ino + 挂载点 + fstype）在每次请求上重新核对，变了就是 `ROOT_UNAVAILABLE`；配置里**不允许**把 `/` 登记成文件根，所以“能管理什么”在数据上就只有一份根列表。新增 `GET /api/v1/files/roots|list|text|download` 四条 admin 接口，下载是原始字节流（octet-stream + nosniff + no-store + RFC 5987 文件名），失败时回 JSON 信封。VM 真机验收 **PASS=115 / FAIL=0 / NOT RUN=0**、载荷校验 **6379 / 0**；真机抓到 3 个宿主抓不到的缺陷（`O_PATH` 的 fd 上 `getdents64` 是 EBADF、`O_RDONLY` 打开 FIFO 会永久阻塞、符号链接目录被内核报 ENOTDIR 从而被误归成 400），另修了 `next_cursor` 空串与 `ApiErrorPanel` 的 `title` 失效。
 
+**P06.2 让文件管理第一次真的会写**，而且写入路径没有一条旁路：七个写动作
+（`file.mkdir`/`file.write_text`/`file.copy`/`file.move`/`file.delete`/`file.chmod`/`file.chown`）
+加上单次许可的上传三件套（声明 → 流式 `PUT` → `commit_upload`），全部走
+“预检 → 任务 → 幂等 → 资源锁 → 结果读回 → 审计”同一条链路。字节先落在根内的
+`.upanel/staging`，声明即预留、收满即归还，**传输期间目标文件一个字节都不动**，
+提交时才用 `renameat2` 原子换位；覆盖前留 10 份 / 500 MiB 上限的编辑备份。
+版本冲突不是“写失败”，而是预检就拒：外部改过文件后提交 → 409 `PREFLIGHT_STALE`，
+内容原样（作业表里留一条 `failed`/`rejected` 可追溯，Q159）。
+真机 **PASS=228 / FAIL=0 / NOT RUN=0**、VM 内核原生 **909/0**、前端 **428** 用例、
+宿主 `check.sh` PASS 13/0/0。第一次真机跑几乎每条都红，而原因全在产品：`O_PATH` 的 fd 上
+`getdents64` 再次 EBADF（连带目录删除、目录复制、备份清理三处，11 次覆盖留下 12 份备份）、
+`PARENT_MISSING` 在真实 files 层不可达、`.upanel` 在列举里看得见、预留计数在无容量读取器时
+恒为 0 且过期清理不归还（Q155—Q158）。细节见 §5「P06.2」。
+
 ## 1. 当前任务
 
-- 当前阶段：**P06（文件管理与受限终端）进行中**。P06.1（受管理文件根、句柄级路径约束、列表/文本/下载；路径穿越与符号链接测试）**passed**：VM 上 115 项断言 0 失败、载荷校验 6379 项 0 失败、宿主 `check.sh` PASS 13/0/0、前端 406 用例。P06.2（流式暂存上传、提交、编辑备份、目录创建、复制/移动/删除、权限/所有者受限修改、版本冲突与配额）与 P06.3（以 upanel-shell 启动 PTY、WebSocket、再认证、Origin、连接许可、窗口调整与超时；审计会话元数据）未开始。
+- 当前阶段：**P06（文件管理与受限终端）进行中**。P06.1（受管理文件根、句柄级路径约束、列表/文本/下载；路径穿越与符号链接测试）**passed**：VM 上 115 项断言 0 失败、载荷校验 6379 项 0 失败、宿主 `check.sh` PASS 13/0/0、前端 406 用例。P06.2（流式暂存上传、提交、编辑备份、目录创建、复制/移动/删除、权限/所有者受限修改、版本冲突与配额）**passed**：VM 上 228 项断言 0 失败 0 未执行、VM 内核原生 909 用例 0 失败、宿主 `check.sh` PASS 13/0/0、前端 428 用例、openapi valid。下一个子任务 **P06.3**（以 `upanel-shell` 启动 PTY、WebSocket、再认证、Origin、连接许可、窗口调整与超时；审计会话元数据）未开始。
 - 已完成子任务：P00.1—P00.3、**P01.1**—**P01.4**、**P02.1**（首个管理员、密码哈希、登录、
   退出、会话轮换、CSRF、Origin、限速；无默认密码）、**P02.2**（admin/viewer、账号管理、
   最后管理员保护、再认证、脱敏 DTO、审计事件起步）、**P02.3**（代理 Unix socket + SO_PEERCRED
@@ -189,8 +203,17 @@ TERM 与 KILL 是两次独立操作，关键进程零能力；P05.3 journal 结�
   VM 上 **PASS=128 / FAIL=0 / NOT RUN=0**、载荷校验 **9250/0（1 SKIP）**，前端新增真实载荷回放
   31 例、全量 295 例，宿主 `check.sh` PASS 13/0/0。**本轮改对了两条写错的断言**（被拒的 KILL 仍带短语、
   viewer 读进程列表是 403），并把 harness 从“睡固定秒数”改成“等快照里出现再断言”——
-  详见 §5 与 DECISIONS Q112—Q117）。
-- 下一子任务：**P06.2**（流式暂存上传、提交、编辑备份、目录创建、复制/移动/删除、权限/所有者受限修改、版本冲突与配额）。前置：P06.1 的根身份、句柄级边界、版本与错误映射已 passed，写操作必须复用同一条“预检 → 任务 → 幂等 → 资源锁 → 读回验证 → 审计”链路，且**不得**在 P06.1 的只读判据上开口子（`nlink>1`、符号链接、跨挂载仍然拒绝）。
+  详见 §5 与 DECISIONS Q112—Q117）、**P05.3**（日志：`internal/journal` 真实 `journalctl` 结构化查询与
+  跟随流、`internal/logs` 契约校验、`logs.query` 查询 + `/internal/v1/streams` 单次许可 NDJSON 流、
+  `GET /api/v1/logs` 与 `/logs/stream` 两条 admin 接口、前端查询页与实时流；VM 上 132/0/1，
+  9 个真机缺陷全部修掉，结束订阅后 `journalctl` 子进程归零）、**P06.1**（受管理文件根与只读文件接口：
+  `openat2` 单次解析 + 同句柄 `fstat`、根身份每次核对、配置拒绝 `/`，`files.roots|list|text|download`；
+  VM 上 115/0/0、载荷校验 6379/0，真机抓到 `O_PATH` 上 `getdents64` 等 3 个缺陷）、
+  **P06.2**（流式暂存上传与受控写入：七个写动作 + 上传三件套全部走同一条预检→任务→幂等→锁→读回→审计链路，
+  提交时 `renameat2` 原子换位、覆盖前编辑备份（10 份 / 500 MiB）、版本冲突在预检就拒；
+  VM 上 228/0/0、VM 内核原生 909/0、前端 428 例，真机抓到 `O_PATH` 重犯、`PARENT_MISSING` 不可达、
+  `.upanel` 可见、预留计数两处泄漏共 4 类 6 个缺陷）。
+- 下一子任务：**P06.3**（以 `upanel-shell` 启动 PTY、WebSocket、再认证、Origin、连接许可、窗口调整与超时；审计会话元数据）。前置：P03 的“预检 → 任务 → 幂等 → 资源锁 → 读回验证 → 审计”链路，以及 P05.3 建成的“单次许可 + 双向流”通道形态（`/internal/v1/streams`）。终端**只能**启动 `upanel-shell`（无 sudo、无任意 shell），TERM-01 的“获取身份和尝试提权必须失败”要作为断言落进验收。
   P05 结束时面板已有四类只读查询（系统/存储/服务/进程/日志）、受控写动作（服务启停与进程信号）
   和一条完整的“预检 → 任务 → 幂等 → 资源锁 → 读回验证 → 审计”链路；P06 的文件操作必须复用同一条
   链路，不新开执行路径。
@@ -230,6 +253,13 @@ TERM 与 KILL 是两次独立操作，关键进程零能力；P05.3 journal 结�
   本轮验收期间又发生一次；已排除镜像共享与宿主内存不足（同期宿主可用 32.4 GB）。最终读数取自
   第七次 panic 之后重启的新启动（QEMU 26908，宿主 10:21:37 启动），时间线、7 份 console 日志与
   两次被排除的假设记在 `docs/evidence/P05/2026-10-21-p05.2/env.txt`。
+- 环境事实（P06.2 期间）：`upanel-2404` 又崩两次（第十、十一次 `Attempted to kill init! exitcode=0x8b`，
+  console 存为 `console.panic-10`/`console.panic-11`），一次在 P06.2 验收跑到一半、一次在收尾。
+  处理与前几轮相同：重启、重传二进制/测试/脚本、必要时删掉被截断的 `/etc/upanel/upanel.json`，
+  **重启后重跑原生套件（909/0）与验收（228/0/0）**，结论与崩前一致。不再逐个累计次数，
+  只记“这一轮又发生过、最终读数取自重启后”。本轮另外两次 **ssh 退出码 255** 不是 VM 的问题：
+  `pkill -f upanel-agent` 与 `pkill -f p06-2-files-write…` 匹配到了 ssh 自己的远端命令行，
+  把自己杀了；改用 `pkill -x upanel-agent` 与 `pkill -f "files-write-accept[a]nce"` 后正常。
 
 ## 2. 状态定义
 
@@ -250,7 +280,7 @@ TERM 与 KILL 是两次独立操作，关键进程零能力；P05.3 journal 结�
 | P03 | 预检、任务、幂等、对账 | **passed** | P03.1 **passed**：预检由代理生成（规范化参数、目标身份指纹、状态版本、影响、阻塞项、锁、再认证与短语策略），Web 只保存绑定并返回公开 DTO；有效期 120 秒且两端同一时间戳；用户/会话/动作/`params_hash`/`state_version` 双侧一致；短语只回一次明文、代理库只存哈希；未登记动作 400、缺规划器 501、`GET` 405。证据 `docs/evidence/P03/2026-10-20-p03.1/`（两台 VM 各 93 项断言 + VM 内核原生 5 个测试二进制，P02.1—P02.4 回归各 58/103/84/87 项）。P03.2 **passed**：持久 jobs、幂等链、`operation_id` 去重、代理执行记录与事件、资源锁与 30 秒排队、取消规则、先落库再提交、按 `operation_id` 对账；证据 `docs/evidence/P03/2026-10-20-p03.2/`（两台 VM 各 101 项断言 + VM 内核原生 169 用例 0 FAIL + p01-1/p01-2/p01-4/p02-1—p02-4/p03-1 回归各 29/34/114/58/103/85/87/93；宿主 check.sh PASS 12/0/NOT RUN 0）。验收期间抓到并修掉两个真缺陷：`CONFIRMATION_MISMATCH` 应为 400（DECISIONS Q64）、SQLite WAL DEFERRED 事务升级不调 busy handler → `_txlock=immediate`（DECISIONS Q65）。P03.3 **passed**：SSE 事件流（`id:`/`event:`/`data:`、`: connected`、15 秒 keepalive、`Last-Event-ID` 续传、日志环被裁后先发 `event: gap`）、代理事件镜像（先事件后状态）、日志分页与每任务 1000 行上限、任务中心与错误详情、最小登录页与路由守卫；证据 `docs/evidence/P03/2026-10-20-p03.3/`（两台 VM 各 73 项断言 + 原生 346 用例 0 FAIL + P03 前序回归）。验收期间抓到并修掉代理侧“阶段与事件分两笔写”的原子性缺陷（DECISIONS Q67）。P03.4 **passed**：Web 启动立刻 + 每 30 秒的对账循环（只查不跑，`grep CreateOperation` 在 `reconcile.go` 无调用点）、提交在途不判定、`NOT_FOUND` 按 `needs_sync` 分流（`failed`/`unconfirmed` vs `interrupted`/`unknown_result`）、幂等记录到期清理、验收注册表约束变成断言；证据 `docs/evidence/P03/2026-10-20-p03.4/`（两台 VM 各 78 项断言 + 原生 360 用例 0 FAIL + 全量 11 脚本 0 失败）。**阶段结论：P03 全部子任务完成，生产登记表仍为空（无真实写动作）** |
 | P04 | 首页和存储只读 | **passed** | P04.1 **passed**：`internal/monitoring` 纯文件读取采集（`/proc/stat`、`meminfo`、`loadavg`、`net/dev`、`os-release`、`uptime`、`cpuinfo` + `uname`），代理侧 5 秒轮询缓存（`collected_at`/`interval_ms`/`stale`/`degraded` + 分节 `status`），速率只由相邻样本差分给出、算不出来为 `null`，`boot_id` 变化让 CPU 窗口失效；查询登记表新增唯一查询 `system.summary`（`DecodeParams` 拒绝任何字段），Web 侧 `GET /api/v1/system/summary`（权限 V）只透传、不做第二层缓存，代理不可用 503 `AGENT_UNAVAILABLE` 且不影响登录；能力只上报真实存在的东西。证据 `docs/evidence/P04/2026-10-20-p04.1/`（两台 VM 各 **72** 项断言 + VM 内核原生 **401** 用例 0 FAIL + 12 脚本全量回归 930/0；宿主 check.sh PASS 12/0/NOT RUN 0，redocly valid 9 warnings）。**生产登记表仍为空，本轮没有新增任何写动作**。P04.2 **passed**：`internal/storage` 只读块设备拓扑（`/sys/block` + `/sys/class/block`，整盘/分区/lvm/raid/crypt/loop/rom/other）、边 `partition_of`/`depends_on`（from=子→to=父）、设备身份 `sha256:` 指纹 + 诚实的 `identity_confidence`、系统盘保护从 mountinfo/swaps 出发沿边递归向上、分区表读盘头部只补类型与 free_regions（内核结果优先）、容量 30 秒缓存取 `f_bavail`、`snapshot_version` 只由内容决定；代理查询 `storage.topology`、Web `GET /api/v1/storage/{topology,devices,devices/:id}`（V 权限、只透传）；`health.status` 一律 `unknown`、`capabilities` 一律 `[]`。证据 `docs/evidence/P04/2026-10-20-p04.2/`（两台 VM 各 **108** 项断言 + VM 内核原生 **473** 用例 0 FAIL + 13 脚本全量回归 1038/0；宿主 check.sh PASS 12/0/NOT RUN 0）。本轮修掉 Q89（块设备被当普通文件读 → 代理 OOM）、Q90（快照版本依赖时间）、Q91（by-id 链接缺已知设备约束）、Q96（一个测试抖动）。P04.3 **passed**（SMART/NVMe 健康与 diskstats：15 分钟采集节奏、睡眠盘不唤醒）——`internal/storage` 新增 `smart.go`/`diskstats.go`/`capacity*.go`：smartctl `-j -H -A -i` 按**退出状态位掩码**判读（失效/预失效 → `critical`，历史位/日志位 → `warning`，命令失败/打开失败 → `unknown`），先读 sysfs 电源状态、非 NVMe 再加 `-n standby`，**不为读健康唤醒休眠盘**；`/proc/diskstats` 每台设备只取自己那一行、计数转十进制字符串，速率由相邻两次采样差分（归零/回绕/窗口异常 → `null`），平均延迟只在完成次数 > 0 时给，扇区固定 512 字节；网络文件系统容量在代理自己的 `--statfs-helper` 子进程里查（并发 2、默认 10 秒超时、失败后隔离 5 分钟不再重试），拓扑新增 `network_mounts`（无块设备的网络挂载单独成表）、`Device.io`、`Mount.capacity_error`，`io` 不进 `snapshot_version`。证据 `docs/evidence/P04/2026-10-21-p04.3/`：24.04.5 与 22.04.5 各 **77** 项通过、`upanel-smart`（QEMU NVMe）**62** 项通过，0 失败（未执行项各 1/1/2，均写明原因）；**statfs 挂在内核里时登录仍 332 ms / 271 ms 返回 200**；原生 `storage.test` 三台 VM **103/0**；22.04 VM 内 `go test -race ./...` 19 包 ok、**0 条 DATA RACE**。P04.3 补强（第二轮）：QEMU USB 盘的两个真实反例（“桥不认识”“`-d sat` 打不开”）+ 真实 `mount --bind` 多挂载点用例 + `smartctl` 原话透进 `health.details`（Q104），三台 VM 重跑 77/77/**63**、0 失败，原生 `storage.test` **106/0**、`-race` 19 包 ok / 0 DATA RACE。P04.4 **passed**（首页、磁盘列表、拓扑/分区详情、健康与容量卡片；**写操作能力此时不启用**）：前端 DTO 与 `api/openapi.yaml` 同源，页面把 `null` 一律显示 `—`、容量与百分比照实、`unsupported/unknown` 不挂告警、`capabilities` 为空就明说没有动作；Playwright 冒烟 31/0/5 + dist 预览 10/10，前端 **192** 用例；VM 上四份真实响应载荷校验 **856/0**、脚本 **31/0 NOT RUN 0**；证据 `docs/evidence/P04/2026-10-21-p04.4/`。**P04 到此全部 passed** |
 | P05 | 服务、进程、日志 | **passed** | P05.1 **passed**：服务列表/详情/保护名单 + 预检→任务→读回的执行链路（`internal/services`、`internal/api/services.go`、`internal/agent/service*`、前端列表与详情页）；VM 上 **PASS=140 / FAIL=0 / NOT RUN=3**、载荷校验 **22369/0**，前端真实载荷回放 22 例、全量 252 例，宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P05/2026-10-21-p05.1/`。P05.2 **passed**：进程列表与信号（`internal/processes` 纯 `/proc` 采集、`pid`+`start_time_ticks` 身份、5 秒 2000 条快照、10 状态 7 类保护闭集、命令摘要脱敏；`process.signal` 生产动作走同一条预检→任务→锁→读回链路，TERM 与 KILL 两次独立操作、KILL 再认证 + 一次性短语、受保护进程零能力、执行前现场重读 `/proc` 核对身份与保护）；VM 上 **PASS=128 / FAIL=0 / NOT RUN=0**、载荷校验 **9250/0（1 SKIP）**，PID 重用由 `ns_last_pid` 真机造出并验证旧预检被拒、新进程安然无恙；前端真实载荷回放 31 例、全量 295 例，宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P05/2026-10-21-p05.2/`。P05.3 **passed**：日志（`internal/journal` 真实 journalctl 结构化查询与跟随流、`internal/logs` Web 侧契约校验、`logs.query` 代理查询 + `/internal/v1/streams` 单次许可的 NDJSON 流、`GET /api/v1/logs` 与 `GET /api/v1/logs/stream` 两条 admin 接口，前端查询页/条目行/实时流）；VM 上 **PASS=132 / FAIL=0 / NOT RUN=1**、载荷校验 **6466/0/0**，9 个真实缺陷被真机抓出并修掉（游标与 `--since` 冲突、`--kernel`、未转义 `;` 被静默丢弃、参数错误 500→503、`limit=0`、流不 flush 头、错误消息三层前缀），**结束订阅不残留 journalctl 子进程**与空闲超时收流都在真机上验过；前端真实载荷回放 24 例、全量 347 例，宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P05/2026-10-21-p05.3/`。**P05 到此全部 passed** |
-| P06 | 文件和受限终端 | **in_progress** | P06.1 **passed**：受管理文件根 + 句柄级路径约束 + 列表/文本/下载（`internal/files` 双角色一套 DTO、`openat2` 单次解析 + 同句柄 `fstat`、根身份每次核对、配置拒绝 `/`；`files.roots|list|text` 三个查询 + `files.download` 单次许可流；`GET /api/v1/files/{roots,list,text,download}` 四条 admin 接口；前端文件页/条目行四态与“不跟随、不读取”说明）。VM 上 **PASS=115 / FAIL=0 / NOT RUN=0**、载荷校验 **6379/0**，前端真实载荷回放 27 例、全量 406 例，宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P06/2026-10-21-p06.1/` |
+| P06 | 文件和受限终端 | **in_progress** | P06.1 **passed**：受管理文件根 + 句柄级路径约束 + 列表/文本/下载（`internal/files` 双角色一套 DTO、`openat2` 单次解析 + 同句柄 `fstat`、根身份每次核对、配置拒绝 `/`；`files.roots|list|text` 三个查询 + `files.download` 单次许可流；`GET /api/v1/files/{roots,list,text,download}` 四条 admin 接口；前端文件页/条目行四态与“不跟随、不读取”说明）。VM 上 **PASS=115 / FAIL=0 / NOT RUN=0**、载荷校验 **6379/0**，前端真实载荷回放 27 例、全量 406 例，宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P06/2026-10-21-p06.1/`。P06.2 **passed**：流式暂存上传与受控写入（`internal/files/staging.go` 声明即预留/收满即归还、根内 `.upanel/staging`、TTL 24 h；`write.go` 编辑备份 10 份 + 500 MiB；`StatTree` 树统计与 `TREE_TOO_LARGE`/`TREE_UNSUPPORTED`；七个写动作 `file.mkdir|write_text|copy|move|delete|chmod|chown` + `commit_upload` 全部走预检→任务→幂等→资源锁→`renameat2` 原子换位→同句柄 `fstat` 读回→审计；上传三件套与四条 `/api/v1/files/uploads*` 接口，字节经代理单次许可通道、不进 job 表；前端上传/新建/重命名/复制/删除/编辑/改权限改所有者与确认短语弹窗）。VM 上 **PASS=228 / FAIL=0 / NOT RUN=0**、VM 内核原生 **909/0**、宿主 `check.sh` PASS 13/0/0、前端 428 例、openapi valid；真机抓出并修掉 4 类 6 个缺陷（Q155—Q158）；未验证项 8 条逐条写在 result.md §5；证据 `docs/evidence/P06/2026-10-21-p06.2/` |
 | P07 | 分区、格式化、挂载 | not_started | 需独立 VM 数据盘 |
 | P08 | SMB 与卷依赖 | not_started | 需真实客户端 |
 | P09 | 现有 Web 应用与 Docker | not_started | — |
@@ -2502,6 +2532,94 @@ sha256 与磁盘一致、`X-UPanel-File-Version` 合法、越界下载回的是 
 上一轮 boot -1 的最后一条记录是 SSH 会话关闭（05:16:11），**没有任何 shutdown/reboot target 记录**，
 即第 10 次非正常终止（panic 文本未落盘，故不引用原文）。本轮 3 次完整验收、2 次原生测试期间未再发生。
 
+### P06.2（2026-10-21）— 流式暂存上传、提交、编辑备份、目录创建、复制/移动/删除、权限/所有者受限修改、版本冲突与配额
+
+**范围**：`STAGES.md` §8 P06.2。这一轮把 P06.1 的只读文件管理变成**会写**，并且写入**没有一条旁路**：
+七个写动作加上传提交走的是 P03 建成的同一条“预检 → 任务 → 幂等 → 资源锁 → 读回验证 → 审计”链路，
+和 P05.1 的服务启停、P05.2 的进程信号共用同一套执行器。字节流走 P05.3 建成的“单次许可”通道形态，
+不进 job 表、不随上传大小涨 Web 内存。终端（PTY）属于 P06.3，页面上不留假入口。
+
+| 文件 | 改动 |
+|---|---|
+| `internal/files/types.go`（+420 行） | 写入侧 DTO 与错误哨兵：`PathStat`（大小/模式/uid/gid/mtime/inode/`nlink` 版本）、`TreeStat`（`TreeEntries`/`TreeFiles`/`TreeDirs`/`TreeSymlinks`/`TreeBytes`/`TreeTruncated`）、`Upload`/`UploadState`、`BackupInfo`；限额常量 `DefaultMaxUploadBytes=2 GiB`、`UploadTTL=24h`、`MaxEditBackups=10`、`MaxEditBackupBytes=500 MiB`、`MaxTreeEntries=50_000`、`ReservedDirName=".upanel"` |
+| `internal/files/staging.go`（新增） | 暂存区：`.upanel/staging/<sha256(rel)[:8]>/<UnixNano>.part`；**声明即预留**（`reserveSpace` 无论有没有容量读取器都记账，`INSUFFICIENT_SPACE` 在预检阶段给出）、**收满即归还**、任何删记录的地方统一在 `dropUpload` 归还（Q158）；`SweepStaging` 10 分钟一轮按 TTL 清理 |
+| `internal/files/write.go`（新增） | 写入原语：`WriteText`（长度/UTF-8/末尾换行约定）、`Mkdir`、`Copy`（先拼暂存再换位，失败不留半截）、`Move`（同根 rename、跨根 copy+delete）、`Delete`（递归需显式）、`Chmod`/`Chown`；`StatTree`（不限深度地数条目，超上限截断并置 `TreeTruncated`）、`walkTree`（遇到符号链接即 `TREE_UNSUPPORTED`，不复制一半）、`backupFile`/`pruneBackups`（10 份 + 500 MiB 两级上限） |
+| `internal/files/manager_linux.go`、`manager_other.go` | Linux 侧补齐写入实现（`renameat2` 原子换位、`O_NOFOLLOW` 打开每个父目录、同句柄 `fstat` 读回）；非 Linux 一律 `NOT_IMPLEMENTED`，不退化成一串字符串比较 |
+| `internal/files/http.go` | 错误判决表扩到写入：`ErrUploadState`/`ErrAlreadyExists`/`ErrVersionConflict` → 409，`ErrNotFound`/`ErrUploadNotFound` → 404，`ErrNoSpace` → 413 带 `VALIDATION_ERROR`；`CONFIRMATION_MISMATCH` 仍是 400 |
+| `internal/files/upload_fetch.go`（新增）、`internal/api/files_upload.go`（新增） | Web 侧上传编排（声明 → 分片写 → 提交）与四条 `/api/v1/files/uploads*` 接口；`Content-Length` 必须等于声明大小，可续传偏移，全部 admin |
+| `internal/agent/filesaction.go`（新增，~900 行） | 七个写动作的 `Action`：`Plan` 生成 `FileActionPlan`（`normalized_params`、`target`、`allowed`、`blockers`、`warnings`、`impacts`、`locks`），`Execute` 只在代理内做真实写；`parentNotices`/`missingNotice` 把“父目录缺失”与“目标缺失”分开（Q156）；动作锁按目标路径的规范化名排序，`file.delete` 的 `Entries = TreeEntries + 1` |
+| `internal/agent/uploads.go`（新增）、`agentclient/uploads.go`（新增） | 代理侧单次许可的上传通道（`files.upload.declare|write|commit|drop`），与 P05.3 的流同形态：30 秒许可、只用一次、未登记用途 501 |
+| `internal/agent/registry.go`、`runner.go`、`preflight.go`、`server.go`、`cmd/upanel-agent/main.go` | 生产登记表**第一次有写动作**（七个动作 + `commit_upload`）；计划与执行共用同一份 `files.Writer`；预检渲染带上写入的阻塞项与警告 |
+| `internal/api/router.go`、`server.go`、`middleware.go`、`preflights.go`、`users.go`、`operations/service.go`、`internal/config/config.go` | 四条上传路由（admin）、请求体上限（`MaxUploadBytes` 来自配置，`413` 走 `VALIDATION_ERROR`）、再认证窗口与上传路由的 CSRF、`agent.files.max_upload_bytes` 等新配置项与校验 |
+| `web/src/api/files.ts`（+300 行）、`files.test.ts`（+361 行）、`client.ts` | 与 openapi 同源的写入 DTO；上传用 `fetch` + `ReadableStream` 分片、进度、取消；`VERSION_CONFLICT`/`PREFLIGHT_STALE`/`INSUFFICIENT_SPACE` 各有专门的用户文案 |
+| `web/src/views/FilesView.vue`（+1119 行）、`components/FileEntryRow.vue`、`FileActionConfirm.vue`（新增） | 上传、新建目录、重命名/移动、复制、删除（递归要点确认）、编辑文本（带备份提示）、改权限/改所有者；加载/空/错误/无权限/只读根五态；确认短语弹窗逐字匹配、过期整条重来 |
+| `tests/integration/p06-2-files-write-acceptance.sh`（§0—§16）、`scripts/run-native-tests.sh` | 真机验收 228 项断言；现场自建（可写根 / 第二可写根 / 只读根 / 上传载荷），跨 16 节覆盖上传、配额、写入、备份、并发、路径、权限边界 |
+| `api/openapi.yaml`、`docs/CONTRACTS.md`（写入章节）、`docs/DECISIONS.md` Q155—Q159 | 版本 `0.0.0-p06.2`、`stage: P06.2`、四条上传路径 + 请求体上限 + 写入 Plan/Result 字段；契约补登备份上限、暂存语义、`chown` 只收名字、`file.delete` 的 `Entries` 定义 |
+
+**刻意不做的事**：不做分片合并的上传（单次 `PUT` 有偏移续传，但不拼多段）、不做目录递归复制到另一个根、
+不跟随任何符号链接（复制时遇到就是 `TREE_UNSUPPORTED`）、不允许 `chown root`、不接受数字 uid、
+不提供“把文件拖到任意路径”的入口、不做并发编辑的锁（只做版本冲突检测，冲突就让人重来）、
+不做回收站（删除即删，备份只针对覆盖写）。
+
+**本轮验收**
+
+| 检查 | 结果 | 证据 |
+|---|---|---|
+| VM 验收脚本自身断言（§0—§15） | **通过 228 项 / 失败 0 项 / 未执行 0 项** | `docs/evidence/P06/2026-10-21-p06.2/p06-2-acceptance-2404.txt` |
+| 载荷归档（真实响应体） | 43 份 | `.../payloads/` |
+| VM 内核原生测试套件（12 个包） | **TOTAL PASS=909 / FAIL=0** | `.../native-tests.txt` |
+| 宿主 `sh scripts/check.sh` | **PASS 13 / FAIL 0 / NOT RUN 0** | `.../check.txt` |
+| `go build` / `go vet`（宿主与 linux 交叉） / `gofmt -l` | 退出码 0 / 0 / 无输出 | `.../go-gates.txt` |
+| `go test ./... -count=1` | **25 个包全部 ok** | `.../go-test.txt` |
+| 前端 `vue-tsc --noEmit` / `eslint .` / `vite build` | 0 error / 0 problem / 构建成功 | `.../web-gates.txt` |
+| 前端 `vitest run` | **428 passed（28 文件）** | `.../web-test.txt` |
+| 契约 lint（redocly） | valid，6 warning（与 P06.1 同一批历史遗留；本轮新增组件全部被引用） | `.../openapi-lint.txt` |
+
+VM 上的关键断言：`POST /uploads` 声明后目标文件**一字节未动**（`GET /files/text` 仍是旧内容旧版本）、
+暂存区只有一份 `.part`、`PUT` 之后 `received_bytes` 精确等于声明值、`commit_upload` 之后 `staging` 归零、
+内容与提交字节逐字节一致；`Content-Length` 与声明不符 400、重复 `PUT` 第二次 409 `VERSION_CONFLICT`、
+放弃上传后 `reserved` 归零；声明超过剩余空间 → 预检 200 + `INSUFFICIENT_SPACE` 阻塞（不是提交时 500）；
+外部 `echo >> app.conf` 之后提交 → **409 + `PREFLIGHT_STALE`，文件内容没被覆盖**，作业表里多一条
+`failed`/`step=rejected` 的作业（Q159）；三次覆盖后该文件自己的备份目录里 3 份、内容分别是上一版、
+`backup_count` 如实返回；`file.mkdir` 已存在 → `TARGET_EXISTS`、父缺失 → `PARENT_MISSING`、
+嵌套只建一层；目录复制带子目录、目标已存在 → `TARGET_EXISTS`、树里有符号链接 → `TREE_UNSUPPORTED`
+**且目标未创建**；非空目录不递归 → `DIRECTORY_NOT_EMPTY`、递归删除要再认证 + 带路径的短语、
+条目数 4（`docs/a.txt` + `docs/nested/` + `docs/nested/b.txt` + 目录自身）；`chmod 0640` 生效并读回、
+`4755`/非八进制 → 400、`chown` 只收受管理账号名且读回 uid/gid 一致；只读根上七个动作全是
+`ROOT_READ_ONLY` 阻塞；写动作的路径形状与 P06.1 同一套判决（越界 422、形状 400），
+**没有字节被写进暂存区**；viewer 能列目录但七个动作全 403 `FORBIDDEN`。
+
+**本轮被真机抓出的缺陷（全部改产品，不改断言）**
+
+1. `StatTree` / `walkTree` / 备份目录用 `O_PATH|O_DIRECTORY` 再 `getdents64` → **EBADF**（Q155）。
+   三个功能同时坏：目录删除预检恒 `PATH_REJECTED`、目录复制预检 500、
+   `pruneBackups` 每次都失败——而失败只写一条 warning，于是 **11 次覆盖留下 12 份备份、`backup_count` 恒为 0**。
+   这是 Q136 的**重犯**，所以修复配了会真的走进子目录的用例（`TestStatTreeCountsDirectories`、
+   `TestBackupPruneKeepsTen`）。
+2. 目标缺一级父目录时，files 层在 `openParent` 就返回错误（不是 `Exists=false`），
+   `blockerFor(ErrNotFound)` 把它翻成 `TARGET_MISSING`，`parentNotices` 根本没机会跑——
+   契约里的 `PARENT_MISSING` 在真实层**不可达**（Q156）。
+3. `List` 只做了路径层拒绝，名字表照原样返回，于是 `.upanel` 在列举里**看得见**：
+   一个既列不出内容、又删不掉的条目，而它恰恰是面板自己的内部目录（Q157）。
+4. 预留计数在两处不成立（Q158）：没配容量读取器时 `reserveSpace` 直接 return，`ReservedBytes` 恒 0；
+   `SweepStaging` 走过期清理不释放预留——盘上没数据、账上一直占着。两条都靠
+   `TestUploadLifecycleHappyPath` 与 `TestUploadExpirySweep` 兜住。
+
+**流程事故（记录，不掩盖）**
+
+1. `chmod +x /tmp/upanel-bin/upanel-*` **不匹配** `upanelctl`（没有连字符），`init-admin` 以 126 退出，
+   整份验收全是 401 与空响应。P04.2 已经犯过一次，这次又犯——所以写进了 commands.log 与 result.md §3.5。
+2. `jget` 之前用 `python3 -c '…' "$1"` 取参数，`sys.argv` 里拿不到——改成 `eval` + `_` 约定，
+   异常统一打印 `ERR:<Type>:<msg>`，命名空间里补上 `json`。
+3. 1 MiB 的预检请求体用 `--data` 直接拼进参数会撞 `MAX_ARG_STRLEN=128 KiB`，改 `--data-binary @"文件"`。
+4. 「按位置取 `jobs[0]`」不稳定：`created_at` 是**秒级**，同一秒内顺序由 `id DESC` 决定，
+   断言必须按内容匹配（`any(...)`）。
+5. 两次 ssh 退出码 255 是 `pkill -f` 匹配到 ssh 自己的远端命令行；改 `pkill -x` 与方括号打断自匹配。
+
+**未验证（NOT RUN，逐条原因见 result.md §5）**：浏览器里真实渲染这套新界面、真实 ENOSPC、
+24 小时自然过期、500 MiB 备份总量上限、50 000 条目树、多客户端真并发赛跑、
+代理 `runner` 的再验证步骤、跨文件系统移动。未验证项一律不计入通过项。
+
 ## 6. 未决问题与范围变更
 
 未批准任何范围变更。DECISIONS.md 第 8 节记录 Q1—Q80；P03.3 新增六条：Q67（阶段与事件必须同事务，
@@ -2650,6 +2768,17 @@ Q103（`cmd/upanel-web` 的用例会读机器上的 `/etc/upanel/upanel.json`，
       边的单测，没有真机样本。P07（分区/格式化/挂载）之前必须补一台 LVM 根的验收 VM，
       否则“写操作前能不能正确识别系统盘”这一点在真实叠层上仍属未验证。
 
+- Q155—Q159 是 P06.2 的记录（Q155 是 Q136 的**重犯**：`O_PATH` 的 fd 上 `getdents64` 是 EBADF，
+      这次同时打断了目录删除预检、目录复制和备份清理；Q156 `PARENT_MISSING` 在真实 files 层不可达；
+      Q157 保留目录 `.upanel` 在列举里可见；Q158 预留计数在无容量读取器时恒 0 且过期清理不释放；
+      Q159 决定“受理即拒”的作业**保留**为 `failed`/`rejected` 而不是删掉）。共同点仍然是：
+      Windows 宿主上 `go:build linux` 的路径根本没跑过，夹具单测全绿，只有真机会炸。
+- **待确认（P06.2 记录，不阻塞 P06.3）**：暂存区与备份区放在被管理根内部的 `.upanel`，
+      因此它们占用该根的配额，且对“根被整个 `rm -rf`”没有保护。P07/P12 之前需要定：
+      是继续放在根内（实现简单、跨盘不需要额外配置），还是改成 `/var/lib/upanel-agent/staging`
+      （受保护、但跨文件系统提交就不能用 `renameat2` 原子换位，得退化成 copy+rename）。
+      现在的实现选了前者，理由是“提交必须在同一文件系统内一次原子完成”。
+
 后续按“日期、问题/变更、依据、影响文件、决策人、处理结果”记录。
 不要把模型个人偏好当作项目负责人批准。
 
@@ -2785,6 +2914,12 @@ Q103（`cmd/upanel-web` 的用例会读机器上的 `/etc/upanel/upanel.json`，
 | P06.1-UNIT-VM | P06 | 已执行通过：VM 内核上原生跑交叉编译测试二进制，`files.test` **54 个 PASS / 0 FAIL**（`//go:build linux` 的用例第一次真的在 Linux 上执行，正是它抓出了 O_PATH/getdents 与 FIFO 阻塞两条缺陷）、`api.test` PASS | docs/evidence/P06/2026-10-21-p06.1/native-tests.txt |
 | P06.1-DATA | P06 | 已产出：44 份 VM 真实响应（根列表、目录页、文本、11 个错误信封、下载头、能力表、配置拒绝输出）逐字节存入证据目录，其中 22 份同时放进 `web/src/fixtures/p06-1-vm/` 作前端回归夹具 | docs/evidence/P06/2026-10-21-p06.1/payloads/ 与 web/src/fixtures/p06-1-vm/ |
 | P06.1-RESULT | P06 | 已产出：范围与逐文件改动、**与 STAGES §8 P06.1 验收条目逐条对应表**、实际执行的检查表、5 个缺陷与修法（O_PATH 不能 getdents、FIFO 阻塞、ENOTDIR 误分类、`next_cursor` 空串、ApiErrorPanel 的 title 失效）、2 起流程事故（验收脚本漏端点、inode 复用导致假通过）、NOT RUN 清单、环境事故与复核命令 | docs/evidence/P06/2026-10-21-p06.1/result.md |
+| P06.2-UNIT | P06 | 已执行通过：`go build ./...`、`go vet ./...`（宿主与 linux/amd64 交叉）退出码 0，`gofmt -l ./cmd ./internal` 无输出；`go test ./... -count=1` **25 个包全部 ok**（`internal/files` 新增暂存生命周期、预留计数、树统计、复制、备份清理用例；`internal/agent` 新增七个动作的预检阻塞表与 `PARENT_MISSING` 的真实分支） | docs/evidence/P06/2026-10-21-p06.2/{go-gates.txt,go-test.txt} |
+| P06.2-UNIT-VM | P06 | 已执行通过：VM 内核上原生跑 12 个包的交叉编译测试二进制，**TOTAL PASS=909 / FAIL=0**。`TestStatTreeCountsDirectories`（entry 4 / 文件 2 / 子目录 1 / 链接 1 / 字节 3）、`TestCopyDirectoryCopiesTree`（含符号链接 → `TREE_UNSUPPORTED` 且目标未创建）、`TestBackupPruneKeepsTen`（12 次覆盖留 10 份、最新 v11）、`TestUploadLifecycleHappyPath`（声明后预留 5 字节）、`TestUploadExpirySweep`（过期后预留归零）——这五个就是本轮四条缺陷的照妖镜 | docs/evidence/P06/2026-10-21-p06.2/native-tests.txt |
+| P06.2-FRONT | P06 | 已执行通过：`vue-tsc --noEmit` 0 error、`eslint .` 0 problem、`vitest run` **28 文件 / 428 用例全 passed**、`vite build` 成功 | docs/evidence/P06/2026-10-21-p06.2/{web-gates.txt,web-test.txt} |
+| P06.2-CHECK | P06 | 已执行通过：`sh scripts/check.sh` → **PASS 13 / FAIL 0 / NOT RUN 0**；`redocly lint api/openapi.yaml` valid + 6 warning（与 P06.1 同一批历史遗留）。必须在 `.nvmrc` 的 Node v22.23.3 下跑 | docs/evidence/P06/2026-10-21-p06.2/{check.txt,openapi-lint.txt} |
+| P06.2-VM | P06 | **已执行通过（Ubuntu 24.04.5 / 6.8.0-147，root 起代理、uid 999 起 Web）**：`p06-2-files-write-acceptance.sh` **通过 228 / 失败 0 / 未执行 0**（§0—§16）。含：声明后目标文件一字节未动、暂存区只有 `.part`、`commit_upload` 后 `staging` 归零且内容逐字节一致、`Content-Length` 不符 400、重复 `PUT` 409 `VERSION_CONFLICT`、放弃后 `reserved` 归零、超配额在预检就 `INSUFFICIENT_SPACE`、外部改文件后提交 **409 `PREFLIGHT_STALE` 且内容未被覆盖**（作业表留 `failed`/`rejected`）、三次覆盖 3 份备份且 `backup_count` 如实、`mkdir` 三种结果、目录复制与 `TREE_UNSUPPORTED`、非空目录不递归 `DIRECTORY_NOT_EMPTY`、递归删除再认证 + 带路径短语 + 条目数 4、`chmod 0640` 读回、`chown` 只收受管理账号名、只读根七动作全 `ROOT_READ_ONLY`、写动作路径形状与 P06.1 同判决且无字节入暂存、viewer 七动作全 403 | docs/evidence/P06/2026-10-21-p06.2/{p06-2-acceptance-2404.txt,payloads/,env.txt} |
+| P06.2-RESULT | P06 | 已产出：范围与逐文件改动、**与 STAGES §8 P06.2 验收条目逐条对应表**、实际执行的检查表、关键断言原文、4 类 6 个缺陷与修法（含每条钉住它的测试名）、5 起流程事故、8 条 NOT RUN 与复核命令、已知限制 | docs/evidence/P06/2026-10-21-p06.2/{result.md,commands.log} |
 | P00-VM-C（LVM 根） | P00/P04 | **NOT RUN**（未创建） | 需在 P04 前补齐 |
 | P00-VM-D（SMB 客户端） | P00/P08 | **NOT RUN**（未创建） | 需在 P08 前补齐 |
 
@@ -3027,3 +3162,17 @@ Q103（`cmd/upanel-web` 的用例会读机器上的 `/etc/upanel/upanel.json`，
   且不像秘密的参数仍会原样显示；通过 `execve` 改掉 argv 的进程显示的是改写后的内容。
 - 进程列表与 `process.signal` 都只对 admin 开放（Q115）：viewer 连只读的进程列表都看不到。
   这是有意的边界（列表含属主与命令行），但意味着排障时 viewer 账号无法自助看“谁占着 CPU”。
+- P06.2 的写入界面**没有在真实浏览器里点过**：只有 `vitest` 组件级 428 例与
+  `check.sh` 的 web-smoke，上传进度、递归删除确认框、改所有者这几处交互的
+  真实手感与键盘可达性未验证。
+- 上传的**真实 ENOSPC**（写到一半磁盘满）、**24 小时自然过期**、**500 MiB 备份总量上限**、
+  **50 000 条目树**、**多客户端真并发提交**、**跨文件系统移动**六条都只有单测或
+  近似断言，没有真机现场（原因逐条写在 `docs/evidence/P06/2026-10-21-p06.2/result.md` §5）。
+- 编辑备份是**整文件复制**，不是写时复制：改一个 400 MiB 的文件就要再写 400 MiB；
+  10 份 / 500 MiB 两级上限意味着“大文件的编辑历史只有一两代”。
+- 暂存区与备份区放在被管理根内的 `.upanel`，因此占用该根配额，且对“根被整个 `rm -rf`”
+  没有保护（§6 已列为待确认项，P07/P12 之前要定）。
+- 并发编辑只做**版本冲突检测**，不做锁：两个管理员同时改同一个文件，后提交的会拿到
+  `PREFLIGHT_STALE` 并被要求重来，界面不提供合并。
+- `file.chown` 只接受受管理账号表里的名字，不接受数字 uid，也不接受 `root`；
+  需要改属主为系统账号的场景目前无解，这是刻意的边界。

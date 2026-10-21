@@ -24,8 +24,12 @@ import (
 const PreflightTTL = 120 * time.Second
 
 // maxPreflightRequestBytes 是 POST /internal/v1/preflights 的请求体上限：
-// 参数上限加上 action / actor_context / JSON 转义的余量。
-const maxPreflightRequestBytes = MaxParamsBytes + 8<<10
+// **最大**的动作参数上限加上 action / actor_context / JSON 转义的余量。
+//
+// 为什么不是默认的 64 KiB：file.write_text 的参数里带着最多 1 MiB 的文件内容，
+// 传输层按 64 KiB 截断会让这条动作永远无法预检。逐动作的上限仍然存在
+// （Action.ParamsLimitBytes），由 DecodeParamsLimit 在解码时执行。
+const maxPreflightRequestBytes = MaxActionParamsBytes + 8<<10
 
 // planSweepInterval 是过期预检计划的扫描间隔。
 const planSweepInterval = 30 * time.Second
@@ -98,7 +102,9 @@ func (s *Server) handlePreflights(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req preflightRequest
-	if err := decodeStrictObject(body, &req); err != nil {
+	// 信封按“最大的逐动作上限”解码：具体的动作还没解析出来，用默认的 64 KiB
+	// 会把 file.write_text 的 1 MiB 内容挡在门外，让那条动作永远无法预检。
+	if err := decodeStrictObjectLimit(body, &req, maxPreflightRequestBytes); err != nil {
 		httpx.WriteError(w, r, http.StatusBadRequest, httpx.CodeValidationError, err.Error())
 		return
 	}
@@ -127,6 +133,13 @@ func (s *Server) handlePreflights(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 逐动作的参数上限在解码之前校验：一个 1 MiB 的 content 允许进入
+	// file.write_text，但同样的体积打给 service.control 会被当场拒绝。
+	if limit := action.paramsLimit(); len(req.Params) > limit {
+		httpx.WriteError(w, r, http.StatusRequestEntityTooLarge, httpx.CodeValidationError,
+			fmt.Sprintf("动作 %q 的参数上限是 %d 字节，收到 %d 字节", req.Action, limit, len(req.Params)))
+		return
+	}
 	params, err := action.Decode(req.Params)
 	if err != nil {
 		httpx.WriteError(w, r, http.StatusBadRequest, httpx.CodeValidationError, err.Error())

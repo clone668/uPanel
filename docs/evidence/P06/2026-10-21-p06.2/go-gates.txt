@@ -1,0 +1,9 @@
+== go build
+build exit=0
+== go vet
+vet exit=0
+== gofmt -l ./cmd ./internal
+(空行以上无输出即干净)
+== linux 交叉编译
+linux build exit=0
+linux vet exit=0

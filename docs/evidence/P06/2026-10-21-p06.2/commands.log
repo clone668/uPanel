@@ -1,0 +1,151 @@
+# P06.2 实际执行的命令（按时间顺序）
+
+宿主为 Windows + Git Bash。Go 为 `C:\Program Files\Go\bin\go`（go1.27.3 windows/amd64）；
+前端固定在 `.nvmrc` 的 Node **v22.23.3**（`C:\Users\huxi\AppData\Local\nvm\v22.23.3`）。
+VM 为 `upanel-2404`（`ssh -i H:/Code/vms/upanel-2404/id_ed25519 -p 2222 upanel@127.0.0.1`），
+Ubuntu 24.04.5 / kernel 6.8.0-147，VM 内**没有** Go 工具链，二进制都在宿主交叉编译后上传。
+
+启动 VM：
+
+```sh
+powershell -File H:\Code\vms\launch-vm.ps1 -Name upanel-2404 -SshPort 2222 -SeedPort 8899 -MemoryMB 4096 -Cpus 2
+```
+
+## 1. 代码写完后的第一轮门禁（宿主）
+
+```sh
+export PATH="/c/Program Files/Go/bin:$PATH"
+go build ./...                                          # exit=0
+go vet ./...                                            # exit=0
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...     # exit=0
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go vet ./...       # exit=0
+gofmt -l ./cmd ./internal                               # 无输出
+go test ./... -count=1                                  # 25 个包 ok（见 go-test.txt）
+```
+
+宿主（windows/amd64）跑 `internal/files` 时只有 `manager_other.go` 参与编译，
+所以 Linux 专属的写入/暂存测试在宿主上是 skip —— 它们全部靠 §3 的 VM 原生套件验证。
+
+## 2. 前端与契约
+
+```sh
+export PATH="/c/Users/huxi/AppData/Local/nvm/v22.23.3:$PATH"
+node -v                                       # v22.23.3
+npm --prefix web run typecheck                # exit=0
+npm --prefix web run lint                     # exit=0
+npm --prefix web run test                     # 28 文件 / 428 用例 passed
+npm --prefix web run build                    # dist 构建成功（内嵌进 upanel-web）
+npx --yes @redocly/cli lint api/openapi.yaml   # valid，6 warning
+```
+
+## 3. 交叉编译与上传（含 P06.2 的原生测试二进制）
+
+```sh
+export PATH="/c/Program Files/Go/bin:$PATH"
+export GOOS=linux GOARCH=amd64 CGO_ENABLED=0
+mkdir -p .build/linux-amd64/tests
+cd .build/linux-amd64
+go build -o upanel-agent ../../cmd/upanel-agent
+go build -o upanel-web   ../../cmd/upanel-web
+go build -o upanelctl    ../../cmd/upanelctl
+go test -c -o tests/files.test ../../internal/files
+go test -c -o tests/api.test   ../../internal/api
+# 原生套件（scripts/run-native-tests.sh）按包各编一份
+sh scripts/run-native-tests.sh --build-only        # 生成 .build/linux-amd64/tests/*.test
+
+scp upanel-agent upanel-web upanelctl upanel@127.0.0.1:/tmp/upanel-bin/
+scp tests/*.test upanel@127.0.0.1:/tmp/upanel-bin/tests/
+tar czf - ../../tests/integration | ssh -i H:/Code/vms/upanel-2404/id_ed25519 -p 2222 upanel@127.0.0.1 \
+  'cd /tmp/upanel-bin/tests && tar xzf -'
+```
+
+**第一轮失败的根因（P04.2 已记录过的老问题，这次又踩）**：只写 `chmod +x /tmp/upanel-bin/upanel-*`
+不匹配 `upanelctl`（没有连字符），`upanelctl init-admin` 以 **126** 退出，
+于是整份验收全是 401 和空响应。正确写法是逐个点名：
+
+```sh
+ssh … 'chmod +x /tmp/upanel-bin/upanel-agent /tmp/upanel-bin/upanel-web \
+                /tmp/upanel-bin/upanelctl /tmp/upanel-bin/tests/*.test'
+```
+
+## 4. VM 原生测试套件
+
+```sh
+ssh … 'cd /tmp/upanel-bin && sh tests/run-native-tests.sh' > native-tests.txt 2>&1
+# → TOTAL PASS=909 FAIL=0
+#   包：agentstore agent agentclient operations syscmd store api files monitoring
+#       storage journal logs
+#   P06.2 新增的 Linux 用例：
+#     files: TestStatTreeCountsDirectories / TestCopyDirectoryCopiesTree /
+#            TestBackupPruneKeepsTen / 暂存生命周期与预留计数若干
+#     agent: TestFileActionPreflightBlockers（含 PARENT_MISSING 三条真实分支）
+```
+
+## 5. P06.2 真机验收（多轮）
+
+```sh
+ssh … 'cd /tmp/upanel-bin/tests/integration && sh p06-2-files-write-acceptance.sh' \
+  > p06-2-acceptance-2404.txt 2>&1
+```
+
+第一轮真机跑出来的**不是脚本问题，而是产品缺陷**（详见 result.md §3）：
+
+1. `StatTree` / `walkTree` / 备份目录用 `O_PATH|O_DIRECTORY` 再 `getdents64` → EBADF：
+   目录删除预检 `PATH_REJECTED`、目录复制 500、备份不清理（11 次覆盖后 12 份、`backup_count` 恒 0）。
+2. 目标路径缺一级父目录时阻塞码是 `TARGET_MISSING`，`PARENT_MISSING` 在真实 files 层**不可达**。
+3. 列举里能看到 `.upanel`（Q147 说它不该出现）。
+4. 没配容量读取器时 `ReservedBytes` 恒为 0；`SweepStaging` 走过期清理不释放预留。
+
+每一条都补了会在 VM 上真的走进该分支的用例，然后重跑；此外脚本侧返工：
+
+```sh
+# jget 在 argv 里不可用（python3 -c '…' "$@" 取不到 $1）→ 改成 eval + "_" 约定，
+# 异常打印成 ERR:<Type>:<msg>，命名空间里补上 json
+# 能力表/upload_id 正则/七动作集合：用单个 set 表达式替代原来逐项比较
+# 重复 PUT：在新建的 UP_REP 上传上做（第一次 200、第二次 409 VERSION_CONFLICT），之后 DELETE 清暂存
+# 1 MiB 文本预检：body 写文件后 --data-binary @"$WORK/big-text-body.json"（MAX_ARG_STRLEN=128 KiB）
+# §6 预检过期：断言“作业数 +1、终态 failed、step=rejected、error.code=PREFLIGHT_STALE”按内容匹配
+# 备份份数：find 只数该文件自己的 key 目录（$ROOT_RW/$(dirname backup_path)）
+# 递归删除条目数：docs/a.txt + docs/nested/ + docs/nested/b.txt = TreeEntries 3 → Entries 4
+```
+
+最终一轮：
+
+```
+通过 228 项，失败 0 项，未执行 0 项
+```
+
+`payloads/` 里是 42 份真实响应体 + 1 份被上传的二进制（`upload-payload.bin`），共 43 个文件。
+
+ssh 会话两次自杀（退出码 255）都是 `pkill -f` 匹配到 ssh 自己的远端命令行：
+
+```sh
+ssh … 'sudo pkill -x upanel-agent; sudo pkill -x upanel-web'          # -x 精确名字
+ssh … 'sudo pkill -f "files-write-accept[a]nce"'                     # 方括号打断自匹配
+```
+
+## 6. 全量门禁
+
+```sh
+export PATH="/c/Program Files/Go/bin:/c/Users/huxi/AppData/Local/nvm/v22.23.3:$PATH"
+sh scripts/check.sh > check.txt 2>&1
+# → PASS 13 / FAIL 0 / NOT RUN 0
+#   明细: go-build go-vet go-test go-build-linux go-vet-linux gofmt node-version
+#         web-typecheck web-lint web-test web-build web-smoke openapi-lint 全 PASS
+```
+
+## 7. 证据整理与文档
+
+```sh
+# 环境事实：uname -a / os-release / nproc / free -m / id upanel,upanel-web / python3 -V
+# 本轮 VM 又在收尾前后各崩一次（console.panic-10 / console.panic-11，guest 内
+# `Attempted to kill init! exitcode=0x8b`），重启后重跑原生套件与验收，结论不变。
+ssh … 'journalctl --list-boots | tail -5'
+
+# 文档：docs/PROGRESS.md §1/§3/§5/§7、docs/CONTRACTS.md（写入章节）、
+#       docs/DECISIONS.md Q155—Q159、api/openapi.yaml（version 0.0.0-p06.2）
+git status
+git add -A
+git commit -m "feat(files): P06.2 流式暂存上传与受控写入"
+git push origin main
+```

@@ -1,0 +1,272 @@
+== 0. 环境 ==
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  依赖命令可用 python3
+PASS  依赖命令可用 curl
+PASS  依赖命令可用 runuser
+PASS  依赖命令可用 stat
+PASS  依赖命令可用 sha256sum
+PASS  依赖命令可用 find
+PASS  Web 账号 upanel-web 存在
+
+== 1. 造现场（可写根 / 第二可写根 / 只读根 / 上传载荷） ==
+PASS  载荷字节数
+      载荷 sha256：8bb1a811c53987dd7e86f617fa2e0adf8ea55b87c02b34522a5ff7a684cd2c6e
+
+== 2. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  agent.sock 不是 0666
+PASS  能力表登记了八个 file.* 动作
+      代理登记的动作：['file.chmod', 'file.chown', 'file.commit_upload', 'file.copy', 'file.delete', 'file.mkdir', 'file.move', 'file.write_text']
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19462 启动
+PASS  监听 19462 的 Web 进程不是 root（pid=26227 uid=999）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+PASS  创建 viewer 账号
+PASS  viewer 登录
+
+== 3. 暂存上传：声明 → 传字节 → 目标仍未变 → 提交落位 ==
+PASS  创建暂存上传
+PASS  upload_id 形状是 up_ + 32 位十六进制
+PASS  创建时 state 是 open
+PASS  创建时 received_bytes 是 "0"
+PASS  创建时不产生目标文件
+PASS  创建时暂存里有一条记录
+PASS  PUT 上传内容
+PASS  收完后 state 是 received
+PASS  received_bytes 等于声明字节数
+PASS  收完之后目标**仍然**不存在（上传不等于落地）
+PASS  GET 上传视图
+PASS  commit_upload 预检
+PASS  commit 预检允许
+PASS  commit 的 impact 是 create
+PASS  commit 不需要再认证（overwrite=false）
+PASS  commit 的确认短语是 null（不要求短语）
+PASS  提交落位任务并成功
+PASS  落位 outcome 是 verified
+PASS  落位后读回的大小
+PASS  落位后读回的路径
+PASS  落位后的文件 sha256 与载荷一致
+PASS  新建文件不留备份
+PASS  落位后暂存记录消失
+PASS  落位后 GET 上传是 404（记录已随落位消失）
+PASS  落位后的 404 错误码
+
+== 4. 上传的边界与配额 ==
+PASS  声明超过 max_upload_bytes 是 413
+PASS  超限的错误码是 VALIDATION_ERROR（413 上的体积错）
+PASS  超限不留暂存
+PASS  上传到目录上是 400
+PASS  目标是目录的错误码
+PASS  上传到只读根是 403
+PASS  只读根的错误码
+PASS  未登记的根是 404
+PASS  未登记根的错误码
+PASS  创建 100 字节的暂存
+PASS  Content-Length 与声明不符是 400
+PASS  长度不符的错误码
+PASS  无 Content-Length 是 400
+PASS  创建第三个暂存（验重复 PUT）
+PASS  第一次 PUT 到新暂存
+PASS  received 之后再 PUT 是 409
+PASS  重复 PUT 的错误码是 VERSION_CONFLICT（状态不一致，不是参数错）
+PASS  收掉这条暂存
+PASS  创建第二个暂存
+PASS  DELETE 暂存
+PASS  DELETE 之后 GET 是 404
+PASS  放弃上传不会创建目标文件
+PASS  创建指向已有文件的暂存
+PASS  PUT 到已有文件的暂存
+PASS  目标已存在且不覆盖：预检阻塞
+PASS  阻塞码是 TARGET_EXISTS
+PASS  被阻塞的预检 allowed=false
+PASS  覆盖但版本不对也是 VERSION_CONFLICT
+PASS  覆盖的版本阻塞码
+
+== 5. file.write_text：新建、覆盖、备份与版本 ==
+PASS  写新文件（目标不存在，不带版本）
+PASS  新建 outcome 是 verified
+PASS  新建后读回路径
+PASS  新建后读回大小
+PASS  文件确实写到了盘上
+PASS  文本接口读回内容一致
+PASS  覆盖已有文件但不给版本：预检阻塞
+PASS  不给版本的阻塞码
+      notes.txt 当前 version：v1-801-40531-3-18e07c8611c43aba
+PASS  带正确版本覆盖
+PASS  覆盖 outcome 是 verified
+PASS  覆盖后盘上内容
+PASS  覆盖留下备份（backup_path 非空）
+PASS  备份里是覆盖前的旧内容
+PASS  备份份数是 1
+      备份路径：.upanel/backups/e39538e7f27a7bf5/1792569571083430839
+PASS  用旧版本再写是阻塞
+PASS  旧版本的阻塞码
+PASS  旧版本没有改动文件
+PASS  连续覆盖 11 次全部 verified
+PASS  备份份数被限制在 10
+      old.conf 的备份目录：/var/tmp/upanel-accept-p06-2/rw/.upanel/backups/fafb31c860e32959
+PASS  这个文件的备份目录里确实只有 10 份
+PASS  备份里不再有最早的 old 内容
+PASS  超过 1 MiB 的文本内容被拒（400）
+PASS  超文本上限的错误码
+
+== 6. 外部改文件之后再提交：PREFLIGHT_STALE，而不是静默覆盖 ==
+PASS  conflict.conf 预检允许
+PASS  预检结论是 allowed
+PASS  预检过期后提交被拒（409）
+PASS  拒收的错误码是 PREFLIGHT_STALE
+PASS  过期预检留下一条失败任务（不是静默丢弃）
+PASS  这条任务的终态是 failed、步骤是 rejected（代理在受理时拒收）
+PASS  别人的修改没有被覆盖
+      runner 内的 revalidate 步骤（第二道拦截）要真实竞态才能触发，本轮未执行
+
+== 7. file.mkdir ==
+PASS  建目录
+PASS  mkdir outcome 是 verified
+PASS  mkdir 读回类型是 dir
+PASS  目录真的在盘上
+PASS  mkdir 的锁是 file:rw:/newdir
+PASS  重复建同名目录：预检阻塞
+PASS  重复建的阻塞码是 TARGET_EXISTS
+PASS  被阻塞的预检提交任务会被拒（409）
+PASS  被拒的错误码是 DEPENDENCY_BLOCKED
+PASS  父目录不存在：预检阻塞
+PASS  父目录缺失的阻塞码是 PARENT_MISSING
+
+== 8. file.copy / file.move ==
+PASS  同根复制
+PASS  复制 outcome 是 verified
+PASS  复制后目标内容一致
+PASS  复制后源还在
+PASS  目标已存在：复制阻塞
+PASS  复制到已存在目标的阻塞码
+PASS  源不存在：复制阻塞
+PASS  复制源缺失的阻塞码
+PASS  含符号链接的目录：整棵拒绝
+PASS  树里有符号链接的阻塞码
+PASS  被拒之后目标没有被创建
+PASS  同根 move 的预检
+PASS  同根 move 的 impact 是 rename（原子改名）
+PASS  同根 move 执行成功
+PASS  move 后源消失
+PASS  move 后目标在
+PASS  跨根 move 的预检
+PASS  跨根 move 的 impact 是 not_atomic
+PASS  跨根 move 执行成功
+PASS  跨根 move 后源消失
+PASS  跨根 move 后目标在另一个根里
+PASS  跨根 move 的结果里带 source
+PASS  移动到只读根：阻塞
+PASS  只读根的阻塞码是 ROOT_READ_ONLY
+
+== 9. file.delete：再认证、递归短语与读回 ==
+PASS  非空目录非递归：预检阻塞
+PASS  非空目录的阻塞码
+PASS  单文件删除预检
+PASS  delete 要求再认证
+PASS  未再认证提交删除：403
+PASS  未再认证的错误码
+PASS  再认证
+PASS  再认证给出有效期
+PASS  再认证后同一份预检可以执行
+PASS  删除 outcome 是 verified
+PASS  删除后读回 exists=false
+PASS  删除后文件真的不在了
+PASS  删单个文件的条目数是 1
+PASS  递归删除预检
+PASS  递归删除带 RECURSIVE_DELETE 告警
+PASS  递归删除要求短语
+PASS  短语首词是 DELETE
+      确认短语：DELETE DDZJXM
+PASS  错短语提交：400
+PASS  错短语的错误码
+PASS  错短语的任务在任务中心里是 failed（步骤 rejected）
+PASS  错短语之后目录还在
+PASS  重新预检（错短语烧掉了上一份）
+PASS  正确短语递归删除
+PASS  递归删除 outcome 是 verified
+PASS  递归删除后目录不在
+PASS  递归删除的条目数（1 文件 + 1 子目录 + 子目录里 1 文件 + 目录自身）
+PASS  递归删除的字节数是 4
+
+== 10. file.chmod / file.chown ==
+PASS  再认证（为 chmod/chown 续期）
+PASS  chmod 0640
+PASS  chmod outcome 是 verified
+PASS  chmod 后盘上是 0640
+PASS  chmod 读回的 mode
+PASS  再改成同一个权限：带 NO_CHANGE 告警
+PASS  无变化的告警码
+PASS  setuid 权限在参数层拒绝（400）
+PASS  setuid 的错误码
+PASS  被拒之后权限没变
+PASS  chown 在预检就阻塞
+PASS  chown 的阻塞码
+      受管理账号模块尚未落地（P08），面板现在不能修改文件所有者；这条动作在预检阶段就被拒绝，而不是接受任意 uid/gid
+
+== 11. 路径形状与越界（写动作） ==
+PASS  '../escape' 被参数层拒绝
+PASS  '../escape' 的错误码
+PASS  绝对路径被参数层拒绝
+PASS  绝对路径的错误码
+PASS  保留目录 .upanel 被拒绝
+PASS  保留目录的错误码
+PASS  越界没有被执行
+PASS  指向根外的符号链接：写文本阻塞
+PASS  符号链接的阻塞码
+PASS  根外的秘密没有被写
+
+== 12. 只读根：所有写动作都是 ROOT_READ_ONLY ==
+PASS  只读根建目录
+PASS  只读根 mkdir 的阻塞码
+PASS  只读根写文本
+PASS  只读根 write_text 的阻塞码
+PASS  只读根 chmod（已再认证）
+PASS  只读根 chmod 的阻塞码
+PASS  只读根 chown
+PASS  只读根 chown 的阻塞码（账号闸门更靠前）
+PASS  只读根上的文件没被改动
+
+== 13. 任务中心 ==
+PASS  任务列表
+PASS  本轮七类动作都在任务中心里
+PASS  每条任务都有 job_id 与状态
+PASS  失败的任务都带错误码
+PASS  终态任务不可取消（409）
+PASS  不可取消的错误码
+
+== 14. 权限：未登录 / viewer / admin ==
+PASS  未登录创建上传是 401
+PASS  未登录的错误码
+PASS  未登录预检是 401
+PASS  viewer 创建上传是 403
+PASS  viewer 的错误码
+PASS  viewer 预检是 403
+PASS  viewer 提交任务是 403
+PASS  viewer 查上传也是 403（整组 admin）
+
+== 15. 回归：写动作之外仍然正常 ==
+PASS  健康检查
+PASS  系统概要
+PASS  日志查询（P05.3）
+PASS  存储设备列表（P04）
+PASS  服务列表（P05.1）
+PASS  进程列表（P05.2）
+PASS  文件根列表（P06.1）
+PASS  三个根都在
+PASS  只有两个根可写
+PASS  列举可写根
+PASS  保留目录不出现在列表里
+PASS  根里的普通文件仍然可读（P06.1）
+PASS  读回的内容是本轮写进去的
+
+== 16. 载荷归档 ==
+载荷 42 个，日志摘要 34 行 / 29 行
+PASS  载荷与日志摘要已归档（/var/tmp/upanel-accept-p06-2/payloads）
+
+通过 228 项，失败 0 项，未执行 0 项

@@ -120,6 +120,15 @@ func (s *Server) routes() *gin.Engine {
 		fm.GET("/list", s.handleFileList)
 		fm.GET("/text", s.handleFileText)
 		fm.GET("/download", s.handleFileDownload)
+		// 暂存上传（P06.2）：内容收进根内 .upanel/staging，目标路径一个字节都没变。
+		// 落地必须走 file.commit_upload 的预检 → 任务；所以这里**没有**“直接写文件”的路由，
+		// 只有“把字节放到暂存区”的三条 + “放弃这次上传”一条。
+		//
+		// PUT 是唯一允许的大请求体入口：它不解析 JSON、不缓存内容，边读边转发给代理。
+		fm.POST("/uploads", s.requireCSRF(), s.handleCreateUpload)
+		fm.PUT("/uploads/:id/content", s.requireCSRF(), s.handleUploadContent)
+		fm.GET("/uploads/:id", s.handleGetUpload)
+		fm.DELETE("/uploads/:id", s.requireCSRF(), s.handleDeleteUpload)
 
 		// 系统写操作的统一入口（P03.1）：先预检，再由 POST /jobs 创建任务（P03.2）。
 		// 预检只读不写系统；再认证在**提交任务**时校验（按动作登记策略），不在预检阶段。

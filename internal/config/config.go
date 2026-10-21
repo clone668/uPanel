@@ -116,6 +116,10 @@ type Agent struct {
 type Files struct {
 	// Roots 是登记的文件根。允许为空；空表示本机没有开放文件管理。
 	Roots []FileRoot `json:"roots"`
+	// MaxUploadBytes 是单次上传的字节上限（P06.2）。0 表示取默认值 2 GiB
+	// （PLAN.md 第 15 节）。它只能改“多大”，不能改“允许上传”这件事本身——
+	// 那是每个根的 writable。
+	MaxUploadBytes int64 `json:"max_upload_bytes"`
 }
 
 // FileRoot 是一个受管理的文件根。
@@ -407,6 +411,15 @@ var fileRootIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 //   - 根路径为 "/"：那等于把整个文件系统登记成一个根，正是“可管理整个服务器所有目录”。
 //     要开放某个目录，就明确写它。
 func (f Files) Validate() error {
+	if f.MaxUploadBytes < 0 {
+		return fmt.Errorf("agent.files.max_upload_bytes 不能为负，当前为 %d", f.MaxUploadBytes)
+	}
+	// 上限本身不设“太小也行”：一个明显不是字节数的值（比如误写成 2048）在这里拦下来，
+	// 免得运维以为放宽到了一定程度、实际传不了几张图。
+	if f.MaxUploadBytes > 0 && f.MaxUploadBytes < 1<<20 {
+		return fmt.Errorf("agent.files.max_upload_bytes 必须至少 1 MiB（当前 %d）；"+
+			"0 表示使用默认 2 GiB", f.MaxUploadBytes)
+	}
 	seen := make(map[string]bool, len(f.Roots))
 	for i, root := range f.Roots {
 		field := fmt.Sprintf("agent.files.roots[%d]", i)

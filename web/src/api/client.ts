@@ -191,25 +191,39 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   const requestId = pickRequestId(payload) ?? response.headers.get('X-Request-ID') ?? ''
 
   if (!response.ok) {
-    const envelope = payload as Partial<ErrorEnvelope> | undefined
-    const body = envelope?.error
-    if (body && typeof body.code === 'string' && isServerErrorCode(body.code)) {
-      throw new ApiError({
-        code: body.code as ServerErrorCode,
-        message: typeof body.message === 'string' && body.message !== '' ? body.message : '请求失败',
-        status: response.status,
-        requestId,
-        details: body.details,
-        source: 'server',
-      })
-    }
-    // 非契约响应（反向代理错误页、被截断的响应）：如实报告，不猜业务原因。
-    throw clientError('INVALID_RESPONSE', `服务返回了不符合契约的响应（HTTP ${response.status}）`, {
-      status: response.status,
-      requestId,
-    })
+    throw serverOrInvalidError(response, payload, requestId)
   }
 
+  return unwrapData<T>(payload, response, requestId)
+}
+
+/** 把一次失败的响应翻成 ApiError（错误信封 → 业务码；否则 → INVALID_RESPONSE）。 */
+function serverOrInvalidError(
+  response: Response,
+  payload: unknown,
+  requestId: string,
+): ApiError {
+  const envelope = payload as Partial<ErrorEnvelope> | undefined
+  const body = envelope?.error
+  if (body && typeof body.code === 'string' && isServerErrorCode(body.code)) {
+    return new ApiError({
+      code: body.code as ServerErrorCode,
+      message: typeof body.message === 'string' && body.message !== '' ? body.message : '请求失败',
+      status: response.status,
+      requestId,
+      details: body.details,
+      source: 'server',
+    })
+  }
+  // 非契约响应（反向代理错误页、被截断的响应）：如实报告，不猜业务原因。
+  return clientError('INVALID_RESPONSE', `服务返回了不符合契约的响应（HTTP ${response.status}）`, {
+    status: response.status,
+    requestId,
+  })
+}
+
+/** 解包成功响应的 data 信封。缺 data 或缺 request_id 都是不合契约，不猜。 */
+function unwrapData<T>(payload: unknown, response: Response, requestId: string): ApiResult<T> {
   const envelope = payload as Partial<DataEnvelope<T>> | undefined
   if (!envelope || typeof envelope !== 'object' || !('data' in envelope)) {
     throw clientError('INVALID_RESPONSE', '服务返回了不符合契约的成功响应（缺少 data）', {
@@ -225,6 +239,75 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   }
 
   return { data: envelope.data as T, requestId: envelope.request_id }
+}
+
+export interface BinaryBodyOptions {
+  method?: 'POST' | 'PUT'
+  /** 原始字节：不着 JSON 编码，直接作为请求体发出。 */
+  body: Blob
+  signal?: AbortSignal
+  /**
+   * 整体超时。省略表示**不设**上限：一次几 GiB 的上传在慢盘上可能远超任何
+   * “合理”的秒数，时限由服务端的空闲上限决定（60 秒没动静就断）。
+   */
+  timeoutMs?: number
+}
+
+/**
+ * 发送一次原始字节请求（PUT /files/uploads/:id/content 用）。
+ *
+ * 为什么不复用 request()：那条路会把 body 做 JSON.stringify 并声明
+ * application/json。上传的内容是文件字节，编成 JSON（base64 或数组）会把体积
+ * 乘上 1.33 甚至更多，还会把整份内容读进内存——这正是要避免的事。
+ *
+ * Content-Length 由浏览器按 Blob 的大小自动给出；服务端要求它等于创建上传时
+ * 声明的 size_bytes，因此调用方必须传**同一个** Blob（而不是改过的副本）。
+ */
+export async function requestBinary<T>(
+  path: string,
+  options: BinaryBodyOptions,
+): Promise<ApiResult<T>> {
+  const method = options.method ?? 'PUT'
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/octet-stream',
+    'X-UPanel-Request': '1',
+  }
+  const token = csrfTokenProvider()
+  if (token) headers['X-CSRF-Token'] = token
+
+  const timeoutSignal =
+    options.timeoutMs === undefined ? null : AbortSignal.timeout(options.timeoutMs)
+  const signal =
+    options.signal && timeoutSignal
+      ? AbortSignal.any([options.signal, timeoutSignal])
+      : (options.signal ?? timeoutSignal ?? undefined)
+
+  let response: Response
+  try {
+    response = await fetch(buildUrl(path), {
+      method,
+      headers,
+      credentials: 'same-origin',
+      body: options.body,
+      ...(signal === undefined ? {} : { signal }),
+    })
+  } catch (error) {
+    if (options.signal?.aborted) throw clientError('ABORTED', '请求已取消')
+    if (timeoutSignal?.aborted) {
+      throw clientError(
+        'NETWORK_ERROR',
+        `请求超时（${Math.round((options.timeoutMs ?? 0) / 1000)} 秒未响应）`,
+      )
+    }
+    const reason = error instanceof Error ? error.message : String(error)
+    throw clientError('NETWORK_ERROR', `无法连接面板服务：${reason}`)
+  }
+
+  const payload = await readJson(response)
+  const requestId = pickRequestId(payload) ?? response.headers.get('X-Request-ID') ?? ''
+  if (!response.ok) throw serverOrInvalidError(response, payload, requestId)
+  return unwrapData<T>(payload, response, requestId)
 }
 
 /** GET 的便捷封装。 */

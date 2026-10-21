@@ -296,6 +296,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	filesManager, err := files.New(fileRoots(cfg.Agent.Files.Roots), files.Options{
 		Capacity: filesCapacity{reader: storage.SystemRoot().Caps},
 		Logger:   logger,
+		// 单次上传上限（P06.2）。0 表示用默认 2 GiB；配置层已经校验过它不会是负值。
+		MaxUploadBytes: cfg.Agent.Files.MaxUploadBytes,
 	})
 	if err != nil {
 		logger.Error("初始化文件模块失败", "error", err)
@@ -326,6 +328,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Processes: processesCollector,
 		Logs:      logsQuerier,
 		Files:     filesManager,
+		// 写端与读端是同一个 Manager：根登记表、句柄级边界、错误判决都只有一份。
+		FileWrites: filesManager,
 	}
 	if err := agent.RegisterProductionQueries(registry, deps); err != nil {
 		logger.Error("登记生产查询失败", "error", err)
@@ -373,6 +377,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Operations:      operations,
 		Logs:            logsQuerier,
 		Files:           filesManager,
+		FileWrites:      filesManager,
 	})
 	if err != nil {
 		logger.Error("初始化代理失败", "error", err)

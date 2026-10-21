@@ -50,6 +50,12 @@ type Action struct {
 	// 它与 PolicyFor 只能二选一：策略要么对全部参数相同（Policy），要么随参数变化
 	// （PolicyFor）。两处都写会让“读到的是哪一份”取决于调用点。
 	Policy ActionPolicy
+	// ParamsLimitBytes 是这个动作参数的字节上限；0 表示用 MaxParamsBytes。
+	//
+	// 绝大多数动作的参数是几百字节的结构体；file.write_text 的参数里带着文件内容
+	// （契约把它列为 params 字段），所以它登记一个与内容上限一致的值。
+	// 上限是按动作独立限制的（CONTRACTS.md 第 15 节），不是全局放宽。
+	ParamsLimitBytes int
 	// PolicyFor 按参数给出策略，用于“同一个动作、不同参数不同门槛”的情形。
 	//
 	// P05.2 的第一个使用者是 process.signal：TERM 只是请求退出，不需要再认证；
@@ -73,6 +79,14 @@ type ActionPolicy struct {
 	// Cancellable 表示任务开始后允许安全取消。前端不能自行展示无效的取消按钮，
 	// 因此这个值随预检一起下发。
 	Cancellable bool
+}
+
+// paramsLimit 返回这个动作的参数上限。
+func (a Action) paramsLimit() int {
+	if a.ParamsLimitBytes > 0 {
+		return a.ParamsLimitBytes
+	}
+	return MaxParamsBytes
 }
 
 // resolvePolicy 返回这个动作在给定参数下的策略。
@@ -251,9 +265,16 @@ var namePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(\.[a-z][a-z0-9_]*)+$`)
 // 确认短语的首词：大写，2—16 位，允许数字（FORMAT、DESTROY、RESTORE 等）。
 var phraseVerbPattern = regexp.MustCompile(`^[A-Z][A-Z0-9]{1,15}$`)
 
-// MaxParamsBytes 是单个动作/查询参数的上限（CONTRACTS.md 第 15 节：
+// MaxParamsBytes 是单个动作/查询参数的**默认**上限（CONTRACTS.md 第 15 节：
 // “请求体最大值按动作独立限制”）。
 const MaxParamsBytes = 64 << 10
+
+// MaxActionParamsBytes 是任何单个动作参数的上限的**上限**。
+//
+// 它同时是 POST /internal/v1/preflights 的传输层能力边界：请求体最多读这么多。
+// 一个动作可以登记比 MaxParamsBytes 更大的上限（file.write_text 带 1 MiB 内容），
+// 但不能超过这里——传输层不该为了某一个动作无限放宽。
+const MaxActionParamsBytes = 2 << 20
 
 var (
 	// ErrInvalidName 表示登记名不符合固定命名规则。
@@ -374,6 +395,13 @@ func RegisterProductionActions(reg *Registry, deps ProductionDeps) error {
 			return fmt.Errorf("代理登记 process.signal 失败: %w", err)
 		}
 	}
+	if deps.FileWrites != nil {
+		// 八个文件写动作一起登记：它们共用同一份根登记表与同一套判决。
+		// 只登记其中几个会让 capabilities 报告一组互相矛盾的入口。
+		if err := RegisterFileActions(reg, deps.FileWrites); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -394,6 +422,10 @@ func (r *Registry) RegisterAction(a Action) error {
 		// 而约定会在下一个调用点被忘掉。这里直接不允许。
 		return fmt.Errorf("%w: 动作 %s 同时登记了静态 Policy 与 PolicyFor，只能二选一",
 			ErrNilHandler, a.Name)
+	}
+	if a.paramsLimit() > MaxActionParamsBytes {
+		return fmt.Errorf("%w: 动作 %s 的参数上限 %d 超过传输层上限 %d",
+			ErrNilHandler, a.Name, a.paramsLimit(), MaxActionParamsBytes)
 	}
 	if _, ok := r.actions[a.Name]; ok {
 		return fmt.Errorf("%w: 动作 %s", ErrDuplicateName, a.Name)
@@ -478,8 +510,23 @@ func validateResult(res Result) error {
 //   - 未知字段直接拒绝，不静默忽略；
 //   - 首个 JSON 值之后还有内容也拒绝。
 func DecodeParams(raw json.RawMessage, dst any) error {
-	if len(raw) > MaxParamsBytes {
-		return fmt.Errorf("%w: %d 字节，上限 %d", ErrParamsTooLarge, len(raw), MaxParamsBytes)
+	return DecodeParamsLimit(raw, dst, MaxParamsBytes)
+}
+
+// DecodeParamsLimit 是带自定义上限的 DecodeParams。
+//
+// 动作的 Decode 用与它登记的 ParamsLimitBytes 相同的值调用它：上限只有一个来源，
+// 否则“登记了 1 MiB、解码按 64 KiB 拒绝”这种错位会在运行时才暴露。
+func DecodeParamsLimit(raw json.RawMessage, dst any, limit int) error {
+	// 上限只有一个来源：调用方给的值（都是代码里的常量）。过去这里把“大于
+	// MaxActionParamsBytes”当成无效值退回 64 KiB，于是预检信封——它必须容得下
+	// 最大的逐动作上限再加信封本身——被悄悄打回了默认值，1 MiB 的文本内容
+	// 永远过不了预检。真正的“别读无界”由读取请求体时的 readLimitedBody 管。
+	if limit <= 0 {
+		limit = MaxParamsBytes
+	}
+	if len(raw) > limit {
+		return fmt.Errorf("%w: %d 字节，上限 %d", ErrParamsTooLarge, len(raw), limit)
 	}
 	if len(bytes.TrimSpace(raw)) == 0 {
 		raw = json.RawMessage("{}")

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"upanel/internal/agentstore"
+	"upanel/internal/httpx"
 )
 
 // runner 管理正在执行的操作。
@@ -196,6 +197,17 @@ func (r *runner) execute(ctx context.Context, op agentstore.Operation) {
 				"执行超过时限", "先确认系统实际状态，再决定是否重新提交")
 			return
 		}
+		// 动作自己的拒绝优先：file.* 与其它知道判决的动作会用 files.HTTPStatusOf
+		// 包一层 statusCarrier。把它压成一句“动作执行失败”会让管理员看不到
+		// VERSION_CONFLICT / PATH_OUTSIDE_ROOT 这类能自己处理的原因。
+		if carrier, ok := statusCarrierOf(err); ok {
+			_, code := carrier.HTTPStatus()
+			s.finishFailed(ctx, op.ID, "failed", string(code), err.Error(),
+				recoveryHintForRejection(code))
+			s.opts.Logger.Warn("动作被拒绝",
+				"operation_id", op.ID, "action", op.Action, "code", string(code), "error", err)
+			return
+		}
 		s.finishFailed(ctx, op.ID, "failed", httpxCodeCommandFailed,
 			"动作执行失败", "先确认系统实际状态，再决定是否重新提交")
 		s.opts.Logger.Error("动作执行失败",
@@ -360,3 +372,30 @@ const (
 	httpxCodeInternalError        = "INTERNAL_ERROR"
 	httpxCodeOperationInterrupted = "OPERATION_INTERRUPTED"
 )
+
+// recoveryHintForRejection 给业务拒绝配一句可执行的下一步提示。
+//
+// 这些码都表示“这次没做成，但你可以自己处理”，所以提示必须具体：
+// 一句“请重试”对版本冲突毫无帮助。
+func recoveryHintForRejection(code httpx.Code) string {
+	switch code {
+	case httpx.CodeVersionConflict:
+		return "目标已被修改或已存在不同内容；重新读取当前状态后再发起预检"
+	case httpx.CodePathOutsideRoot:
+		return "这个路径在面板的边界之外（符号链接、硬链接或越级）；换一个路径或调整文件根配置"
+	case httpx.CodeForbidden:
+		return "文件根登记为只读；在代理配置里把它改成 writable 才允许写入"
+	case httpx.CodeRootUnavailable:
+		return "文件根此刻不可用（挂载未就位或身份变化）；确认挂载后重新载入代理配置"
+	case httpx.CodeNotFound:
+		return "目标不在了；重新加载目录后再操作"
+	case httpx.CodeFileNotText:
+		return "这个文件不是 UTF-8 文本；改用下载/上传的方式替换它"
+	case httpx.CodeValidationError:
+		return "参数或体积不被接受；检查上限（单个文件、目录树条目数）后重试"
+	case httpx.CodeNotImplemented:
+		return "这台机器或这个版本不支持该操作；不要重试，先确认代理版本与平台"
+	default:
+		return "先确认系统实际状态，再决定是否重新提交"
+	}
+}

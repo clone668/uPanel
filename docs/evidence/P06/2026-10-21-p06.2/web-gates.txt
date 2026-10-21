@@ -1,0 +1,8 @@
+
+> upanel-web@0.0.0 typecheck
+> vue-tsc --noEmit -p tsconfig.json
+
+
+> upanel-web@0.0.0 lint
+> eslint .
+

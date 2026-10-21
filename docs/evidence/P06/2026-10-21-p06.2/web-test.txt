@@ -1,0 +1,44 @@
+
+> upanel-web@0.0.0 test
+> vitest run
+
+
+ RUN  v5.0.5 H:/Code/uPanel/web
+
+ ✓ src/api/system.test.ts (5 tests) 63ms
+ ✓ src/api/files.test.ts (39 tests) 86ms
+ ✓ src/api/client.test.ts (12 tests) 91ms
+ ✓ src/api/preflights.test.ts (10 tests) 55ms
+ ✓ src/api/storage.test.ts (16 tests) 55ms
+ ✓ src/api/processes.test.ts (12 tests) 50ms
+ ✓ src/api/services.test.ts (13 tests) 64ms
+ ✓ src/components/realdata-files.test.ts (27 tests) 124ms
+ ✓ src/components/files.test.ts (15 tests) 87ms
+ ✓ src/components/realdata-logs.test.ts (24 tests) 80ms
+ ✓ src/utils/format.test.ts (27 tests) 50ms
+ ✓ src/utils/polling.test.ts (5 tests) 20ms
+ ✓ src/api/logs.test.ts (21 tests) 24ms
+ ✓ src/utils/viewstate.test.ts (7 tests) 9ms
+ ✓ src/modules/registry.test.ts (7 tests) 12ms
+ ✓ src/api/jobs.test.ts (17 tests) 16ms
+ ✓ src/api/jobstream.test.ts (19 tests) 17ms
+ ✓ src/router/routes.test.ts (6 tests) 9ms
+ ✓ src/components/logs.test.ts (7 tests) 36ms
+ ✓ src/router/redirect.test.ts (4 tests) 8ms
+ ✓ src/api/errors.test.ts (5 tests) 8ms
+ ✓ src/stores/mode.test.ts (5 tests) 7ms
+ ✓ src/components/services.test.ts (14 tests) 79ms
+ ✓ src/components/realdata-services.test.ts (22 tests) 94ms
+ ✓ src/components/realdata-processes.test.ts (31 tests) 140ms
+ ✓ src/components/storage.test.ts (24 tests) 110ms
+ ✓ src/components/realdata.test.ts (17 tests) 114ms
+ ✓ src/components/panels.test.ts (17 tests) 39ms
+
+ Test Files  28 passed (28)
+      Tests  428 passed (428)
+   Start at  16:01:56
+   Duration  2.43s (import 83%, tests 10%, transform 6%, worker 1%)
+
+    Isolate  28 workers spawned · ~304ms startup each (spawn + environment, per file)
+             at least ~263ms faster with isolate: false — reuses workers across files instead of one per file
+

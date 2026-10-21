@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"files: 文件超过上限: 声明大小 4194305 字节超过单次上传上限 4194304 字节（配置项 agent.files.max_upload_bytes）"},"request_id":"9290d534bd50d8ee927c742b7f5e714d"}

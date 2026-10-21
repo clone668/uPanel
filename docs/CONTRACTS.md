@@ -521,6 +521,53 @@ TERM 与 KILL 是**两次独立操作**，门槛不同：TERM 不需要再认证
 
 **错误判决**单一来源于 `files.HTTPStatusOf`，代理的查询、代理的流、Web 的公开接口共用同一张表，因此同一个 `..` 无论在哪一层被拦下都是同一个状态码与同一个 code：PATH_OUTSIDE_ROOT 422、NOT_FOUND 404、ROOT_UNAVAILABLE 409、FILE_NOT_TEXT 422、VERSION_CONFLICT 409、超限 413 VALIDATION_ERROR、形状问题 400 VALIDATION_ERROR、平台无 openat2 为 501 NOT_IMPLEMENTED、代理连不上为 503 AGENT_UNAVAILABLE。新增错误码只有 ROOT_UNAVAILABLE 与 FILE_NOT_TEXT 两个，其余情形落到第 1 节已有的码上。
 
+### 11.2 写入接口、暂存上传与动作参数（P06.2）
+
+**没有“直接写文件”的公开接口。** 文件系统里发生的每一次改变都是一次**动作**（第 5 节），走预检 → 任务 → 结果验证 → 审计。第 11 节表里的四个 upload 端点只负责把字节搬进/搬出暂存区，它们不改任何服务器文件：`POST /files/uploads` 与 `PUT /files/uploads/:id/content` 收完之后，目标路径一个字节都没变。
+
+**POST /files/uploads** 请求体：`root_id`、`path`（目标文件的根内相对路径）、`size_bytes`（十进制字符串）、`expected_version`（目标此刻的版本；目标不存在时为 null 或省略）。响应 data 是上传视图：`upload_id`（`up_` + 32 位小写十六进制）、`root_id`、`path`、`size_bytes`、`received_bytes`、`state`、`expected_version`、`created_at`、`expires_at`、`error`（仅 failed 时出现）。逐个字段都要自洽：代理回的 root_id/path/size_bytes/expected_version 必须与请求一致，不一致是 503 AGENT_UNAVAILABLE（“代理给的不是我声明的这份上传”），不是 200。
+
+**PUT /files/uploads/:id/content** 的请求体是原始字节（`application/octet-stream`），不是 JSON、不是 multipart：多一层编码就多一次把整份内容读进内存的机会。必须声明 `Content-Length`，且它必须等于创建时的 `size_bytes`——不支持分块传输，也不支持断点续传。长度不符在入口就 400 VALIDATION_ERROR，不让它先传 2 GiB 再失败。收完之后 `state=received` 且 `received_bytes == size_bytes`；少一个字节也是失败。上传期间 Web 与代理各自用 `http.ResponseController` 推读截止时间（空闲 60 秒即断，慢不是错，停住才是），响应前再推写截止时间——否则一次几分钟的上传会被服务器的 30 秒 `ReadTimeout`/`WriteTimeout` 掐断，表现为“传到一半连接没了”。
+
+**GET /files/uploads/:id** 返回同一个上传视图；`state` 是闭集 `open|received|failed`，描述的是**暂存**，不是目标文件：目标只有在 `file.commit_upload` 成功之后才会改变，而那时上传记录已经不存在了。`failed` 表示传输失败（大小不符、空间不足、超限），`error` 说明原因，记录留到过期时间——让调用方看到“为什么失败”，而不是一个忽然消失的 id。**DELETE /files/uploads/:id** 删除暂存并释放容量预留，不影响目标文件。未完成或未提交的暂存在 24 小时后由代理定期清理，清理同样释放预留。
+
+**容量与配额。** 单次上传上限默认 2 GiB（`agent.files.max_upload_bytes` 可配，0 表示默认值），声明值超过上限或扣掉已预留容量之后放不下，都在创建暂存时 413 VALIDATION_ERROR，并且**不留下任何暂存**。并发上传按声明值共享预留：两个各声明 1.5 GiB 的上传在一个只剩 2 GiB 的卷上，第二个在创建时就被拒绝，而不是两个都传完才有一个失败。写入过程中撞上 ENOSPC 同样是 413，本次暂存会被删除，预留随之释放。
+
+**保留目录 `.upanel`。** 每个文件根内有一个保留目录：`staging`（暂存上传）与 `backups`（编辑备份）都在里面。它必须留在根内而不是 `/var/lib`，因为原子替换要求临时文件与目标在**同一个文件系统**上，跨挂载的 rename 会退化成复制，而复制不是原子替换。它不出现在列目录结果里，任何指向它的路径在形状层就被 `ErrPathRejected` 拒绝（422 PATH_OUTSIDE_ROOT）：里面是正在写的半成品和别人改之前的旧版本，它们不是“服务器上的文件”。
+
+**动作与它们的门槛。** 参数以第 5 节表为准（`relative_path`、`source_root_id`、`source_path`、`target_root_id`、`target_path`、`expected_version`、`recursive`、`mode`、`managed_account_id`、`managed_group_id`、`upload_id`、`overwrite`、`content`）。策略：
+
+| 动作 | 再认证 | 确认短语 |
+|---|---|---|
+| file.mkdir | 否 | 否 |
+| file.write_text | 否 | 否 |
+| file.copy / file.move | 否 | 否 |
+| file.commit_upload | 仅 `overwrite=true` 时 | 仅 `overwrite=true` 时，`OVERWRITE` |
+| file.delete | 是 | 仅 `recursive=true` 时，`DELETE` |
+| file.chmod | 是 | 否 |
+| file.chown | 是 | 否 |
+
+**版本冲突的语义。** `expected_version` 在写动作里是**强制**的，不是可选的乐观提示：
+
+- `file.write_text`：目标已存在时必须给 `expected_version`，否则 409 VERSION_CONFLICT（“覆盖”等于“谁先写完算谁”，不接受）。目标不存在时它必须为空。
+- `file.commit_upload`：目标已存在时必须 `overwrite=true` **并且**给出匹配的 `expected_version`；只给其中一个是拒绝，不是“尽力而为”。
+- `file.delete` / `file.chmod` / `file.chown`：目标必须存在；给了 `expected_version` 就必须匹配。
+- `file.copy` / `file.move`：`expected_version` 描述**目标**。目标已存在即阻塞（409 VERSION_CONFLICT），不存在时它必须为空。
+
+预检与执行各核验一次：预检把目标的 IdentityFingerprint 与 StateVersion 记进计划，提交任务时重算，不一致分别是 DEVICE_IDENTITY_CHANGED 与 PREFLIGHT_STALE；到了执行期，真正的版本核对发生在**已打开的句柄**上（`verifyVersion`），而不是路径字符串。
+
+**结果验证。** `outcome=verified` 的意思是“读回来的东西与预期一致”，不是“调用没报错”：文本写入与上传落位都重新打开目标读回 size 并核对 sha256（上传落位还核对落位前后的 dev+ino 相同）；建目录读回核对 `S_IFDIR` 与设备号；删除后 `fstatat` 必须 ENOENT；chmod/chown 读回核对权限位与所有者。任何一步读不回预期就如实报 `unknown`，不假装成功。
+
+**编辑备份。** `file.write_text` 与 `file.commit_upload` 覆盖已存在文件之前，先把旧版本真实复制到 `.upanel/backups/<路径摘要>/<纳秒时间>`，再从最旧开始清理：单文件最多 10 份、总量最多 500 MiB。**不能用硬链接做备份**——硬链接会让 nlink>1，而读路径自己拒绝 nlink>1 的普通文件。备份路径与份数随 `WriteResult` 一起返回（`backup_path`、`backup_count`、`backup_bytes`）。
+
+**递归操作的上限。** 单次递归删除/复制/统计最多走 50 000 个目录项，撞上上限直接拒绝（413 VALIDATION_ERROR），不是“删一半停下”。目录树里含符号链接、特殊文件或多硬链接文件时，递归复制拒绝整个操作（422 PATH_OUTSIDE_ROOT）：跳过几个会让结果与“复制了这个目录”这句话不一致。
+
+**权限与所有者。** `mode` 只接受普通权限位（四位八进制 `"0644"`），setuid/setgid/sticky 一律拒绝——它们改变的是执行语义，文件管理面板没有资格顺手写上去。`file.chown` 引用的是**受管理账号/组**的 id，不是任意 uid/gid；账号模块（P08）尚未落地时，预检直接以 `MANAGED_ACCOUNTS_UNAVAILABLE` 阻塞，而不是接受一个数字或假成功。
+
+**逐动作参数上限。** 请求体上限按动作独立设置（不是全局一个数）：`file.write_text` 的参数携带最多 1 MiB 内容，传输层因此放宽到 2 MiB；其余动作仍是 64 KiB。超限在解码前就是 413 VALIDATION_ERROR。
+
+**跨根 move 不是原子操作。** 同根的 move 是 `renameat`，一次系统调用；跨根是“复制到目标暂存 → 校验 → 原子落位 → 删除源”，中途失败保留源并如实报错。预检的 impacts 里明确给出 `not_atomic`，界面必须展示，不得声称原子完成。
+
 ## 12. 软件、电源、备份与计划任务契约
 
 GET /packages?query=&installed=&upgradable=、GET /packages/updates、GET /system/power-state：admin。

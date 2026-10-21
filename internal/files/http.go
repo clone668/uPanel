@@ -61,22 +61,31 @@ func HTTPStatusOf(err error) (*HTTPError, bool) {
 	}
 	switch {
 	case errors.Is(err, ErrInvalidParams), errors.Is(err, ErrNotDirectory),
-		errors.Is(err, ErrNotRegular):
+		errors.Is(err, ErrNotRegular), errors.Is(err, ErrIsDirectory):
 		return reject(httpx.CodeValidationError, err), true
-	case errors.Is(err, ErrTooLarge):
+	case errors.Is(err, ErrTooLarge), errors.Is(err, ErrNoSpace), errors.Is(err, ErrTreeTooLarge):
+		// 413 与其余超限处理共用一条判决：请求本身没错，是它带来的体积这台机器
+		// 现在接不住。ErrNoSpace 尤其要这样报——把“盘满了”说成 500 会让人去查
+		// 代理日志，而正确的动作是腾空间或换个根。
 		return &HTTPError{Status: http.StatusRequestEntityTooLarge, Code: httpx.CodeValidationError,
 			Message: err.Error()}, true
-	case errors.Is(err, ErrPathRejected), errors.Is(err, ErrHardLinked):
+	case errors.Is(err, ErrNotWritable):
+		// 403 而不是 400：参数没问题，是这个根的配置写着只读（root 登记时的 writable）。
+		return reject(httpx.CodeForbidden, err), true
+	case errors.Is(err, ErrPathRejected), errors.Is(err, ErrHardLinked), errors.Is(err, ErrTreeUnsupported):
 		// 硬链接归到 PATH_OUTSIDE_ROOT：拒绝它的理由正是“这个 inode 在根外
-		// 可能还有别的名字”，与越界是同一件事。
+		// 可能还有别的名字”，与越界是同一件事。整棵树里有符号链接/特殊文件同理：
+		// 树里存在一个面板不跟随的东西，就是“这棵树不能整体复制”。
 		return reject(httpx.CodePathOutsideRoot, err), true
-	case errors.Is(err, ErrUnknownRoot), errors.Is(err, ErrNotFound):
+	case errors.Is(err, ErrUnknownRoot), errors.Is(err, ErrNotFound), errors.Is(err, ErrUploadNotFound):
 		return reject(httpx.CodeNotFound, err), true
 	case errors.Is(err, ErrRootUnavailable):
 		return reject(httpx.CodeRootUnavailable, err), true
 	case errors.Is(err, ErrNotText):
 		return reject(httpx.CodeFileNotText, err), true
-	case errors.Is(err, ErrVersionConflict):
+	case errors.Is(err, ErrVersionConflict), errors.Is(err, ErrAlreadyExists), errors.Is(err, ErrUploadState):
+		// 目标已存在、上传状态不对、版本对不上：都是“你手里这份状态跟服务端不一致，
+		// 先重新读一遍再决定”。它们不能被当成 400（参数错）——参数是对的。
 		return reject(httpx.CodeVersionConflict, err), true
 	case errors.Is(err, ErrUnsupported):
 		return reject(httpx.CodeNotImplemented, err), true

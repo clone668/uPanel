@@ -31,6 +31,9 @@ type ProductionDeps struct {
 	// Files 是文件读取端（P06.1）。为 nil 时不登记 files.roots/list/text，
 	// 也不接受 files.download 流许可——没有根登记表时这三条查询只能是 404。
 	Files FilesSource
+	// FileWrites 是文件写端（P06.2）。为 nil 时不登记 file.* 写动作，
+	// 也不提供 /internal/v1/uploads 路由。
+	FileWrites FileWriterSource
 }
 
 // newSystemSummaryQuery 登记 system.summary：无参数，返回采集器最近一次快照。

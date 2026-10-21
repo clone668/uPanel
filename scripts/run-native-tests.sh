@@ -52,7 +52,11 @@ total_fail=0
 
 # journal / logs 也在这里跑：它们的用例全是合成输入（fake runner / 假代理），
 # 不需要 journald，但跑在目标平台上能顺带证明“同一份代码在 Linux 上行为一致”。
-for name in agentstore agent agentclient operations syscmd store api monitoring storage journal logs; do
+#
+# files 必须在这里：它的用例（openat2 边界、暂存上传、备份清理、保留目录）全都
+# 打 //go:build linux，在开发宿主上连编译都不参与（-c 交叉编译只证明它能编过）。
+# 这一包的结论只能由本机给出——mock 通过不等于真实 Ubuntu 上通过。
+for name in agentstore agent agentclient operations syscmd store api files monitoring storage journal logs; do
     bin="$TESTS/$name.test"
     if [ ! -x "$bin" ]; then
         echo "缺少测试二进制: $bin" >&2

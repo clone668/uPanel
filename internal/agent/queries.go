@@ -119,6 +119,19 @@ func decodeStrictObject(body []byte, dst any) error {
 	return DecodeParams(body, dst)
 }
 
+// decodeStrictObjectLimit 是带自定义上限的 decodeStrictObject。
+//
+// 预检的信封里装着**任意动作**的参数，所以它的上限必须是“最大的逐动作上限”
+// 而不是默认的 64 KiB：file.write_text 的参数可以带 1 MiB 内容（CONTRACTS.md
+// 第 567 行：传输层因此放宽到 2 MiB）。信封放宽不会放宽动作：解码完信封之后
+// 仍然按 action.ParamsLimitBytes 逐个核对，那才是唯一的判定处。
+func decodeStrictObjectLimit(body []byte, dst any, limit int) error {
+	if len(body) == 0 {
+		return errors.New("请求体不能为空")
+	}
+	return DecodeParamsLimit(body, dst, limit)
+}
+
 func jsonContentType(ct string) bool {
 	if i := strings.IndexByte(ct, ';'); i >= 0 {
 		ct = ct[:i]

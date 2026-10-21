@@ -15,6 +15,7 @@ package files
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"time"
@@ -35,20 +36,27 @@ type CapacityReader interface {
 
 // Options 是 Manager 的构造参数。
 type Options struct {
-	Capacity      CapacityReader
-	Logger        *slog.Logger
-	Now           func() time.Time
-	MountInfoPath string
+	Capacity       CapacityReader
+	Logger         *slog.Logger
+	Now            func() time.Time
+	MountInfoPath  string
+	MaxUploadBytes int64
+	Accounts       ManagedAccountResolver
 }
 
 // Manager 在非 Linux 平台上只是一个“拒绝执行”的壳。
 type Manager struct {
-	roots []Root
+	roots     []Root
+	maxUpload int64
 }
 
 // New 记录登记表；任何读取都会以 ErrUnsupported 失败。
-func New(roots []Root, _ Options) (*Manager, error) {
-	return &Manager{roots: roots}, nil
+func New(roots []Root, opts Options) (*Manager, error) {
+	m := &Manager{roots: roots, maxUpload: opts.MaxUploadBytes}
+	if m.maxUpload <= 0 {
+		m.maxUpload = DefaultMaxUploadBytes
+	}
+	return m, nil
 }
 
 // ErrPlatform 是这台机器上的拒绝原因。
@@ -107,3 +115,119 @@ func (m *Manager) OpenDownload(_ context.Context, params DownloadParams) (*Downl
 	}
 	return nil, ErrPlatform
 }
+
+// ─────────────── P06.2 写路径：非 Linux 上一律拒绝 ───────────────
+//
+// 这里没有“退化实现”。写操作比读操作更容易在退化实现里悄悄做错事
+// （覆盖了不该覆盖的文件、把符号链接当普通文件改了权限），所以整条写路径
+// 在非 Linux 上都只有一个答案：ErrPlatform。
+
+// Stat 拒绝读取目标形状。
+func (m *Manager) Stat(_ context.Context, _, _ string) (PathStat, error) {
+	return PathStat{}, ErrPlatform
+}
+
+// StatTree 拒绝递归统计。
+func (m *Manager) StatTree(_ context.Context, _, _ string) (PathStat, error) {
+	return PathStat{}, ErrPlatform
+}
+
+// CreateUpload 拒绝创建暂存。
+func (m *Manager) CreateUpload(_ context.Context, _ CreateUploadParams) (UploadInfo, error) {
+	return UploadInfo{}, ErrPlatform
+}
+
+// WriteUploadContent 拒绝接收上传内容。
+func (m *Manager) WriteUploadContent(_ context.Context, _ string, _ io.Reader) (UploadInfo, error) {
+	return UploadInfo{}, ErrPlatform
+}
+
+// GetUpload 拒绝查询暂存。
+func (m *Manager) GetUpload(_ context.Context, _ string) (UploadInfo, error) {
+	return UploadInfo{}, ErrPlatform
+}
+
+// DeleteUpload 拒绝删除暂存。
+func (m *Manager) DeleteUpload(_ context.Context, _ string) error { return ErrPlatform }
+
+// SweepStaging 拒绝清理暂存。
+func (m *Manager) SweepStaging(_ context.Context, _ time.Time) (int, error) { return 0, ErrPlatform }
+
+// Mkdir 拒绝建目录。
+func (m *Manager) Mkdir(_ context.Context, params MkdirParams) (WriteResult, error) {
+	if err := params.Validate(); err != nil {
+		return WriteResult{}, err
+	}
+	return WriteResult{}, ErrPlatform
+}
+
+// WriteText 拒绝改写文本。
+func (m *Manager) WriteText(_ context.Context, params WriteTextParams) (WriteResult, error) {
+	if err := params.Validate(); err != nil {
+		return WriteResult{}, err
+	}
+	return WriteResult{}, ErrPlatform
+}
+
+// CommitUpload 拒绝提交上传。
+func (m *Manager) CommitUpload(_ context.Context, params CommitUploadParams) (WriteResult, error) {
+	if err := params.Validate(); err != nil {
+		return WriteResult{}, err
+	}
+	return WriteResult{}, ErrPlatform
+}
+
+// Copy 拒绝复制。
+func (m *Manager) Copy(_ context.Context, params CopyParams) (WriteResult, error) {
+	if err := params.Validate(); err != nil {
+		return WriteResult{}, err
+	}
+	return WriteResult{}, ErrPlatform
+}
+
+// Move 拒绝移动。
+func (m *Manager) Move(_ context.Context, params CopyParams) (WriteResult, error) {
+	if err := params.Validate(); err != nil {
+		return WriteResult{}, err
+	}
+	return WriteResult{}, ErrPlatform
+}
+
+// Remove 拒绝删除。
+func (m *Manager) Remove(_ context.Context, params DeleteParams) (WriteResult, error) {
+	if err := params.Validate(); err != nil {
+		return WriteResult{}, err
+	}
+	return WriteResult{}, ErrPlatform
+}
+
+// Chmod 拒绝改权限。
+func (m *Manager) Chmod(_ context.Context, params ChmodParams) (WriteResult, error) {
+	if err := params.Validate(); err != nil {
+		return WriteResult{}, err
+	}
+	return WriteResult{}, ErrPlatform
+}
+
+// Chown 拒绝改所有者。
+func (m *Manager) Chown(_ context.Context, params ChownParams) (WriteResult, error) {
+	if err := params.Validate(); err != nil {
+		return WriteResult{}, err
+	}
+	return WriteResult{}, ErrPlatform
+}
+
+// MaxUploadBytes 报告配置的单次上传上限（非 Linux 上仍然如实回报配置值：
+// Web 侧要拿它做过大文件的早期拒绝，不需要真的能写）。
+func (m *Manager) MaxUploadBytes() int64 {
+	if m.maxUpload > 0 {
+		return m.maxUpload
+	}
+	return DefaultMaxUploadBytes
+}
+
+// ReservedBytes 在非 Linux 上恒为 0：没有在途上传。
+func (m *Manager) ReservedBytes(string) int64 { return 0 }
+
+// AccountsAvailable 在非 Linux 上恒为 false：没有写路径，也就没有 chown。
+func (m *Manager) AccountsAvailable() bool { return false }

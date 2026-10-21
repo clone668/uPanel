@@ -645,7 +645,15 @@ func deleteVersion(c *gin.Context) (int, bool) {
 // decodeJSONBody 严格解析 JSON 请求体：拒绝未知字段与尾部多余内容。
 // 失败时已经写回错误响应，调用方直接返回即可。
 func decodeJSONBody(c *gin.Context, dst any) bool {
-	dec := json.NewDecoder(http.MaxBytesReader(c.Writer, c.Request.Body, MaxRequestBodyBytes))
+	return decodeJSONBodyLimit(c, dst, MaxRequestBodyBytes)
+}
+
+// decodeJSONBodyLimit 是带自定义上限的 decodeJSONBody。
+//
+// 只有预检用它，而且必须是放宽：file.write_text 的参数里带着最多 1 MiB 文本
+// （CONTRACTS.md 第 567 行）。其余路由继续用 1 MiB，不在首页面上悄悄变大。
+func decodeJSONBodyLimit(c *gin.Context, dst any, limit int64) bool {
+	dec := json.NewDecoder(http.MaxBytesReader(c.Writer, c.Request.Body, limit))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
 		if IsBodyTooLarge(err) {

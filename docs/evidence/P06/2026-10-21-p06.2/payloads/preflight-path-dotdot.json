@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"agent: 参数不合法: files: 路径越界: path 含 '..' 段"},"request_id":"2770b047fee7879e2c7fc153a7bcb1ce"}

@@ -31,13 +31,44 @@ const props = defineProps<{
   entry: FileEntry
   /** 这一行是否正在下载（只影响按钮的 loading 态）。 */
   downloading?: boolean
+  /**
+   * 根是否可写。false 时不给任何写入口——只读根上的写按钮点下去必然 403，
+   * 把它画出来只是在骗人。
+   */
+  canWrite?: boolean
 }>()
 
-const emit = defineEmits<{ enter: [FileEntry]; open: [FileEntry]; save: [FileEntry] }>()
+const emit = defineEmits<{
+  enter: [FileEntry]
+  open: [FileEntry]
+  save: [FileEntry]
+  edit: [FileEntry]
+  rename: [FileEntry]
+  remove: [FileEntry]
+  chmod: [FileEntry]
+  chown: [FileEntry]
+}>()
 
 const enterable = computed(() => canEnter(props.entry))
 const readable = computed(() => canRead(props.entry))
 const disabledReason = computed(() => entryDisabledReason(props.entry))
+const writable = computed(() => props.canWrite === true)
+
+/**
+ * 写入口按类型分开给：
+ *   - 删除与改名：普通文件、目录、符号链接都给（删一个链接就是删链接本身）；
+ *   - 编辑文本：只有普通文件；
+ *   - 权限/所有者：文件与目录。特殊文件（设备、FIFO、socket）不给——面板不碰它们。
+ */
+const canEdit = computed(() => writable.value && props.entry.type === 'file')
+const canRemove = computed(
+  () =>
+    writable.value &&
+    (props.entry.type === 'file' || props.entry.type === 'dir' || props.entry.type === 'symlink'),
+)
+const canChmod = computed(
+  () => writable.value && (props.entry.type === 'file' || props.entry.type === 'dir'),
+)
 
 const sizeText = computed(() =>
   props.entry.type === 'file' ? formatBytes(props.entry.size_bytes) : UNKNOWN_TEXT,
@@ -87,6 +118,21 @@ const tooLargeForText = computed(() => {
         </span>
       </template>
       <span v-else class="row__dim">{{ disabledReason }}</span>
+      <template v-if="writable">
+        <NButton v-if="canEdit" size="tiny" quaternary @click="emit('edit', entry)">编辑</NButton>
+        <NButton v-if="canRemove" size="tiny" quaternary @click="emit('rename', entry)">
+          改名/移动
+        </NButton>
+        <NButton v-if="canChmod" size="tiny" quaternary @click="emit('chmod', entry)">
+          权限
+        </NButton>
+        <NButton v-if="canChmod" size="tiny" quaternary @click="emit('chown', entry)">
+          所有者
+        </NButton>
+        <NButton v-if="canRemove" size="tiny" quaternary type="error" @click="emit('remove', entry)">
+          删除
+        </NButton>
+      </template>
     </td>
   </tr>
 </template>

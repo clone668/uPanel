@@ -64,6 +64,10 @@ type Options struct {
 	// Files 是文件读取端（P06.1）。为 nil 时不提供 files.download 流；
 	// files.roots/list/text 由登记表报告（同样的“给什么才登记什么”）。
 	Files FilesSource
+	// FileWrites 是文件写端（P06.2）。为 nil 时不提供 /internal/v1/uploads 路由，
+	// 也不登记 file.* 写动作：一个只能读的面板与一个读不了却能写的面板，
+	// 都不该由“某个字段恰好没配”来悄悄决定。
+	FileWrites FileWriterSource
 }
 
 // Server 是代理服务。
@@ -154,6 +158,9 @@ func New(opts Options) (*Server, error) {
 	// 受限流（P05.3）：先建许可，再用许可开一条一次性的流。
 	mux.HandleFunc("/internal/v1/streams", s.handleStreams)
 	mux.HandleFunc("/internal/v1/streams/", s.handleStreamByID)
+	// 暂存上传（P06.2）：字节先进根内的暂存区，落地另有预检与任务。
+	mux.HandleFunc("/internal/v1/uploads", s.handleUploads)
+	mux.HandleFunc("/internal/v1/uploads/", s.handleUploadByIDOrContent)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, http.StatusNotFound, httpx.CodeNotFound, "代理接口不存在")
 	})
@@ -259,6 +266,9 @@ func (s *Server) Serve(ctx context.Context) error {
 		s.opts.Logger.Warn("启动时清理过期预检计划失败（下次扫描会重试）", "error", err)
 	}
 	go s.runPlanSweeper(ctx)
+
+	// 过期暂存（未提交的上传）24 小时后清掉：它们占着真实磁盘空间。
+	go s.runStagingSweeper(ctx)
 
 	// 上次运行遗留的非终态操作：标成 interrupted，**不自动重新执行**（CONTRACTS.md 4.3）。
 	// 顺序在监听之后、接活之前：先让“过去的未完成”变成可查的事实，再接受新操作。

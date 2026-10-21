@@ -32,6 +32,14 @@ import (
 // 避免任何路由接受无界请求体。
 const MaxRequestBodyBytes int64 = 1 << 20 // 1 MiB
 
+// MaxPreflightBodyBytes 是预检请求体的上限。
+//
+// CONTRACTS.md 第 567 行：请求体上限按动作独立设置，file.write_text 的参数携带
+// 最多 1 MiB 内容，传输层因此放宽到 2 MiB（其余动作仍是 64 KiB，由代理的
+// action.ParamsLimitBytes 执行）。这里比 2 MiB 多留 8 KiB 给 action、
+// actor_context 与 JSON 转义——信封本身也要占地方。
+const MaxPreflightBodyBytes int64 = 2<<20 + 8<<10
+
 // Options 是构造 Web 服务的参数。
 type Options struct {
 	// ListenAddress 为最终监听地址；由 config.ResolveListen 计算。

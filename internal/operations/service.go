@@ -28,9 +28,13 @@ import (
 )
 
 const (
-	// MaxParamsBytes 是单个动作参数的上限：与代理登记表的 MaxParamsBytes 一致，
-	// 超限的请求在 Web 就被拒，不必让一个 1 MiB 的请求体走到 socket。
-	MaxParamsBytes = 64 << 10
+	// MaxParamsBytes 是 Web 侧的**传输**上限：信封必须容得下最大的逐动作参数上限。
+	//
+	// 逐动作的严格限制在代理登记表里（Action.ParamsLimitBytes），由代理在解码前执行：
+	// file.write_text 的参数可以带 1 MiB 内容，传输层因此放宽到 2 MiB，其余动作
+	// 仍是 64 KiB（CONTRACTS.md 第 567 行）。Web 不复制那张动作表——两个说法迟早会
+	// 对不上，而“保存一个 200 KiB 的配置文件”会变成只有一条链路上说得清的事。
+	MaxParamsBytes = 2 << 20
 
 	// PreflightTTL 是预检有效期（CONTRACTS.md 4.1：120 秒）。
 	//

@@ -475,7 +475,14 @@ func (c *Client) do(ctx context.Context, method, path string, payload any) (json
 		return nil, &UnavailableError{Err: err}
 	}
 	defer func() { _ = resp.Body.Close() }()
+	return decodeEnvelope(resp)
+}
 
+// decodeEnvelope 解出代理的统一信封（`{"data": ...}` 或 `{"error": {...}}`）。
+//
+// 抽出来是因为上传内容的那次调用走的是另一条“没有整体超时”的客户端，
+// 而两种失败在调用方眼里必须长得一模一样：业务拒绝是 *Error，其余是 *UnavailableError。
+func decodeEnvelope(resp *http.Response) (json.RawMessage, error) {
 	limited := io.LimitReader(resp.Body, maxResponseBytes)
 	raw, err := io.ReadAll(limited)
 	if err != nil {

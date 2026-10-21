@@ -34,6 +34,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -64,6 +65,11 @@ type Options struct {
 	Now func() time.Time
 	// MountInfoPath 是挂载表路径；空用 /proc/self/mountinfo。测试指向固定样本。
 	MountInfoPath string
+	// MaxUploadBytes 是单次上传上限（P06.2）；<=0 用 DefaultMaxUploadBytes。
+	MaxUploadBytes int64
+	// Accounts 解析受管理账号/组 id（P06.2 的 file.chown）。nil 表示账号模块
+	// 还没有落地，此时 chown 一律以 ErrUnsupported 拒绝，而不是接受任意 uid/gid。
+	Accounts ManagedAccountResolver
 }
 
 // Root 的登记状态。
@@ -91,6 +97,17 @@ type Manager struct {
 	logger *slog.Logger
 	now    func() time.Time
 	mounts string
+	// maxUpload 是单次上传上限（P06.2）。0 表示未配置，取 DefaultMaxUploadBytes。
+	maxUpload int64
+	// accounts 解析受管理账号/组 id；nil 表示账号模块未落地（见 Options.Accounts）。
+	accounts ManagedAccountResolver
+	// reserved 是**在途**上传已预留的字节数（按 root_id）。
+	//
+	// 它只覆盖“已声明但还没落盘”的那一段：内容收完之后预留立刻释放，因为那时字节
+	// 已经真实占用磁盘、statfs 的可用量本身就把它们算进去了。重复计算会让并发上传
+	// 被无谓地拒绝。
+	reservedMu sync.Mutex
+	reserved   map[string]int64
 	// unsupported 非空表示这台机器的内核没有 openat2（< 5.6）。
 	// 此时**所有**读取都以 ErrUnsupported 失败，而不是退回到字符串比较。
 	unsupported error
@@ -102,11 +119,18 @@ type Manager struct {
 // 只有“连登记表都构造不出来”这种编程错误才返回 error。
 func New(roots []Root, opts Options) (*Manager, error) {
 	m := &Manager{
-		roots:  make(map[string]*rootEntry, len(roots)),
-		caps:   opts.Capacity,
-		logger: opts.Logger,
-		now:    opts.Now,
-		mounts: opts.MountInfoPath,
+		roots:    make(map[string]*rootEntry, len(roots)),
+		caps:     opts.Capacity,
+		logger:   opts.Logger,
+		now:      opts.Now,
+		mounts:   opts.MountInfoPath,
+		accounts: opts.Accounts,
+		reserved: make(map[string]int64),
+	}
+	if opts.MaxUploadBytes > 0 {
+		m.maxUpload = opts.MaxUploadBytes
+	} else {
+		m.maxUpload = DefaultMaxUploadBytes
 	}
 	if m.logger == nil {
 		m.logger = slog.Default()
@@ -529,6 +553,11 @@ func (m *Manager) List(ctx context.Context, params ListParams) (ListPage, error)
 		return ListPage{}, err
 	}
 	sort.Strings(names)
+	// 保留目录不出现在列举里：里面放的是正在收的暂存和别人的旧版本，它们不是
+	// “服务器上的文件”。形状层已经不允许用路径访问它（ValidateRelPath 拒绝
+	// `.upanel` 段），这里再把它从名字表里摘掉——否则界面上会多出一个既列不出
+	// 内容、又删不掉的条目，而它恰恰是面板自己的内部目录。
+	names = dropReservedNames(names)
 
 	start := 0
 	if params.Cursor != "" {
@@ -570,6 +599,18 @@ func (m *Manager) List(ctx context.Context, params ListParams) (ListPage, error)
 		page.NextCursor = &next
 	}
 	return page, nil
+}
+
+// dropReservedNames 摘掉保留目录名（已排序的名字表）。
+//
+// 只在列举里用：它不影响读、写、删——那些由 ValidateRelPath 直接拒绝 `.upanel` 段。
+func dropReservedNames(names []string) []string {
+	for i, name := range names {
+		if name == ReservedDirName {
+			return append(names[:i:i], names[i+1:]...)
+		}
+	}
+	return names
 }
 
 // readNames 读目录项名字，最多 MaxListScan 项。

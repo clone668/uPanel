@@ -95,14 +95,47 @@ func recoveryMiddleware(logger *slog.Logger) gin.HandlerFunc {
 
 // bodyLimitMiddleware 限制请求体大小，防止无界读取。
 //
-// 具体动作的严格上限在 P02 之后按契约逐个收紧；这里先给出全局兜底。
+// 默认上限是 MaxRequestBodyBytes，但有两条路由必须例外，而且方向相反：
+//
+//   - `POST /api/v1/operations/preflight` 要**放宽**到 MaxPreflightBodyBytes：
+//     预检参数里可能带着 file.write_text 的 1 MiB 文本，CONTRACTS.md 第 567 行
+//     要求这条路径的传输层放宽到 2 MiB。放宽只对这一条路由生效——把全局上限调大
+//     等于让每个 JSON 端点都接受 2 MiB。
+//   - `PUT /api/v1/files/uploads/:id/content` 要**完全不套** MaxBytesReader：
+//     请求体是原始字节流，体积由创建时声明的 size_bytes 决定（代理按它边读边写，
+//     多一个字节都会失败）。在入口套一个 1 MiB 的 MaxBytesReader，会让每一个
+//     超过 1 MiB 的上传在中途被截断——而这正是这条路由存在的意义。
 func bodyLimitMiddleware(limit int64) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if c.Request.Body != nil {
-			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
+		if c.Request.Body == nil {
+			c.Next()
+			return
+		}
+		effective, wrap := bodyLimitFor(c.Request.Method, c.Request.URL.Path, limit)
+		if wrap {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, effective)
 		}
 		c.Next()
 	}
+}
+
+// bodyLimitFor 给出一次请求的实际请求体上限，以及要不要套上 MaxBytesReader。
+func bodyLimitFor(method, path string, fallback int64) (int64, bool) {
+	if method == http.MethodPost && path == "/api/v1/operations/preflight" {
+		return MaxPreflightBodyBytes, true
+	}
+	if method == http.MethodPut && isUploadContentPath(path) {
+		return 0, false
+	}
+	return fallback, true
+}
+
+// isUploadContentPath 判断是不是暂存上传的内容入口（前缀 + 后缀，避免把
+// `/uploads/:id` 本身也放行）。
+func isUploadContentPath(path string) bool {
+	const prefix = "/api/v1/files/uploads/"
+	return strings.HasPrefix(path, prefix) && strings.HasSuffix(path, "/content") &&
+		len(path) > len(prefix)+len("/content")
 }
 
 // IsBodyTooLarge 判断错误是否来自请求体超限，供 handler 映射成 413。
