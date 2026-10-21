@@ -76,6 +76,11 @@ type Event struct {
 	Action string
 	// Target 是作用对象，例如 "user:3"。
 	Target string
+	// JobID 是这次事件关联的任务 id（jobs.id）；不关联任务时为空，写库为 NULL。
+	//
+	// 单独一列而不是只放进 Details：迁移里就是这么建的（audit_events.job_id），
+	// 事后要回答“这次失败的任务是谁提交的”，靠的是一列可索引的键，不是字符串匹配。
+	JobID string
 	// RequestID 是本次 HTTP 请求的 request_id，便于与日志对齐。
 	RequestID string
 	// Outcome 是 success 或 failure。
@@ -132,6 +137,10 @@ func (w *Writer) Record(ctx context.Context, ev Event) error {
 	if ev.ActorID > 0 {
 		actorID = ev.ActorID
 	}
+	var jobID any
+	if id := strings.TrimSpace(ev.JobID); id != "" {
+		jobID = id
+	}
 	// 有业务事务就跟着走，否则独立写（被拒绝的请求没有业务事务可依附）。
 	var target execer = w.db.SQL()
 	if tx, ok := store.TxFromContext(ctx); ok {
@@ -139,14 +148,26 @@ func (w *Writer) Record(ctx context.Context, ev Event) error {
 	}
 
 	_, err = target.ExecContext(ctx, `
-		INSERT INTO audit_events (actor_id, actor_snapshot, action, target, request_id, outcome, redacted_details, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		actorID, actor, ev.Action, ev.Target, ev.RequestID, ev.Outcome, details,
+		INSERT INTO audit_events (actor_id, actor_snapshot, action, target, request_id, job_id, outcome, redacted_details, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		actorID, actor, ev.Action, ev.Target, ev.RequestID, jobID, ev.Outcome, details,
 		w.now().UTC().Truncate(time.Second).Format(time.RFC3339))
 	if err != nil {
 		return fmt.Errorf("audit: 写入审计事件失败: %w", err)
 	}
 	return nil
+}
+
+// JobIDFromTarget 从 "job:<id>" 这样的 target 里取出任务 id；不是任务对象时返回空串。
+//
+// 任务相关的事件都用这个 target 形态（job.submit、job.cancel、以及被拒绝的任务请求），
+// 规则只有这一处，不必让每个调用点各传一遍。
+func JobIDFromTarget(target string) string {
+	const prefix = "job:"
+	if !strings.HasPrefix(target, prefix) {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(target, prefix))
 }
 
 // marshalDetails 序列化明细，并把秘密字段替换掉。

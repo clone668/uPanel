@@ -82,6 +82,14 @@ func (s *Server) routes() *gin.Engine {
 		st.GET("/devices", s.handleListDevices)
 		st.GET("/devices/:id", s.handleGetDevice)
 
+		// 服务与进程（P05.1）：权限 V（CONTRACTS.md 第 10 节）。只读路由在这里，
+		// 启停/重启/开机启动是写操作，走统一的预检 → 任务链路（POST /operations/preflight
+		// + POST /jobs，action=service.control），不在这里开一个“直接执行”的入口。
+		sv := v1.Group("/services")
+		sv.Use(s.requireSession())
+		sv.GET("", s.handleListServices)
+		sv.GET("/:unit", s.handleGetService)
+
 		// 系统写操作的统一入口（P03.1）：先预检，再由 POST /jobs 创建任务（P03.2）。
 		// 预检只读不写系统；再认证在**提交任务**时校验（按动作登记策略），不在预检阶段。
 		ops := v1.Group("/operations", s.auditRoute(audit.ActionOperationPreflight))

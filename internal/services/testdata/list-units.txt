@@ -1,0 +1,10 @@
+apparmor.service                               loaded    active   exited  Load AppArmor profiles
+apport-autoreport.service                      loaded    inactive dead    Process error reports when automatic reporting is enabled
+apport.service                                 loaded    active   exited  automatic crash report generation
+apt-daily-upgrade.service                      loaded    inactive dead    Daily apt upgrade and clean activities
+apt-daily.service                              loaded    inactive dead    Daily apt download activities
+auditd.service                                 not-found inactive dead    auditd.service
+auth-rpcgss-module.service                     loaded    inactive dead    Kernel Module supporting RPCSEC_GSS
+blk-availability.service                       loaded    active   exited  Availability of block devices
+serial-getty@ttyS0.service                     loaded    active   running Serial Getty on ttyS0
+ssh.service                                    loaded    active   running OpenBSD Secure Shell server

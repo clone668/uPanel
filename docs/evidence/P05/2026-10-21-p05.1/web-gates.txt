@@ -1,0 +1,53 @@
+# 前端闸门（P05.1，2026-10-21T01:36:34Z）
+
+$ node --version
+v22.23.3
+$ npm run typecheck
+
+> upanel-web@0.0.0 typecheck
+> vue-tsc --noEmit -p tsconfig.json
+
+退出码 0
+
+$ npm run lint
+
+> upanel-web@0.0.0 lint
+> eslint .
+
+退出码 0
+
+$ npm run test
+ ✓ src/stores/mode.test.ts (5 tests) 7ms
+ ✓ src/components/services.test.ts (14 tests) 58ms
+ ✓ src/components/realdata-services.test.ts (22 tests) 58ms
+ ✓ src/components/panels.test.ts (17 tests) 40ms
+ ✓ src/components/storage.test.ts (24 tests) 85ms
+ ✓ src/components/realdata.test.ts (17 tests) 84ms
+
+ Test Files  20 passed (20)
+      Tests  252 passed (252)
+   Start at  09:36:45
+   Duration  1.59s (import 83%, tests 9%, transform 6%, worker 2%)
+
+
+$ npm run build
+dist/assets/StatTile-Dh7vI0it.js              0.55 kB │ gzip:  0.36 kB
+dist/assets/storage-DPsj4PXf.js               1.74 kB │ gzip:  1.14 kB
+dist/assets/jobs-nPaE30dR.js                  1.82 kB │ gzip:  1.09 kB
+dist/assets/services-DMQlQbZQ.js              2.97 kB │ gzip:  1.45 kB
+dist/assets/ApiErrorPanel-BHdGY6pu.js         3.30 kB │ gzip:  1.79 kB
+dist/assets/HealthBadge-BWaw_eZN.js           3.63 kB │ gzip:  1.74 kB
+dist/assets/polling-3ExDrskz.js               3.72 kB │ gzip:  1.73 kB
+dist/assets/ServicesView-BK9KQ91b.js          7.17 kB │ gzip:  2.96 kB
+dist/assets/OverviewView-Bc-CLbc6.js         11.36 kB │ gzip:  4.10 kB
+dist/assets/StorageDeviceView-DSmS4ISs.js    13.74 kB │ gzip:  4.82 kB
+dist/assets/ServiceUnitView-o51spj50.js      15.23 kB │ gzip:  6.14 kB
+dist/assets/Progress-BkgsUCoI.js             16.44 kB │ gzip:  4.41 kB
+dist/assets/StorageView-Bn19h1hF.js          20.04 kB │ gzip:  7.48 kB
+dist/assets/JobsView-DeIy1FZX.js             22.40 kB │ gzip:  7.78 kB
+dist/assets/LoginView-rVF0tJjp.js            35.32 kB │ gzip: 11.60 kB
+dist/assets/Input-Bouk0YiB.js                35.64 kB │ gzip: 10.55 kB
+dist/assets/Button-DY86joZa.js              144.03 kB │ gzip: 51.75 kB
+dist/assets/index-DNyephMh.js               289.81 kB │ gzip: 87.43 kB
+
+[32m✓ built in 493ms[39m

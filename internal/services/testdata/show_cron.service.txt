@@ -1,0 +1,13 @@
+MainPID=781
+NRestarts=0
+MemoryCurrent=483328
+TasksCurrent=1
+Id=cron.service
+Names=cron.service
+Description=Regular background program processing daemon
+LoadState=loaded
+ActiveState=active
+SubState=running
+FragmentPath=/usr/lib/systemd/system/cron.service
+UnitFileState=enabled
+ActiveEnterTimestamp=Wed 2026-10-21 01:06:39 UTC

@@ -310,3 +310,60 @@ sudo BIN_DIR=/tmp/upanel-bin sh tests/integration/p04-4-ui-acceptance.sh
 它跑的是真实 `upanel-web --mode mock`（端口固定 127.0.0.1:18881），因此与 `p02-1-*` 冒烟不能同时跑。
 
 VM 上**不装浏览器**：VM 只证明“前端拿到的数据是真的”，像素证据在宿主。
+
+### 8.8 服务管理验收（P05.1）所需的额外步骤
+
+服务管理动的是真实 systemd，所以这一步必须在 VM-A（`upanel-2404`）里做，**不能**在开发宿主上做。
+做法与 8.7 同一条流水线，脚本换成 `tests/integration/p05-1-services-acceptance.sh`。
+
+```sh
+# 宿主：交叉编译（静态，不依赖 VM 里的 Go）
+mkdir -p /tmp/upanel-bin
+for b in upanel-web upanel-agent upanelctl; do
+  GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /tmp/upanel-bin/$b ./cmd/$b
+done
+scp -i H:\Code\vms\upanel-2404\id_ed25519 -P 2222 /tmp/upanel-bin/* upanel@127.0.0.1:/tmp/upanel-bin/
+
+# VM：root 运行（脚本建 upanel-web 账号、写配置、起代理与 Web，端口 19449）
+sudo BIN_DIR=/tmp/upanel-bin sh tests/integration/p05-1-services-acceptance.sh
+```
+
+脚本自己建两个一次性单元，验收完删掉；改动时注意它们的作用：
+
+| 单元 | 作用 |
+|---|---|
+| `upanel-accept.service` | 一个正常的 `Type=simple` 单元（`sleep` 循环）。启停/重启/开机启动的全部正例都打在它身上，每一步都读回 `ActiveState`/`UnitFileState` 并与 `systemctl` 现场对照。 |
+| `upanel-accept-fail.service` | `ExecStart` 指向一个不存在的命令。用来证明 **`systemctl` 返回 0 不算成功**：单元进入 `failed`，任务必须是 `failed` 且 `result` 为空对象 `{}`，失败原因只在 `error` 里。 |
+
+这一台 VM 的实测环境（证据见 `docs/evidence/P05/2026-10-21-p05.1/env.txt`）：
+
+- Ubuntu 24.04.5 LTS，内核 `6.8.0-147-generic`，**systemd 255（255.4-1ubuntu8.18）**，2 vCPU。
+- 枚举到 258 个规范 service 单元，其中 26 个模板、19 个别名，列表里出现 239 个。
+- 86 个单元命中保护名单——数量大是因为 `systemd-*` 前缀整体计入核心组件（CONTRACTS §10.1）。
+
+三个只能在真机上发现的坑，改动解析时别退回去：
+
+1. **`systemctl show` 遇到裸模板名会整条中断**。`systemctl show -- apport-coredump-hook@.service` 的
+   真实输出是 `Unit name ... is neither a valid invocation ID nor unit name.`（退出 1），
+   而且**后面的名字一起丢掉**。所以枚举阶段就要剔掉模板，并且拿到的单元数必须与 `list-unit-files`
+   的规范名集合逐项核对——只判断“解析结果非空”，会让 282 个单元的机器上只显示 7 行。
+2. **别名单元不是独立单元**。`UnitFileState=alias` 的条目 `Id=` 是规范名，请求的别名只出现在 `Names=` 里；
+   按 `Id` 匹配会把它当成“读不到”，整次采集失败。枚举时剔掉别名，解析时按 `Id` **和** `Names` 建索引。
+3. **保护名单会挡住 SSH 断连风险**。`ssh.service`/`sshd.service`/`NetworkManager.service` 都在名单里，
+   所以“通过面板把 SSH 停掉”这件事在验收里只能验证**被拒绝**，验证不了后果。
+
+明确不便在 VM 上覆盖的（脚本与 `docs/evidence/` 里都标 NOT RUN，不假装通过）：
+
+- **浏览器像素**：VM 上没有浏览器。页面级证据在宿主上用同一批真实载荷回放——
+  `web/src/components/realdata-services.test.ts` 读 `web/src/fixtures/p05-1-vm/`（与本次运行的抓包逐字节相同）。
+- **执行后未收敛**（命令返回 0 但 15 秒内状态没变）：正常 systemd 上造不出来，
+  只有 `internal/services/collector_test.go` 的 fake 覆盖。
+- **面板自身作为 systemd 单元**：验收里 Web 与代理是直接启动的进程，不是 unit；
+  这两类保护判定由单元测试覆盖。
+
+载荷留在 `/var/tmp/upanel-accept-p05-1/payloads/`（65 个文件），拷回宿主后既进
+`docs/evidence/P05/2026-10-21-p05.1/`，也是 `web/src/fixtures/p05-1-vm/` 的来源。
+
+一个环境侧的坑：这台 VM 出现过一次 PID 1（systemd）SIGSEGV（`panic-6`，随后由内核重启），
+发生在一次验收运行期间。复现不了，也无法排除是 QEMU/内核侧的问题；记录在案，
+若再出现，先看 `docs/evidence/` 里的对应日志再决定是否重建 VM。

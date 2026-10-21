@@ -66,6 +66,9 @@ type Options struct {
 	// Storage 是存储只读视图读取端（P04.2）。允许为 nil（不连代理）：
 	// 那时 /storage/* 明确回 503 AGENT_UNAVAILABLE，而不是给一份空拓扑。
 	Storage StorageReader
+	// Services 是服务只读视图读取端（P05.1）。允许为 nil（不连代理）：
+	// 那时 /services* 明确回 503 AGENT_UNAVAILABLE，而不是给一份空服务列表。
+	Services ServicesReader
 }
 
 // Server 是 Web HTTP 服务。

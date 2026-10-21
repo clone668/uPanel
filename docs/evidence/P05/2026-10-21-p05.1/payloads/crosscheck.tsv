@@ -1,0 +1,11 @@
+dbus.service	active	static
+polkit.service	active	static
+ssh.service	active	disabled
+ModemManager.service	active	enabled
+apparmor.service	active	enabled
+apport-autoreport.service	inactive	static
+apport.service	active	enabled
+apt-daily-upgrade.service	inactive	static
+apt-daily.service	inactive	static
+apt-news.service	inactive	static
+auth-rpcgss-module.service	inactive	static

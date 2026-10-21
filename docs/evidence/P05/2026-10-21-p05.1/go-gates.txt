@@ -1,0 +1,9 @@
+# 宿主闸门（P05.1，2026-10-21T01:35:41Z）
+
+$ go version
+go version go1.27.3 windows/amd64
+$ go build ./...
+退出码 0
+
+$ go vet ./...
+退出码 0

@@ -22,6 +22,7 @@ import (
 	"upanel/internal/logging"
 	"upanel/internal/monitoring"
 	"upanel/internal/platform"
+	"upanel/internal/services"
 	"upanel/internal/storage"
 	"upanel/internal/version"
 	"upanel/migrations/agentdb"
@@ -229,7 +230,25 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	storageCollector := storage.NewCollector(storageOpts)
 
-	// 动作登记表：生产表当前为空（真实动作随 P07 起逐项登记）。
+	// 服务单元采集（P05.1）：每 10 秒枚举一次 systemctl 状态，services.list 读这份快照；
+	// services.unit 与预检/执行现场读取。找不到 systemctl 时采集如实报依赖缺失，
+	// 不阻止代理启动（其余模块与任务链路仍然可用）。
+	var servicesCollector *services.Collector
+	if path, ok := services.FindSystemctl(cfg.Agent.Services.SystemctlPath); ok {
+		ctl, err := services.NewSystemctl(path)
+		if err != nil {
+			logger.Error("初始化 systemctl 调用器失败", "error", err, "path", path)
+			return 1
+		}
+		servicesCollector = services.NewCollector(services.Options{Systemctl: ctl, Logger: logger})
+		logger.Info("已启用服务状态采集", "systemctl", path, "interval", services.DefaultInterval.String())
+	} else {
+		logger.Warn("未找到 systemctl，服务状态将报依赖缺失",
+			"hint", "本机需要 systemd；或在 agent.services.systemctl_path 指定绝对路径",
+			"configured", cfg.Agent.Services.SystemctlPath)
+	}
+
+	// 动作登记表：生产表自 P05.1 起有 service.control（受保护名单与读回验证见 internal/services）。
 	// 验收表只能靠显式参数启用，且动作全部以 acceptance. 开头、不读写任何系统资源。
 	registry := agent.NewRegistry()
 	if *acceptance {
@@ -238,9 +257,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 			"actions", registry.ActionNames())
 	}
 	// 查询表在两种模式下都是生产实现：验收要验证的就是真实采集链路。
-	if err := agent.RegisterProductionQueries(registry, agent.ProductionDeps{Collector: collector, Storage: storageCollector}); err != nil {
+	deps := agent.ProductionDeps{Collector: collector, Storage: storageCollector, Services: servicesCollector}
+	if err := agent.RegisterProductionQueries(registry, deps); err != nil {
 		logger.Error("登记生产查询失败", "error", err)
 		return 1
+	}
+	// 真实动作只在生产模式登记：验收模式的动作表必须保持“只有 acceptance.*”，
+	// 否则验收链路会顺手拿到一个能改真实服务状态的动作。
+	if !*acceptance {
+		if err := agent.RegisterProductionActions(registry, deps); err != nil {
+			logger.Error("登记生产动作失败", "error", err)
+			return 1
+		}
 	}
 
 	logger.Info("启动",
@@ -287,6 +315,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// 所以放 goroutine；ctx 结束时一并退出。
 	go collector.Run(ctx)
 	go storageCollector.Run(ctx)
+	if servicesCollector != nil {
+		go servicesCollector.Run(ctx)
+	}
 
 	if err := srv.Serve(ctx); err != nil {
 		logger.Error("代理退出", "error", err)

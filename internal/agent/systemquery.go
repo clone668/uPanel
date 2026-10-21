@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"upanel/internal/monitoring"
+	"upanel/internal/services"
 	"upanel/internal/storage"
 )
 
@@ -18,6 +19,9 @@ type ProductionDeps struct {
 	Collector *monitoring.Collector
 	// Storage 是块设备拓扑采集器（P04.2）。为 nil 时不登记 storage.topology。
 	Storage *storage.Collector
+	// Services 是服务单元采集器（P05.1）。为 nil 时不登记 services.list/services.unit，
+	// 也不登记 service.control 动作——capabilities 因此不会报告一条没有实现的能力。
+	Services *services.Collector
 }
 
 // newSystemSummaryQuery 登记 system.summary：无参数，返回采集器最近一次快照。

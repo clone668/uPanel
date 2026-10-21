@@ -1,0 +1,85 @@
+# P05.1 实际执行的命令（2026-10-21）
+
+按执行顺序记录。宿主机：Windows + Git Bash（`H:\Code\uPanel`），
+Go 1.27.3（`/h/Code/go/bin`）、Node v22.23.3（`/h/Code/.toolchains/node-v22.23.3-win-x64`）。
+**注意**：Windows 侧 `python` 看不到 Git Bash 的 `/tmp`，需要落到
+`C:/Users/huxi/AppData/Local/Temp/...`；`ssh` 用 `-p`，`scp` 用 `-P`。
+
+## 1. 交叉编译并送进 VM
+
+```sh
+mkdir -p /tmp/upanel-bin
+for b in upanel-web upanel-agent upanelctl; do
+  GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /tmp/upanel-bin/$b ./cmd/$b
+done
+
+# 脚本与校验程序一起送进去：脚本按 $HERE 找校验程序，所以两者必须同目录
+KEY=/h/Code/vms/upanel-2404/id_ed25519
+scp -i $KEY -P 2222 /tmp/upanel-bin/upanel-agent /tmp/upanel-bin/upanel-web /tmp/upanel-bin/upanelctl upanel@127.0.0.1:/tmp/upanel-bin/
+scp -i $KEY -P 2222 tests/integration/p05-1-services-acceptance.sh upanel@127.0.0.1:/tmp/upanel-bin/p05-1.sh
+scp -i $KEY -P 2222 tests/integration/p05-1-payload-validate.py upanel@127.0.0.1:/tmp/upanel-bin/p05-1-payload-validate.py
+```
+
+（`ssh` 用 `-p`、`scp` 用 `-P`，两个参数名不一样；Git Bash 的 `/tmp` 在 Windows 侧对应
+`C:/Users/huxi/AppData/Local/Temp`，翻页拷文件时别用 `/tmp` 去喂 Windows 的 `python`。）
+
+## 2. VM 内跑验收（root）
+
+```sh
+ssh -i $KEY -p 2222 upanel@127.0.0.1 'sudo BIN_DIR=/tmp/upanel-bin sh /tmp/upanel-bin/p05-1.sh'
+```
+
+脚本自己完成：建验收单元 → 起代理（root）与 Web（`upanel-web`，端口 19449）→
+init-admin → 登录拿 CSRF → 读接口、跑预检与任务、与 `systemctl` 现场对照 →
+写载荷到 `/var/tmp/upanel-accept-p05-1/payloads/` → 清理单元。
+
+## 3. 取回证据
+
+```sh
+ssh -i $KEY -p 2222 upanel@127.0.0.1 'cd /var/tmp/upanel-accept-p05-1 && tar czf /tmp/p051.tgz payloads logs'
+scp -i $KEY -P 2222 upanel@127.0.0.1:/tmp/p051.tgz C:/Users/huxi/AppData/Local/Temp/p051run4/
+# 解包后：run4.log（脚本完整输出）、payloads/（65 个真实响应）、logs/（agent.log、web.log）
+cp -r .../payloads  docs/evidence/P05/2026-10-21-p05.1/payloads
+cp    .../run4.log  docs/evidence/P05/2026-10-21-p05.1/p05-1-acceptance-2404.txt
+cp -r .../logs      docs/evidence/P05/2026-10-21-p05.1/vm-logs-2404
+```
+
+## 4. 环境采集
+
+```sh
+ssh -i $KEY -p 2222 upanel@127.0.0.1 '...'
+# → date / os-release / uname -r / systemctl --version / nproc / list-unit-files 计数
+#   结果逐字抄进 docs/evidence/P05/2026-10-21-p05.1/env.txt
+```
+
+## 5. 宿主闸门
+
+```sh
+export PATH="/h/Code/go/bin:/h/Code/.toolchains/node-v22.23.3-win-x64:$PATH"
+
+go version
+go build ./...
+go vet ./...
+go test ./... -count=1            # 全部 ok，21 个有测试的包
+
+cd web
+npm run typecheck                 # vue-tsc --noEmit，0 error
+npm run lint                      # eslint .，0 problem
+npm run test                      # vitest run，252 passed（20 文件）
+npm run build                     # vite build，493 ms
+
+cd ..
+sh scripts/check.sh               # PASS 13 / FAIL 0 / NOT RUN 0
+```
+
+`check.sh` 必须在 `.nvmrc` 指定的 Node（v22.23.3）下跑：PATH 里是系统 Node v24.15.0 时
+`node-version` 这一项会 FAIL（不是产品问题，是工具链没切）。
+
+## 6. 前端真实数据回放
+
+```sh
+cd web
+npx vitest run src/components/realdata-services.test.ts   # 22 passed
+```
+
+夹具就是本目录 `payloads/` 里那 65 个文件，逐字节相同。

@@ -17,9 +17,9 @@ import (
 // 未登记的名称一律拒绝（CONTRACTS.md 第 5、15 节）。不存在“默认分支接受未知动作”，
 // 也不存在 query=command 这类字符串入口。
 //
-// P02.3 只提供机制和只读查询通道：生产登记表里没有任何动作（第一个动作要到 P03 的
-// 预检/任务链路才接入），查询表同样为空，因为系统采集属于 P04。capabilities 如实
-// 返回空列表，而不是塞占位名字。
+// 登记表按“给什么才登记什么”构造：P02.3 时它完全是空的；P04 起按模块加入只读查询，
+// P05.1 起加入第一个真实动作 service.control。capabilities 只报告真实登记项，
+// 不塞占位名字，也不预告未实现的能力。
 type Registry struct {
 	actions map[string]Action
 	queries map[string]Query
@@ -249,14 +249,18 @@ func NewRegistry() *Registry {
 
 // NewProductionRegistry 返回生产登记表。
 //
-// P02.3 起这张表刻意没有任何动作：第一个真实动作要到 P07 的分区/格式化链路才登记。
-// 查询从 P04.1 起按模块加入：deps 里给了采集器才登记 system.summary。
+// 动作从 P05.1 起按模块加入：deps 里给了服务采集器才登记 service.control。
+// 查询同样按模块加入：deps 里给了采集器才登记对应查询（system.summary、storage.topology、
+// services.list/unit）。
 //
 // 空表不是“占位实现”——它让 capabilities 与真实能力一致，并让未登记名称的拒绝路径
 // 在生产里天然生效。
 func NewProductionRegistry(deps ProductionDeps) (*Registry, error) {
 	reg := NewRegistry()
 	if err := RegisterProductionQueries(reg, deps); err != nil {
+		return nil, err
+	}
+	if err := RegisterProductionActions(reg, deps); err != nil {
 		return nil, err
 	}
 	return reg, nil
@@ -275,6 +279,27 @@ func RegisterProductionQueries(reg *Registry, deps ProductionDeps) error {
 	if deps.Storage != nil {
 		if err := reg.RegisterQuery(newStorageTopologyQuery(deps.Storage)); err != nil {
 			return fmt.Errorf("代理登记 storage.topology 失败: %w", err)
+		}
+	}
+	if deps.Services != nil {
+		if err := reg.RegisterQuery(newServicesListQuery(deps.Services)); err != nil {
+			return fmt.Errorf("代理登记 services.list 失败: %w", err)
+		}
+		if err := reg.RegisterQuery(newServicesUnitQuery(deps.Services)); err != nil {
+			return fmt.Errorf("代理登记 services.unit 失败: %w", err)
+		}
+	}
+	return nil
+}
+
+// RegisterProductionActions 把生产动作登记进 reg（P05.1 起第一个：service.control）。
+//
+// 与查询分开是因为验收模式：`-acceptance-actions` 会把动作表换成验收专用表，
+// 但查询仍是生产实现。真实动作只在生产路径登记，验收表里不会混进一个能改系统状态的动作。
+func RegisterProductionActions(reg *Registry, deps ProductionDeps) error {
+	if deps.Services != nil {
+		if err := reg.RegisterAction(newServiceControlAction(deps.Services)); err != nil {
+			return fmt.Errorf("代理登记 service.control 失败: %w", err)
 		}
 	}
 	return nil

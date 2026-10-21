@@ -1,0 +1,14 @@
+apparmor.service                             enabled         enabled
+apport-autoreport.service                    static          -
+apport-coredump-hook@.service                static          -
+apport-forward@.service                      static          -
+apport.service                               enabled         enabled
+apt-daily-upgrade.service                    static          -
+apt-daily.service                            static          -
+apt-news.service                             static          -
+getty@.service                               enabled         enabled
+serial-getty@.service                        indirect        enabled
+autovt@.service                              alias           -
+dbus-org.freedesktop.hostname1.service       alias           -
+dbus-org.freedesktop.login1.service          alias           -
+dbus-org.freedesktop.ModemManager1.service   alias           -

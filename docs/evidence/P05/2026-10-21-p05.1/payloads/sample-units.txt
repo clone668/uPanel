@@ -1,0 +1,14 @@
+NetworkManager.service
+dbus.service
+networking.service
+polkit.service
+ssh.service
+sshd.service
+ModemManager.service
+apparmor.service
+apport-autoreport.service
+apport.service
+apt-daily-upgrade.service
+apt-daily.service
+apt-news.service
+auth-rpcgss-module.service

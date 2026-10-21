@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: uPanel API
-  version: 0.0.0-p04.4
+  version: 0.0.0-p05.1
   summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
   description: |
     uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。
@@ -23,7 +23,7 @@ info:
     name: Proprietary
     identifier: LicenseRef-Proprietary
 x-upanel-contract-status:
-  stage: P04.4
+  stage: P05.1
   implemented_paths:
     - get /api/v1/health/live
     - head /api/v1/health/live
@@ -47,6 +47,8 @@ x-upanel-contract-status:
     - post /api/v1/jobs/{id}/cancel
     - get /api/v1/jobs/{id}/events
     - get /api/v1/jobs/{id}/logs
+    - get /api/v1/services
+    - get /api/v1/services/{unit}
   note: 只列出已实现并通过验收的接口；未实现模块不出现在 paths 中。
 servers:
   - url: https://127.0.0.1:9443/api/v1
@@ -64,6 +66,8 @@ tags:
     description: 系统与监控
   - name: storage
     description: 设备、分区、卷
+  - name: services
+    description: systemd 服务单元
   - name: shares
     description: SMB / NFS 共享
   - name: apps
@@ -770,6 +774,107 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           description: 代理不可用（未配置 socket 或连接失败）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/services:
+    get:
+      operationId: listServices
+      summary: systemd 服务单元列表（含保护名单与可执行动作）
+      description: |
+        CONTRACTS.md 第 10.1 节（P05.1 起），权限 V。经代理的 services.list 查询取回
+        最近一次采集的快照；Web 不直接读 systemd。
+
+        采集失败时**不清空列表**：status 为 error，error 说明原因，units 仍是上一次
+        成功的内容，collected_at 是那次的时间。空列表会被读成“这台机器没有服务”，
+        所以只有确实采到了空结果时才返回空数组。
+
+        capabilities 只列出当前状态与保护规则下真正能执行的操作，受保护单元一律为空数组。
+        写操作必须走 service.control 的预检与任务，不在本接口提供任何捷径。
+
+        truncated 为 true 表示单元数超过上限（1000）被截断，不是“只有这些”。
+      tags: [services]
+      responses:
+        '200':
+          description: 服务单元列表与采集元数据。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ServiceListData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '503':
+          description: 代理不可用（未配置 socket 或连接失败），或本机没有可用的 systemctl。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/services/{unit}:
+    get:
+      operationId: getService
+      summary: 单个服务单元的现场状态
+      description: |
+        CONTRACTS.md 第 10.1 节（P05.1 起），权限 V。经代理的 services.unit 查询**现场读取**，
+        不使用列表缓存：列表最多 10 秒旧，而“现在能不能 stop”必须看现在的状态。
+
+        unit 是完整单元名（例如 cron.service），需要 URL 编码。它只作为标识使用：
+        不会被拼成路径或命令，也不会被当成命令片段执行。不存在的单元返回 404，
+        而不是空对象；单元名不合法返回 400（非法名字不进代理，也不进 systemctl）。
+      tags: [services]
+      parameters:
+        - name: unit
+          in: path
+          required: true
+          description: 完整单元名，例如 cron.service、serial-getty@ttyS0.service。
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+            pattern: '^[A-Za-z0-9][A-Za-z0-9:_.@-]*\.service$'
+      responses:
+        '200':
+          description: 服务单元详情。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ServiceUnitDetail'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: 代理不可用（未配置 socket 或连接失败），或本机没有可用的 systemctl。
           headers:
             X-Request-ID:
               $ref: '#/components/headers/RequestId'
@@ -1914,7 +2019,9 @@ components:
           additionalProperties: true
           description: |
             代理核验后的结果：outcome（verified、accepted、rolled_back、partial、unknown）、
-            verified_at、observed_state、recovery_hint。未完成时为 {}。
+            verified_at、observed_state、recovery_hint。
+            没有结果时是空对象 {}（尚未执行、已失败或已取消）——不伪造 observed_state。
+            失败原因在 error 里，result 不会假装有一份“成功结果”。
         error:
           type: object
           additionalProperties: true
@@ -2780,6 +2887,149 @@ components:
       type: [string, 'null']
       pattern: '^(0|[1-9][0-9]*)$'
       description: 非负十进制字符串，或 null 表示这次没采到。
+
+    ServiceListData:
+      type: object
+      additionalProperties: false
+      description: |
+        GET /services 的响应体（CONTRACTS.md 第 10.1 节）。
+        status=error 时 units 仍是上一次成功采集的内容，collected_at 是那次的时间。
+      required: [status, snapshot_version, collected_at, interval_ms, truncated, units]
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+          description: 最近一次采集尝试的结果；error 不影响 units 的可用性。
+        error:
+          type: string
+          maxLength: 500
+          description: 采集失败的原因；成功时不出现。
+        snapshot_version:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+          description: |
+            只由单元状态内容（名字、load_state、active_state、sub_state、enablement、template）
+            决定，不含采集时间、PID、内存与重启次数：那些波动不该让预检失效。
+        collected_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        interval_ms:
+          type: integer
+          minimum: 1
+          description: 采集间隔，P05.1 为 10000（10 秒）。
+        truncated:
+          type: boolean
+          description: 单元数超过上限（1000）被截断时为 true，表示“只显示前 N 个”。
+        units:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceUnit'
+
+    ServiceUnitDetail:
+      type: object
+      additionalProperties: false
+      description: GET /services/{unit} 的响应体；现场读取，不是列表快照。
+      required: [unit]
+      properties:
+        unit:
+          $ref: '#/components/schemas/ServiceUnit'
+
+    ServiceUnit:
+      type: object
+      additionalProperties: false
+      description: |
+        一个 systemd 服务单元（列表与详情共用同一 DTO）。
+        没有值的数值与时间一律是 null，不是 0 或空字符串。
+      required: [unit, description, load_state, active_state, sub_state, unit_file_state,
+                 enablement, template, main_pid, started_at, restart_count, memory_bytes,
+                 tasks_current, fragment_path, protection, capabilities, checked_at]
+      properties:
+        unit:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '^[A-Za-z0-9][A-Za-z0-9:_.@-]*\.service$'
+          description: 完整单元名，唯一标识；模板单元形如 foo@.service。
+        description:
+          type: string
+          description: 单元文件里的描述，可能为空。
+        load_state:
+          type: string
+          enum: [loaded, not-found, bad-setting, error, merged, masked]
+          description: systemd 的 LoadState；not-found 表示这台机器上没有这个单元。
+        active_state:
+          type: string
+          enum: [active, reloading, inactive, failed, activating, deactivating, maintenance]
+        sub_state:
+          type: string
+          description: systemd 的 SubState（running、dead、exited…），保留原词供排错。
+        unit_file_state:
+          type: string
+          description: systemctl 的原始 UnitFileState（例如 enabled-runtime），便于核对。
+        enablement:
+          type: string
+          enum: [enabled, disabled, static, indirect, masked, generated, transient, alias, linked, unknown]
+          description: |
+            UnitFileState 归一化后的开机启用状态。static/indirect 没有 [Install] 段，
+            不能 enable/disable；masked 连 start 也会失败。
+        template:
+          type: boolean
+          description: true 表示模板单元（foo@.service），必须指定实例才能操作。
+        main_pid:
+          type: [integer, 'null']
+          description: 主进程 PID；没有主进程时为 null（不是 0）。
+        started_at:
+          $ref: '#/components/schemas/NullableRfc3339Utc'
+        restart_count:
+          type: [integer, 'null']
+          description: NRestarts；读不到为 null。
+        memory_bytes:
+          $ref: '#/components/schemas/NullableByteString'
+        tasks_current:
+          type: [integer, 'null']
+        fragment_path:
+          type: string
+          description: 单元文件路径，可能为空。
+        protection:
+          $ref: '#/components/schemas/ServiceProtection'
+        capabilities:
+          type: array
+          description: |
+            当前状态与保护规则下真正能执行的操作（固定顺序）。空数组表示“这里不提供
+            动作入口”，前端必须渲染成“无可执行动作”，不得渲染成“全部可用”。
+          items:
+            type: string
+            enum: [start, stop, restart, enable, disable]
+        checked_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
+    ServiceProtection:
+      type: object
+      additionalProperties: false
+      description: |
+        保护判定（CONTRACTS.md 第 10.1 节）。名单是代码里的固定表，只能通过改代码扩充；
+        不接受配置、API 写入或临时豁免。判定依据是单元基名（去掉 @实例 与 .service）。
+      required: [protected, reasons]
+      properties:
+        protected:
+          type: boolean
+        category:
+          type: string
+          enum: [self, ssh, systemd_core, network, other_module]
+          description: |
+            self：面板与代理自身；ssh：远程登录；systemd_core：日志/会话/设备管理/总线；
+            network：网络基础服务；other_module：由反代、共享、容器模块管理，通用服务
+            接口整体拒绝，避免绕过那些模块的依赖检查。未保护时不出现。
+        reasons:
+          type: array
+          description: 人类可读理由，去重且顺序固定；未保护时为空数组。
+          items:
+            type: string
+
+    NullableRfc3339Utc:
+      type: [string, 'null']
+      format: date-time
+      pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$'
+      description: RFC 3339 UTC 时间，或 null 表示没有值（例如从未启动过）。
   responses:
     BadRequest:
       description: 语法或参数错误（400）。

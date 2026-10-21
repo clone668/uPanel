@@ -33,6 +33,12 @@ describe('路由表', () => {
     expect(route?.meta?.moduleKey).toBe('storage')
   })
 
+  it('服务单元路由限定字符集，带斜杠或空格的名字落到 404', () => {
+    const route = appRoutes.find((entry) => entry.name === 'service-unit')
+    expect(route?.path).toBe('/services/:unit([A-Za-z0-9][A-Za-z0-9:_.@-]*)')
+    expect(route?.meta?.moduleKey).toBe('services')
+  })
+
   it('moduleTitle 只翻译已知模块键', () => {
     expect(moduleTitle('overview')).toBe('概览')
     expect(moduleTitle('settings')).toBe('设置')

@@ -36,6 +36,20 @@ export const appRoutes: readonly RouteRecordRaw[] = [
     meta: { moduleKey: 'storage' },
   },
   {
+    path: '/services',
+    name: 'services',
+    component: () => import('@/views/ServicesView.vue'),
+    meta: { moduleKey: 'services' },
+  },
+  {
+    // 单元名限定在契约允许的字符集内：奇怪的名字直接落 404，
+    // 不会把一个带斜杠或空格的参数带进页面再让它自己出错。
+    path: '/services/:unit([A-Za-z0-9][A-Za-z0-9:_.@-]*)',
+    name: 'service-unit',
+    component: () => import('@/views/ServiceUnitView.vue'),
+    meta: { moduleKey: 'services' },
+  },
+  {
     path: '/jobs',
     name: 'jobs',
     component: () => import('@/views/JobsView.vue'),

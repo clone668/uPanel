@@ -98,6 +98,17 @@ type Agent struct {
 	SecretKeyPath string `json:"secret_key_path"`
 	// Storage 是存储采集的节奏与工具路径（P04.3）。
 	Storage Storage `json:"storage"`
+	// Services 是服务模块的配置（P05.1）。
+	Services Services `json:"services"`
+}
+
+// Services 是服务模块配置（P05.1）。
+//
+// 只暴露“用哪个 systemctl”，不暴露采集间隔与保护名单：它们属于产品行为，
+// 后者更不能通过配置放宽（PLAN.md 第 14 节：禁止停止面板/代理/SSH/核心/网络服务）。
+type Services struct {
+	// SystemctlPath 是 systemctl 的绝对路径；留空时在 /usr/bin、/bin 里查找。
+	SystemctlPath string `json:"systemctl_path"`
 }
 
 // Storage 是存储采集相关配置（PLAN.md 第 8 节：SMART 每 15 分钟，允许配置 5—60 分钟）。
@@ -160,6 +171,7 @@ func Defaults() Config {
 				SmartIntervalMinutes:          defaultSmartIntervalMinutes,
 				NetworkCapacityTimeoutSeconds: defaultNetworkCapacityTimeoutSeconds,
 			},
+			Services: Services{},
 		},
 		Database: Database{
 			Path:                    defaultDatabasePath(),
@@ -328,7 +340,26 @@ func (a Agent) Validate() error {
 			return fmt.Errorf("%s 不能包含 '?' 或 '#'，当前为 %q", item.field, item.value)
 		}
 	}
-	return a.Storage.Validate()
+	if err := a.Storage.Validate(); err != nil {
+		return err
+	}
+	return a.Services.Validate()
+}
+
+// Validate 校验服务模块配置。
+//
+// 只校验路径：不给“放宽保护名单”这类配置留入口（PLAN.md 第 14 节）。
+func (s Services) Validate() error {
+	if s.SystemctlPath == "" {
+		return nil
+	}
+	if !path.IsAbs(s.SystemctlPath) {
+		return fmt.Errorf("agent.services.systemctl_path 必须是 POSIX 绝对路径，当前为 %q", s.SystemctlPath)
+	}
+	if strings.ContainsAny(s.SystemctlPath, "?#") {
+		return fmt.Errorf("agent.services.systemctl_path 不能包含 '?' 或 '#'，当前为 %q", s.SystemctlPath)
+	}
+	return nil
 }
 
 // Validate 校验存储采集段。

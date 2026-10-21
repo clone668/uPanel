@@ -1,0 +1,13 @@
+MainPID=0
+NRestarts=0
+MemoryCurrent=[not set]
+TasksCurrent=[not set]
+Id=upanel-nope.service
+Names=upanel-nope.service
+Description=upanel-nope.service
+LoadState=not-found
+ActiveState=inactive
+SubState=dead
+FragmentPath=
+UnitFileState=
+ActiveEnterTimestamp=

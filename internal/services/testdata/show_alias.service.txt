@@ -1,0 +1,13 @@
+MainPID=890
+NRestarts=0
+MemoryCurrent=8650752
+TasksCurrent=4
+Id=ModemManager.service
+Names=ModemManager.service dbus-org.freedesktop.ModemManager1.service
+Description=Modem Manager
+LoadState=loaded
+ActiveState=active
+SubState=running
+FragmentPath=/usr/lib/systemd/system/ModemManager.service
+UnitFileState=enabled
+ActiveEnterTimestamp=Wed 2026-10-21 01:06:40 UTC

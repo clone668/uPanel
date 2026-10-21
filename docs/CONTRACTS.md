@@ -112,7 +112,7 @@ POST /jobs，必须携带 Idempotency-Key（客户端生成 UUID，一次意图�
 
 progress_percent 不知道时为 null，不得用假的定时器从 0 涨到 100。step_code 采用实现登记的稳定枚举，message 为可读描述。
 
-result 至少包括 outcome（verified、accepted、rolled_back、partial、unknown）、verified_at、observed_state、recovery_hint。普通写任务只有验证真实结果后才能 succeeded。电源类动作允许 succeeded + accepted，界面必须表述为“请求已受理”；不能据此声称关机已验证。
+result 至少包括 outcome（verified、accepted、rolled_back、partial、unknown）、verified_at、observed_state、recovery_hint。普通写任务只有验证真实结果后才能 succeeded。电源类动作允许 succeeded + accepted，界面必须表述为“请求已受理”；不能据此声称关机已验证。没有结果的任务（尚未执行、已失败、已取消）`result` 是空对象 `{}`——错误写在 `error`（`code`、`message`、`recovery_hint`），不塞进 `result`，也不留一份上一次的 `observed_state` 冒充结果。
 
 格式化、分区写入、APT 写事务开始后不可取消。日志跟踪、未开始的任务、支持安全中断的备份可以取消。代理异常退出后未决任务标为 interrupted；先查询实际状态，不自动重新执行。
 
@@ -369,6 +369,46 @@ domain 为一个不带协议/路径/端口的有效域名；初期不允许通�
 | DELETE /terminal/sessions/:id | admin；关闭自己会话，审计 |
 
 terminal.create 任务完成后返回 session_id 和短期许可，连接许可通过 WebSocket 子协议的受控字段传递，禁止放 URL 查询参数/访问日志。握手后客户端只能发送 input 和 resize 两类结构化消息；cols/rows 限 1—500，单帧最大 64 KiB，总速率有限额。服务端返回 output 和 exit。二进制终端数据不经过普通 HTML 渲染。
+
+### 10.1 服务列表与单元（P05.1 起）
+
+GET /services 返回 `status`、`error`（失败时）、`collected_at`、`interval_ms`、`snapshot_version`、`truncated`、`units`；GET /services/:unit 返回 `unit`。两个接口都是权限 V（任何已登录用户可读），都通过代理查询 `services.list` / `services.unit` 取得，Web 不直接读 systemd。
+
+Unit 字段：`unit`（完整单元名，唯一标识）、`description`、`load_state`、`active_state`、`sub_state`、`unit_file_state`（systemctl 原值，例如 `enabled-runtime`）、`enablement`（归一化值）、`template`、`main_pid`、`started_at`、`restart_count`、`memory_bytes`、`tasks_current`、`fragment_path`、`protection`、`capabilities`、`checked_at`。
+
+load_state 闭集：`loaded`、`not-found`、`bad-setting`、`error`、`merged`、`masked`。
+active_state 闭集：`active`、`reloading`、`inactive`、`failed`、`activating`、`deactivating`、`maintenance`。
+enablement 闭集：`enabled`、`disabled`、`static`、`indirect`、`masked`、`generated`、`transient`、`alias`、`linked`、`unknown`。
+
+模板单元（`foo@.service`，没有实例）**不进入列表**，详情接口对它返回 404：`systemctl show` 不接受这种名字（systemd 255 实测原文 `Unit name foo@.service is neither a valid invocation ID nor unit name.`）并且会**中断整次调用**，而模板本身也没有“已加载/未加载”的真相可填 `load_state`——宁可不出这一行，也不编一个 `not-found`。实例单元（`foo@bar.service`）照常返回，照常按状态给动作。预检遇到模板名给 `SERVICE_STATE_CONFLICT`（模板未指定实例）。
+
+别名单元（UnitFileState=`alias`，例如 `dbus-org.freedesktop.login1.service`）同样**不进入列表**，也不能作为操作目标（对它预检得到 `SERVICE_NOT_FOUND`，请改用规范名）：它就是另一个单元的名字。列出来会有两个后果，而且都是错的——同一份单元出现两行，而资源锁按 `service:<unit>` 走，两个名字各拿一把锁，锁不住同一个对象；保护名单按基名判定，别名不在表里，于是受保护单元看起来“没受保护”，`systemctl` 却会把它解析成 `systemd-logind.service`。
+
+列表里的单元数必须与机器上的真实规模相当：`systemctl show` 返回的块必须逐个对上请求的单元名（按 `Id` 或 `Names` 匹配，别名单元只有 `Names` 里才有你请求的那个名字），对不上就单问一次，仍对不上则采集按失败处理并保留上一次成功快照，**不允许**返回一份看起来正常、实际被截断的列表。
+
+`main_pid`、`started_at`、`restart_count`、`memory_bytes`、`tasks_current` 没有值时是 `null`，不是 `0` 或空字符串。`memory_bytes` 是十进制字符串（超过 2^53 的字节数不能走 JSON number）。`started_at` 来自 ActiveEnterTimestamp，从未启动过为 `null`。
+
+`protection` 包含 `protected` 布尔、`category`（未保护时省略）与 `reasons`（人类可读，去重且顺序固定）。category 闭集：`self`（面板与代理自身）、`ssh`（远程登录）、`systemd_core`（日志/会话/设备管理/总线）、`network`（网络基础服务）、`other_module`（由反代、共享、容器模块管理）。保护名单是代码里的固定表，只能通过改代码扩充；不接受配置、API 写入或临时豁免。判定依据是单元基名（去掉 `@实例` 与 `.service`），不做按名字前缀猜保护（`systemd-` 前缀除外）。
+
+`other_module` 的语义是**整体拒绝**：nginx、smbd/nmbd/winbind、docker/containerd/podman 的启停必须由所属模块按依赖顺序执行，通用服务接口不实现一份简化版，否则会绕过域名、证书与卷挂载检查。
+
+`capabilities` 只列出**当前状态与保护规则下**真正能执行的操作，固定顺序 `start`、`stop`、`restart`、`enable`、`disable`。推导规则：受保护、`not-found`、`error`、`bad-setting` 或模板单元一律为空数组（模板单元本身不进入列表，见上，实例单元照常按状态给动作）；`inactive` 给 start；`failed` 给 start 与 stop；`active`/`reloading` 给 stop 与 restart；`disabled` 给 enable；`enabled` 给 disable。状态已满足的操作不出现——active 不出现 start。空数组表示“这里不提供动作入口”，前端必须渲染成“无可执行动作”，不得渲染成“全部可用”，也不得在空数组时摆一个点了就报错的按钮。
+
+`interval_ms` 默认 10000。列表走缓存快照（每 10 秒采集一次），采集失败时保留上一次成功内容并在 `status`/`error` 里标明原因与 `collected_at`，不清空列表——清空会被读成“这台机器没有服务”。详情接口与预检**不使用缓存**，每次现场读取：列表最多 10 秒旧，而“现在能不能 stop”必须看现在的状态。`truncated=true` 表示单元数超过上限（1000）被截断，不是“只有这些”。
+
+`snapshot_version` 只由单元状态内容（名字、load_state、active_state、sub_state、enablement、template）决定，刻意排除采集时间、PID、内存与重启次数：否则一次普通重启或内存波动就会让预检无谓失效。
+
+service.control 的参数只有 `unit` 与 `operation`（= 上面五个操作的闭集）。不接受的输入：额外的 systemctl 参数、`--now`、`--no-block`、`--all`、分号或管道、以 `-` 开头的单元名、带 `..` 的路径片段。单元名按 `^[A-Za-z0-9][A-Za-z0-9:_.@-]*\.service$` 校验（长度 1—256 字节），这个正则同时挡住 `/`、空格、shell 元字符和选项注入；校验失败返回 400，非法名字不进代理、也不进 systemctl。systemctl 一律用固定 argv 直接调用，不经过 shell。
+
+阻塞项代码：`SERVICE_NOT_FOUND`（这台机器上没有该单元，不会把它当成命令片段去执行）、`SERVICE_PROTECTED`（受保护，理由随附）、`SERVICE_STATE_CONFLICT`（当前状态与该操作矛盾，或模板单元未指定实例、已 mask 无法启动）、`SERVICE_NOT_ENABLEABLE`（没有 `[Install]` 段或状态不允许改开机启动）。保护判定先于状态冲突：受保护单元的理由必须是“不能碰”，而不是“已经启动了所以不用启动”。
+
+告警项代码：`service_interruption`（stop/restart 会中断该服务提供的能力）、`scheduled_start_removed`（disable 只改开机启动，不停止当前进程）。影响类别：`service_availability` 或 `none`。资源锁固定为 `service:<unit>`，同一单元的操作不会并发。
+
+service.control 不需要再认证、不需要确认短语，`cancellable=false`：单单元启停可逆且影响范围明确，加一道人为确认只会让人盲目点过。
+
+执行顺序：现场复核（保护名单与状态可能在上游复核之后又变了）→ 执行 systemctl → 轮询读回最多 15 秒（间隔 150 毫秒）。**systemctl 返回 0 不算成功**：Type=oneshot 的 ExecStart 可能失败而 systemctl 仍返回 0。只有读回状态符合期望才算成功——start 要求 `active`/`reloading`，stop 要求 `inactive`，enable/disable 要求对应 enablement。restart 额外比较 ActiveEnterTimestamp 不早于发起前 2 秒：只看 active 会把“本来就在 active、restart 实际没生效”判成成功，而那正是最需要发现的情况。未在 15 秒内收敛必须让任务失败并如实说明“命令成功但状态未收敛”，不得标记 succeeded。
+
+不存在的单元不触发任何 systemctl 控制命令，也不做“按前缀批量操作”。
 
 ## 11. 文件契约
 

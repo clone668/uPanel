@@ -99,6 +99,55 @@ func TestRecordStoresRedactedDetails(t *testing.T) {
 	}
 }
 
+// TestRecordStoresJobID 任务事件要写 job_id 列（迁移里就有这一列）。
+//
+// 验收里靠 `SELECT ... WHERE action='job.submit' AND job_id IS NOT NULL` 判断
+// “这次任务是谁提交的”，如果只把 job_id 放进 details，那一列永远是 NULL。
+func TestRecordStoresJobID(t *testing.T) {
+	db := testStore(t)
+	w, err := New(db, func() time.Time { return time.Date(2026, 10, 21, 1, 2, 3, 0, time.UTC) })
+	if err != nil {
+		t.Fatalf("New 失败: %v", err)
+	}
+	jobID := "job_0123456789abcdef0123456789abcdef"
+	if err := w.Record(context.Background(), Event{
+		ActorSnapshot: "admin(admin)#1",
+		Action:        ActionJobSubmit,
+		Target:        "job:" + jobID,
+		JobID:         JobIDFromTarget("job:" + jobID),
+		Outcome:       OutcomeSuccess,
+	}); err != nil {
+		t.Fatalf("Record 失败: %v", err)
+	}
+	// 不是任务对象的事件：job_id 必须是 NULL，不能塞空串。
+	if err := w.Record(context.Background(), Event{
+		ActorSnapshot: "admin(admin)#1",
+		Action:        ActionUserCreate,
+		Target:        "user:7",
+		JobID:         JobIDFromTarget("user:7"),
+		Outcome:       OutcomeSuccess,
+	}); err != nil {
+		t.Fatalf("Record 失败: %v", err)
+	}
+
+	var got sql.NullString
+	if err := db.SQL().QueryRowContext(context.Background(),
+		`SELECT job_id FROM audit_events WHERE action = ?`, ActionJobSubmit).Scan(&got); err != nil {
+		t.Fatalf("读取审计失败: %v", err)
+	}
+	if !got.Valid || got.String != jobID {
+		t.Fatalf("job_id = %+v，期望 %q", got, jobID)
+	}
+	var other sql.NullString
+	if err := db.SQL().QueryRowContext(context.Background(),
+		`SELECT job_id FROM audit_events WHERE action = ?`, ActionUserCreate).Scan(&other); err != nil {
+		t.Fatalf("读取审计失败: %v", err)
+	}
+	if other.Valid {
+		t.Fatalf("非任务事件的 job_id 必须是 NULL，实际 %q", other.String)
+	}
+}
+
 func TestAuditIsAppendOnly(t *testing.T) {
 	db := testStore(t)
 	w, err := New(db, nil)

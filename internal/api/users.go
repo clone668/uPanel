@@ -458,6 +458,7 @@ func (s *Server) auditEvent(c *gin.Context, sess auth.Session, action, target, o
 		ActorSnapshot: fmt.Sprintf("%s(%s)#%d", sess.User.Username, sess.User.Role, sess.User.ID),
 		Action:        action,
 		Target:        target,
+		JobID:         audit.JobIDFromTarget(target),
 		RequestID:     c.GetString(ctxKeyRequestID),
 		Outcome:       outcome,
 		Details:       details,
@@ -491,6 +492,7 @@ func (s *Server) recordDenied(c *gin.Context, sess *auth.Session, action, target
 	ev := audit.Event{
 		Action:    action,
 		Target:    target,
+		JobID:     audit.JobIDFromTarget(target),
 		RequestID: c.GetString(ctxKeyRequestID),
 		Outcome:   audit.OutcomeFailure,
 		Details: map[string]any{
