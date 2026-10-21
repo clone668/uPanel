@@ -21,11 +21,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"upanel/internal/files"
 	"upanel/internal/httpx"
 	"upanel/internal/journal"
 )
@@ -33,6 +35,10 @@ import (
 const (
 	// StreamPurposeLogs 是日志实时流的用途名。
 	StreamPurposeLogs = "logs.stream"
+	// StreamPurposeDownload 是文件下载流的用途名（P06.1）。
+	// 与日志流共用这条通道的理由相同：一次性许可、参数绑在许可里、
+	// 二进制内容不进查询接口的 JSON。
+	StreamPurposeDownload = files.StreamPurposeDownload
 	// streamPermitTTL 是许可的有效期。它只需要覆盖“Web 收到 id 后立刻发起 GET”
 	// 这一小段时间；给得越长，泄漏的 id 越有用。
 	streamPermitTTL = 30 * time.Second
@@ -58,9 +64,13 @@ var (
 
 // streamPermit 是一张一次性的流许可。
 type streamPermit struct {
-	ID        string
-	Purpose   string
-	Params    journal.Params
+	ID      string
+	Purpose string
+	// Params 是**用途自己的**参数 DTO。P05.3 起它是 journal.Params，
+	// P06.1 加入 files.download 之后必须按用途区分——这也正是当初把这条通道
+	// 按“用途”而不是“日志”抽象的原因。分发时按用途断言成具体类型；
+	// 断言失败属于编程错误（用途与参数登记不一致），一律 500。
+	Params    any
 	CreatedAt time.Time
 	ExpiresAt time.Time
 }
@@ -94,7 +104,7 @@ func randomStreamID() (string, error) {
 }
 
 // create 登记一张许可。
-func (s *streamStore) create(purpose string, params journal.Params) (streamPermit, error) {
+func (s *streamStore) create(purpose string, params any) (streamPermit, error) {
 	now := s.now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -188,6 +198,13 @@ func (s *Server) handleStreams(w http.ResponseWriter, r *http.Request) {
 
 	params, err := s.decodeStreamParams(req.Purpose, req.Params)
 	if err != nil {
+		// 用途实现自己的判决优先：文件下载的越界/不存在/过大都有各自的码，
+		// 压成 400 VALIDATION_ERROR 会让调用方分不清“参数写错”和“不允许”。
+		if carrier, ok := statusCarrierOf(err); ok {
+			status, code := carrier.HTTPStatus()
+			httpx.WriteError(w, r, status, code, err.Error())
+			return
+		}
 		status := http.StatusBadRequest
 		if errors.Is(err, ErrStreamPurposeUnknown) {
 			// 未登记的用途：这是“代理没有这个能力”，不是参数写错。
@@ -221,22 +238,34 @@ func (s *Server) handleStreams(w http.ResponseWriter, r *http.Request) {
 }
 
 // decodeStreamParams 按用途解码参数。用途不在白名单内时**不解码参数**。
-func (s *Server) decodeStreamParams(purpose string, raw json.RawMessage) (journal.Params, error) {
+func (s *Server) decodeStreamParams(purpose string, raw json.RawMessage) (any, error) {
 	switch purpose {
 	case StreamPurposeLogs:
 		if s.opts.Logs == nil {
-			return journal.Params{}, fmt.Errorf("%w: %q", ErrStreamPurposeUnknown, purpose)
+			return nil, fmt.Errorf("%w: %q", ErrStreamPurposeUnknown, purpose)
 		}
 		var params journal.Params
 		if err := DecodeParams(raw, &params); err != nil {
-			return journal.Params{}, err
+			return nil, err
 		}
 		if err := params.Validate(); err != nil {
-			return journal.Params{}, err
+			return nil, err
+		}
+		return params, nil
+	case StreamPurposeDownload:
+		if s.opts.Files == nil {
+			return nil, fmt.Errorf("%w: %q", ErrStreamPurposeUnknown, purpose)
+		}
+		var params files.DownloadParams
+		if err := DecodeParams(raw, &params); err != nil {
+			return nil, err
+		}
+		if err := params.Validate(); err != nil {
+			return nil, err
 		}
 		return params, nil
 	default:
-		return journal.Params{}, fmt.Errorf("%w: %q", ErrStreamPurposeUnknown, purpose)
+		return nil, fmt.Errorf("%w: %q", ErrStreamPurposeUnknown, purpose)
 	}
 }
 
@@ -264,6 +293,8 @@ func (s *Server) handleStreamByID(w http.ResponseWriter, r *http.Request) {
 	switch permit.Purpose {
 	case StreamPurposeLogs:
 		s.serveLogStream(w, r, permit)
+	case StreamPurposeDownload:
+		s.serveDownloadStream(w, r, permit)
 	default:
 		// 用途在白名单里才会被创建，走到这里说明登记与分发不一致，属于编程错误。
 		s.opts.Logger.Error("流许可的用途没有对应的分发实现", "purpose", permit.Purpose, "stream_id", permit.ID)
@@ -281,6 +312,95 @@ type streamEvent struct {
 	Reason  string         `json:"reason,omitempty"`
 	Code    string         `json:"code,omitempty"`
 	Message string         `json:"message,omitempty"`
+}
+
+// serveDownloadStream 把一个已核验的文件句柄写成“首行 JSON + 原始字节”。
+//
+// 为什么首行是 JSON：下载需要同时给出名字、大小与 version（浏览器要用的
+// Content-Disposition 与 Content-Length 都在 Web 侧拼），而把内容本身塞进 JSON
+// 意味着 base64，给每个下载多加三分之一体积。首行是**元数据**，其后是字节流，
+// 边界由 Content-Length 之外的那一行换行符确定，Web 侧按同一顺序读。
+//
+// 失败分两段：
+//   - 还没写响应头时（打开/核验失败）→ 正常错误响应，状态码与码来自 files 的判决；
+//   - 写了响应头之后 → 只能断开连接，并把原因写进代理日志。
+//     客户端看到的是“文件没下完”，而不会看到一段被当成文件内容的错误 JSON。
+func (s *Server) serveDownloadStream(w http.ResponseWriter, r *http.Request, permit streamPermit) {
+	params, ok := permit.Params.(files.DownloadParams)
+	if !ok {
+		s.opts.Logger.Error("下载流许可的参数类型不对", "stream_id", permit.ID)
+		httpx.WriteError(w, r, http.StatusInternalServerError,
+			httpx.CodeInternalError, "流许可参数与用途不一致")
+		return
+	}
+	dl, err := s.opts.Files.OpenDownload(r.Context(), params)
+	if err != nil {
+		s.writeFilesError(w, r, err, "打开下载文件失败", permit.Purpose)
+		return
+	}
+	defer func() { _ = dl.Close() }()
+
+	rc := http.NewResponseController(w)
+	h := w.Header()
+	h.Set("Content-Type", "application/octet-stream")
+	h.Set("Cache-Control", "no-store")
+	h.Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	if rc != nil {
+		_ = rc.Flush()
+	}
+
+	head, marshalErr := json.Marshal(dl.Header)
+	if marshalErr != nil {
+		s.opts.Logger.Error("下载头序列化失败", "stream_id", permit.ID, "error", marshalErr)
+		return
+	}
+	head = append(head, byte(10))
+	if rc != nil {
+		_ = rc.SetWriteDeadline(time.Now().Add(streamWriteTimeout))
+	}
+	if _, err := w.Write(head); err != nil {
+		return
+	}
+
+	written, err := io.CopyBuffer(deadlineWriter{w: w, rc: rc}, dl.File, make([]byte, 64<<10))
+	if err != nil {
+		// 对端断开或写超时。日志里记实际发出的字节数：这比“下载失败”有用得多。
+		s.opts.Logger.Warn("下载流中断",
+			"stream_id", permit.ID, "written_bytes", written, "size_bytes", dl.Header.SizeBytes,
+			"error", err, "request_id", httpx.RequestID(r))
+		return
+	}
+	s.opts.Logger.Info("下载流结束",
+		"stream_id", permit.ID, "written_bytes", written,
+		"request_id", httpx.RequestID(r))
+}
+
+// deadlineWriter 每次写之前把服务端的写截止时间往后推。
+//
+// 代理的 http.Server 有 15 秒 WriteTimeout（绝对的），不推的话一个稍大的文件
+// 会在第 15 秒被整体砍断——而“文件比较大”正是下载最常见的场景。
+type deadlineWriter struct {
+	w  io.Writer
+	rc *http.ResponseController
+}
+
+func (d deadlineWriter) Write(p []byte) (int, error) {
+	if d.rc != nil {
+		_ = d.rc.SetWriteDeadline(time.Now().Add(streamWriteTimeout))
+	}
+	return d.w.Write(p)
+}
+
+// writeFilesError 把文件模块的错误写成 HTTP 响应（仅用于尚未写响应头时）。
+func (s *Server) writeFilesError(w http.ResponseWriter, r *http.Request, err error, what, purpose string) {
+	if mapped, ok := files.HTTPStatusOf(err); ok {
+		s.opts.Logger.Warn(what, "purpose", purpose, "error", err, "request_id", httpx.RequestID(r))
+		httpx.WriteError(w, r, mapped.Status, mapped.Code, mapped.Message)
+		return
+	}
+	s.opts.Logger.Error(what, "purpose", purpose, "error", err, "request_id", httpx.RequestID(r))
+	httpx.WriteError(w, r, http.StatusInternalServerError, httpx.CodeInternalError, what)
 }
 
 // serveLogStream 把 journal 跟随流写成 NDJSON。
@@ -318,8 +438,14 @@ func (s *Server) serveLogStream(w http.ResponseWriter, r *http.Request, permit s
 		return true
 	}
 
+	params, ok := permit.Params.(journal.Params)
+	if !ok {
+		s.opts.Logger.Error("日志流许可的参数类型不对", "stream_id", permit.ID)
+		write(streamEvent{Type: "error", Code: "STREAM_FAILED", Message: "流许可参数与用途不一致"})
+		return
+	}
 	started := time.Now()
-	end, err := s.opts.Logs.Stream(r.Context(), permit.Params, journal.StreamOptions{}, func(entry journal.Entry) error {
+	end, err := s.opts.Logs.Stream(r.Context(), params, journal.StreamOptions{}, func(entry journal.Entry) error {
 		if !write(streamEvent{Type: "entry", Entry: &entry}) {
 			return errStreamWriteFailed
 		}

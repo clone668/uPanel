@@ -22,6 +22,7 @@ import (
 	"upanel/internal/audit"
 	"upanel/internal/auth"
 	"upanel/internal/config"
+	"upanel/internal/files"
 	"upanel/internal/logging"
 	"upanel/internal/logs"
 	"upanel/internal/monitoring"
@@ -272,6 +273,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	var processesReader api.ProcessesReader
 	// 日志读取端（P05.3）。演示模式下同样保持 nil：那时 /logs 明确回 503。
 	var logsReader api.LogsReader
+	// 文件读取端（P06.1）。演示模式下同样保持 nil：那时 /files/* 明确回 503，
+	// 而不是给一个空目录列表——空目录会被当成“这个目录是空的”。
+	var filesReader api.FilesReader
 	if mode == platform.ModeProduction {
 		client, err := agentclient.New(cfg.Agent.SocketPath)
 		if err != nil {
@@ -310,6 +314,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		logsReader = logsFetcher
+		filesFetcher, err := files.NewFetcher(client, logger)
+		if err != nil {
+			logger.Error("初始化文件读取端失败，拒绝启动", "error", err)
+			return 1
+		}
+		filesReader = filesFetcher
 		logger.Info("代理客户端已配置", "socket", cfg.Agent.SocketPath)
 	} else {
 		// 明确说明原因：演示模式下预检与系统信息会返回 503，而不是给一份假的数据。
@@ -342,6 +352,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Services:        servicesReader,
 		Processes:       processesReader,
 		Logs:            logsReader,
+		Files:           filesReader,
 		AllowedOrigins:  allowedOrigins,
 	})
 	if err != nil {

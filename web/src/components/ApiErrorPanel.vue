@@ -13,21 +13,26 @@ import { describeApiError } from '@/api/errors'
 const props = withDefaults(
   defineProps<{
     error: ApiError
+    /** 调用方给的具体标题（“无法列出目录”）。不给则用错误码对应的通用标题。 */
+    title?: string
     /** 调用方能否安全重试（写操作一般不能：需要重新走确认流程）。 */
     allowRetry?: boolean
   }>(),
-  { allowRetry: true },
+  { allowRetry: true, title: '' },
 )
 
 const emit = defineEmits<{ retry: [] }>()
 
 const view = computed(() => describeApiError(props.error))
+// 具体标题优先：同一条 PATH_OUTSIDE_ROOT 在“列目录”和“读文件”两个动作里，
+// 人想知道的是**这次想做什么失败了**，而不是错误码的通用说法。
+const heading = computed(() => (props.title === '' ? view.value.title : props.title))
 const canRetry = computed(() => props.allowRetry && view.value.canRetry)
 </script>
 
 <template>
   <div class="error-panel" role="alert" data-testid="api-error">
-    <NAlert type="error" :title="view.title">
+    <NAlert type="error" :title="heading">
       <p class="error-panel__message">{{ error.message }}</p>
       <p class="error-panel__hint">{{ view.hint }}</p>
       <p class="error-panel__meta">错误码：<code>{{ error.code }}</code></p>

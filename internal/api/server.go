@@ -76,6 +76,10 @@ type Options struct {
 	// 那时 /logs 与 /logs/stream 明确回 503 AGENT_UNAVAILABLE，
 	// 而不是给一个“这段时间没有日志”的空结果。
 	Logs LogsReader
+	// Files 是文件读取端（P06.1）。允许为 nil（不连代理）：
+	// 那时 /files/* 明确回 503 AGENT_UNAVAILABLE，而不是给一个空目录——
+	// 空目录会被当成“这个目录是空的”。
+	Files FilesReader
 }
 
 // Server 是 Web HTTP 服务。

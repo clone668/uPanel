@@ -1,0 +1,122 @@
+== uname -a
+Linux upanel-2404 6.8.0-147-generic #147-Ubuntu SMP PREEMPT_DYNAMIC Thu Sep 24 11:33:16 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+
+== ./files.test -test.v (internal/files on Linux)
+=== RUN   TestListRoot
+--- PASS: TestListRoot (0.00s)
+=== RUN   TestListSubdir
+--- PASS: TestListSubdir (0.00s)
+=== RUN   TestListCursorPaging
+--- PASS: TestListCursorPaging (0.01s)
+=== RUN   TestListRejectsEscape
+--- PASS: TestListRejectsEscape (0.00s)
+=== RUN   TestSymlinkIsNeverFollowed
+--- PASS: TestSymlinkIsNeverFollowed (0.00s)
+=== RUN   TestMagicLinkRejected
+--- PASS: TestMagicLinkRejected (0.00s)
+=== RUN   TestTextReadsContent
+--- PASS: TestTextReadsContent (0.00s)
+=== RUN   TestTextVersionConflict
+--- PASS: TestTextVersionConflict (0.00s)
+=== RUN   TestTextTooLarge
+--- PASS: TestTextTooLarge (0.00s)
+=== RUN   TestTextRejectsBinary
+--- PASS: TestTextRejectsBinary (0.00s)
+=== RUN   TestHardLinkRejected
+--- PASS: TestHardLinkRejected (0.00s)
+=== RUN   TestSpecialFileRejected
+--- PASS: TestSpecialFileRejected (0.00s)
+=== RUN   TestTextOnDirectoryRejected
+--- PASS: TestTextOnDirectoryRejected (0.00s)
+=== RUN   TestUnknownRoot
+--- PASS: TestUnknownRoot (0.00s)
+=== RUN   TestRootIdentityChangeIsUnavailable
+--- PASS: TestRootIdentityChangeIsUnavailable (0.00s)
+=== RUN   TestRootPathMustBeCleanAbsoluteNew
+--- PASS: TestRootPathMustBeCleanAbsoluteNew (0.00s)
+=== RUN   TestMissingRootIsReportedNotFatal
+2026/10/21 06:08:15 WARN 文件根登记失败，它会在 files.roots 里显示为不可用 root_id=gone path=/nonexistent-upanel-test error="no such file or directory"
+--- PASS: TestMissingRootIsReportedNotFatal (0.00s)
+=== RUN   TestRootsReportsMountInfo
+--- PASS: TestRootsReportsMountInfo (0.00s)
+=== RUN   TestDownloadHeaderAndBytes
+--- PASS: TestDownloadHeaderAndBytes (0.00s)
+=== RUN   TestDownloadRejectsRestricted
+--- PASS: TestDownloadRejectsRestricted (0.00s)
+=== RUN   TestListTruncatedOnHugeDirectory
+--- PASS: TestListTruncatedOnHugeDirectory (0.00s)
+=== RUN   TestNestedMountRejectedByXDEV
+    manager_linux_test.go:578: 需要 root 执行 mount；由 tests/integration 的 P06.1 验收脚本在 VM 上覆盖
+--- SKIP: TestNestedMountRejectedByXDEV (0.00s)
+=== RUN   TestValidateRelPathAccepts
+--- PASS: TestValidateRelPathAccepts (0.00s)
+=== RUN   TestValidateRelPathRejects
+=== RUN   TestValidateRelPathRejects/绝对路径
+=== RUN   TestValidateRelPathRejects/父目录
+=== RUN   TestValidateRelPathRejects/嵌套父目录
+=== RUN   TestValidateRelPathRejects/中段父目录
+=== RUN   TestValidateRelPathRejects/当前目录
+=== RUN   TestValidateRelPathRejects/重复斜杠
+=== RUN   TestValidateRelPathRejects/结尾斜杠
+=== RUN   TestValidateRelPathRejects/NUL
+=== RUN   TestValidateRelPathRejects/单个名字段过长
+=== RUN   TestValidateRelPathRejects/总长超过_PATH_MAX
+--- PASS: TestValidateRelPathRejects (0.00s)
+    --- PASS: TestValidateRelPathRejects/绝对路径 (0.00s)
+    --- PASS: TestValidateRelPathRejects/父目录 (0.00s)
+    --- PASS: TestValidateRelPathRejects/嵌套父目录 (0.00s)
+    --- PASS: TestValidateRelPathRejects/中段父目录 (0.00s)
+    --- PASS: TestValidateRelPathRejects/当前目录 (0.00s)
+    --- PASS: TestValidateRelPathRejects/重复斜杠 (0.00s)
+    --- PASS: TestValidateRelPathRejects/结尾斜杠 (0.00s)
+    --- PASS: TestValidateRelPathRejects/NUL (0.00s)
+    --- PASS: TestValidateRelPathRejects/单个名字段过长 (0.00s)
+    --- PASS: TestValidateRelPathRejects/总长超过_PATH_MAX (0.00s)
+=== RUN   TestValidateRelPathRejectsInvalidUTF8
+--- PASS: TestValidateRelPathRejectsInvalidUTF8 (0.00s)
+=== RUN   TestValidateRootID
+--- PASS: TestValidateRootID (0.00s)
+=== RUN   TestValidateExpectedVersion
+--- PASS: TestValidateExpectedVersion (0.00s)
+=== RUN   TestParamsValidate
+--- PASS: TestParamsValidate (0.00s)
+=== RUN   TestHTTPStatusOfMapsEverySentinel
+=== RUN   TestHTTPStatusOfMapsEverySentinel/VALIDATION_ERROR
+=== RUN   TestHTTPStatusOfMapsEverySentinel/VALIDATION_ERROR#01
+=== RUN   TestHTTPStatusOfMapsEverySentinel/VALIDATION_ERROR#02
+=== RUN   TestHTTPStatusOfMapsEverySentinel/VALIDATION_ERROR#03
+=== RUN   TestHTTPStatusOfMapsEverySentinel/PATH_OUTSIDE_ROOT
+=== RUN   TestHTTPStatusOfMapsEverySentinel/PATH_OUTSIDE_ROOT#01
+=== RUN   TestHTTPStatusOfMapsEverySentinel/NOT_FOUND
+=== RUN   TestHTTPStatusOfMapsEverySentinel/NOT_FOUND#01
+=== RUN   TestHTTPStatusOfMapsEverySentinel/ROOT_UNAVAILABLE
+=== RUN   TestHTTPStatusOfMapsEverySentinel/FILE_NOT_TEXT
+=== RUN   TestHTTPStatusOfMapsEverySentinel/VERSION_CONFLICT
+=== RUN   TestHTTPStatusOfMapsEverySentinel/NOT_IMPLEMENTED
+--- PASS: TestHTTPStatusOfMapsEverySentinel (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/VALIDATION_ERROR (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/VALIDATION_ERROR#01 (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/VALIDATION_ERROR#02 (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/VALIDATION_ERROR#03 (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/PATH_OUTSIDE_ROOT (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/PATH_OUTSIDE_ROOT#01 (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/NOT_FOUND (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/NOT_FOUND#01 (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/ROOT_UNAVAILABLE (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/FILE_NOT_TEXT (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/VERSION_CONFLICT (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/NOT_IMPLEMENTED (0.00s)
+=== RUN   TestHTTPStatusOfLeavesUnknownAlone
+--- PASS: TestHTTPStatusOfLeavesUnknownAlone (0.00s)
+=== RUN   TestAsHTTPErrorIsAlways500ForUnknown
+--- PASS: TestAsHTTPErrorIsAlways500ForUnknown (0.00s)
+=== RUN   TestJoinPath
+--- PASS: TestJoinPath (0.00s)
+=== RUN   TestLimitsAreContractual
+--- PASS: TestLimitsAreContractual (0.00s)
+PASS
+exit=0
+
+== ./api.test (internal/api on Linux)
+PASS
+exit=0

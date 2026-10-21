@@ -19,6 +19,7 @@ import (
 	"upanel/internal/agent"
 	"upanel/internal/agentstore"
 	"upanel/internal/config"
+	"upanel/internal/files"
 	"upanel/internal/journal"
 	"upanel/internal/logging"
 	"upanel/internal/monitoring"
@@ -285,6 +286,30 @@ func run(args []string, stdout, stderr io.Writer) int {
 			"configured", cfg.Agent.Logs.JournalctlPath)
 	}
 
+	// 文件模块（P06.1）：根只能来自配置（agent.files.roots），请求里只有 root_id
+	// 与根内相对路径。没有登记任何根时仍然构造 Manager：files.roots 返回空列表，
+	// 界面显示“未登记文件根”——而不是让文件页看起来能浏览整个服务器。
+	//
+	// 根的身份在**登记时**核对一次（打开根目录、记下 dev/inode 与挂载点），
+	// 之后每次请求都重新打开并比对；路径解析靠 openat2 的 RESOLVE_*，
+	// 不做字符串前缀判断。容量读取接存储模块的同一条通道（网络挂载走隔离子进程）。
+	filesManager, err := files.New(fileRoots(cfg.Agent.Files.Roots), files.Options{
+		Capacity: filesCapacity{reader: storage.SystemRoot().Caps},
+		Logger:   logger,
+	})
+	if err != nil {
+		logger.Error("初始化文件模块失败", "error", err)
+		return 1
+	}
+	for _, root := range cfg.Agent.Files.Roots {
+		logger.Info("已登记文件根",
+			"root_id", root.ID, "name", root.Name, "path", root.Path, "writable", root.Writable)
+	}
+	if len(cfg.Agent.Files.Roots) == 0 {
+		logger.Info("没有登记任何文件根：文件页只显示“未登记文件根”",
+			"hint", "在 /etc/upanel/upanel.json 的 agent.files.roots 里登记要管理的目录")
+	}
+
 	// 动作登记表：生产表自 P05.1 起有 service.control，P05.2 起有 process.signal（受保护名单与读回验证见 internal/services）。
 	// 验收表只能靠显式参数启用，且动作全部以 acceptance. 开头、不读写任何系统资源。
 	registry := agent.NewRegistry()
@@ -300,6 +325,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Services:  servicesCollector,
 		Processes: processesCollector,
 		Logs:      logsQuerier,
+		Files:     filesManager,
 	}
 	if err := agent.RegisterProductionQueries(registry, deps); err != nil {
 		logger.Error("登记生产查询失败", "error", err)
@@ -346,6 +372,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Plans:           plans,
 		Operations:      operations,
 		Logs:            logsQuerier,
+		Files:           filesManager,
 	})
 	if err != nil {
 		logger.Error("初始化代理失败", "error", err)
@@ -390,4 +417,45 @@ func initSecretKey(path string, stdout, stderr io.Writer) int {
 	fmt.Fprintln(stdout, "该文件必须单独备份：丢失或损坏后，已保存的秘密将无法解密。")
 	fmt.Fprintln(stdout, "不要把它放进 uPanel 自己的备份仓库，也不要让 Web 进程或 upanel-web 账号读到。")
 	return 0
+}
+
+// fileRoots 把配置里的文件根转成文件模块的登记项。
+//
+// 单独一个函数是为了让“配置 → 登记”这一层显式：配置校验（绝对路径、非 "/"、
+// id 形状）在 internal/config 里做完，文件模块只接受已校验过的形状。
+func fileRoots(configured []config.FileRoot) []files.Root {
+	out := make([]files.Root, 0, len(configured))
+	for _, root := range configured {
+		out = append(out, files.Root{
+			ID:       root.ID,
+			Name:     root.Name,
+			Path:     root.Path,
+			Writable: root.Writable,
+		})
+	}
+	return out
+}
+
+// filesCapacity 把存储模块的容量读取器接到文件模块上。
+//
+// 两边的容量字段相同，这里只是类型转换：不重新 statfs、不另起通道，
+// 因此网络挂载的“隔离子进程 + 超时后隔离 5 分钟”策略与存储页完全一致。
+type filesCapacity struct {
+	reader storage.CapacityReader
+}
+
+func (c filesCapacity) Capacity(ctx context.Context, mountPath, fsType string) (*files.Capacity, error) {
+	if c.reader == nil {
+		return nil, nil
+	}
+	capv, err := c.reader.Capacity(ctx, mountPath, fsType)
+	if err != nil || capv == nil {
+		return nil, err
+	}
+	return &files.Capacity{
+		TotalBytes:     capv.TotalBytes,
+		AvailableBytes: capv.AvailableBytes,
+		UsedPercent:    capv.UsedPercent,
+		CollectedAt:    capv.CollectedAt,
+	}, nil
 }

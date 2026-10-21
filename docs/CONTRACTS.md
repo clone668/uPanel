@@ -26,7 +26,7 @@
 
 状态码：400 语法错误；401 未登录/会话失效；403 权限或再认证不足；404 不存在；409 冲突/忙/预检失效；413 超限；422 参数合法但业务条件不允许；429 限速；501 功能尚未实现；503 代理或依赖不可用。异步写任务创建成功为 202，绝不是业务操作成功。
 
-统一错误码至少包括：VALIDATION_ERROR、UNAUTHENTICATED、FORBIDDEN、REAUTH_REQUIRED、CSRF_FAILED、NOT_FOUND、VERSION_CONFLICT、RESOURCE_BUSY、DEVICE_IN_USE、PROTECTED_DEVICE、UNSUPPORTED_DEVICE、DEVICE_IDENTITY_CHANGED、PATH_OUTSIDE_ROOT、DEPENDENCY_BLOCKED、PREFLIGHT_EXPIRED、PREFLIGHT_STALE、CONFIRMATION_MISMATCH、IDEMPOTENCY_CONFLICT、AGENT_UNAVAILABLE、DEPENDENCY_MISSING、NOT_IMPLEMENTED、COMMAND_FAILED、OPERATION_INTERRUPTED、ROLLBACK_FAILED。
+统一错误码至少包括：VALIDATION_ERROR、UNAUTHENTICATED、FORBIDDEN、REAUTH_REQUIRED、CSRF_FAILED、NOT_FOUND、VERSION_CONFLICT、RESOURCE_BUSY、DEVICE_IN_USE、PROTECTED_DEVICE、UNSUPPORTED_DEVICE、DEVICE_IDENTITY_CHANGED、PATH_OUTSIDE_ROOT、DEPENDENCY_BLOCKED、PREFLIGHT_EXPIRED、PREFLIGHT_STALE、CONFIRMATION_MISMATCH、IDEMPOTENCY_CONFLICT、AGENT_UNAVAILABLE、DEPENDENCY_MISSING、NOT_IMPLEMENTED、COMMAND_FAILED、OPERATION_INTERRUPTED、ROLLBACK_FAILED、ROOT_UNAVAILABLE、FILE_NOT_TEXT。
 
 ## 2. 权限与会话
 
@@ -488,8 +488,8 @@ TERM 与 KILL 是**两次独立操作**，门槛不同：TERM 不需要再认证
 |---|---|
 | GET /files/roots | 返回允许访问的 root_id、名称、容量、可写能力 |
 | GET /files/list?root_id=&path=&cursor= | 子项 name、type、size_bytes、mode、owner、mtime、version；不跟随 symlink |
-| GET /files/text?root_id=&path= | UTF-8 文本、version；上限 1 MiB |
-| GET /files/download?root_id=&path= | 流式下载普通文件；Content-Disposition 安全编码；无 inline HTML |
+| GET /files/text?root_id=&path=&expected_version= | UTF-8 文本、version；上限 1 MiB |
+| GET /files/download?root_id=&path=&expected_version= | 流式下载普通文件；Content-Disposition 安全编码；无 inline HTML |
 | POST /files/uploads | root_id、path、size_bytes、expected_version；创建上传暂存，会话绑定 |
 | PUT /files/uploads/:id/content | application/octet-stream 流，CSRF 与大小检查；不支持断点续传 |
 | GET /files/uploads/:id | received_bytes、state、expires_at |
@@ -500,6 +500,26 @@ TERM 与 KILL 是**两次独立操作**，门槛不同：TERM 不需要再认证
 路径边界：Linux 使用 openat2 的 RESOLVE_BENEATH、RESOLVE_NO_MAGICLINKS、RESOLVE_NO_XDEV 和不跟随 symlink 的策略；不支持该机制的平台拒绝真实文件操作。先验证根目录实际挂载 UUID 并打开根句柄，随后禁止跨入根下其他 bind mount/子挂载；子挂载如需访问须独立登记为文件根。初期拒绝 nlink>1 的普通文件读取和写入，避免硬链接越界难以判定；特殊文件不读写。不能用字符串 startsWith(root) 代替边界校验。
 
 文件 version 由设备/ inode /大小/纳秒 mtime 等生成，并在已打开句柄上核验。跨根目录 move 不是原子操作：采用复制到目标暂存→校验→原子落位→删除源；中途失败保留源并显示实际状态，不声称原子完成。
+
+### 11.1 读取接口的字段与判决（P06.1）
+
+**根只能来自配置。** 请求里没有绝对路径字段：只有 root_id 与根内相对路径。未登记的 root_id 是 404 NOT_FOUND，不会退回到“按路径找找看”。`agent.files.roots[i].path` 不能是 `/`：那等于把整个服务器文件系统登记成一个文件根，配置校验直接拒绝并让代理启动失败，错误信息指向该字段。界面能管理的范围因此**在数据上**就只有一个根列表，不可能显示“可管理整个服务器所有目录”。
+
+**GET /files/roots** 的每一项：root_id、name、path、writable、available、unavailable_reason（仅不可用时出现）、mount_point、fs_type、capacity、capacity_error。capacity 为 null 表示这次没读出来，原因见 capacity_error——null 不是“0 字节可用”，界面不得显示成磁盘满。available=false 的根显示成不可用，不是显示成空目录。没有登记任何根时返回空数组 `roots: []`，界面据此说“尚未配置文件根”，而不是渲染一个空下拉框。
+
+**GET /files/list** 的 data：root_id、path、entries[]、next_cursor、truncated。path 是规范化后的相对路径，根自身是空串。entries 每项：name、type（`file`/`dir`/`symlink`/`other` 闭集）、size_bytes（十进制字符串）、mode（**四位八进制字符串**，如 `"0644"`）、owner{uid,gid}（只给数字，不查 NSS 账号名）、mtime（RFC 3339 UTC）、version。不跟随 symlink：symlink 的 version 与 mtime 描述链接本身，不描述目标；`other` 覆盖设备、FIFO、socket，可以被列出，绝不被读取。
+
+分页是**键集分页**：游标是上一页最后一个 name，下一页从它之后开始，不是 offset；页大小固定 200，因此同一个游标总是同一个起点。`next_cursor` 为 null 表示没有下一页（与 /jobs、/logs、/users 一致），**不是空串**——空串会让“尾页”和“游标恰好是空”在 JSON 里长得一样。单次列举最多扫 50 000 个名字，超出时 `truncated=true`；这是“列出的不是全部”，界面必须说明，不得当成完整列表。
+
+**GET /files/text** 与 **GET /files/download** 都接受可选的 expected_version：非空时必须与**已打开句柄**上 stat 得到的版本一致，否则 409 VERSION_CONFLICT。text 上限 1 MiB（超出 413 VALIDATION_ERROR），内容必须是合法 UTF-8（否则 422 FILE_NOT_TEXT）且不含 NUL——二进制不是文本，不猜编码。text 的 data：root_id、path、version、size_bytes（十进制字符串）、encoding（`utf-8`）、content。
+
+**version 的形状**：`v1-<dev 十六进制>-<ino 十六进制>-<size 十六进制>-<mtime 纳秒十六进制>`。它不是哈希，也不承诺跨挂载稳定；它只是一份“这个句柄上的字节还是不是那一份”的凭据，客户端不得解析、拼接或推算。
+
+**GET /files/download** 的响应体不是 JSON，而是文件原始字节：Content-Type 固定 `application/octet-stream` 并带 `X-Content-Type-Options: nosniff`（浏览器永远不把这里的内容当成 HTML/脚本渲染）、`Cache-Control: no-store`、Content-Length 与本次字节数一致、Content-Disposition 为 `attachment` 且同时给 ASCII 退化名与 RFC 5987 的 UTF-8 名（控制字符丢弃、引号与反斜杠替换，响应头里不会出现换行）；`X-UPanel-File-Version` 带本次下载的 version。被拒绝的下载返回 JSON 错误信封，绝不是 octet-stream——否则浏览器会把错误当文件存下来。
+
+**读取的打开方式**：一律 `O_NOFOLLOW | O_NONBLOCK`。O_NOFOLLOW 让“最后一段是符号链接”由内核拒绝，而不是先检查再打开；O_NONBLOCK 是因为根里可能有 FIFO，`open(fifo, O_RDONLY)` 会无限阻塞（对普通文件无副作用）。硬链接（nlink>1）拒绝为 PATH_OUTSIDE_ROOT：拒绝它的理由正是这个 inode 在根外可能还有别的名字，与越界是同一件事。
+
+**错误判决**单一来源于 `files.HTTPStatusOf`，代理的查询、代理的流、Web 的公开接口共用同一张表，因此同一个 `..` 无论在哪一层被拦下都是同一个状态码与同一个 code：PATH_OUTSIDE_ROOT 422、NOT_FOUND 404、ROOT_UNAVAILABLE 409、FILE_NOT_TEXT 422、VERSION_CONFLICT 409、超限 413 VALIDATION_ERROR、形状问题 400 VALIDATION_ERROR、平台无 openat2 为 501 NOT_IMPLEMENTED、代理连不上为 503 AGENT_UNAVAILABLE。新增错误码只有 ROOT_UNAVAILABLE 与 FILE_NOT_TEXT 两个，其余情形落到第 1 节已有的码上。
 
 ## 12. 软件、电源、备份与计划任务契约
 

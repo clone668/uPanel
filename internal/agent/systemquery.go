@@ -28,6 +28,9 @@ type ProductionDeps struct {
 	Processes *processes.Collector
 	// Logs 是日志读取端（P05.3）。为 nil 时不登记 logs.query，也不接受日志流许可。
 	Logs LogsSource
+	// Files 是文件读取端（P06.1）。为 nil 时不登记 files.roots/list/text，
+	// 也不接受 files.download 流许可——没有根登记表时这三条查询只能是 404。
+	Files FilesSource
 }
 
 // newSystemSummaryQuery 登记 system.summary：无参数，返回采集器最近一次快照。

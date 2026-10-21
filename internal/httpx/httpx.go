@@ -21,7 +21,7 @@ import (
 // HeaderRequestID 是请求/响应使用的 request id 头。
 const HeaderRequestID = "X-Request-ID"
 
-// Code 是契约里的错误码（CONTRACTS.md 第 1 节枚举，24 个）。
+// Code 是契约里的错误码（CONTRACTS.md 第 1 节枚举，26 个）。
 //
 // 这是封闭枚举：不要用临时字符串代替。前端按 code 分支，新增 code 必须先改契约。
 type Code string
@@ -51,6 +51,11 @@ const (
 	CodeCommandFailed         Code = "COMMAND_FAILED"
 	CodeOperationInterrupted  Code = "OPERATION_INTERRUPTED"
 	CodeRollbackFailed        Code = "ROLLBACK_FAILED"
+	// 文件模块（P06.1）新增的两个码，已登记进 CONTRACTS.md 第 1 节。
+	// 其余文件类拒绝都落到已有码上：越界与硬链接是 PATH_OUTSIDE_ROOT，
+	// 平台不支持是 NOT_IMPLEMENTED，版本不一致是 VERSION_CONFLICT。
+	CodeRootUnavailable Code = "ROOT_UNAVAILABLE"
+	CodeFileNotText     Code = "FILE_NOT_TEXT"
 	// CodeInternalError 不在契约枚举里，只用于“程序本身出错”（panic、序列化失败）。
 	// 契约枚举描述的是可预期的业务拒绝；真正的 500 不应伪装成其中任何一个。
 	CodeInternalError Code = "INTERNAL_ERROR"
@@ -66,6 +71,7 @@ func Codes() []Code {
 		CodeConfirmationMismatch, CodeIdempotencyConflict, CodeAgentUnavailable,
 		CodeDependencyMissing, CodeNotImplemented, CodeCommandFailed,
 		CodeOperationInterrupted, CodeRollbackFailed,
+		CodeRootUnavailable, CodeFileNotText,
 	}
 }
 
@@ -88,9 +94,12 @@ func StatusForCode(code Code) int {
 		return http.StatusNotFound
 	case CodeVersionConflict, CodeResourceBusy, CodeDeviceInUse,
 		CodePreflightExpired, CodePreflightStale,
-		CodeIdempotencyConflict, CodeDeviceIdentityChanged, CodeOperationInterrupted:
+		CodeIdempotencyConflict, CodeDeviceIdentityChanged, CodeOperationInterrupted,
+		CodeRootUnavailable:
 		return http.StatusConflict
-	case CodeProtectedDevice, CodeUnsupportedDevice, CodePathOutsideRoot, CodeDependencyBlocked:
+	case CodeProtectedDevice, CodeUnsupportedDevice, CodePathOutsideRoot, CodeDependencyBlocked,
+		CodeFileNotText:
+		// “不是文本”是“参数（路径）合法但这份内容不能按文本处理”，属于 422。
 		return http.StatusUnprocessableEntity
 	case CodeAgentUnavailable, CodeDependencyMissing:
 		return http.StatusServiceUnavailable

@@ -61,6 +61,9 @@ type Options struct {
 	// Logs 是日志读取端（P05.3）。为 nil 时不提供 logs.query 与日志流：
 	// capabilities 与实际可用能力始终一致，不会报告一个调用就 501 的查询。
 	Logs LogsSource
+	// Files 是文件读取端（P06.1）。为 nil 时不提供 files.download 流；
+	// files.roots/list/text 由登记表报告（同样的“给什么才登记什么”）。
+	Files FilesSource
 }
 
 // Server 是代理服务。

@@ -343,6 +343,19 @@ func RegisterProductionQueries(reg *Registry, deps ProductionDeps) error {
 			return fmt.Errorf("代理登记 logs.query 失败: %w", err)
 		}
 	}
+	if deps.Files != nil {
+		// 三条只读查询一起登记：它们共用同一份根登记表，只登记其中两条会让
+		// capabilities 报告一个点开就 404 的入口。
+		for _, q := range []Query{
+			newFilesRootsQuery(deps.Files),
+			newFilesListQuery(deps.Files),
+			newFilesTextQuery(deps.Files),
+		} {
+			if err := reg.RegisterQuery(q); err != nil {
+				return fmt.Errorf("代理登记 %s 失败: %w", q.Name, err)
+			}
+		}
+	}
 	return nil
 }
 

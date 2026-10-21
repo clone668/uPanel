@@ -26,12 +26,21 @@ import (
 const (
 	// streamPurposeLogs 是日志实时流的用途名（与代理侧一致）。
 	streamPurposeLogs = "logs.stream"
+	// streamPurposeDownload 是文件下载流的用途名（与代理侧一致）。
+	streamPurposeDownload = "files.download"
 	// maxStreamFrameBytes 是单帧上限：一条日志消息上限 8 KiB，JSON 外壳与转义留足余量。
 	maxStreamFrameBytes = 256 << 10
 )
 
 // LogsStreamPurpose 返回日志流的用途名，供内部调用方使用。
 func LogsStreamPurpose() string { return streamPurposeLogs }
+
+// DownloadStreamPurpose 返回文件下载流的用途名（P06.1）。
+//
+// 下载流不是 NDJSON：首行是元数据 JSON，其后是文件原始字节。因此它不能用 Next()
+// 逐帧读，而要拿 Raw() 拿到字节流自己解析首行——这一点由调用方（internal/files 的
+// Fetcher）负责，客户端这一层只管把连接交出去。
+func DownloadStreamPurpose() string { return streamPurposeDownload }
 
 // StreamPermit 是 POST /internal/v1/streams 的响应：一次性许可。
 type StreamPermit struct {
@@ -118,6 +127,13 @@ func (c *Client) OpenStream(ctx context.Context, streamID string) (*StreamReader
 	}
 	return &StreamReader{body: resp.Body, reader: bufio.NewReaderSize(resp.Body, 64<<10)}, nil
 }
+
+// Raw 返回流的原始字节（含已缓冲的部分）。
+//
+// 只有**非 NDJSON**的用途（当前的 files.download）才该用它：那些用途的响应体
+// 自带格式，逐帧解析器不适用。已经缓冲的字节不会丢失——返回的是同一个带缓冲的
+// 读取器，因此调用方从流的第一个字节读起。
+func (r *StreamReader) Raw() io.Reader { return r.reader }
 
 // Next 读下一帧。流正常结束时返回 io.EOF。
 func (r *StreamReader) Next() (StreamFrame, error) {

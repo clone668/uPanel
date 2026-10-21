@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"files: 参数不合法: path 含空段（重复的 '/' 或结尾的 '/'）"},"request_id":"1ab98db675740237ca173fa011ed13e4"}

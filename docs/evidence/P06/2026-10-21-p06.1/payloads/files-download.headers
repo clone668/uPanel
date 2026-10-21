@@ -1,0 +1,10 @@
+HTTP/1.1 200 OK
+Cache-Control: no-store
+Content-Disposition: attachment; filename="sshd_config"; filename*=UTF-8''sshd_config
+Content-Length: 27
+Content-Type: application/octet-stream
+X-Content-Type-Options: nosniff
+X-Request-Id: ff8056f7e61c14409221311de761daef
+X-Upanel-File-Version: v1-801-40120-1b-18e0762591a28ee4
+Date: Wed, 21 Oct 2026 06:02:35 GMT
+

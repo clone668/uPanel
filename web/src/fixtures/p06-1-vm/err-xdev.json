@@ -1,0 +1,1 @@
+{"error":{"code":"PATH_OUTSIDE_ROOT","message":"files: 路径越界: submount/inner.txt 跨出了文件根（符号链接指向根外、或根内还有未登记的子挂载）"},"request_id":"ae7226d171bfdb10e928be435f6ba151"}

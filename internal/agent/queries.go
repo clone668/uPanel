@@ -68,6 +68,16 @@ func (s *Server) handleQueries(w http.ResponseWriter, r *http.Request) {
 
 	result, err := q.Run(r.Context(), params)
 	if err != nil {
+		// 查询实现自己给出判决时（P06.1 起：文件模块的越界/不存在/非文本/版本冲突），
+		// 按它说的状态码与码回。压成 500 会让 Web 把它翻译成 AGENT_UNAVAILABLE，
+		// 于是“路径越界”显示成“代理不可用”——那是在骗调用方去查错地方。
+		if carrier, ok := statusCarrierOf(err); ok {
+			status, code := carrier.HTTPStatus()
+			s.opts.Logger.Warn("查询被拒绝", "query", req.Query, "status", status,
+				"code", code, "error", err, "request_id", httpx.RequestID(r))
+			httpx.WriteError(w, r, status, code, err.Error())
+			return
+		}
 		// 参数类错误（时间窗口、游标）是调用方的问题，必须是 400：
 		// 否则 Web 侧只能把它当成“代理不可用”，把用户的参数错误报成 503。
 		// 查询实现用 ErrParamsInvalid 表达这一点（见 logsquery.go）。

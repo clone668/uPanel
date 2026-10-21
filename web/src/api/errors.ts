@@ -69,6 +69,24 @@ const SERVER_HINTS: Record<string, ErrorPresentation> = {
     canRetry: false,
     needsLogin: false,
   },
+  PATH_OUTSIDE_ROOT: {
+    title: '路径越界',
+    hint: '面板只访问已登记文件根内的普通路径：不跟随符号链接、不跨挂载点、不接受绝对路径与 ".."。',
+    canRetry: false,
+    needsLogin: false,
+  },
+  ROOT_UNAVAILABLE: {
+    title: '文件根不可用',
+    hint: '根目录不存在、身份变了，或它所在的挂载已不在。检查挂载后重新载入代理配置。',
+    canRetry: true,
+    needsLogin: false,
+  },
+  FILE_NOT_TEXT: {
+    title: '不是文本文件',
+    hint: '这个文件不是 UTF-8 文本（含 NUL 字节也算），请改用下载查看原始内容。',
+    canRetry: false,
+    needsLogin: false,
+  },
   VALIDATION_ERROR: {
     title: '参数不合法',
     hint: '请检查输入内容后重试。',

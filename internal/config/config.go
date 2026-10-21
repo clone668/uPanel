@@ -18,9 +18,11 @@ import (
 	"net"
 	"os"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"upanel/internal/httpx"
 	"upanel/internal/logging"
@@ -102,6 +104,35 @@ type Agent struct {
 	Services Services `json:"services"`
 	// Logs 是日志模块的配置（P05.3）。
 	Logs Logs `json:"logs"`
+	// Files 是文件模块的配置（P06.1）。
+	Files Files `json:"files"`
+}
+
+// Files 是文件管理模块配置（P06.1）。
+//
+// Roots 是**唯一**允许访问的受管理文件根：CONTRACTS.md 第 11 节要求文件 API 的一切
+// 路径都落在某个已登记的根之内，面板不提供“服务器任意目录”的入口。因此这份配置是
+// 白名单而不是默认值——留空意味着“没有可管理的目录”，不是“整个文件系统”。
+type Files struct {
+	// Roots 是登记的文件根。允许为空；空表示本机没有开放文件管理。
+	Roots []FileRoot `json:"roots"`
+}
+
+// FileRoot 是一个受管理的文件根。
+//
+// Path 必须是运维在配置文件里写下的绝对路径：面板不会按请求里的路径去“猜”根，
+// 根只能来自 root:root 0600 的配置文件（PLAN.md 第 4 节）。
+type FileRoot struct {
+	// ID 是请求里使用的稳定标识（小写字母开头，允许数字、下划线与连字符）。
+	ID string `json:"id"`
+	// Name 是界面上显示的名字。
+	Name string `json:"name"`
+	// Path 是根的绝对路径。
+	Path string `json:"path"`
+	// Writable 表示该根允许写入（P06.2 起的上传/修改用它做门槛）。
+	// P06.1 只有只读操作，因此这个字段当前不影响任何行为——但它必须如实登记，
+	// 否则界面会给出“可写”的错误暗示。
+	Writable bool `json:"writable"`
 }
 
 // Logs 是日志模块配置（P05.3）。
@@ -357,7 +388,75 @@ func (a Agent) Validate() error {
 	if err := a.Logs.Validate(); err != nil {
 		return err
 	}
+	if err := a.Files.Validate(); err != nil {
+		return err
+	}
 	return a.Services.Validate()
+}
+
+// fileRootIDPattern 是文件根 id 的允许形态（与代理登记表的名字规则独立：
+// 根 id 出现在 URL 查询参数里，不需要点分，但同样只接受小写与数字）。
+var fileRootIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
+
+// Validate 校验文件模块配置。
+//
+// 这里拒绝三类“看起来能跑但会毁掉边界”的配置：
+//   - 重复 id（同一个 id 指向两个目录时，请求根本无法表达要哪一个）；
+//   - 路径不是绝对路径、或含 ".." 之类的段（配置写成相对路径时，最终解析取决于进程 cwd，
+//     重启后可能指向别处）；
+//   - 根路径为 "/"：那等于把整个文件系统登记成一个根，正是“可管理整个服务器所有目录”。
+//     要开放某个目录，就明确写它。
+func (f Files) Validate() error {
+	seen := make(map[string]bool, len(f.Roots))
+	for i, root := range f.Roots {
+		field := fmt.Sprintf("agent.files.roots[%d]", i)
+		if !fileRootIDPattern.MatchString(root.ID) {
+			return fmt.Errorf("%s.id 不合法（应为小写字母开头、只含小写字母/数字/下划线/连字符，最多 32 字符），当前为 %q",
+				field, root.ID)
+		}
+		if seen[root.ID] {
+			return fmt.Errorf("%s.id 重复：%q 已经被另一个文件根使用", field, root.ID)
+		}
+		seen[root.ID] = true
+		if err := root.Validate(field); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Validate 校验单个文件根。
+func (r FileRoot) Validate(field string) error {
+	name := strings.TrimSpace(r.Name)
+	if name == "" {
+		return fmt.Errorf("%s.name 不能为空", field)
+	}
+	if utf8.RuneCountInString(name) > 64 {
+		return fmt.Errorf("%s.name 最多 64 个字符", field)
+	}
+	for _, runeValue := range name {
+		if runeValue < 0x20 || runeValue == 0x7f {
+			return fmt.Errorf("%s.name 含有控制字符", field)
+		}
+	}
+	if r.Path == "" {
+		return fmt.Errorf("%s.path 不能为空", field)
+	}
+	if !path.IsAbs(r.Path) {
+		return fmt.Errorf("%s.path 必须是 POSIX 绝对路径，当前为 %q", field, r.Path)
+	}
+	if strings.ContainsAny(r.Path, "?#\x00") {
+		return fmt.Errorf("%s.path 不能包含 '?'、'#' 或 NUL，当前为 %q", field, r.Path)
+	}
+	if path.Clean(r.Path) != r.Path {
+		return fmt.Errorf("%s.path 必须是规范化路径（不含 '.'、'..'、重复或结尾的 '/'），当前为 %q",
+			field, r.Path)
+	}
+	if r.Path == "/" {
+		return fmt.Errorf("%s.path 不能是根目录 '/': 那等于把整个服务器文件系统登记成一个文件根；"+
+			"请登记具体目录", field)
+	}
+	return nil
 }
 
 // Validate 校验日志模块配置。与 Services 同理：只校验路径，

@@ -1,0 +1,1 @@
+{"error":{"code":"PATH_OUTSIDE_ROOT","message":"files: 路径越界: path 必须是根内相对路径，不接受绝对路径 \"/etc/passwd\""},"request_id":"8d299dd04971dfd637ea4724456402d7"}

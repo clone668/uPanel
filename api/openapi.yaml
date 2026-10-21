@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: uPanel API
-  version: 0.0.0-p05.3
+  version: 0.0.0-p06.1
   summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
   description: |
     uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。
@@ -23,7 +23,7 @@ info:
     name: Proprietary
     identifier: LicenseRef-Proprietary
 x-upanel-contract-status:
-  stage: P05.3
+  stage: P06.1
   implemented_paths:
     - get /api/v1/health/live
     - head /api/v1/health/live
@@ -52,6 +52,10 @@ x-upanel-contract-status:
     - get /api/v1/processes
     - get /api/v1/logs
     - get /api/v1/logs/stream
+    - get /api/v1/files/roots
+    - get /api/v1/files/list
+    - get /api/v1/files/text
+    - get /api/v1/files/download
   note: 只列出已实现并通过验收的接口；未实现模块不出现在 paths 中。
 servers:
   - url: https://127.0.0.1:9443/api/v1
@@ -1631,6 +1635,341 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/files/roots:
+    get:
+      operationId: listFileRoots
+      summary: 受管理文件根（仅 admin）
+      description: |
+        CONTRACTS.md 第 11 节（P06.1 起），权限 admin。整组文件接口都是 admin：
+        文件内容就是服务器内容（配置里的凭据、别人的数据、应用日志），PLAN.md 第 15 节
+        把文件管理列为管理员能力，viewer 在这里得到 403，而不是“去掉几行的只读视图”。
+
+        返回的是**配置文件里登记的根**，不是文件系统里的挂载点。它同时是“当前能管理
+        什么”的唯一来源：请求里没有任何绝对路径字段，只有 root_id 与根内相对路径；
+        未登记的 root_id 是 404，不会退回到“按路径找找看”。
+
+        `agent.files.roots[i].path` 不能是 `/`——那等于把整个服务器文件系统登记成一个
+        文件根，配置校验直接拒绝并让代理启动失败，错误信息指向该字段。界面能管理的
+        范围因此在数据上就只有一个根列表。
+
+        capacity 为 null 表示本次没读出来，原因见 capacity_error；**null 不是
+        “0 字节可用”**，界面不得显示成磁盘满。available=false 的根显示成不可用，
+        不是显示成空目录。没有登记任何根时返回 `roots: []`，界面据此说“尚未配置
+        文件根”，而不是渲染一个空下拉框。
+      tags: [files]
+      responses:
+        '200':
+          description: 已登记的文件根列表。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/FileRootsData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/files/list:
+    get:
+      operationId: listDirectory
+      summary: 列目录（仅 admin）
+      description: |
+        CONTRACTS.md 第 11 节（P06.1 起），权限 admin。在根句柄上按 openat2 解析
+        （RESOLVE_BENEATH|RESOLVE_NO_MAGICLINKS|RESOLVE_NO_XDEV|RESOLVE_NO_SYMLINKS），
+        不跟随 symlink，也不跨入根下的其它挂载。
+
+        path 是根内相对路径，空串表示根自身；绝对路径与 `..` 段一律拒绝（422
+        PATH_OUTSIDE_ROOT），不接受“先规范化再放行”——规范化会把越界意图抹掉。
+        形状问题（空段、`.` 段、超长、非法 UTF-8、NUL）是 400 VALIDATION_ERROR。
+
+        entries 的 type 是闭集 file|dir|symlink|other；mode 是四位八进制字符串
+        （`"0644"`，不是 400）；size_bytes 是十进制字符串；owner 只给数字 uid/gid，
+        不查账号名（一次列举不该为了显示名字把请求挂在 NSS 上）。symlink 的 version
+        与 mtime 描述链接本身，不描述目标。other 覆盖设备、FIFO、socket：能列出，
+        绝不被读取。
+
+        分页是键集分页：cursor 是上一页最后一个 name，下一页从它之后开始（不是
+        offset）；页大小固定 200，因此同一个游标总是同一个起点。next_cursor 为 null
+        表示没有下一页（与 /jobs、/logs、/users 一致），不是空串。
+
+        单次列举最多扫 50 000 个名字，超出时 truncated=true：这是“列出的不是全部”，
+        界面必须说明，不得当成完整列表。
+      tags: [files]
+      parameters:
+        - $ref: '#/components/parameters/FilesRootID'
+        - $ref: '#/components/parameters/FilesPath'
+        - $ref: '#/components/parameters/FilesCursor'
+      responses:
+        '200':
+          description: 一页目录项。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/FileListPage'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          description: 参数形状不合法（VALIDATION_ERROR）或目标不是目录。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: root_id 未登记，或根内没有这个路径（NOT_FOUND）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 根此刻不可用（ROOT_UNAVAILABLE）：目录不存在、被重新挂载或身份与登记时不一致。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: 路径越界或不被策略接受（PATH_OUTSIDE_ROOT）：绝对路径、`..`、符号链接、跨挂载。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '501':
+          description: 平台没有 openat2 这套解析机制（NOT_IMPLEMENTED），拒绝真实文件操作而不是退化比较字符串。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/files/text:
+    get:
+      operationId: readFileText
+      summary: 读 UTF-8 文本（仅 admin）
+      description: |
+        CONTRACTS.md 第 11 节（P06.1 起），权限 admin。打开方式固定
+        `O_NOFOLLOW|O_NONBLOCK`，打开后对**同一个句柄** fstat：必须是普通文件、
+        nlink 必须为 1、dev 必须等于根所在的 dev、大小不超过 1 MiB，version 也取自
+        这一次 stat。因此“检查的是不是被读的那一份”没有中间窗口。
+
+        expected_version 可选：非空时必须与句柄上的 version 一致，否则 409
+        VERSION_CONFLICT。P06.1 只是读，但它让“版本在句柄上核验”这句话可以被验证，
+        而不是只能被相信。
+
+        内容必须是合法 UTF-8 且不含 NUL，否则 422 FILE_NOT_TEXT——二进制不是文本，
+        不猜编码、不做替换字符降级。上限 1 MiB 超出为 413。
+
+        version 的形状是 `v1-<dev>-<ino>-<size>-<mtime 纳秒>`（十六进制）。它不是哈希，
+        不承诺跨挂载稳定，客户端不得解析或推算。
+      tags: [files]
+      parameters:
+        - $ref: '#/components/parameters/FilesRootID'
+        - $ref: '#/components/parameters/FilesFilePath'
+        - $ref: '#/components/parameters/FilesExpectedVersion'
+      responses:
+        '200':
+          description: 文本内容与句柄版本。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/FileTextData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          description: 参数形状不合法（VALIDATION_ERROR），或目标不是普通文件。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: root_id 未登记，或根内没有这个路径（NOT_FOUND）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 根不可用（ROOT_UNAVAILABLE）或 expected_version 不匹配（VERSION_CONFLICT）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: 文件超过 1 MiB 文本上限（VALIDATION_ERROR）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: |
+            路径越界（PATH_OUTSIDE_ROOT）、有多个硬链接（同样归 PATH_OUTSIDE_ROOT：
+            这个 inode 在根外可能还有别的名字），或内容不是 UTF-8 文本（FILE_NOT_TEXT）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/files/download:
+    get:
+      operationId: downloadFile
+      summary: 流式下载普通文件（仅 admin）
+      description: |
+        CONTRACTS.md 第 11 节（P06.1 起），权限 admin。响应体是文件**原始字节**，
+        不是 JSON：代理先写一行 JSON 头（name、size_bytes、version、mtime）再写字节，
+        Web 侧按该头设置 Content-Length 并把字节原样转发，因此头里描述的就是这一份
+        字节，不会出现“头说 100 字节、实际 0 字节”的错位。
+
+        固定响应头：Content-Type `application/octet-stream` 与
+        X-Content-Type-Options `nosniff`（浏览器永远不把这里的内容当成 HTML/脚本渲染）、
+        Cache-Control `no-store`、Content-Disposition `attachment` 且同时给 ASCII
+        退化名与 RFC 5987 的 UTF-8 名（控制字符丢弃、引号与反斜杠替换，响应头里不会
+        出现换行）。X-UPanel-File-Version 带本次下载的 version，前端据此判断“下载的是
+        不是列表里那一份”。
+
+        被拒绝的下载返回 JSON 错误信封（application/json），绝不是 octet-stream——
+        否则浏览器会把错误当文件存下来。中途失败时响应头已经发出，浏览器看到的是
+        “文件没下完”，而不是一段被当成文件内容的错误 JSON；服务端如实记日志。
+      tags: [files]
+      parameters:
+        - $ref: '#/components/parameters/FilesRootID'
+        - $ref: '#/components/parameters/FilesFilePath'
+        - $ref: '#/components/parameters/FilesExpectedVersion'
+      responses:
+        '200':
+          description: 文件原始字节。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+            X-UPanel-File-Version:
+              $ref: '#/components/headers/FileVersion'
+            Content-Disposition:
+              description: 'attachment，含 ASCII 退化名与 RFC 5987 的 UTF-8 名。'
+              required: true
+              schema:
+                type: string
+            Cache-Control:
+              description: 固定 `no-store`。
+              required: true
+              schema:
+                type: string
+                enum: ['no-store']
+            X-Content-Type-Options:
+              description: 固定 `nosniff`。
+              required: true
+              schema:
+                type: string
+                enum: [nosniff]
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: root_id 未登记，或根内没有这个路径（NOT_FOUND）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 根不可用（ROOT_UNAVAILABLE）或 expected_version 不匹配（VERSION_CONFLICT）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: 路径越界（PATH_OUTSIDE_ROOT），或目标有多个硬链接（同样归 PATH_OUTSIDE_ROOT）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
 
 components:
   securitySchemes:
@@ -1780,6 +2119,57 @@ components:
         minimum: 1
         maximum: 1000
         default: 100
+    FilesRootID:
+      name: root_id
+      in: query
+      required: true
+      description: 已登记的文件根标识。未登记的值是 404，不会退回按路径查找。
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 32
+        pattern: '^[a-z0-9_-]+$'
+    FilesPath:
+      name: path
+      in: query
+      required: false
+      description: |
+        根内相对路径，空串（省略）表示根自身。绝对路径与 `..` 段返回 422
+        PATH_OUTSIDE_ROOT；空段、`.` 段、超长、非法 UTF-8、NUL 返回 400。
+      schema:
+        type: string
+        maxLength: 4096
+        default: ''
+    FilesFilePath:
+      name: path
+      in: query
+      required: true
+      description: |
+        根内相对路径，必须指向某个文件：空串不合法。校验规则同 list 的 path。
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 4096
+    FilesCursor:
+      name: cursor
+      in: query
+      required: false
+      description: 上一页返回的 next_cursor（即那一页最后一个目录项的名字），不透明。
+      schema:
+        type: string
+        maxLength: 255
+    FilesExpectedVersion:
+      name: expected_version
+      in: query
+      required: false
+      description: |
+        期望的文件版本，形如 `v1-1a2b-3c4d-1f-18e075887956155a`。非空时必须与句柄上
+        stat 得到的版本一致，否则 409 VERSION_CONFLICT。
+      schema:
+        type: string
+        maxLength: 128
+        pattern: '^[0-9a-z-]+$'
+
 
   headers:
     RequestId:
@@ -1789,6 +2179,13 @@ components:
         type: string
         minLength: 8
         maxLength: 64
+    FileVersion:
+      description: 本次响应对应的文件版本（`v1-<dev>-<ino>-<size>-<mtime 纳秒>`，十六进制）。
+      required: true
+      schema:
+        type: string
+        pattern: '^v1-[0-9a-f]+-[0-9a-f]+-[0-9a-f]+-[0-9a-f]+$'
+
 
   schemas:
     RequestId:
@@ -3588,6 +3985,167 @@ components:
       format: date-time
       pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$'
       description: RFC 3339 UTC 时间，或 null 表示没有值（例如从未启动过）。
+
+    FileVersionString:
+      type: string
+      pattern: '^v1-[0-9a-f]+-[0-9a-f]+-[0-9a-f]+-[0-9a-f]+$'
+      description: |
+        文件版本：`v1-<dev 十六进制>-<ino 十六进制>-<size 十六进制>-<mtime 纳秒十六进制>`。
+        它不是哈希，也不承诺跨挂载稳定；客户端不得解析、拼接或推算它，只能原样回传。
+
+    FileRootCapacity:
+      type: object
+      additionalProperties: false
+      required: [total_bytes, available_bytes, used_percent, collected_at]
+      properties:
+        total_bytes:
+          $ref: '#/components/schemas/ByteString'
+        available_bytes:
+          $ref: '#/components/schemas/ByteString'
+        used_percent:
+          $ref: '#/components/schemas/Percent'
+        collected_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
+    FileRoot:
+      type: object
+      additionalProperties: false
+      required: [root_id, name, path, writable, available, capacity]
+      properties:
+        root_id:
+          type: string
+          pattern: '^[a-z0-9_-]{1,32}$'
+        name:
+          type: string
+          maxLength: 64
+          description: 界面显示名，来自配置。
+        path:
+          type: string
+          description: 根的绝对路径，只读展示。它不能是 `/`（配置校验直接拒绝）。
+        writable:
+          type: boolean
+          description: 配置上是否允许写。P06.1 只提供读取，写能力在后续子任务开放。
+        available:
+          type: boolean
+          description: |
+            此刻是否可用。false 时界面显示“不可用”，不得显示成空目录。
+        unavailable_reason:
+          type: string
+          description: 不可用的原因（目录不存在、被重新挂载、身份与登记时不一致）。
+        mount_point:
+          type: string
+          description: 根实际所在的挂载点（来自 /proc/self/mountinfo）。
+        fs_type:
+          type: string
+          description: 文件系统类型，如 ext4、xfs、btrfs。
+        capacity:
+          oneOf:
+            - $ref: '#/components/schemas/FileRootCapacity'
+            - type: 'null'
+          description: |
+            文件系统容量。null 表示本次没读出来（原因见 capacity_error），
+            **不是 0 字节可用**；界面不得把 null 显示成磁盘满。
+        capacity_error:
+          type: string
+          description: capacity 为 null 时的原因。
+
+    FileRootsData:
+      type: object
+      additionalProperties: false
+      required: [roots]
+      properties:
+        roots:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileRoot'
+
+    FileEntryOwner:
+      type: object
+      additionalProperties: false
+      required: [uid, gid]
+      properties:
+        uid:
+          type: integer
+          minimum: 0
+        gid:
+          type: integer
+          minimum: 0
+
+    FileEntry:
+      type: object
+      additionalProperties: false
+      required: [name, type, size_bytes, mode, owner, mtime, version]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: 目录项名字，不含 `/`。
+        type:
+          type: string
+          enum: [file, dir, symlink, other]
+          description: |
+            闭集。symlink 不跟随；other 覆盖设备、FIFO、socket——能列出，绝不被读取。
+        size_bytes:
+          $ref: '#/components/schemas/ByteString'
+        mode:
+          type: string
+          pattern: '^[0-7]{4}$'
+          description: 四位八进制权限位，如 `"0644"`（不是十进制 400）。
+        owner:
+          $ref: '#/components/schemas/FileEntryOwner'
+        mtime:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        version:
+          $ref: '#/components/schemas/FileVersionString'
+
+    FileListPage:
+      type: object
+      additionalProperties: false
+      required: [root_id, path, entries, next_cursor, truncated]
+      properties:
+        root_id:
+          type: string
+        path:
+          type: string
+          description: 规范化后的根内相对路径；根自身是空串。
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileEntry'
+        next_cursor:
+          type: [string, 'null']
+          description: |
+            下一页的游标，值为本页最后一个目录项的名字。null 表示没有下一页
+            （不是空串）。原样回传到 `cursor` 参数。
+        truncated:
+          type: boolean
+          description: |
+            本次列举撞上了 50 000 个名字的扫描上限：列出的不是全部。
+            界面必须说明，不得当成完整列表。
+
+    FileTextData:
+      type: object
+      additionalProperties: false
+      required: [root_id, path, version, size_bytes, encoding, content]
+      properties:
+        root_id:
+          type: string
+        path:
+          type: string
+        version:
+          $ref: '#/components/schemas/FileVersionString'
+        size_bytes:
+          $ref: '#/components/schemas/ByteString'
+        encoding:
+          type: string
+          enum: [utf-8]
+        content:
+          type: string
+          maxLength: 1048576
+          description: UTF-8 文本，不含 NUL；超过 1 MiB 的文件不返回文本（413）。
+
+
   responses:
     BadRequest:
       description: 语法或参数错误（400）。

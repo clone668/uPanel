@@ -1,0 +1,1 @@
+{"error":{"code":"PATH_OUTSIDE_ROOT","message":"files: 路径越界: link-secret 是符号链接，面板不跟随符号链接"},"request_id":"43ee7006ae1f89c5a6c9ff7c7ebd0c4a"}

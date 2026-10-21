@@ -5,7 +5,7 @@
 //   - 字节数等大计数器是十进制字符串，不用 number 承载；
 //   - 服务端错误码是封闭枚举，前端按 code 分支，不按 message 分支。
 
-/** 服务端错误码（CONTRACTS.md 第 1 节的封闭枚举，24 个）。 */
+/** 服务端错误码（CONTRACTS.md 第 1 节的封闭枚举，26 个）。 */
 export const SERVER_ERROR_CODES = [
   'VALIDATION_ERROR',
   'UNAUTHENTICATED',
@@ -31,6 +31,8 @@ export const SERVER_ERROR_CODES = [
   'COMMAND_FAILED',
   'OPERATION_INTERRUPTED',
   'ROLLBACK_FAILED',
+  'ROOT_UNAVAILABLE',
+  'FILE_NOT_TEXT',
 ] as const
 
 export type ServerErrorCode = (typeof SERVER_ERROR_CODES)[number]

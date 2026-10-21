@@ -1,0 +1,17 @@
+== go build ./...
+exit=0
+
+== go vet ./...
+exit=0
+
+== GOOS=linux GOARCH=amd64 go build ./...
+exit=0
+
+== GOOS=linux GOARCH=amd64 go vet ./...
+exit=0
+
+== gofmt -l ./cmd ./internal
+exit=0
+
+== go version
+go version go1.27.3 windows/amd64

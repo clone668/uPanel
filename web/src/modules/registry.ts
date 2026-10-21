@@ -47,7 +47,14 @@ export const MODULES: readonly ModuleDef[] = [
     summary:
       'systemd 服务单元与进程列表：状态、保护名单、启停/重启、开机启动与终止（经预检与任务）。',
   },
-  { key: 'files', label: '文件', path: '/files', implementedIn: null, summary: '文件浏览与受控下载' },
+  {
+    key: 'files',
+    label: '文件',
+    path: '/files',
+    implementedIn: 'P06.1',
+    summary:
+      '受管理文件根内的目录浏览、文本预览与受控下载：路径限定在根内，符号链接不跟随，写操作待后续阶段。',
+  },
   { key: 'terminal', label: '终端', path: '/terminal', implementedIn: null, summary: '受限 Web 终端' },
   {
     key: 'logs',

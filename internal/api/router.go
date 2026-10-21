@@ -108,6 +108,19 @@ func (s *Server) routes() *gin.Engine {
 		lg.GET("", s.handleLogs)
 		lg.GET("/stream", s.handleLogsStream)
 
+		// 文件管理（P06.1）：整组 admin（CONTRACTS.md 第 11 节）。
+		// 四个只读路由：列根、列目录、读文本、下载。上传与修改在 P06.2/P06.3，
+		// 走预检 → 任务链路，这里不提供“直接写文件”的入口。
+		//
+		// 下载是 GET（浏览器直接下载，同源 Cookie），与日志流一样不要求 CSRF 头：
+		// 它不改状态，且由会话 Cookie + 同源守卫界定来源。
+		fm := v1.Group("/files")
+		fm.Use(s.requireSession(), s.requireAdmin())
+		fm.GET("/roots", s.handleFileRoots)
+		fm.GET("/list", s.handleFileList)
+		fm.GET("/text", s.handleFileText)
+		fm.GET("/download", s.handleFileDownload)
+
 		// 系统写操作的统一入口（P03.1）：先预检，再由 POST /jobs 创建任务（P03.2）。
 		// 预检只读不写系统；再认证在**提交任务**时校验（按动作登记策略），不在预检阶段。
 		ops := v1.Group("/operations", s.auditRoute(audit.ActionOperationPreflight))

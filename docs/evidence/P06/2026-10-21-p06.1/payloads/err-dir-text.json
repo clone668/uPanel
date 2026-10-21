@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"files: 不是普通文件: sub 是目录，面板只读取普通文件"},"request_id":"58866e5c65717aac994bca1d1ec942f2"}

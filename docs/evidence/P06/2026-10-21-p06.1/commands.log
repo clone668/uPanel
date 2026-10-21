@@ -1,0 +1,139 @@
+# P06.1 实际执行的命令（按时间顺序）
+
+宿主为 Windows + Git Bash。Go 为 `C:\Program Files\Go\bin\go`（go1.27.3 windows/amd64）；
+前端固定在 `.nvmrc` 的 Node **v22.23.3**（`C:\Users\huxi\AppData\Local\nvm\v22.23.3`，
+宿主默认 node 是 v24.15.0，会让 `check.sh` 的 node-version 步失败）。
+VM 为 `upanel-2404`（`ssh -i H:/Code/vms/upanel-2404/id_ed25519 -p 2222 upanel@127.0.0.1`），
+VM 内**没有** Go 工具链，二进制都在宿主交叉编译后上传到 `/tmp/upanel-bin`。
+
+## 1. 代码写完后的第一轮门禁
+
+```sh
+export PATH="/c/Program Files/Go/bin:$PATH"
+gofmt -w cmd/upanel-web/main.go          # check.sh 报 gofmt:FAIL（internal/logging 与 internal/files 导入顺序）
+go build ./...            # exit=0
+go vet ./...              # exit=0
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...   # exit=0
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go vet ./...     # exit=0
+gofmt -l ./cmd ./internal # 无输出
+go test ./... -count=1    # 25 个包 ok（见 go-test.txt）
+```
+
+## 2. 前端与契约
+
+```sh
+export PATH="/c/Users/huxi/AppData/Local/nvm/v22.23.3:$PATH"
+node -v                                  # v22.23.3
+npm --prefix web run typecheck           # exit=0
+npm --prefix web run lint                # exit=0
+npm --prefix web run test                # 28 文件 / 406 用例 passed
+npm --prefix web run build               # dist 构建成功（内嵌进 upanel-web 用的是这一份）
+npx --yes @redocly/cli lint api/openapi.yaml   # valid，6 warning
+```
+
+openapi 因为两处 YAML 标点返工过一次：
+
+```sh
+# 1) description 里以反引号开头 → YAML 保留指示符，改为单引号包裹
+# 2) python 拼接时把换行吞掉，导致 "…从未启动过）。    FileVersionString:" 粘在一行
+python - <<'PY'   # 定位行号后重写
+PY
+npx --yes @redocly/cli lint api/openapi.yaml   # 再跑：valid
+```
+
+## 3. 交叉编译与上传
+
+```sh
+export PATH="/c/Program Files/Go/bin:$PATH"
+export GOOS=linux GOARCH=amd64 CGO_ENABLED=0
+mkdir -p .build/linux-amd64/tests
+cd .build/linux-amd64
+go build -o upanel-agent ../../cmd/upanel-agent
+go build -o upanel-web   ../../cmd/upanel-web
+go build -o upanelctl    ../../cmd/upanelctl
+go test -c -o tests/files.test ../../internal/files
+go test -c -o tests/api.test   ../../internal/api
+
+scp upanel-agent upanel-web upanelctl upanel@127.0.0.1:/tmp/upanel-bin/
+scp tests/files.test tests/api.test upanel@127.0.0.1:/tmp/upanel-bin/tests/
+tar czf - ../../tests/integration | ssh -i H:/Code/vms/upanel-2404/id_ed25519 -p 2222 upanel@127.0.0.1 \
+  'cd /tmp/upanel-bin/tests && tar xzf -'
+ssh -i H:/Code/vms/upanel-2404/id_ed25519 -p 2222 upanel@127.0.0.1 \
+  'chmod 0755 /tmp/upanel-bin/upanel-agent /tmp/upanel-bin/upanel-web /tmp/upanel-bin/upanelctl \
+   /tmp/upanel-bin/tests/*.test /tmp/upanel-bin/tests/integration/*.sh'
+```
+
+## 4. VM 真机验收（共 3 次完整运行）
+
+```sh
+# run 1 — 脚本自己漏拼端点，59 条“失败”是脚本问题（DECISIONS Q139）
+sudo BIN_DIR=/tmp/upanel-bin sh /tmp/upanel-bin/tests/integration/p06-1-files-acceptance.sh
+# → 大量非 200 断言失败，但请求全打到 /api/v1/files
+
+# 修脚本取数函数（端点必填）后 run 2 — 看到真实产品缺陷，修 3 条（Q136/Q137/Q138）
+sudo BIN_DIR=/tmp/upanel-bin sh /tmp/upanel-bin/tests/integration/p06-1-files-acceptance.sh
+
+# 修完 next_cursor（Q140）与前端 ApiErrorPanel，重编重传后 run 3 — 最终留档
+sudo BIN_DIR=/tmp/upanel-bin sh /tmp/upanel-bin/tests/integration/p06-1-files-acceptance.sh \
+  > p06-1-acceptance-2404.txt 2>&1
+# → PASS=115 FAIL=0 NOT RUN=0；载荷校验 PASS=6379 FAIL=0；exit=0
+```
+
+脚本每轮自建现场（`/var/tmp/upanel-accept-p06-1/`：普通文件、`link-secret`/`link-dir`/`link-magic`
+三种链接、硬链接、FIFO、>1 MiB 文件、250 个分页文件、`/dev/shm` 下 50 010 项的目录 + 其下嵌套 tmpfs、
+`flip` 根被 `mv` 替换），跑完清理。
+
+## 5. VM 原生测试二进制（同一份 Go 代码在 Linux 上）
+
+```sh
+sudo /tmp/upanel-bin/tests/files.test -test.v > native-files.txt 2>&1   # 54 PASS / 0 FAIL
+sudo /tmp/upanel-bin/tests/api.test          >> native-tests.txt 2>&1   # PASS
+# 合并成 native-tests.txt（见证据目录）
+```
+
+这一轮 `files.test` 是**单独**跑的：`scripts/run-native-tests.sh` 的包列表还没包含 `files`，
+本轮不改它（否则同一份 `native-tests.txt` 会对不上脚本版本），P06.2 开始前并入并重跑。
+
+## 6. 取回真实载荷
+
+```sh
+scp -r upanel@127.0.0.1:/var/tmp/upanel-accept-p06-1/payloads \
+  docs/evidence/P06/2026-10-21-p06.1/
+# 44 份：roots / roots-after / list 两页 / truncated / text×2 / 11 个错误信封 /
+#        download 头与二进制 / 能力表 / root-slash-rejected.txt
+# 其中 22 份复制成前端夹具（与证据目录逐字节相同，共 22 个文件）：
+#   files-roots.json  files-roots-after.json  files-list-root.json  files-list-page1.json
+#   files-list-page2.json  files-truncated.json  files-text-ok.json  files-text-version-ok.json
+#   files-download.headers  agent-capabilities.json
+#   err-{path-dotdot,symlink-text,not-text,nul-text,version-conflict,root-unavailable,
+#        too-large,unknown-root,viewer-list,magic-list,xdev,hardlink-text}.json
+cp docs/evidence/P06/2026-10-21-p06.1/payloads/<上列文件> web/src/fixtures/p06-1-vm/
+```
+
+## 7. 全量检查脚本（最终产物上重跑）
+
+```sh
+export PATH="/c/Program Files/Go/bin:/c/Users/huxi/AppData/Local/nvm/v22.23.3:$PATH"
+sh scripts/check.sh > check.txt 2>&1
+# → PASS 13 / FAIL 0 / NOT RUN 0
+#   明细: go-build go-vet go-test go-build-linux go-vet-linux gofmt node-version
+#         web-typecheck web-lint web-test web-build web-smoke openapi-lint 全 PASS
+```
+
+## 8. 证据整理与文档
+
+```sh
+# 环境事实（系统、内核、CPU/内存、账号、文件系统、boot 记录、openat2 能力）
+ssh … 'uname -a; . /etc/os-release; nproc; free -m; id upanel; id upanel-web; df -h / /dev/shm'
+ssh … 'systemctl --version; journalctl --list-boots; journalctl -b -1 -n 5 --no-pager'
+# 内核 6.8 支持 openat2 与四个 RESOLVE_*：结论按内核版本记录在 env.txt，
+# 没有单独跑能力探测命令；< 5.6 的回退分支因此是“未验证”（见 result.md §7）
+
+# 文档与契约
+#   docs/PROGRESS.md §1/§3/§5/§7、docs/CONTRACTS.md §11.1、docs/DECISIONS.md Q136—Q146、
+#   api/openapi.yaml（version 0.0.0-p06.1，stage P06.1，四条路径）
+git status
+git add -A
+git commit -m "feat(files): P06.1 受管理文件根与句柄级路径约束"
+git push origin main
+```

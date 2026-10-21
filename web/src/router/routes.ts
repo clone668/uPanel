@@ -64,6 +64,14 @@ export const appRoutes: readonly RouteRecordRaw[] = [
     meta: { moduleKey: 'logs' },
   },
   {
+    // 文件页只管理服务端登记的根；根与路径都是查询参数，不进 URL 路径段，
+    // 因此这里没有 :id 之类的动态段——页面内部用相对路径导航。
+    path: '/files',
+    name: 'files',
+    component: () => import('@/views/FilesView.vue'),
+    meta: { moduleKey: 'files' },
+  },
+  {
     path: '/jobs',
     name: 'jobs',
     component: () => import('@/views/JobsView.vue'),
