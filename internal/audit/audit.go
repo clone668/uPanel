@@ -47,6 +47,14 @@ const (
 	ActionJobCancel = "job.cancel"
 	// ActionJobManage 用于任务请求被中间件拒绝（管理员角色/CSRF）时记录的事件。
 	ActionJobManage = "job.manage"
+	// ActionTerminalAttach 是建立或尝试建立终端连接（P06.3）。
+	//
+	// 成功与被拒绝都记：后者（origin、protocol、grant、agent 四个阶段）是
+	// “有人试图连一个不属于他的会话”的唯一痕迹。详情只记会话元数据与
+	// 字节数量，不含终端内容。
+	ActionTerminalAttach = "terminal.attach"
+	// ActionTerminalClose 是主动关闭自己终端会话（CONTRACTS.md 第 10 节要求审计）。
+	ActionTerminalClose = "terminal.close"
 )
 
 // 结果枚举，与迁移里的 CHECK 约束一致。

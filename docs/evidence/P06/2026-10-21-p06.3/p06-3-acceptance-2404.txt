@@ -1,0 +1,336 @@
+== 0. 环境 ==
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  WebSocket 验收客户端存在
+PASS  依赖命令可用 python3
+PASS  依赖命令可用 curl
+PASS  依赖命令可用 runuser
+PASS  依赖命令可用 stat
+PASS  依赖命令可用 awk
+PASS  依赖命令可用 sed
+PASS  依赖命令可用 ss
+PASS  依赖命令可用 pgrep
+PASS  python3 版本 ≥ 3.6
+PASS  Web 账号 upanel-web 存在
+PASS  终端账号 upanel-shell 存在
+PASS  终端账号不是 root
+PASS  终端账号的属组只有它自己（不在 sudo/docker/disk 里）
+PASS  终端账号的 shell 是 /bin/bash
+PASS  终端 home 权限是 0750
+PASS  终端 home 属主
+
+== 1. 配置与启动（代理 root、Web 非 root、终端能力已登记） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理密钥文件对其他人不可读
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  能力表登记了动作 terminal.create
+PASS  能力表登记了查询 terminal.sessions
+PASS  能力表没有登记任何“执行命令”类能力
+      代理登记的动作数：11
+      代理登记的查询数：10
+PASS  代理日志记录了终端启用
+      代理日志：{"time":"2026-10-21T09:34:18.012437643Z","level":"INFO","msg":"已启用受限终端","program":"upanel-agent","account":"upanel-shell","account_uid":995,"account_gid":986,"home":"/var/lib/upanel-shell","shell":"/bin/bash","idle_timeout":"1
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19463 启动
+PASS  监听 19463 的 Web 进程不是 root（pid=35295 uid=999）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+PASS  从 cookie 罐里取到会话值
+PASS  创建 viewer 账号
+PASS  创建第二个管理员账号
+PASS  创建第三个管理员账号
+PASS  viewer 登录
+PASS  admin2 登录
+PASS  admin3 登录
+plans: ['frame-empty.json', 'frame-huge.json', 'frame-json.json', 'frame-output.json', 'frame-run.json', 'frame-size.json', 'grace-abort.json', 'grace-reattach.json', 'hold.json', 'identity.json', 'idle.json', 'maxduration.json', 'probe.json', 'ratelimit.json', 'resize.json']
+PASS  客户端计划文件已生成
+      标记串：p06mark-a5f3c5d329（只应出现在终端里，不应出现在审计或日志里）
+
+== 2. 权限：匿名 401、viewer 403（列表/领许可/连/关） ==
+PASS  匿名列会话 401
+PASS  匿名列会话的错误码
+PASS  viewer 列会话 403
+PASS  viewer 列会话的错误码
+PASS  viewer 领连接许可 403
+PASS  viewer 连终端 403
+PASS  viewer 关会话 403
+PASS  viewer 关会话的错误码
+
+== 3. terminal.create：预检 → 未再认证被拒 → 再认证 → 任务 ==
+PASS  创建终端预检 200
+PASS  预检允许（账号与数量都还有位置）
+PASS  预检要求再认证
+PASS  预检不要求确认短语
+PASS  impact 是 interactive_access
+PASS  目标身份写明是 upanel-shell
+PASS  impact 文案说明这不是 root 终端
+PASS  未再认证提交终端创建：403
+PASS  未再认证的错误码
+PASS  被拒的提交没有产生任务
+PASS  再认证
+PASS  再认证后同一份预检可以执行
+PASS  任务结果 outcome 是 verified
+PASS  结果的账号
+PASS  结果的 uid 与账号一致
+PASS  结果的初始状态是 detached
+PASS  读回的 cols
+PASS  读回的 rows
+PASS  结果里的 session_id 与 observed_state 一致
+PASS  session_id 是 32 位小写十六进制
+PASS  结果带上了空闲时限（60 秒）
+PASS  结果带上了最长寿命（120 秒）
+      会话 id：b45bfeb98ae995129d4770f07cc116ff
+
+== 4. 会话列表与归属隔离 ==
+PASS  列会话 200
+PASS  列表里的账号
+PASS  列表里的 uid
+PASS  空闲时限
+PASS  最长寿命
+PASS  断流宽限
+PASS  每账号上限 1
+PASS  全局上限 2
+PASS  只有自己那一个会话
+PASS  会话状态是 detached
+PASS  还没连过，attached_at 为空
+PASS  会话的时限字段与全局一致
+PASS  admin2 看不到别人的会话
+PASS  admin2 领别人的会话许可 → 404
+PASS  404 的错误码
+PASS  admin2 关别人的会话 → 404
+PASS  不存在的会话 id（形状对）→ 404
+PASS  形状不对的会话 id → 404
+
+== 5. 一次性连接许可 ==
+PASS  领许可必须带 CSRF
+PASS  缺 CSRF 的错误码
+PASS  领许可 200
+PASS  许可是 32 位小写十六进制
+PASS  许可里写明了协议名
+PASS  许可子协议名是 upanel.grant.<id>
+PASS  connect_path 以 /connect 结尾
+PASS  connect_path 没有查询参数
+PASS  connect_path 里没有许可（许可不进 URL）
+PASS  许可的剩余有效期在 31 秒内
+0PASS  许可第一次使用 状态码 101
+PASS  许可第一次使用 协商到 upanel.term.v1
+PASS  许可第一次使用 accept 校验
+PASS  许可第一次使用时终端可用（2 条期望全部成立）
+0PASS  同一张许可再用一次 403
+PASS  复用许可的错误码
+
+== 6. 握手四道门：Origin → 子协议 → 许可 → 代理 ==
+0PASS  没有 Origin 的握手 403
+PASS  没有 Origin 的错误码
+0PASS  不在允许列表里的 Origin 403
+PASS  错误 Origin 的错误码
+0PASS  没声明子协议 400
+PASS  没声明子协议的错误码
+0PASS  有子协议但没有许可 403
+PASS  没有许可的错误码
+0PASS  伪造的许可 403
+PASS  伪造许可的错误码
+0PASS  两个许可令牌的畸形握手 403
+PASS  被拒绝的握手没有留下连接（会话仍是 detached）
+
+== 7. 连上之后真的是 upanel-shell（TERM-01） ==
+0PASS  身份连接 状态码 101
+PASS  身份连接 协商到 upanel.term.v1
+PASS  身份连接 accept 校验
+PASS  身份连接没有客户端侧错误
+PASS  终端里的身份与边界（16 条期望全部成立）
+PASS  ready 帧报告的账号
+PASS  ready 帧报告的 uid
+PASS  ready 帧报告的会话 id
+PASS  终端里没有一行是 uid 0
+PASS  终端里没有一行是 root
+PASS  探测文件没有被创建
+PASS  被拒绝的 run 帧没有执行任何东西
+PASS  连接结束后会话回到 detached
+
+== 8. 窗口调整真的到了 PTY ==
+0PASS  窗口调整连接 状态码 101
+PASS  窗口调整连接 协商到 upanel.term.v1
+PASS  窗口调整连接 accept 校验
+PASS  stty 读回的尺寸（3 条期望全部成立）
+
+== 9. 帧协议闭集：越界一律拒绝并断开 ==
+0PASS  frame-run 升级 状态码 101
+PASS  frame-run 升级 协商到 upanel.term.v1
+PASS  frame-run 升级 accept 校验
+PASS  frame-run 被拒（2 条期望全部成立）
+PASS  frame-run 之后连接被断开
+PASS  frame-run 的关闭码是 4001
+PASS  frame-run 之后会话还在（断流宽限）
+0PASS  frame-output 升级 状态码 101
+PASS  frame-output 升级 协商到 upanel.term.v1
+PASS  frame-output 升级 accept 校验
+PASS  frame-output 被拒（2 条期望全部成立）
+PASS  frame-output 之后连接被断开
+PASS  frame-output 的关闭码是 4001
+PASS  frame-output 之后会话还在（断流宽限）
+0PASS  frame-json 升级 状态码 101
+PASS  frame-json 升级 协商到 upanel.term.v1
+PASS  frame-json 升级 accept 校验
+PASS  frame-json 被拒（2 条期望全部成立）
+PASS  frame-json 之后连接被断开
+PASS  frame-json 的关闭码是 4001
+PASS  frame-json 之后会话还在（断流宽限）
+0PASS  frame-empty 升级 状态码 101
+PASS  frame-empty 升级 协商到 upanel.term.v1
+PASS  frame-empty 升级 accept 校验
+PASS  frame-empty 被拒（2 条期望全部成立）
+PASS  frame-empty 之后连接被断开
+PASS  frame-empty 的关闭码是 4001
+PASS  frame-empty 之后会话还在（断流宽限）
+0PASS  frame-size 升级 状态码 101
+PASS  frame-size 升级 协商到 upanel.term.v1
+PASS  frame-size 升级 accept 校验
+PASS  frame-size 被拒（2 条期望全部成立）
+PASS  frame-size 之后连接被断开
+PASS  frame-size 的关闭码是 4001
+PASS  frame-size 之后会话还在（断流宽限）
+PASS  越界帧的错误信息里不回显 base64 内容
+0PASS  超大帧连接 状态码 101
+PASS  超大帧连接 协商到 upanel.term.v1
+PASS  超大帧连接 accept 校验
+PASS  超过整帧上限：连接被断开
+PASS  超过整帧上限：会话仍可用
+PASS  没有任何东西被 100 KB 的输入执行
+
+== 10. 输入速率上限 ==
+0PASS  速率限制连接 状态码 101
+PASS  速率限制连接 协商到 upanel.term.v1
+PASS  速率限制连接 accept 校验
+PASS  一次发 400 帧
+PASS  超速率被拒（2 条期望全部成立）
+PASS  超速率之后连接被断开
+PASS  超速率的关闭码是 4002
+PASS  超速率之后会话还在宽限期里
+
+== 11. 单连接：已连接时再连一个 → 409 ==
+PASS  第一条连接确实连上了
+0PASS  第二条连接 409
+PASS  第二条连接的错误码
+PASS  第一条连接没有被踢掉
+0PASS  占用连接本身是好的 状态码 101
+PASS  占用连接本身是好的 协商到 upanel.term.v1
+PASS  占用连接本身是好的 accept 校验
+
+== 12. 断流宽限：宽限内重连接上同一个 PTY ==
+0PASS  断流前的连接 状态码 101
+PASS  断流前的连接 协商到 upanel.term.v1
+PASS  断流前的连接 accept 校验
+PASS  断流前设置变量（2 条期望全部成立）
+PASS  RST 之后会话进入 detached
+0PASS  宽限内重连 状态码 101
+PASS  宽限内重连 协商到 upanel.term.v1
+PASS  宽限内重连 accept 校验
+PASS  重连后变量还在（同一个 shell）（2 条期望全部成立）
+      宽限 10 秒：重连成功说明 PTY 没有被断流关掉
+
+== 13. 宽限到期：会话消失、shell 被回收 ==
+PASS  宽限到期后会话从表里消失
+PASS  关闭一个已经不存在的会话仍然成功（幂等）
+PASS  幂等关闭的响应
+PASS  关闭响应里的会话 id
+PASS  宽限到期后没有残留 shell 进程
+
+== 14. 空闲关闭（60 秒无输入） ==
+PASS  创建会话前再认证（再认证 5 分钟有效，慢段之后要重新做）
+PASS  再建一个会话
+      会话 id：a53dc9e4be87df4c8214fbd9e682e026
+0PASS  空闲连接 状态码 101
+PASS  空闲连接 协商到 upanel.term.v1
+PASS  空闲连接 accept 校验
+PASS  空闲到点收到 exit 帧（2 条期望全部成立）
+PASS  空闲结束的原因是 idle
+PASS  空闲结束后会话消失
+
+== 15. 最长会话（120 秒到点，即使一直有活动） ==
+PASS  创建会话前再认证（再认证 5 分钟有效，慢段之后要重新做）
+PASS  再建一个会话
+      会话 id：9c2b66037d1d31142b64abbbea847ba9（这一条要等 120 秒）
+0PASS  最长会话连接 状态码 101
+PASS  最长会话连接 协商到 upanel.term.v1
+PASS  最长会话连接 accept 校验
+PASS  最长到点收到 exit 帧（1 条期望全部成立）
+PASS  最长会话结束的原因是 expired
+PASS  最长会话结束后会话消失
+
+== 16. 数量上限：每账号 1、全局 2 ==
+PASS  创建会话前再认证
+PASS  admin1 建第 1 个会话
+PASS  admin1 的第 2 个会话：预检
+PASS  预检不允许
+PASS  阻塞项是 TERMINAL_SESSION_LIMIT
+PASS  阻塞项说明了上限
+PASS  admin2 再认证
+PASS  admin2 建会话（全局第 2 个）
+PASS  admin3 再认证
+PASS  admin3 建会话（全局第 3 个）任务失败
+PASS  全局上限的错误码是 RESOURCE_BUSY
+PASS  admin1 的会话仍在
+PASS  admin2 的会话仍在
+
+== 17. 关闭、幂等与元数据审计 ==
+PASS  reason 不在枚举内 → 400
+PASS  非法 reason 的错误码
+PASS  关闭必须带 CSRF
+PASS  关闭成功
+PASS  关闭响应 closed=true
+PASS  重复关闭仍然成功（幂等）
+PASS  关闭后会话从表里消失
+PASS  admin2 关闭自己的会话
+PASS  admin2 的会话也消失了
+审计行 48 条
+PASS  审计有 terminal.attach 的 connected 阶段
+PASS  审计记了握手中被拒的 origin 阶段
+PASS  审计记了握手中被拒的 protocol 阶段
+PASS  审计记了握手中被拒的 grant 阶段
+PASS  审计有 terminal.close
+PASS  至少有走完整握手的审计行
+PASS  审计 target 与会话 id 完全一致
+PASS  至少有握手中被拒的审计行
+PASS  握手中被拒的审计行也精确指向路径里的会话
+PASS  列表接口的拒绝不冒充某个会话
+PASS  审计里没有终端内容（标记串不出现）
+PASS  审计行没有超长字段（终端内容会很长）
+PASS  代理日志里没有终端内容（标记串不出现）
+PASS  Web 日志里没有终端内容（标记串不出现）
+
+== 18. 账号不可用：不登记能力，接口是 501 ==
+PASS  账号不可用时代理仍能启动
+PASS  代理日志说明了终端能力未启用
+PASS  能力表里没有 terminal.create
+PASS  能力表里没有 terminal.sessions
+PASS  Web 在账号不可用时仍能启动
+PASS  账号不可用时列会话是 501
+PASS  501 的错误码是 NOT_IMPLEMENTED
+PASS  账号不可用时领许可是 501
+PASS  账号不可用时创建动作未登记（预检 400）
+PASS  未登记动作的错误码
+PASS  恢复账号后代理重新启用终端
+PASS  Web 重新启动
+PASS  恢复后列会话 200
+PASS  恢复后没有遗留会话
+
+== 19. 回归：终端之外仍然正常 ==
+PASS  健康检查
+PASS  系统概要
+PASS  存储设备列表
+PASS  服务列表
+PASS  进程列表
+PASS  日志查询
+PASS  文件根列表
+PASS  任务列表
+PASS  没有残留的 upanel-shell shell 进程
+PASS  探测文件始终没有被创建
+
+== 20. 载荷归档 ==
+载荷 17 个，日志摘要 42 行 / 40 行
+PASS  载荷与日志摘要已归档（/var/tmp/upanel-accept-p06-3/payloads）
+
+通过 282 项，失败 0 项，未执行 0 项

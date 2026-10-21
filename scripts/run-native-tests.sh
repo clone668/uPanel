@@ -16,6 +16,12 @@ if [ ! -d "$TESTS" ]; then
     exit 2
 fi
 
+# 测试二进制是从开发宿主传过来的：scp 不带 -p 时按对端 umask 落地成 0644，执行位
+# 没了。不补这一步的话，下面每一条都会判成“缺少测试二进制”，看起来像根本没上传。
+for f in "$TESTS"/*.test; do
+    [ -f "$f" ] && chmod +x "$f" 2>/dev/null
+done
+
 # 解析器测试要读 tests/fixtures 里的真实采集样本。测试二进制跑在 /tmp，进程 cwd 不是
 # 源码树，"../../tests/fixtures" 在那里没有意义；所以先把夹具拷到二进制旁边，
 # 再用 UPANEL_FIXTURES 指给测试（查找逻辑见 internal/testsupport/fixtures.go）。
@@ -56,7 +62,12 @@ total_fail=0
 # files 必须在这里：它的用例（openat2 边界、暂存上传、备份清理、保留目录）全都
 # 打 //go:build linux，在开发宿主上连编译都不参与（-c 交叉编译只证明它能编过）。
 # 这一包的结论只能由本机给出——mock 通过不等于真实 Ubuntu 上通过。
-for name in agentstore agent agentclient operations syscmd store api files monitoring storage journal logs; do
+#
+# terminal 同理，而且理由更硬：它要真的 fork 一个 PTY、以 upanel-shell 降权、
+# 收到 SIGHUP、读回 /proc/<pid>/status 核对 uid/gid。这些在宿主上根本没有对应
+# 行为，交叉编译只能证明语法。会话生命周期、断流宽限、空闲/最长超时、帧协议
+# 与速率限制的结论全部来自这一行。
+for name in agentstore agent agentclient operations syscmd store api files terminal monitoring storage journal logs; do
     bin="$TESTS/$name.test"
     if [ ! -x "$bin" ]; then
         echo "缺少测试二进制: $bin" >&2

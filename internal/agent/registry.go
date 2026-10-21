@@ -377,6 +377,11 @@ func RegisterProductionQueries(reg *Registry, deps ProductionDeps) error {
 			}
 		}
 	}
+	if deps.Terminal != nil {
+		if err := reg.RegisterQuery(newTerminalSessionsQuery(deps.Terminal)); err != nil {
+			return fmt.Errorf("代理登记 terminal.sessions 失败: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -400,6 +405,13 @@ func RegisterProductionActions(reg *Registry, deps ProductionDeps) error {
 		// 只登记其中几个会让 capabilities 报告一组互相矛盾的入口。
 		if err := RegisterFileActions(reg, deps.FileWrites); err != nil {
 			return err
+		}
+	}
+	if deps.Terminal != nil {
+		// 动作与查询成对登记：没有 terminal.sessions 的 terminal.create 会造出
+		// 一个“开了就再也看不到、关不掉”的会话。
+		if err := reg.RegisterAction(newTerminalCreateAction(deps.Terminal)); err != nil {
+			return fmt.Errorf("代理登记 terminal.create 失败: %w", err)
 		}
 	}
 	return nil

@@ -1,0 +1,112 @@
+{
+ "url": "ws://127.0.0.1:19463/api/v1/terminal/sessions/9c2b66037d1d31142b64abbbea847ba9/connect",
+ "origin": "http://127.0.0.1:19463",
+ "protocols": [
+  "upanel.term.v1",
+  "upanel.grant.46278e434fbcacc25b653fcab9602189"
+ ],
+ "status": 101,
+ "status_line": "HTTP/1.1 101 Switching Protocols",
+ "headers": {
+  "upgrade": "websocket",
+  "connection": "Upgrade",
+  "sec-websocket-accept": "Z10iEtfdchb/2HaWNeLDX/k7pUs=",
+  "sec-websocket-protocol": "upanel.term.v1"
+ },
+ "subprotocol": "upanel.term.v1",
+ "accept_ok": true,
+ "body": "",
+ "frames": [
+  {
+   "type": "ready",
+   "cols": 100,
+   "rows": 30,
+   "session_id": "9c2b66037d1d31142b64abbbea847ba9",
+   "account": "upanel-shell",
+   "account_uid": 995,
+   "server_time": "2026-10-21T09:35:46Z"
+  },
+  {
+   "type": "output",
+   "data_b64": "DRtbSw11cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "DRtbSw11cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "DRtbSw11cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "DRtbSw11cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "DRtbSw11cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "DRtbSw11cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "DRtbSw11cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "DRtbSw11cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "DRtbSw11cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "DRtbSw11cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "DRtbSw11cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "DRtbSw11cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "DRtbSw11cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "exit",
+   "reason": "expired"
+  }
+ ],
+ "frame_counts": {
+  "ready": 1,
+  "output": 13,
+  "exit": 1
+ },
+ "output": "\r\u001b[K\rupanel-shell@upanel-2404:~$ \r\u001b[K\rupanel-shell@upanel-2404:~$ \r\u001b[K\rupanel-shell@upanel-2404:~$ \r\u001b[K\rupanel-shell@upanel-2404:~$ \r\u001b[K\rupanel-shell@upanel-2404:~$ \r\u001b[K\rupanel-shell@upanel-2404:~$ \r\u001b[K\rupanel-shell@upanel-2404:~$ \r\u001b[K\rupanel-shell@upanel-2404:~$ \r\u001b[K\rupanel-shell@upanel-2404:~$ \r\u001b[K\rupanel-shell@upanel-2404:~$ \r\u001b[K\rupanel-shell@upanel-2404:~$ \r\u001b[K\rupanel-shell@upanel-2404:~$ \r\u001b[K\rupanel-shell@upanel-2404:~$ ",
+ "output_bytes": 429,
+ "exit": {
+  "type": "exit",
+  "reason": "expired"
+ },
+ "errors": [],
+ "expectations": [
+  {
+   "name": "最长到点",
+   "kind": "frame",
+   "ok": true
+  }
+ ],
+ "close_code": 1000,
+ "duration_ms": 120363,
+ "error": null,
+ "accept_want": "Z10iEtfdchb/2HaWNeLDX/k7pUs=",
+ "accept_got": "Z10iEtfdchb/2HaWNeLDX/k7pUs=",
+ "close_payload": "\u0003�",
+ "closed_by_server": true
+}

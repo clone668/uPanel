@@ -368,7 +368,7 @@ domain 为一个不带协议/路径/端口的有效域名；初期不允许通�
 | GET /terminal/sessions/:id/connect | WebSocket；只允许创建者，握手 Origin 校验，创建许可单次使用 |
 | DELETE /terminal/sessions/:id | admin；关闭自己会话，审计 |
 
-terminal.create 任务完成后返回 session_id 和短期许可，连接许可通过 WebSocket 子协议的受控字段传递，禁止放 URL 查询参数/访问日志。握手后客户端只能发送 input 和 resize 两类结构化消息；cols/rows 限 1—500，单帧最大 64 KiB，总速率有限额。服务端返回 output 和 exit。二进制终端数据不经过普通 HTML 渲染。
+terminal.create 任务完成后返回 session_id 和会话元数据（不是短期许可——许可是单独签发的，见 10.4）。连接许可通过 WebSocket 子协议的受控字段传递，禁止放 URL 查询参数/访问日志。握手后客户端只能发送 input 和 resize 两类结构化消息；cols/rows 限 1—500，单帧最大 64 KiB，总速率有限额。服务端返回 output 和 exit。二进制终端数据不经过普通 HTML 渲染。
 
 ### 10.1 服务列表与单元（P05.1 起）
 
@@ -479,6 +479,66 @@ TERM 与 KILL 是**两次独立操作**，门槛不同：TERM 不需要再认证
 **资源回收。** 客户端断开、心跳写入失败或代理返回错误时，请求 ctx 结束，该 ctx 一路传到代理的 http 请求；代理看见连接断开即杀掉 journalctl 所在的进程组（`internal/syscmd`，进程组 kill + 2 秒 `WaitDelay`）。STAGES 第 7 阶段的验收条目“结束日志订阅不会残留无限 journalctl 子进程”验的就是这条链路，两半各有测试：代理侧 `syscmd.TestStreamContextCancelKills`、`journal.TestStreamClientClosedStops`，Web 侧 `api.TestLogsStreamReleasesOnDisconnect`。每个账号同时最多 4 条流（与任务事件流共用额度），超出返回 429。
 
 错误映射：参数问题（时间格式/先后/跨度、`level`/`source` 不在闭集、`unit` 形状、`limit` 越界、游标被拒）一律 400 `VALIDATION_ERROR`；代理不可用（未配置 socket、连接失败、本机没有 journald）503 `AGENT_UNAVAILABLE`。代理回的 400 原样转成 Web 的 400，代理回的 5xx 转成 503——只有代理能判的条件（例如 `to` 在未来）不能变成 Web 的 500。
+
+### 10.4 受限 Web 终端（P06.3 起）
+
+终端是**两条 WebSocket 加一个 PTY**：
+
+```
+浏览器 ──WS(upanel.term.v1 + upanel.grant.<id>)──► Web ──WS(upanel.term.v1)──► 代理 ──PTY──► upanel-shell
+```
+
+PTY 只存在于代理进程里，`fork` 之后、`exec` 之前降权到终端账号（`setgroups` 清空附加组 → `setgid` → `setuid`），并从 `/proc/<pid>/status` 读回真实/有效 uid、gid 与附加组核对；任何一项不符就杀掉子进程并让这次创建失败。Web 进程从头到尾不接触 PTY：它不认识 `input` 帧的内容，也不知道终端里发生了什么。
+
+**会话是代理进程内的对象，不是任务。** `terminal.create` 的预检 → 任务链路只负责“开一个会话”，任务在会话创建完成时就 `succeeded`；会话此后的生命周期（连接、断开、空闲、到期、关闭）不进任务中心。把两者绑在一起会得到一个“任务一直运行到终端关闭”的假象，而任务中心的状态机表达不了“一条连接正在被使用”。
+
+**会话状态**只有两个：`detached`（PTY 在、没有连接）与 `attached`（一条连接正连着）。同一个会话同时只允许一条连接，第二条在握手前得到 409 `RESOURCE_BUSY`——不是把第一条踢掉，也不是两个窗口共享一个 PTY（那会让两边的光标互相打架）。
+
+**三个时限，配置只能收紧。** 空闲关闭 60—900 秒（默认 900）、单会话最长 60—3600 秒（默认 3600）、断流宽限 5—60 秒（默认 60）；`config` 的 `Validate` 只接受落在区间内的值，放宽会被启动拒绝。数量上限的契约值是每账号 1 个、全局 2 个，配置同样只能收紧。空闲计时看的是**最后一次活动**（输入、窗口调整、以及一次成功的重连），不是最后一次输出——`tail -f` 那种一直有输出但没人碰键盘的会话仍然会被判定为空闲。
+
+**断流不等于结束。** 连接掉了（关页面、浏览器崩溃、网线被拔）之后会话进入 `detached`，PTY 与 shell 进程都留着，宽限期内重连接上的是**同一个 shell**（导出的变量、当前目录都还在）。宽限期到了才结束会话并回收子进程；结束原因是闭集 `user`、`exit`、`idle`、`expired`、`disconnect`。断开期间 PTY 的输出照常被读走并丢弃——留下来的只有 PTY 自己那点缓冲，不做无限攒。
+
+**“回收”指 shell 进程真的没了，不只是从会话表里消失。** 会话结束（到期、空闲、宽限到期、用户关闭、代理停机）时必须显式挂断这个 tty 的进程组：只关 master 不足以让子进程收到 SIGHUP——读泵正阻塞在该 master 的 `read` 上，`close(2)` 要等那次 read 返回，tty 因此不会被释放。判定标准是 `pgrep -u upanel-shell` 归零、`/proc/<pid>` 消失，而不是接口返回 4xx/2xx。子进程不理会 SIGHUP 时由代理补 `SIGKILL`；发信号前必须核对 `/proc/<pid>/stat` 的 ppid 与 starttime，确认这个 pid 仍是自己的子进程（pid 被回收后可能复用）。
+
+**帧协议。** 握手协商出的子协议必须是 `upanel.term.v1`；升级之后两个方向都只发文本帧，内容是 JSON，字段是**闭集**（多一个未知字段即拒绝）：
+
+| 方向 | type | 字段 | 说明 |
+|---|---|---|---|
+| 客户端→服务端 | `input` | `data_b64` | 键盘输入（base64），解码后 ≤64 KiB |
+| 客户端→服务端 | `resize` | `cols`、`rows` | 窗口尺寸，1—500 |
+| 服务端→客户端 | `ready` | `session_id`、`account`、`account_uid`、`cols`、`rows`、`server_time` | 连上之后的第一帧 |
+| 服务端→客户端 | `output` | `data_b64` | PTY 输出 |
+| 服务端→客户端 | `exit` | `reason`、`exit_code`、`signal` | 会话结束；`reason` 同上面的闭集 |
+| 服务端→客户端 | `error` | `code`、`message` | 帧级拒绝：`FRAME_INVALID`、`RATE_LIMITED` |
+
+闭集是**服务端**的判定：未知 `type`、越界尺寸、非法 base64、空 input、非 JSON 一律 `FRAME_INVALID` 并断开连接。这里没有 `run`/`exec`/`command` 帧，也不会加——一条“请执行这条命令”的帧等于把整个终端做成万能命令接口。
+
+限额：单帧数据 64 KiB、整帧 95 KiB（base64 与信封的余量）、输入 256 KiB/s 与 200 帧/s（滑动窗口）。超限是 `RATE_LIMITED`，连接断开，会话不受影响（断流宽限照常生效）。
+
+**断开的原因要让浏览器看得见。** 服务端在断开之前发一帧 close，关闭码是 1000（正常结束）、4001（帧不合法）、4002（超速率）。不发这一帧的话，浏览器只能报 1006“异常关闭”，于是协议违规、超速、到期、掉线在页面上长得完全一样。
+
+**连接许可。** `POST /terminal/sessions/:id/connection-grants`（admin + CSRF）签发 32 位小写十六进制的许可：30 秒有效、只能用一次、绑定用户与会话。许可只经**子协议**传递，子协议名是 `upanel.grant.<id>`；它不进 URL 查询参数、不进 Cookie、不进访问日志，也不回显在 101 响应的 `Sec-WebSocket-Protocol` 里（只回 `upanel.term.v1`）。同一个许可用第二次得到 403，拨号失败也算用过——重连必须重新签发。
+
+**握手四道门，顺序固定，且都在升级之前。**
+
+| 顺序 | 检查 | 失败 | 审计 `stage` |
+|---|---|---|---|
+| 1 | `Origin` 在白名单内 | 403 `CSRF_FAILED` | `origin` |
+| 2 | 子协议里有 `upanel.term.v1` | 400 `VALIDATION_ERROR` | `protocol` |
+| 3 | 子协议里的许可有效、未过期、属于该会话 | 403 `FORBIDDEN` | `grant` |
+| 4 | 代理附加成功（会话存在、属于该用户、未被占用） | 原样映射（404 / 409 / 503） | `agent` |
+
+四道门都在**升级之前**判，所以拒绝是一次正常的 HTTP 响应（带 JSON 错误信封），不是“浏览器拿到 101 之后莫名其妙地断开”。为此 Web 先拨代理、再升级浏览器：反过来的话，代理的拒绝只能以“连接被关闭”呈现。
+
+**错误映射。** 同一张表（`terminal.HTTPStatusOf`）在代理、Web、任务三处共用：会话不存在 404 `NOT_FOUND`（别人的会话也是这个——区分“没有”和“不是你的”等于告诉对方这个 id 有效）、已被占用或数量到顶 409 `RESOURCE_BUSY`、参数问题 400 `VALIDATION_ERROR`、账号不可用/本机没有 PTY 501 `NOT_IMPLEMENTED`、代理不可用 503 `AGENT_UNAVAILABLE`。`terminal.create` 的任务失败也带同一个码，不压成 `COMMAND_FAILED`。
+
+**关闭是幂等的。** `DELETE /terminal/sessions/:id` 对“已经不在跑”的会话回 200 与 `closed=true`：调用方要的结果是“它现在不跑了”，而那已经成立。别人的会话仍然是 404。
+
+**能力软关闭。** 终端账号不可用（不存在、是 root、shell 是 nologin、home 权限过宽、在特权组里）或本机没有 PTY 时，代理**不登记** `terminal.create` 与 `terminal.sessions`，并在日志里说明原因；Web 启动时探测一次能力表，据此让四个终端接口统一回 501 并说明“本机没有可用的终端”。带着一个注定起不来的 shell 对外宣称“有终端”，只会把问题推给用户去猜。探测失败（代理还没起来、socket 不通）不改变行为——那只说明代理不可用（503），不说明本机没有终端。
+
+**审计只记元数据。** 动作 `terminal.attach`（握手四道门、连接建立、连接结束）与 `terminal.close`；细节里只有 `origin`、`protocol`、`stage`、`end_side`、`end_reason`、`duration_ms`、`input_bytes`、`output_bytes`，`target` 是 `terminal:<session_id>`（中间件层拒绝的也指向同一个会话）。**终端内容一律不进审计、不进日志**：没有输入回放、没有输出片段、没有屏幕录制。会话内容不是元数据，落库就等于把“只记元数据”这句话作废。
+
+**明确不提供**：root 或 sudo 终端（终端身份是一个无 sudo、无特权组、独立 home 的专用账号，PTY 在 exec 之前就已降权）、任意命令执行接口（没有 `run` 帧，也没有 `POST /exec`）、tmux 式持久化（会话最长 1 小时，进程不跨 Web 重启存活）、终端录像/回放、多人共享同一个会话、SFTP/文件传输（文件走第 11 节的文件契约）。
 
 ## 11. 文件契约
 

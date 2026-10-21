@@ -88,6 +88,10 @@ type Options struct {
 	// 那时 /files/* 明确回 503 AGENT_UNAVAILABLE，而不是给一个空目录——
 	// 空目录会被当成“这个目录是空的”。
 	Files FilesReader
+	// Terminal 是受限终端的调用端（P06.3）。允许为 nil（不连代理）：
+	// 那时 /terminal/* 明确回 503 AGENT_UNAVAILABLE，而不是给一个空会话列表——
+	// 空列表会被当成“现在没有终端在跑”。
+	Terminal TerminalReader
 }
 
 // Server 是 Web HTTP 服务。
@@ -99,6 +103,8 @@ type Server struct {
 	allowedOrigins *httpx.OriginSet
 	// streams 限制单个用户同时打开的事件流数量（P03.3）。
 	streams *streamLimiter
+	// terminalGrants 是终端连接许可（P06.3）：一次性、30 秒、只存在于本进程内存。
+	terminalGrants *terminalGrants
 }
 
 // healthLive 是 GET /api/v1/health/live 的响应体。
@@ -146,6 +152,7 @@ func New(opts Options) (*Server, error) {
 		startedAt:      time.Now().UTC(),
 		allowedOrigins: origins,
 		streams:        newStreamLimiter(),
+		terminalGrants: newTerminalGrants(),
 	}
 	s.engine = s.routes()
 	s.http = &http.Server{

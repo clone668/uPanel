@@ -16,6 +16,7 @@ import (
 	"upanel/internal/audit"
 	"upanel/internal/auth"
 	"upanel/internal/httpx"
+	"upanel/internal/terminal"
 )
 
 // adminUserDTO 是账号管理接口返回的账号信息（CONTRACTS.md 第 2 节“字段级脱敏 DTO”）。
@@ -575,7 +576,22 @@ func (s *Server) reject(c *gin.Context, stage string, code httpx.Code) {
 	if action == "" {
 		return
 	}
-	s.recordDenied(c, auditSession(c), action, "user", stage, code)
+	s.recordDenied(c, auditSession(c), action, denyTarget(c, action), stage, code)
+}
+
+// denyTarget 给出“中间件拒绝”这条审计指向的对象。
+//
+// 终端路由的 :id 就是会话 id，指向 session 才说得清“谁想连哪个会话”；写成固定的
+// "user" 会让一条 terminal.attach 的越权尝试看起来像在操作某个用户，事后无法追到
+// 具体会话。其余路由保持原有的 "user"（它们的 :id 是用户 id，语义一致）。
+func denyTarget(c *gin.Context, action string) string {
+	switch action {
+	case audit.ActionTerminalAttach, audit.ActionTerminalClose:
+		if id := c.Param("id"); terminal.IsValidSessionID(id) {
+			return "terminal:" + id
+		}
+	}
+	return "user"
 }
 
 // requireAdmin 只允许 admin 通过；viewer 得到 403 FORBIDDEN。

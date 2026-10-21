@@ -1,0 +1,87 @@
+{
+ "url": "ws://127.0.0.1:19463/api/v1/terminal/sessions/b45bfeb98ae995129d4770f07cc116ff/connect",
+ "origin": "http://127.0.0.1:19463",
+ "protocols": [
+  "upanel.term.v1",
+  "upanel.grant.29e0c4e43562a617500f6d3ecf6930a8"
+ ],
+ "status": 101,
+ "status_line": "HTTP/1.1 101 Switching Protocols",
+ "headers": {
+  "upgrade": "websocket",
+  "connection": "Upgrade",
+  "sec-websocket-accept": "LadstxApdshRJ/Zn/MlvRQwQ6Ho=",
+  "sec-websocket-protocol": "upanel.term.v1"
+ },
+ "subprotocol": "upanel.term.v1",
+ "accept_ok": true,
+ "body": "",
+ "frames": [
+  {
+   "type": "ready",
+   "cols": 100,
+   "rows": 30,
+   "session_id": "b45bfeb98ae995129d4770f07cc116ff",
+   "account": "upanel-shell",
+   "account_uid": 995,
+   "server_time": "2026-10-21T09:34:23Z"
+  },
+  {
+   "type": "output",
+   "data_b64": "DRtbSw11cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "ZWNobyAiU0laRTokKHN0dHkgc2l6ZSkiDQobWz8yMDA0bA0="
+  },
+  {
+   "type": "output",
+   "data_b64": "U0laRTo0MyAxMzINChtbPzIwMDRodXBhbmVsLXNoZWxsQHVwYW5lbC0yNDA0On4kIA=="
+  },
+  {
+   "type": "output",
+   "data_b64": "DRtbSw11cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "ZWNobyAiU0laRTI6JChzdHR5IHNpemUpIg0KG1s/MjAwNGwN"
+  },
+  {
+   "type": "output",
+   "data_b64": "U0laRTI6MjQgODANCg=="
+  }
+ ],
+ "frame_counts": {
+  "ready": 1,
+  "output": 6
+ },
+ "output": "\r\u001b[K\rupanel-shell@upanel-2404:~$ echo \"SIZE:$(stty size)\"\r\n\u001b[?2004l\rSIZE:43 132\r\n\u001b[?2004hupanel-shell@upanel-2404:~$ \r\u001b[K\rupanel-shell@upanel-2404:~$ echo \"SIZE2:$(stty size)\"\r\n\u001b[?2004l\rSIZE2:24 80\r\n",
+ "output_bytes": 199,
+ "exit": null,
+ "errors": [],
+ "expectations": [
+  {
+   "name": "ready",
+   "kind": "frame",
+   "ok": true
+  },
+  {
+   "name": "PTY 尺寸 43x132",
+   "kind": "output",
+   "needle": "SIZE:43 132",
+   "ok": true
+  },
+  {
+   "name": "改回 24x80",
+   "kind": "output",
+   "needle": "SIZE2:24 80",
+   "ok": true
+  }
+ ],
+ "close_code": null,
+ "duration_ms": 22,
+ "error": null,
+ "accept_want": "LadstxApdshRJ/Zn/MlvRQwQ6Ho=",
+ "accept_got": "LadstxApdshRJ/Zn/MlvRQwQ6Ho=",
+ "closed_by_server": true
+}

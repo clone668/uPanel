@@ -1,0 +1,85 @@
+# P06.3 实际执行的命令（按时间顺序）
+
+宿主为 Windows + Git Bash。Go 为 `C:\Program Files\Go\bin\go`（go1.27.3 windows/amd64）；
+前端固定在 `.nvmrc` 的 Node **v22.23.3**（`C:\Users\huxi\AppData\Local\nvm\v22.23.3`）。
+VM 为 `upanel-2404`（`ssh -i H:/Code/vms/upanel-2404/id_ed25519 -p 2222 upanel@127.0.0.1`），
+Ubuntu 24.04.5 / kernel 6.8.0-147，VM 内**没有** Go 工具链，二进制都在宿主交叉编译后上传。
+
+## 1. 宿主门禁
+
+```sh
+export PATH="/c/Program Files/Go/bin:$PATH"
+go build ./...                                            # exit=0
+go vet ./...                                              # exit=0
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...       # exit=0
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go vet ./...         # exit=0
+gofmt -l cmd internal                                     # 无输出
+go test ./... -count=1                                    # 26 个包 ok / 3 个无测试文件 / 0 FAIL（go-test.txt） ok（go-test.txt）
+```
+
+`internal/terminal` 的会话用例全在 `//go:build linux` 里，宿主编译时只有
+`manager_other.go` 参与——宿主 `ok` 只证明它能编过，PTY 行为由 §3 的 VM 原生套件判定。
+
+## 2. 交叉编译与上传
+
+```sh
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/upanel-agent  ./cmd/upanel-agent
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/upanel-web    ./cmd/upanel-web
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/upanelctl     ./cmd/upanelctl
+for pkg in agentstore agent agentclient operations syscmd store api files terminal monitoring storage journal logs; do
+  GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go test -c -o /tmp/utests/$pkg.test ./internal/$pkg
+done
+scp -P 2222 /tmp/upanel-agent /tmp/upanel-web /tmp/upanelctl upanel@127.0.0.1:/tmp/upanel-bin/
+scp -P 2222 /tmp/utests/*.test                                 upanel@127.0.0.1:/tmp/upanel-bin/tests/
+scp -P 2222 -r tests/fixtures/*                                upanel@127.0.0.1:/tmp/upanel-bin/fixtures/
+scp -P 2222 tests/integration/p06-3-terminal-acceptance.sh      upanel@127.0.0.1:/tmp/upanel-bin/tests/
+scp -P 2222 tests/integration/p06-3-ws-client.py                upanel@127.0.0.1:/tmp/upanel-bin/tests/
+scp -P 2222 scripts/run-native-tests.sh                         upanel@127.0.0.1:/tmp/upanel-bin/
+```
+
+## 3. VM 原生套件（真 fork PTY，root 运行）
+
+```sh
+ssh ... 'sudo -n sh /tmp/upanel-bin/run-native-tests.sh'
+# TOTAL PASS=962 FAIL=0（terminal 33 / api 200 / agent 206 / storage 159 ...）
+# 跑完 `pgrep -u upanel-shell | wc -l` = 0
+```
+
+## 4. VM 端 P06.3 验收（两跳 WebSocket + 真 PTY）
+
+```sh
+ssh ... 'sudo -n pkill -f "[u]panel-bin/upanel"; sudo -n pkill -f "[b]ash -i"'
+ssh ... 'sudo -n sh /tmp/upanel-bin/tests/p06-3-terminal-acceptance.sh'
+# 第 5 轮：通过 277 项，失败 1 项（“审计的 target 指向会话”——断言过宽，见 result.md §5）
+# 第 6 轮：通过 282 项，失败 0 项，未执行 0 项（.p06-3-acceptance-2404.txt）
+```
+
+## 5. 前端与契约
+
+```sh
+export PATH="/c/Users/huxi/AppData/Local/nvm/v22.23.3:$PATH"
+npm --prefix web run typecheck      # exit=0
+npm --prefix web run lint           # exit=0
+npm --prefix web run test           # 29 文件 / 445 用例 passed
+npm --prefix web run build          # dist 构建成功（TerminalView 346.92 kB）
+npx --yes @redocly/cli lint api/openapi.yaml   # valid，7 warning
+```
+
+## 6. 汇总闸门
+
+```sh
+export PATH="/c/Users/huxi/AppData/Local/nvm/v22.23.3:$PATH"
+bash scripts/check.sh               # PASS 13 / FAIL 0 / NOT RUN 0
+```
+
+## 7. 定位“会话回收后 shell 残留”的实验（VM 内，只读观察）
+
+```sh
+ps -o pid,ppid,pgid,sid,stat,etime,cmd -u upanel-shell       # 会话已结束，bash 仍在
+sudo ls -l /proc/<agent-pid>/fd | grep -E 'ptmx|pidfd'       # 三条 ptmx、三条 pidfd
+sudo grep -E '"reason":"(disconnect|idle)"' /var/tmp/upanel-accept-p06-3/logs/agent.log
+cat /proc/<bash-pid>/status | grep -E 'SigIgn|SigCgt'        # SIGHUP 未被忽略 → 说明信号没发出
+```
+
+结论：不是 shell 忽略了 SIGHUP，而是 master 从未被真正释放（`os.File.Close` 对阻塞 fd
+只减引用），因此 tty 没有挂断。修复见 `docs/DECISIONS.md` Q169。

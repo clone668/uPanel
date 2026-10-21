@@ -55,7 +55,14 @@ export const MODULES: readonly ModuleDef[] = [
     summary:
       '受管理文件根内的目录浏览、文本预览与受控下载：路径限定在根内，符号链接不跟随，写操作待后续阶段。',
   },
-  { key: 'terminal', label: '终端', path: '/terminal', implementedIn: null, summary: '受限 Web 终端' },
+  {
+    key: 'terminal',
+    label: '终端',
+    path: '/terminal',
+    implementedIn: 'P06.3',
+    summary:
+      '受限 Web 终端：以 upanel-shell 降权运行（非 root、无 sudo），经预检与再认证创建，一次性许可建立连接，时长与数量均有上限。',
+  },
   {
     key: 'logs',
     label: '日志',

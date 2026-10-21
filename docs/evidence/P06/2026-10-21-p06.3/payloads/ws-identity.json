@@ -1,0 +1,329 @@
+{
+ "url": "ws://127.0.0.1:19463/api/v1/terminal/sessions/b45bfeb98ae995129d4770f07cc116ff/connect",
+ "origin": "http://127.0.0.1:19463",
+ "protocols": [
+  "upanel.term.v1",
+  "upanel.grant.f96e972377e59662fcbed4411e530dd5"
+ ],
+ "status": 101,
+ "status_line": "HTTP/1.1 101 Switching Protocols",
+ "headers": {
+  "upgrade": "websocket",
+  "connection": "Upgrade",
+  "sec-websocket-accept": "DDudg29RU+ukf5dAlrS5+7PJfHw=",
+  "sec-websocket-protocol": "upanel.term.v1"
+ },
+ "subprotocol": "upanel.term.v1",
+ "accept_ok": true,
+ "body": "",
+ "frames": [
+  {
+   "type": "ready",
+   "cols": 100,
+   "rows": 30,
+   "session_id": "b45bfeb98ae995129d4770f07cc116ff",
+   "account": "upanel-shell",
+   "account_uid": 995,
+   "server_time": "2026-10-21T09:34:23Z"
+  },
+  {
+   "type": "output",
+   "data_b64": "ZWNobyAiVVNFUjokKGlkIC11bikiDQobWz8yMDA0bA0="
+  },
+  {
+   "type": "output",
+   "data_b64": "VVNFUjp1cGFuZWwtc2hlbGwNCg=="
+  },
+  {
+   "type": "output",
+   "data_b64": "G1s/MjAwNGg="
+  },
+  {
+   "type": "output",
+   "data_b64": "dXBhbmVsLXNoZWxsQHVwYW5lbC0yNDA0On4kIA=="
+  },
+  {
+   "type": "output",
+   "data_b64": "ZWNobyAiVUlEOiQoaWQgLXUpIg0KG1s/MjAwNGwN"
+  },
+  {
+   "type": "output",
+   "data_b64": "VUlEOjk5NQ0K"
+  },
+  {
+   "type": "output",
+   "data_b64": "G1s/MjAwNGh1cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "ZWNobyAiR1JPVVBTOiQoaWQgLW5HKSINChtbPzIwMDRsDQ=="
+  },
+  {
+   "type": "output",
+   "data_b64": "R1JPVVBTOnVwYW5lbC1zaGVsbA0K"
+  },
+  {
+   "type": "output",
+   "data_b64": "G1s/MjAwNGg="
+  },
+  {
+   "type": "output",
+   "data_b64": "dXBhbmVsLXNoZWxsQHVwYW5lbC0yNDA0On4kIA=="
+  },
+  {
+   "type": "output",
+   "data_b64": "ZWNobyAiUFJJVjokKGlkIC1uRyB8IHRyICcgJyAnXG4nIHwgZ3JlcCAtY0UgJ14ocm9vdHxzdWRvfGRvY2tlcnxkaXNrfGFkbXx3aGVlbHxzaGFkb3cpJCcpIg0KG1s/MjAwNGwN"
+  },
+  {
+   "type": "output",
+   "data_b64": "UFJJVjowDQobWz8yMDA0aHVwYW5lbC1zaGVsbEB1cGFuZWwtMjQwNDp+JCA="
+  },
+  {
+   "type": "output",
+   "data_b64": "ZWNobyAiUFdEOiQocHdkKSINCg=="
+  },
+  {
+   "type": "output",
+   "data_b64": "G1s/MjAwNGwN"
+  },
+  {
+   "type": "output",
+   "data_b64": "UFdEOi92YXIvbGliL3VwYW5lbC1zaGVsbA=="
+  },
+  {
+   "type": "output",
+   "data_b64": "DQo="
+  },
+  {
+   "type": "output",
+   "data_b64": "G1s/MjAwNGh1cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "ZWNobyAiSE9NRTokSE9NRSINChtbPzIwMDRsDQ=="
+  },
+  {
+   "type": "output",
+   "data_b64": "SE9NRTovdmFyL2xpYi91cGFuZWwtc2hlbGwNChtbPzIwMDRo"
+  },
+  {
+   "type": "output",
+   "data_b64": "dXBhbmVsLXNoZWxsQHVwYW5lbC0yNDA0On4kIA=="
+  },
+  {
+   "type": "output",
+   "data_b64": "ZWNobyAiVFRZOiQodHR5KSINChtbPzIwMDRsDQ=="
+  },
+  {
+   "type": "output",
+   "data_b64": "VFRZOi9kZXYvcHRzLzANCg=="
+  },
+  {
+   "type": "output",
+   "data_b64": "G1s/MjAwNGh1cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "ZWNobyAiU1VETzokKHN1ZG8gLW4gdHJ1ZSAyPi9kZXYvbnVsbCAmJiBlY2hvIHllcyB8fCBlY2hvIG5vKSINChtbPzIwMDRsDQ=="
+  },
+  {
+   "type": "output",
+   "data_b64": "U1VETzpubw0KG1s/MjAwNGh1cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "ZWNobyAiU0hBRE9XOiQoY2F0IC9ldGMvc2hhZG93ID4vZGV2L251bGwgMj4mMSAmJiBlY2hvIHJlYWRhYmxlIHx8IGVjaG8gZGVuaWVkKSINChtbPzIwMDRsDQ=="
+  },
+  {
+   "type": "output",
+   "data_b64": "U0hBRE9XOmRlbmllZA=="
+  },
+  {
+   "type": "output",
+   "data_b64": "DQo="
+  },
+  {
+   "type": "output",
+   "data_b64": "G1s/MjAwNGh1cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "ZWNobyAiQUdFTlRLRVk6JChjYXQgL2V0Yy91cGFuZWwvYWdlbnQua2V5ID4vZGV2L251bGwgMj4mMSAmJiBlY2hvIHJlYWRhYmxlIHx8IGVjaG8gZGVuaWVkKSINChtbPzIwMDRsDQ=="
+  },
+  {
+   "type": "output",
+   "data_b64": "QUdFTlRLRVk6ZGVuaWVkDQo="
+  },
+  {
+   "type": "output",
+   "data_b64": "G1s/MjAwNGh1cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "ZWNobyAiU1lTV1JJVEU6JCh0b3VjaCAvZXRjL3VwYW5lbC9wMDYtMy1zaG91bGQtbm90LWV4aXN0IDI+L2Rldi9udWxsICYmIGVjaG8gYWxsb3dlZCB8fCBlY2hvIGRlbmllZCkiDQobWz8yMDA0bA0="
+  },
+  {
+   "type": "output",
+   "data_b64": "U1lTV1JJVEU6ZGVuaWVkDQobWz8yMDA0aHVwYW5lbC1zaGVsbEB1cGFuZWwtMjQwNDp+JCA="
+  },
+  {
+   "type": "output",
+   "data_b64": "ZWNobyAiUFJPQzE6JChoZWFkIC0xIC9wcm9jLzEvY29tbSA+L2Rldi9udWxsIDI+JjEgJiYgZWNobyByZWFkYWJsZSB8fCBlY2hvIGRlbmllZCkiDQobWz8yMDA0bA0="
+  },
+  {
+   "type": "output",
+   "data_b64": "UFJPQzE6cmVhZGFibGUNCg=="
+  },
+  {
+   "type": "output",
+   "data_b64": "G1s/MjAwNGh1cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "ZWNobyAiTEVBSzokKGVudiB8IGdyZXAgLWNFICdeKFVQQU5FTHxBR0VOVF98TERfUFJFTE9BRHxTVURPXyknKSINChtbPzIwMDRsDQ=="
+  },
+  {
+   "type": "output",
+   "data_b64": "TEVBSzowDQo="
+  },
+  {
+   "type": "output",
+   "data_b64": "G1s/MjAwNGh1cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "ZWNobyAiTUFSS0VSOnAwNm1hcmstYTVmM2M1ZDMyOSINChtbPzIwMDRsDQ=="
+  },
+  {
+   "type": "output",
+   "data_b64": "TUFSS0VSOnAwNm1hcmstYTVmM2M1ZDMyOQ0K"
+  },
+  {
+   "type": "output",
+   "data_b64": "G1s/MjAwNGh1cGFuZWwtc2hlbGxAdXBhbmVsLTI0MDQ6fiQg"
+  },
+  {
+   "type": "output",
+   "data_b64": "ZXhwb3J0IFAwNktFUFQ9a2VwdC1lYjE2NzYxMjMxDQobWz8yMDA0bA0bWz8yMDA0aHVwYW5lbC1zaGVsbEB1cGFuZWwtMjQwNDp+JCA="
+  },
+  {
+   "type": "output",
+   "data_b64": "ZWNobyAiS0VQVDokKGVjaG8gJFAwNktFUFQpIg0KG1s/MjAwNGwN"
+  },
+  {
+   "type": "output",
+   "data_b64": "S0VQVDprZXB0LWViMTY3NjEyMzENCg=="
+  }
+ ],
+ "frame_counts": {
+  "ready": 1,
+  "output": 47
+ },
+ "output": "echo \"USER:$(id -un)\"\r\n\u001b[?2004l\rUSER:upanel-shell\r\n\u001b[?2004hupanel-shell@upanel-2404:~$ echo \"UID:$(id -u)\"\r\n\u001b[?2004l\rUID:995\r\n\u001b[?2004hupanel-shell@upanel-2404:~$ echo \"GROUPS:$(id -nG)\"\r\n\u001b[?2004l\rGROUPS:upanel-shell\r\n\u001b[?2004hupanel-shell@upanel-2404:~$ echo \"PRIV:$(id -nG | tr ' ' '\\n' | grep -cE '^(root|sudo|docker|disk|adm|wheel|shadow)$')\"\r\n\u001b[?2004l\rPRIV:0\r\n\u001b[?2004hupanel-shell@upanel-2404:~$ echo \"PWD:$(pwd)\"\r\n\u001b[?2004l\rPWD:/var/lib/upanel-shell\r\n\u001b[?2004hupanel-shell@upanel-2404:~$ echo \"HOME:$HOME\"\r\n\u001b[?2004l\rHOME:/var/lib/upanel-shell\r\n\u001b[?2004hupanel-shell@upanel-2404:~$ echo \"TTY:$(tty)\"\r\n\u001b[?2004l\rTTY:/dev/pts/0\r\n\u001b[?2004hupanel-shell@upanel-2404:~$ echo \"SUDO:$(sudo -n true 2>/dev/null && echo yes || echo no)\"\r\n\u001b[?2004l\rSUDO:no\r\n\u001b[?2004hupanel-shell@upanel-2404:~$ echo \"SHADOW:$(cat /etc/shadow >/dev/null 2>&1 && echo readable || echo denied)\"\r\n\u001b[?2004l\rSHADOW:denied\r\n\u001b[?2004hupanel-shell@upanel-2404:~$ echo \"AGENTKEY:$(cat /etc/upanel/agent.key >/dev/null 2>&1 && echo readable || echo denied)\"\r\n\u001b[?2004l\rAGENTKEY:denied\r\n\u001b[?2004hupanel-shell@upanel-2404:~$ echo \"SYSWRITE:$(touch /etc/upanel/p06-3-should-not-exist 2>/dev/null && echo allowed || echo denied)\"\r\n\u001b[?2004l\rSYSWRITE:denied\r\n\u001b[?2004hupanel-shell@upanel-2404:~$ echo \"PROC1:$(head -1 /proc/1/comm >/dev/null 2>&1 && echo readable || echo denied)\"\r\n\u001b[?2004l\rPROC1:readable\r\n\u001b[?2004hupanel-shell@upanel-2404:~$ echo \"LEAK:$(env | grep -cE '^(UPANEL|AGENT_|LD_PRELOAD|SUDO_)')\"\r\n\u001b[?2004l\rLEAK:0\r\n\u001b[?2004hupanel-shell@upanel-2404:~$ echo \"MARKER:p06mark-a5f3c5d329\"\r\n\u001b[?2004l\rMARKER:p06mark-a5f3c5d329\r\n\u001b[?2004hupanel-shell@upanel-2404:~$ export P06KEPT=kept-eb16761231\r\n\u001b[?2004l\r\u001b[?2004hupanel-shell@upanel-2404:~$ echo \"KEPT:$(echo $P06KEPT)\"\r\n\u001b[?2004l\rKEPT:kept-eb16761231\r\n",
+ "output_bytes": 1755,
+ "exit": null,
+ "errors": [],
+ "expectations": [
+  {
+   "name": "ready",
+   "kind": "frame",
+   "ok": true
+  },
+  {
+   "name": "账号名",
+   "kind": "output",
+   "needle": "USER:upanel-shell",
+   "ok": true
+  },
+  {
+   "name": "uid",
+   "kind": "output",
+   "needle": "UID:995",
+   "ok": true
+  },
+  {
+   "name": "属组",
+   "kind": "output",
+   "needle": "GROUPS:upanel-shell",
+   "ok": true
+  },
+  {
+   "name": "没有特权组",
+   "kind": "output",
+   "needle": "PRIV:0",
+   "ok": true
+  },
+  {
+   "name": "工作目录是 home",
+   "kind": "output",
+   "needle": "PWD:/var/lib/upanel-shell",
+   "ok": true
+  },
+  {
+   "name": "HOME 是 home",
+   "kind": "output",
+   "needle": "HOME:/var/lib/upanel-shell",
+   "ok": true
+  },
+  {
+   "name": "真的在 PTY 上",
+   "kind": "output",
+   "needle": "TTY:/dev/pts/",
+   "ok": true
+  },
+  {
+   "name": "sudo 不可用",
+   "kind": "output",
+   "needle": "SUDO:no",
+   "ok": true
+  },
+  {
+   "name": "/etc/shadow 读不到",
+   "kind": "output",
+   "needle": "SHADOW:denied",
+   "ok": true
+  },
+  {
+   "name": "代理密钥读不到",
+   "kind": "output",
+   "needle": "AGENTKEY:denied",
+   "ok": true
+  },
+  {
+   "name": "系统目录写不了",
+   "kind": "output",
+   "needle": "SYSWRITE:denied",
+   "ok": true
+  },
+  {
+   "name": "/proc/1 可读（降权不等于被关在外面）",
+   "kind": "output",
+   "needle": "PROC1:readable",
+   "ok": true
+  },
+  {
+   "name": "环境里没有代理/提权变量",
+   "kind": "output",
+   "needle": "LEAK:0",
+   "ok": true
+  },
+  {
+   "name": "标记串",
+   "kind": "output",
+   "needle": "MARKER:p06mark-a5f3c5d329",
+   "ok": true
+  },
+  {
+   "name": "导出变量",
+   "kind": "output",
+   "needle": "KEPT:kept-eb16761231",
+   "ok": true
+  }
+ ],
+ "close_code": null,
+ "duration_ms": 35,
+ "error": null,
+ "accept_want": "DDudg29RU+ukf5dAlrS5+7PJfHw=",
+ "accept_got": "DDudg29RU+ukf5dAlrS5+7PJfHw=",
+ "closed_by_server": true
+}

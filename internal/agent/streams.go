@@ -30,6 +30,7 @@ import (
 	"upanel/internal/files"
 	"upanel/internal/httpx"
 	"upanel/internal/journal"
+	"upanel/internal/terminal"
 )
 
 const (
@@ -39,6 +40,11 @@ const (
 	// 与日志流共用这条通道的理由相同：一次性许可、参数绑在许可里、
 	// 二进制内容不进查询接口的 JSON。
 	StreamPurposeDownload = files.StreamPurposeDownload
+	// StreamPurposeTerminal 是终端字节通道的用途名（P06.3）。
+	// 它与其他用途的区别是：拿到许可之后这条连接会**升级**成 WebSocket，
+	// 而不是按 NDJSON 或“头 + 原始字节”往下写。升级发生在流处理里，
+	// 因此许可的一次性、用途白名单与参数校验全都照旧生效——升级没有绕开任何一步。
+	StreamPurposeTerminal = terminal.PurposeIO
 	// streamPermitTTL 是许可的有效期。它只需要覆盖“Web 收到 id 后立刻发起 GET”
 	// 这一小段时间；给得越长，泄漏的 id 越有用。
 	streamPermitTTL = 30 * time.Second
@@ -264,6 +270,18 @@ func (s *Server) decodeStreamParams(purpose string, raw json.RawMessage) (any, e
 			return nil, err
 		}
 		return params, nil
+	case StreamPurposeTerminal:
+		if s.opts.Terminal == nil {
+			return nil, fmt.Errorf("%w: %q", ErrStreamPurposeUnknown, purpose)
+		}
+		var params terminal.IOParams
+		if err := DecodeParams(raw, &params); err != nil {
+			return nil, err
+		}
+		if err := params.Validate(); err != nil {
+			return nil, err
+		}
+		return params, nil
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrStreamPurposeUnknown, purpose)
 	}
@@ -295,6 +313,8 @@ func (s *Server) handleStreamByID(w http.ResponseWriter, r *http.Request) {
 		s.serveLogStream(w, r, permit)
 	case StreamPurposeDownload:
 		s.serveDownloadStream(w, r, permit)
+	case StreamPurposeTerminal:
+		s.serveTerminalStream(w, r, permit)
 	default:
 		// 用途在白名单里才会被创建，走到这里说明登记与分发不一致，属于编程错误。
 		s.opts.Logger.Error("流许可的用途没有对应的分发实现", "purpose", permit.Purpose, "stream_id", permit.ID)

@@ -130,6 +130,26 @@ func (s *Server) routes() *gin.Engine {
 		fm.GET("/uploads/:id", s.handleGetUpload)
 		fm.DELETE("/uploads/:id", s.requireCSRF(), s.handleDeleteUpload)
 
+		// 受限终端（P06.3）：整组 admin（CONTRACTS.md 第 10 节）。开会话不在路由表里：
+		// 那是 system 写操作，走 terminal.create 的预检 → 任务链路。这里只有
+		// “看自己的会话、领一次性许可、连、关”四条，没有“直接开一个 shell”的入口。
+		//
+		// 许可必须由 POST 领取（带 CSRF）：WebSocket 握手是 GET，浏览器无法为它加
+		// 自定义请求头，许可因此是这次升级的“CSRF 令牌替身”，30 秒、一次性、
+		// 只经子协议传递（见 terminalws.go）。
+		//
+		// 两个组分开登记审计动作（attach / close），因为中间件拒绝发生在 handler
+		// 之前，只有组级别能带上正确的动作名。
+		tmAttach := v1.Group("/terminal", s.auditRoute(audit.ActionTerminalAttach))
+		tmAttach.Use(s.requireSession(), s.requireAdmin())
+		tmAttach.GET("/sessions", s.handleTerminalSessions)
+		tmAttach.POST("/sessions/:id/connection-grants", s.requireCSRF(), s.handleCreateTerminalGrant)
+		tmAttach.GET("/sessions/:id/connect", s.handleTerminalConnect)
+
+		tmClose := v1.Group("/terminal", s.auditRoute(audit.ActionTerminalClose))
+		tmClose.Use(s.requireSession(), s.requireAdmin())
+		tmClose.DELETE("/sessions/:id", s.requireCSRF(), s.handleTerminalClose)
+
 		// 系统写操作的统一入口（P03.1）：先预检，再由 POST /jobs 创建任务（P03.2）。
 		// 预检只读不写系统；再认证在**提交任务**时校验（按动作登记策略），不在预检阶段。
 		ops := v1.Group("/operations", s.auditRoute(audit.ActionOperationPreflight))

@@ -72,6 +72,14 @@ export const appRoutes: readonly RouteRecordRaw[] = [
     meta: { moduleKey: 'files' },
   },
   {
+    // 终端页与会话 id 无关：会话由服务端按当前账号给出（每账号最多 1 个），
+    // 因此路径里没有 :id——把会话 id 放进 URL 只会多一个可以乱填的参数。
+    path: '/terminal',
+    name: 'terminal',
+    component: () => import('@/views/TerminalView.vue'),
+    meta: { moduleKey: 'terminal' },
+  },
+  {
     path: '/jobs',
     name: 'jobs',
     component: () => import('@/views/JobsView.vue'),

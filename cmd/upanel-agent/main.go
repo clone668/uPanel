@@ -27,6 +27,7 @@ import (
 	"upanel/internal/processes"
 	"upanel/internal/services"
 	"upanel/internal/storage"
+	"upanel/internal/terminal"
 	"upanel/internal/version"
 	"upanel/migrations/agentdb"
 )
@@ -312,6 +313,56 @@ func run(args []string, stdout, stderr io.Writer) int {
 			"hint", "在 /etc/upanel/upanel.json 的 agent.files.roots 里登记要管理的目录")
 	}
 
+	// 终端会话层（P06.3）。三件事必须一起成立才会启用：
+	//   1) 账号 upanel-shell 存在、不是 root、shell 不是 nologin、home 属于它且别人写不了；
+	//   2) 不是特权组的成员（sudo/docker/disk…）——加入任何一个，降权就只是名义上的；
+	//   3) 本平台有 PTY（只有 Linux 有）。
+	// 任何一项不满足都**不登记**终端能力并说明怎么修：带着一个注定起不来的 shell
+	// 对外宣称“有终端”，只会把问题推给用户去猜。
+	//
+	// shell 进程的降权发生在 fork/exec 之间（terminal.startPTY），并且启动后还会
+	// 读回 /proc/<pid>/status 核对内核报告的 uid/gid——不是“我传了参数所以应该生效”。
+	var terminalManager *terminal.Manager
+	terminalAccount, terminalErr := terminal.ResolveAccount(
+		cfg.Agent.Terminal.EffectiveShellUser(),
+		cfg.Agent.Terminal.EffectiveHome(),
+		cfg.Agent.Terminal.ShellPath,
+	)
+	if terminalErr != nil {
+		logger.Warn("终端能力未启用",
+			"reason", terminalErr,
+			"hint", "按安装步骤创建专用账号（useradd -r -M -d /var/lib/upanel-shell -s /bin/bash upanel-shell）、"+
+				"把 home 权限收到 0750、并确保它不在 sudo/docker/disk 等特权组里")
+	} else {
+		mgr, err := terminal.NewManager(terminal.Options{
+			Account: terminalAccount,
+			Limits: terminal.Limits{
+				IdleTimeout:     cfg.Agent.Terminal.IdleTimeout(),
+				MaxDuration:     cfg.Agent.Terminal.MaxDuration(),
+				DisconnectGrace: cfg.Agent.Terminal.DisconnectGrace(),
+				MaxPerUser:      terminal.ContractMaxPerUser,
+				MaxSessions:     terminal.ContractMaxSessions,
+			},
+			Logger: logger,
+		})
+		if err != nil {
+			logger.Warn("终端能力未启用", "reason", err)
+		} else {
+			terminalManager = mgr
+			logger.Info("已启用受限终端",
+				"account", terminalAccount.User,
+				"account_uid", terminalAccount.UID,
+				"account_gid", terminalAccount.GID,
+				"home", terminalAccount.Home,
+				"shell", terminalAccount.Shell,
+				"idle_timeout", cfg.Agent.Terminal.IdleTimeout().String(),
+				"max_duration", cfg.Agent.Terminal.MaxDuration().String(),
+				"disconnect_grace", cfg.Agent.Terminal.DisconnectGrace().String(),
+				"max_per_user", terminal.ContractMaxPerUser,
+				"max_sessions", terminal.ContractMaxSessions)
+		}
+	}
+
 	// 动作登记表：生产表自 P05.1 起有 service.control，P05.2 起有 process.signal（受保护名单与读回验证见 internal/services）。
 	// 验收表只能靠显式参数启用，且动作全部以 acceptance. 开头、不读写任何系统资源。
 	registry := agent.NewRegistry()
@@ -330,6 +381,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Files:     filesManager,
 		// 写端与读端是同一个 Manager：根登记表、句柄级边界、错误判决都只有一份。
 		FileWrites: filesManager,
+	}
+	// 只在真的有时才赋给接口：把一个 nil 的 *terminal.Manager 塞进接口会得到
+	// 一个非 nil 的接口值，登记表于是多出一个调用就 panic 的能力。
+	var terminalAPI agent.TerminalManager
+	if terminalManager != nil {
+		deps.Terminal = terminalManager
+		terminalAPI = terminalManager
 	}
 	if err := agent.RegisterProductionQueries(registry, deps); err != nil {
 		logger.Error("登记生产查询失败", "error", err)
@@ -378,6 +436,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Logs:            logsQuerier,
 		Files:           filesManager,
 		FileWrites:      filesManager,
+		Terminal:        terminalAPI,
 	})
 	if err != nil {
 		logger.Error("初始化代理失败", "error", err)
@@ -395,10 +454,23 @@ func run(args []string, stdout, stderr io.Writer) int {
 		go servicesCollector.Run(ctx)
 	}
 	go processesCollector.Run(ctx)
+	if terminalManager != nil {
+		// 会话超时回收（空闲/最长寿命/断流宽限）由这一个循环负责；
+		// 它每秒看一次表，代价是几个 map 迭代，而省掉的是“定时器按会话创建/销毁”的簿记错误。
+		go terminalManager.Run(ctx)
+	}
 
 	if err := srv.Serve(ctx); err != nil {
 		logger.Error("代理退出", "error", err)
+		if terminalManager != nil {
+			// 代理要走就把 PTY 一起带走：留一个没有父进程的 shell，
+			// 就是留一个谁都关不掉、也不再受限额约束的会话。
+			terminalManager.Shutdown()
+		}
 		return 1
+	}
+	if terminalManager != nil {
+		terminalManager.Shutdown()
 	}
 	return 0
 }

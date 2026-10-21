@@ -34,6 +34,9 @@ type Client struct {
 	// 受限流（P05.3）的寿命由服务端的时长/空闲上限决定，客户端不该替它设一个
 	// “10 秒后必然断开”的闹钟。见 streams.go。
 	stream *http.Client
+	// dial 是底层连接方式。HTTP 与 WebSocket（P06.3 的终端）都必须走它：
+	// 否则测试注入的拨号器只对其中一条路生效，终端就会去连一个不存在的 socket。
+	dial func(ctx context.Context, network, address string) (net.Conn, error)
 }
 
 // Option 是客户端选项。
@@ -43,6 +46,7 @@ type Option func(*Client)
 // 生产路径始终是 socketPath 指向的 Unix socket。
 func WithDialer(dial func(ctx context.Context, network, address string) (net.Conn, error)) Option {
 	return func(c *Client) {
+		c.dial = dial
 		c.http.Transport = &http.Transport{
 			DialContext:           dial,
 			MaxIdleConns:          4,
@@ -67,17 +71,22 @@ func New(socketPath string, opts ...Option) (*Client, error) {
 	}
 	c := &Client{
 		socketPath: socketPath,
-		http: &http.Client{
-			Timeout: DefaultTimeout,
-			Transport: &http.Transport{
-				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-					var d net.Dialer
-					return d.DialContext(ctx, "unix", socketPath)
-				},
-				MaxIdleConns:          4,
-				IdleConnTimeout:       30 * time.Second,
-				ResponseHeaderTimeout: DefaultTimeout,
+		dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "unix", socketPath)
+		},
+	}
+	c.http = &http.Client{
+		Timeout: DefaultTimeout,
+		Transport: &http.Transport{
+			// 闭包读 c.dial 而不是捕获一个具体函数：WithDialer 晚于这里生效，
+			// 捕获的话它换掉的是另一个字段，Transport 仍然连着旧拨号器。
+			DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+				return c.dial(ctx, network, address)
 			},
+			MaxIdleConns:          4,
+			IdleConnTimeout:       30 * time.Second,
+			ResponseHeaderTimeout: DefaultTimeout,
 		},
 	}
 	for _, opt := range opts {

@@ -1,0 +1,64 @@
+{
+ "url": "ws://127.0.0.1:19463/api/v1/terminal/sessions/a53dc9e4be87df4c8214fbd9e682e026/connect",
+ "origin": "http://127.0.0.1:19463",
+ "protocols": [
+  "upanel.term.v1",
+  "upanel.grant.fa740ef37db5cfdda2c85807af4cf4f9"
+ ],
+ "status": 101,
+ "status_line": "HTTP/1.1 101 Switching Protocols",
+ "headers": {
+  "upgrade": "websocket",
+  "connection": "Upgrade",
+  "sec-websocket-accept": "gy3hQfUoZrd3H6poSOjaq78vrEo=",
+  "sec-websocket-protocol": "upanel.term.v1"
+ },
+ "subprotocol": "upanel.term.v1",
+ "accept_ok": true,
+ "body": "",
+ "frames": [
+  {
+   "type": "ready",
+   "cols": 90,
+   "rows": 25,
+   "session_id": "a53dc9e4be87df4c8214fbd9e682e026",
+   "account": "upanel-shell",
+   "account_uid": 995,
+   "server_time": "2026-10-21T09:34:45Z"
+  },
+  {
+   "type": "exit",
+   "reason": "idle"
+  }
+ ],
+ "frame_counts": {
+  "ready": 1,
+  "exit": 1
+ },
+ "output": "",
+ "output_bytes": 0,
+ "exit": {
+  "type": "exit",
+  "reason": "idle"
+ },
+ "errors": [],
+ "expectations": [
+  {
+   "name": "ready",
+   "kind": "frame",
+   "ok": true
+  },
+  {
+   "name": "空闲到点",
+   "kind": "frame",
+   "ok": true
+  }
+ ],
+ "close_code": 1000,
+ "duration_ms": 60292,
+ "error": null,
+ "accept_want": "gy3hQfUoZrd3H6poSOjaq78vrEo=",
+ "accept_got": "gy3hQfUoZrd3H6poSOjaq78vrEo=",
+ "close_payload": "\u0003�",
+ "closed_by_server": true
+}

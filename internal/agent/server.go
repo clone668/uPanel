@@ -68,6 +68,9 @@ type Options struct {
 	// 也不登记 file.* 写动作：一个只能读的面板与一个读不了却能写的面板，
 	// 都不该由“某个字段恰好没配”来悄悄决定。
 	FileWrites FileWriterSource
+	// Terminal 是受限终端的会话层（P06.3）。为 nil 时不提供 terminal.io 流与
+	// 会话关闭入口，也不登记 terminal.create / terminal.sessions。
+	Terminal TerminalManager
 }
 
 // Server 是代理服务。
@@ -161,6 +164,10 @@ func New(opts Options) (*Server, error) {
 	// 暂存上传（P06.2）：字节先进根内的暂存区，落地另有预检与任务。
 	mux.HandleFunc("/internal/v1/uploads", s.handleUploads)
 	mux.HandleFunc("/internal/v1/uploads/", s.handleUploadByIDOrContent)
+	// 终端会话的关闭入口（P06.3）。创建走 terminal.create 任务，字节走
+	// terminal.io 流；只有“关掉它”需要一条代理内部路由——Web 核对完归属之后
+	// 让代理执行，代理再核对一次。
+	mux.HandleFunc("/internal/v1/terminal/sessions/", s.handleTerminalSessionByID)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, http.StatusNotFound, httpx.CodeNotFound, "代理接口不存在")
 	})

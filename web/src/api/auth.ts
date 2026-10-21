@@ -42,3 +42,23 @@ export function fetchSession(): Promise<ApiResult<SessionData>> {
 export function logout(): Promise<ApiResult<unknown>> {
   return request<unknown>('/auth/logout', { method: 'POST' })
 }
+
+/** POST /auth/reauth 的返回体：再认证窗口的到期时间。 */
+export interface ReauthData {
+  reauth_expires_at: string
+}
+
+/**
+ * 密码再认证（admin + CSRF）。
+ *
+ * 需要它的动作（账号变更、终端创建、覆盖写……）由服务端的动作策略决定，
+ * 前端不自己判断“够不够 5 分钟”。成功后再认证窗口被推到 5 分钟后；
+ * 失败与登录共用限速计数。
+ */
+export function reauthPassword(password: string): Promise<ApiResult<ReauthData>> {
+  return request<ReauthData>('/auth/reauth', {
+    method: 'POST',
+    body: { password },
+    timeoutMs: 15_000,
+  })
+}

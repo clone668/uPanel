@@ -1,0 +1,21 @@
+# 前端门禁（Node v22.23.3）
+$ npm --prefix web run typecheck
+
+> upanel-web@0.0.0 typecheck
+> vue-tsc --noEmit -p tsconfig.json
+
+exit=0
+$ npm --prefix web run lint
+
+> upanel-web@0.0.0 lint
+> eslint .
+
+$ npm --prefix web run build
+dist/assets/FilesView-DJE0W7_H.js                   43.09 kB │ gzip: 14.01 kB
+dist/assets/Select-DIG5FS0_.js                      59.00 kB │ gzip: 16.82 kB
+dist/assets/_plugin-vue_export-helper-BcKG2J05.js   63.11 kB │ gzip: 19.64 kB
+dist/assets/Button-Ccvjej-V.js                     145.35 kB │ gzip: 52.26 kB
+dist/assets/index-DqZvZd3u.js                      230.31 kB │ gzip: 71.43 kB
+dist/assets/TerminalView-C9T8SBjX.js               346.92 kB │ gzip: 89.54 kB
+
+[32m✓ built in 671ms[39m

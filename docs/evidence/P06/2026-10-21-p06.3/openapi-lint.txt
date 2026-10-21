@@ -1,0 +1,13 @@
+# redocly lint api/openapi.yaml（Node v22.23.3）
+validating api\openapi.yaml...
+warning no-unused-components: 4
+warning operation-4xx-response: 2
+warning operation-2xx-response: 1
+
+api\openapi.yaml: validated in 115ms
+
+Woohoo! Your API description is valid. 🎉
+You have 7 warnings.
+
+<== PASS  openapi-lint
+

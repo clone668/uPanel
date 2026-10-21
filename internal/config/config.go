@@ -58,6 +58,19 @@ const (
 	minNetworkCapacityTimeoutSeconds     = 1
 	maxNetworkCapacityTimeoutSeconds     = 60
 	defaultNetworkCapacityTimeoutSeconds = 10
+
+	// 终端账号与 home（PLAN.md 第 4 节：upanel-shell、/var/lib/upanel-shell）。
+	defaultShellUser    = "upanel-shell"
+	defaultTerminalHome = "/var/lib/upanel-shell"
+
+	// 终端三个时限（PLAN.md 第 14 节：15 分钟无输入关闭、最长 1 小时、宽限 60 秒）。
+	// 下限允许压到“能验收”的量级，上限就是计划值本身：只能收紧。
+	minTerminalIdleSeconds            = 60
+	defaultTerminalIdleSeconds        = 900
+	minTerminalMaxDurationSeconds     = 60
+	defaultTerminalMaxDurationSeconds = 3600
+	minTerminalGraceSeconds           = 5
+	defaultTerminalGraceSeconds       = 60
 )
 
 // Config 是配置文件根结构。Web 与代理共用同一份文件，各自只读取自己的段。
@@ -106,6 +119,34 @@ type Agent struct {
 	Logs Logs `json:"logs"`
 	// Files 是文件模块的配置（P06.1）。
 	Files Files `json:"files"`
+	// Terminal 是受限终端的配置（P06.3）。
+	Terminal Terminal `json:"terminal"`
+}
+
+// Terminal 是受限 Web 终端的配置（P06.3）。
+//
+// 三个时限只能**收紧**不能放宽：PLAN.md 第 14 节写明 15 分钟无输入关闭、最长 1 小时、
+// 断流宽限 60 秒。把它们做成可调的理由不是“让运维自己决定安全边界”，
+// 而是“让验收能真的等到它发生”——把 15 分钟压到 90 秒是收紧，是允许的；
+// 调成 2 小时会把那条要求变成一句空话，所以 Validate 直接拒绝。
+//
+// shell_user 与 home 属于安装事实（PLAN.md 第 4 节：upanel-shell、/var/lib/upanel-shell），
+// 留空就按计划值来。代理启动时会核对该账号存在、不是 root、shell 不是 nologin、
+// home 不属于别人也不能被别人写；任何一项不满足都**不登记**终端能力，
+// 而不是带着一个注定起不来的 shell 对外宣称“有终端”。
+type Terminal struct {
+	// ShellUser 是运行 shell 的系统账号名。
+	ShellUser string `json:"shell_user"`
+	// HomePath 是 shell 的工作目录；留空时取计划值或账号自身属性。
+	HomePath string `json:"home_path"`
+	// ShellPath 是 shell 可执行文件；留空时取账号自身的登录 shell。
+	ShellPath string `json:"shell_path"`
+	// IdleTimeoutSeconds 是无输入自动关闭的秒数（60—900）。
+	IdleTimeoutSeconds int `json:"idle_timeout_seconds"`
+	// MaxDurationSeconds 是会话绝对寿命的秒数（60—3600）。
+	MaxDurationSeconds int `json:"max_duration_seconds"`
+	// DisconnectGraceSeconds 是断流后保留会话的秒数（5—60）。
+	DisconnectGraceSeconds int `json:"disconnect_grace_seconds"`
 }
 
 // Files 是文件管理模块配置（P06.1）。
@@ -218,6 +259,13 @@ func Defaults() Config {
 				NetworkCapacityTimeoutSeconds: defaultNetworkCapacityTimeoutSeconds,
 			},
 			Services: Services{},
+			Terminal: Terminal{
+				ShellUser:              defaultShellUser,
+				HomePath:               defaultTerminalHome,
+				IdleTimeoutSeconds:     defaultTerminalIdleSeconds,
+				MaxDurationSeconds:     defaultTerminalMaxDurationSeconds,
+				DisconnectGraceSeconds: defaultTerminalGraceSeconds,
+			},
 		},
 		Database: Database{
 			Path:                    defaultDatabasePath(),
@@ -395,6 +443,9 @@ func (a Agent) Validate() error {
 	if err := a.Files.Validate(); err != nil {
 		return err
 	}
+	if err := a.Terminal.Validate(); err != nil {
+		return err
+	}
 	return a.Services.Validate()
 }
 
@@ -470,6 +521,98 @@ func (r FileRoot) Validate(field string) error {
 			"请登记具体目录", field)
 	}
 	return nil
+}
+
+// Validate 校验终端模块配置。
+//
+// 它只做“能不能描述清楚”的校验（路径形态、时限范围），**不**去问账号是否存在：
+// 那件事在代理启动时做（terminal.ResolveAccount），因为 config 包要在两个平台上
+// 都能跑，而账号解析只有 Linux 有。分开之后，配置文件写错会在 check-config 阶段
+// 报出来，账号没建好会在代理启动日志里报出来——两类问题的答案不在同一个地方。
+func (t Terminal) Validate() error {
+	if err := validateAccountName("agent.terminal.shell_user", t.ShellUser); err != nil {
+		return err
+	}
+	for _, item := range []struct{ field, value string }{
+		{"agent.terminal.home_path", t.HomePath},
+		{"agent.terminal.shell_path", t.ShellPath},
+	} {
+		if item.value == "" {
+			continue
+		}
+		if !path.IsAbs(item.value) {
+			return fmt.Errorf("%s 必须是 POSIX 绝对路径，当前为 %q", item.field, item.value)
+		}
+		if strings.ContainsAny(item.value, "?#") {
+			return fmt.Errorf("%s 不能包含 '?' 或 '#'，当前为 %q", item.field, item.value)
+		}
+	}
+	for _, item := range []struct {
+		field string
+		value int
+		def   int
+		min   int
+		max   int
+		unit  string
+		hint  string
+	}{
+		{"agent.terminal.idle_timeout_seconds", t.IdleTimeoutSeconds, defaultTerminalIdleSeconds,
+			minTerminalIdleSeconds, defaultTerminalIdleSeconds, "秒", "15 分钟无输入关闭"},
+		{"agent.terminal.max_duration_seconds", t.MaxDurationSeconds, defaultTerminalMaxDurationSeconds,
+			minTerminalMaxDurationSeconds, defaultTerminalMaxDurationSeconds, "秒", "最长会话 1 小时"},
+		{"agent.terminal.disconnect_grace_seconds", t.DisconnectGraceSeconds, defaultTerminalGraceSeconds,
+			minTerminalGraceSeconds, defaultTerminalGraceSeconds, "秒", "断流宽限 60 秒"},
+	} {
+		value := item.value
+		if value == 0 {
+			// 0 表示“用计划值”，不是“关闭这个限制”。
+			continue
+		}
+		if value < item.min || value > item.max {
+			return fmt.Errorf("%s 必须在 %d—%d %s 之间（%s；只能比计划值更严，不能更宽），当前为 %d",
+				item.field, item.min, item.max, item.unit, item.hint, value)
+		}
+	}
+	return nil
+}
+
+// IdleTimeout 返回生效的空闲时限（配置为 0 时取计划值）。
+func (t Terminal) IdleTimeout() time.Duration {
+	return durationOrDefault(t.IdleTimeoutSeconds, defaultTerminalIdleSeconds)
+}
+
+// MaxDuration 返回生效的会话最长时限。
+func (t Terminal) MaxDuration() time.Duration {
+	return durationOrDefault(t.MaxDurationSeconds, defaultTerminalMaxDurationSeconds)
+}
+
+// DisconnectGrace 返回生效的断流宽限。
+func (t Terminal) DisconnectGrace() time.Duration {
+	return durationOrDefault(t.DisconnectGraceSeconds, defaultTerminalGraceSeconds)
+}
+
+// EffectiveShellUser 返回生效的终端账号名。
+func (t Terminal) EffectiveShellUser() string {
+	if t.ShellUser == "" {
+		return defaultShellUser
+	}
+	return t.ShellUser
+}
+
+// EffectiveHome 返回生效的终端 home（配置为空时给计划值）。
+func (t Terminal) EffectiveHome() string {
+	if t.HomePath == "" {
+		return defaultTerminalHome
+	}
+	return t.HomePath
+}
+
+// durationOrDefault 把秒数转成 time.Duration。
+func durationOrDefault(seconds, def int) time.Duration {
+	if seconds <= 0 {
+		seconds = def
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 // Validate 校验日志模块配置。与 Services 同理：只校验路径，

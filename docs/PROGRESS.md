@@ -2,7 +2,7 @@
 
 最后更新：2026-10-21。
 
-当前事实：**P00—P05 全部 passed，P06 进行中（P06.1、P06.2 已 passed）**（权威状态见 §1 的“当前阶段”与 §7 的阶段表；下面这段是交付历程摘要，按轮次追加，个别中间轮次没写进来）。P01.1 交付 Go 最小可运行骨架
+当前事实：**P00—P05 全部 passed，P06 全部 passed（P06.1、P06.2、P06.3）**（权威状态见 §1 的“当前阶段”与 §7 的阶段表；下面这段是交付历程摘要，按轮次追加，个别中间轮次没写进来）。P01.1 交付 Go 最小可运行骨架
 （两个服务入口 + CLI、严格 JSON 配置、结构化日志、`/api/v1/health/live`、代理 `capabilities`、
 Linux/mock 分离）；P01.2 交付持久层基础（SQLite 打开与 PRAGMA 校验、显式 SQL 迁移与校验和锁定、
 事务工具、封闭错误码与统一错误信封、request_id、Gin 路由与中间件组织、`upanelctl migrate`），
@@ -140,7 +140,7 @@ TERM 与 KILL 是两次独立操作，关键进程零能力；P05.3 journal 结�
 
 ## 1. 当前任务
 
-- 当前阶段：**P06（文件管理与受限终端）进行中**。P06.1（受管理文件根、句柄级路径约束、列表/文本/下载；路径穿越与符号链接测试）**passed**：VM 上 115 项断言 0 失败、载荷校验 6379 项 0 失败、宿主 `check.sh` PASS 13/0/0、前端 406 用例。P06.2（流式暂存上传、提交、编辑备份、目录创建、复制/移动/删除、权限/所有者受限修改、版本冲突与配额）**passed**：VM 上 228 项断言 0 失败 0 未执行、VM 内核原生 909 用例 0 失败、宿主 `check.sh` PASS 13/0/0、前端 428 用例、openapi valid。下一个子任务 **P06.3**（以 `upanel-shell` 启动 PTY、WebSocket、再认证、Origin、连接许可、窗口调整与超时；审计会话元数据）未开始。
+- 当前阶段：**P06（文件管理与受限终端）已完成，P06.1—P06.3 全部 passed**。P06.1（受管理文件根、句柄级路径约束、列表/文本/下载；路径穿越与符号链接测试）**passed**：VM 上 115 项断言 0 失败、载荷校验 6379 项 0 失败、宿主 `check.sh` PASS 13/0/0、前端 406 用例。P06.2（流式暂存上传、提交、编辑备份、目录创建、复制/移动/删除、权限/所有者受限修改、版本冲突与配额）**passed**：VM 上 228 项断言 0 失败 0 未执行、VM 内核原生 909 用例 0 失败、宿主 `check.sh` PASS 13/0/0、前端 428 用例、openapi valid。P06.3（以 `upanel-shell` 启动 PTY、WebSocket、再认证、Origin、连接许可、窗口调整与超时；审计会话元数据）**passed**：VM 上 **282 项断言 0 失败 0 未执行**、VM 内核原生 **962 用例 0 失败**、宿主 `check.sh` PASS 13/0/0、前端 445 用例、openapi valid；真机抓出并修掉 6 类缺陷（Q160—Q169，其中 Q169 是“关 master 不会挂断”导致 shell 残留）。下一个子任务 **P07.1**（存储动作预检、可靠身份、整盘锁、系统设备/挂载/swap/holders/依赖保护；只验证拒绝逻辑）未开始。
 - 已完成子任务：P00.1—P00.3、**P01.1**—**P01.4**、**P02.1**（首个管理员、密码哈希、登录、
   退出、会话轮换、CSRF、Origin、限速；无默认密码）、**P02.2**（admin/viewer、账号管理、
   最后管理员保护、再认证、脱敏 DTO、审计事件起步）、**P02.3**（代理 Unix socket + SO_PEERCRED
@@ -212,8 +212,14 @@ TERM 与 KILL 是两次独立操作，关键进程零能力；P05.3 journal 结�
   **P06.2**（流式暂存上传与受控写入：七个写动作 + 上传三件套全部走同一条预检→任务→幂等→锁→读回→审计链路，
   提交时 `renameat2` 原子换位、覆盖前编辑备份（10 份 / 500 MiB）、版本冲突在预检就拒；
   VM 上 228/0/0、VM 内核原生 909/0、前端 428 例，真机抓到 `O_PATH` 重犯、`PARENT_MISSING` 不可达、
-  `.upanel` 可见、预留计数两处泄漏共 4 类 6 个缺陷）。
-- 下一子任务：**P06.3**（以 `upanel-shell` 启动 PTY、WebSocket、再认证、Origin、连接许可、窗口调整与超时；审计会话元数据）。前置：P03 的“预检 → 任务 → 幂等 → 资源锁 → 读回验证 → 审计”链路，以及 P05.3 建成的“单次许可 + 双向流”通道形态（`/internal/v1/streams`）。终端**只能**启动 `upanel-shell`（无 sudo、无任意 shell），TERM-01 的“获取身份和尝试提权必须失败”要作为断言落进验收。
+  `.upanel` 可见、预留计数两处泄漏共 4 类 6 个缺陷）、
+  **P06.3**（受限 Web 终端：`upanel-shell` 的 PTY 在 `exec` 前降权并从 `/proc/<pid>/status` 读回身份核对，
+  浏览器→Web→代理两跳 WebSocket，四道门（Origin → 子协议 → 一次性许可 → 代理附加）全在 upgrade 之前，
+  帧字段闭集 + 单个 64 KiB 载荷 + 256 KiB/s 与 200 帧/s 上限 + 关闭码 1000/4001/4002，
+  会话两状态、单连接（第二条 409）、断流宽限内重连接回同一个 shell，时限与数量只能收紧，
+  审计只记元数据（终端全文不进日志/审计）；VM 上 282/0/0、VM 内核原生 962/0、前端 445 例，
+  真机抓到 6 类缺陷——最硬的一条是“关 master 不会挂断”，会话已结束而 shell 还在跑（Q169））。
+- 下一子任务：**P07.1**（存储动作预检、可靠设备身份、整盘锁、系统设备/挂载/swap/holders/依赖保护；只验证拒绝逻辑，不执行任何破坏性动作）。前置：P04.2/P04.3 已经建成的只读拓扑（`wwid → serial → 型号+容量` 的强弱顺序、`partition_of`/`depends_on` 边、从 mountinfo/swaps 出发的递归系统盘保护）就是这一阶段判断“能不能碰”的原料；P07 的破坏性验收必须用可丢弃的独立 VM 数据盘，缺少该数据盘时状态只能是 blocked。
   P05 结束时面板已有四类只读查询（系统/存储/服务/进程/日志）、受控写动作（服务启停与进程信号）
   和一条完整的“预检 → 任务 → 幂等 → 资源锁 → 读回验证 → 审计”链路；P06 的文件操作必须复用同一条
   链路，不新开执行路径。
@@ -260,6 +266,13 @@ TERM 与 KILL 是两次独立操作，关键进程零能力；P05.3 journal 结�
   只记“这一轮又发生过、最终读数取自重启后”。本轮另外两次 **ssh 退出码 255** 不是 VM 的问题：
   `pkill -f upanel-agent` 与 `pkill -f p06-2-files-write…` 匹配到了 ssh 自己的远端命令行，
   把自己杀了；改用 `pkill -x upanel-agent` 与 `pkill -f "files-write-accept[a]nce"` 后正常。
+- 环境事实（P06.3 期间）：`upanel-2404` 本轮**没有** panic，全程未重启（`uptime` 与
+  `journalctl -k | grep -c 'Attempted to kill init'` 在 env.txt 里）。两次 ssh 退出码 255 仍是
+  `pkill -f` 匹配到 ssh 自己的远端命令行（`pkill -f "/tmp/upanel-bin/upanel"` 把远端 shell 杀了），
+  改方括号写法（`"[u]panel-bin/upanel"`、`"[b]ash -i"`）并拆成独立调用后正常。
+  另外两件事按“环境事实”记：① 上传到 VM 的二进制与测试二进制都是 0644，执行位要显式补
+  （验收脚本里 `chmod +x`，`run-native-tests.sh` 里也补了一句，否则每条都判成“缺少测试二进制”）；
+  ② `/tmp/upanel-bin` 必须是 0755，否则以 `upanel-web` 身份跑的 Web 进程穿不过去。
 
 ## 2. 状态定义
 
@@ -280,7 +293,7 @@ TERM 与 KILL 是两次独立操作，关键进程零能力；P05.3 journal 结�
 | P03 | 预检、任务、幂等、对账 | **passed** | P03.1 **passed**：预检由代理生成（规范化参数、目标身份指纹、状态版本、影响、阻塞项、锁、再认证与短语策略），Web 只保存绑定并返回公开 DTO；有效期 120 秒且两端同一时间戳；用户/会话/动作/`params_hash`/`state_version` 双侧一致；短语只回一次明文、代理库只存哈希；未登记动作 400、缺规划器 501、`GET` 405。证据 `docs/evidence/P03/2026-10-20-p03.1/`（两台 VM 各 93 项断言 + VM 内核原生 5 个测试二进制，P02.1—P02.4 回归各 58/103/84/87 项）。P03.2 **passed**：持久 jobs、幂等链、`operation_id` 去重、代理执行记录与事件、资源锁与 30 秒排队、取消规则、先落库再提交、按 `operation_id` 对账；证据 `docs/evidence/P03/2026-10-20-p03.2/`（两台 VM 各 101 项断言 + VM 内核原生 169 用例 0 FAIL + p01-1/p01-2/p01-4/p02-1—p02-4/p03-1 回归各 29/34/114/58/103/85/87/93；宿主 check.sh PASS 12/0/NOT RUN 0）。验收期间抓到并修掉两个真缺陷：`CONFIRMATION_MISMATCH` 应为 400（DECISIONS Q64）、SQLite WAL DEFERRED 事务升级不调 busy handler → `_txlock=immediate`（DECISIONS Q65）。P03.3 **passed**：SSE 事件流（`id:`/`event:`/`data:`、`: connected`、15 秒 keepalive、`Last-Event-ID` 续传、日志环被裁后先发 `event: gap`）、代理事件镜像（先事件后状态）、日志分页与每任务 1000 行上限、任务中心与错误详情、最小登录页与路由守卫；证据 `docs/evidence/P03/2026-10-20-p03.3/`（两台 VM 各 73 项断言 + 原生 346 用例 0 FAIL + P03 前序回归）。验收期间抓到并修掉代理侧“阶段与事件分两笔写”的原子性缺陷（DECISIONS Q67）。P03.4 **passed**：Web 启动立刻 + 每 30 秒的对账循环（只查不跑，`grep CreateOperation` 在 `reconcile.go` 无调用点）、提交在途不判定、`NOT_FOUND` 按 `needs_sync` 分流（`failed`/`unconfirmed` vs `interrupted`/`unknown_result`）、幂等记录到期清理、验收注册表约束变成断言；证据 `docs/evidence/P03/2026-10-20-p03.4/`（两台 VM 各 78 项断言 + 原生 360 用例 0 FAIL + 全量 11 脚本 0 失败）。**阶段结论：P03 全部子任务完成，生产登记表仍为空（无真实写动作）** |
 | P04 | 首页和存储只读 | **passed** | P04.1 **passed**：`internal/monitoring` 纯文件读取采集（`/proc/stat`、`meminfo`、`loadavg`、`net/dev`、`os-release`、`uptime`、`cpuinfo` + `uname`），代理侧 5 秒轮询缓存（`collected_at`/`interval_ms`/`stale`/`degraded` + 分节 `status`），速率只由相邻样本差分给出、算不出来为 `null`，`boot_id` 变化让 CPU 窗口失效；查询登记表新增唯一查询 `system.summary`（`DecodeParams` 拒绝任何字段），Web 侧 `GET /api/v1/system/summary`（权限 V）只透传、不做第二层缓存，代理不可用 503 `AGENT_UNAVAILABLE` 且不影响登录；能力只上报真实存在的东西。证据 `docs/evidence/P04/2026-10-20-p04.1/`（两台 VM 各 **72** 项断言 + VM 内核原生 **401** 用例 0 FAIL + 12 脚本全量回归 930/0；宿主 check.sh PASS 12/0/NOT RUN 0，redocly valid 9 warnings）。**生产登记表仍为空，本轮没有新增任何写动作**。P04.2 **passed**：`internal/storage` 只读块设备拓扑（`/sys/block` + `/sys/class/block`，整盘/分区/lvm/raid/crypt/loop/rom/other）、边 `partition_of`/`depends_on`（from=子→to=父）、设备身份 `sha256:` 指纹 + 诚实的 `identity_confidence`、系统盘保护从 mountinfo/swaps 出发沿边递归向上、分区表读盘头部只补类型与 free_regions（内核结果优先）、容量 30 秒缓存取 `f_bavail`、`snapshot_version` 只由内容决定；代理查询 `storage.topology`、Web `GET /api/v1/storage/{topology,devices,devices/:id}`（V 权限、只透传）；`health.status` 一律 `unknown`、`capabilities` 一律 `[]`。证据 `docs/evidence/P04/2026-10-20-p04.2/`（两台 VM 各 **108** 项断言 + VM 内核原生 **473** 用例 0 FAIL + 13 脚本全量回归 1038/0；宿主 check.sh PASS 12/0/NOT RUN 0）。本轮修掉 Q89（块设备被当普通文件读 → 代理 OOM）、Q90（快照版本依赖时间）、Q91（by-id 链接缺已知设备约束）、Q96（一个测试抖动）。P04.3 **passed**（SMART/NVMe 健康与 diskstats：15 分钟采集节奏、睡眠盘不唤醒）——`internal/storage` 新增 `smart.go`/`diskstats.go`/`capacity*.go`：smartctl `-j -H -A -i` 按**退出状态位掩码**判读（失效/预失效 → `critical`，历史位/日志位 → `warning`，命令失败/打开失败 → `unknown`），先读 sysfs 电源状态、非 NVMe 再加 `-n standby`，**不为读健康唤醒休眠盘**；`/proc/diskstats` 每台设备只取自己那一行、计数转十进制字符串，速率由相邻两次采样差分（归零/回绕/窗口异常 → `null`），平均延迟只在完成次数 > 0 时给，扇区固定 512 字节；网络文件系统容量在代理自己的 `--statfs-helper` 子进程里查（并发 2、默认 10 秒超时、失败后隔离 5 分钟不再重试），拓扑新增 `network_mounts`（无块设备的网络挂载单独成表）、`Device.io`、`Mount.capacity_error`，`io` 不进 `snapshot_version`。证据 `docs/evidence/P04/2026-10-21-p04.3/`：24.04.5 与 22.04.5 各 **77** 项通过、`upanel-smart`（QEMU NVMe）**62** 项通过，0 失败（未执行项各 1/1/2，均写明原因）；**statfs 挂在内核里时登录仍 332 ms / 271 ms 返回 200**；原生 `storage.test` 三台 VM **103/0**；22.04 VM 内 `go test -race ./...` 19 包 ok、**0 条 DATA RACE**。P04.3 补强（第二轮）：QEMU USB 盘的两个真实反例（“桥不认识”“`-d sat` 打不开”）+ 真实 `mount --bind` 多挂载点用例 + `smartctl` 原话透进 `health.details`（Q104），三台 VM 重跑 77/77/**63**、0 失败，原生 `storage.test` **106/0**、`-race` 19 包 ok / 0 DATA RACE。P04.4 **passed**（首页、磁盘列表、拓扑/分区详情、健康与容量卡片；**写操作能力此时不启用**）：前端 DTO 与 `api/openapi.yaml` 同源，页面把 `null` 一律显示 `—`、容量与百分比照实、`unsupported/unknown` 不挂告警、`capabilities` 为空就明说没有动作；Playwright 冒烟 31/0/5 + dist 预览 10/10，前端 **192** 用例；VM 上四份真实响应载荷校验 **856/0**、脚本 **31/0 NOT RUN 0**；证据 `docs/evidence/P04/2026-10-21-p04.4/`。**P04 到此全部 passed** |
 | P05 | 服务、进程、日志 | **passed** | P05.1 **passed**：服务列表/详情/保护名单 + 预检→任务→读回的执行链路（`internal/services`、`internal/api/services.go`、`internal/agent/service*`、前端列表与详情页）；VM 上 **PASS=140 / FAIL=0 / NOT RUN=3**、载荷校验 **22369/0**，前端真实载荷回放 22 例、全量 252 例，宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P05/2026-10-21-p05.1/`。P05.2 **passed**：进程列表与信号（`internal/processes` 纯 `/proc` 采集、`pid`+`start_time_ticks` 身份、5 秒 2000 条快照、10 状态 7 类保护闭集、命令摘要脱敏；`process.signal` 生产动作走同一条预检→任务→锁→读回链路，TERM 与 KILL 两次独立操作、KILL 再认证 + 一次性短语、受保护进程零能力、执行前现场重读 `/proc` 核对身份与保护）；VM 上 **PASS=128 / FAIL=0 / NOT RUN=0**、载荷校验 **9250/0（1 SKIP）**，PID 重用由 `ns_last_pid` 真机造出并验证旧预检被拒、新进程安然无恙；前端真实载荷回放 31 例、全量 295 例，宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P05/2026-10-21-p05.2/`。P05.3 **passed**：日志（`internal/journal` 真实 journalctl 结构化查询与跟随流、`internal/logs` Web 侧契约校验、`logs.query` 代理查询 + `/internal/v1/streams` 单次许可的 NDJSON 流、`GET /api/v1/logs` 与 `GET /api/v1/logs/stream` 两条 admin 接口，前端查询页/条目行/实时流）；VM 上 **PASS=132 / FAIL=0 / NOT RUN=1**、载荷校验 **6466/0/0**，9 个真实缺陷被真机抓出并修掉（游标与 `--since` 冲突、`--kernel`、未转义 `;` 被静默丢弃、参数错误 500→503、`limit=0`、流不 flush 头、错误消息三层前缀），**结束订阅不残留 journalctl 子进程**与空闲超时收流都在真机上验过；前端真实载荷回放 24 例、全量 347 例，宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P05/2026-10-21-p05.3/`。**P05 到此全部 passed** |
-| P06 | 文件和受限终端 | **in_progress** | P06.1 **passed**：受管理文件根 + 句柄级路径约束 + 列表/文本/下载（`internal/files` 双角色一套 DTO、`openat2` 单次解析 + 同句柄 `fstat`、根身份每次核对、配置拒绝 `/`；`files.roots|list|text` 三个查询 + `files.download` 单次许可流；`GET /api/v1/files/{roots,list,text,download}` 四条 admin 接口；前端文件页/条目行四态与“不跟随、不读取”说明）。VM 上 **PASS=115 / FAIL=0 / NOT RUN=0**、载荷校验 **6379/0**，前端真实载荷回放 27 例、全量 406 例，宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P06/2026-10-21-p06.1/`。P06.2 **passed**：流式暂存上传与受控写入（`internal/files/staging.go` 声明即预留/收满即归还、根内 `.upanel/staging`、TTL 24 h；`write.go` 编辑备份 10 份 + 500 MiB；`StatTree` 树统计与 `TREE_TOO_LARGE`/`TREE_UNSUPPORTED`；七个写动作 `file.mkdir|write_text|copy|move|delete|chmod|chown` + `commit_upload` 全部走预检→任务→幂等→资源锁→`renameat2` 原子换位→同句柄 `fstat` 读回→审计；上传三件套与四条 `/api/v1/files/uploads*` 接口，字节经代理单次许可通道、不进 job 表；前端上传/新建/重命名/复制/删除/编辑/改权限改所有者与确认短语弹窗）。VM 上 **PASS=228 / FAIL=0 / NOT RUN=0**、VM 内核原生 **909/0**、宿主 `check.sh` PASS 13/0/0、前端 428 例、openapi valid；真机抓出并修掉 4 类 6 个缺陷（Q155—Q158）；未验证项 8 条逐条写在 result.md §5；证据 `docs/evidence/P06/2026-10-21-p06.2/` |
+| P06 | 文件和受限终端 | **passed** | P06.1 **passed**：受管理文件根 + 句柄级路径约束 + 列表/文本/下载（`internal/files` 双角色一套 DTO、`openat2` 单次解析 + 同句柄 `fstat`、根身份每次核对、配置拒绝 `/`；`files.roots|list|text` 三个查询 + `files.download` 单次许可流；`GET /api/v1/files/{roots,list,text,download}` 四条 admin 接口；前端文件页/条目行四态与“不跟随、不读取”说明）。VM 上 **PASS=115 / FAIL=0 / NOT RUN=0**、载荷校验 **6379/0**，前端真实载荷回放 27 例、全量 406 例，宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P06/2026-10-21-p06.1/`。P06.2 **passed**：流式暂存上传与受控写入（`internal/files/staging.go` 声明即预留/收满即归还、根内 `.upanel/staging`、TTL 24 h；`write.go` 编辑备份 10 份 + 500 MiB；`StatTree` 树统计与 `TREE_TOO_LARGE`/`TREE_UNSUPPORTED`；七个写动作 `file.mkdir|write_text|copy|move|delete|chmod|chown` + `commit_upload` 全部走预检→任务→幂等→资源锁→`renameat2` 原子换位→同句柄 `fstat` 读回→审计；上传三件套与四条 `/api/v1/files/uploads*` 接口，字节经代理单次许可通道、不进 job 表；前端上传/新建/重命名/复制/删除/编辑/改权限改所有者与确认短语弹窗）。VM 上 **PASS=228 / FAIL=0 / NOT RUN=0**、VM 内核原生 **909/0**、宿主 `check.sh` PASS 13/0/0、前端 428 例、openapi valid；真机抓出并修掉 4 类 6 个缺陷（Q155—Q158）；未验证项 8 条逐条写在 result.md §5；证据 `docs/evidence/P06/2026-10-21-p06.2/`。P06.3 **passed**：受限 Web 终端（`internal/terminal` 会话表 + 限额收紧 + Linux PTY 降权启动与身份读回 + 显式挂断；`internal/agent/terminalaction.go|terminalstream.go` 动作 `terminal.create`、查询 `terminal.sessions`、WS 流；`internal/api/terminal*.go` 四条接口 + 一次性许可 + WS 中继；前端 `TerminalView.vue` 六态与“不是 root shell”边界提示）。浏览器→Web→代理两跳 WS，四道门（Origin/子协议/许可/代理附加）全在 upgrade 前，帧闭集 + 64 KiB 载荷 + 256 KiB/s 与 200 帧/s 上限 + 关闭码 1000/4001/4002，两状态 + 单连接 409 + 宽限重连同壳，审计只记元数据。VM 上 **PASS=282 / FAIL=0 / NOT RUN=0**、VM 内核原生 **962/0**、宿主 `check.sh` PASS 13/0/0、前端 445 例、openapi valid；真机抓出并修掉 6 类缺陷（Q165—Q169，其中 Q169“关 master 不会挂断”会话结束后 shell 残留）；NOT RUN 5 条见 result.md §6；证据 `docs/evidence/P06/2026-10-21-p06.3/`。**阶段结论：P06 三个子任务全部完成** |
 | P07 | 分区、格式化、挂载 | not_started | 需独立 VM 数据盘 |
 | P08 | SMB 与卷依赖 | not_started | 需真实客户端 |
 | P09 | 现有 Web 应用与 Docker | not_started | — |
@@ -2620,6 +2633,68 @@ VM 上的关键断言：`POST /uploads` 声明后目标文件**一字节未动**
 24 小时自然过期、500 MiB 备份总量上限、50 000 条目树、多客户端真并发赛跑、
 代理 `runner` 的再验证步骤、跨文件系统移动。未验证项一律不计入通过项。
 
+### P06.3（2026-10-21）— 受限 Web 终端：upanel-shell 的 PTY、两跳 WebSocket、四道门、一次性许可、超时与元数据审计
+
+**范围**：`STAGES.md` §8 P06.3。这一轮给面板装上第一个**交互通道**，同时把它钉成全场权限最硬的地方：
+PTY 在 `agent` 进程里 `fork` 之后、`exec` 之前就降权到 `upanel-shell`（`setgroups` 清空 → `setgid` → `setuid`，
+再从 `/proc/<pid>/status` 读回真实/有效 uid、gid 与附加组核对，任何一项不符就杀掉子进程让创建失败）；
+浏览器连的是 Web，Web 再把 WS 接到代理，浏览器从头到尾不知道代理 socket 存在，也拿不到任何“执行命令”的入口——
+只有字节，没有 `run` 帧、没有 `POST /exec`、没有 sudo 密码框。
+
+| 文件 | 改动 |
+|---|---|
+| `internal/terminal/manager.go`（新增） | 会话表（一把锁护住整张表，创建/计数/回收/超时扫描都在同一份真相上判定）、`Limits` 收紧校验、`sweepLocked` + `Run` 每秒扫描、`Attachment`（单连接、`Read/Write/Resize/Info/Done/Exit`、输出块满即丢）、结束原因闭集 `user|exit|idle|expired|disconnect|shutdown`；`Close` 幂等且“别人的会话”对外一律 `ErrNotFound` |
+| `internal/terminal/manager_linux.go`（新增） | `ResolveAccount`（账号必须存在、非 root、home 属主正确且 `o-w`、shell 不能是 nologin、不在 `sudo/docker/disk/adm/kvm/lxd/wheel` 等特权组）、`startPTY`（`Setsid+Setctty`、`Credential{NoSetGroups:false}`、`pty.StartWithAttrs`）、`buildEnv` 白名单（8 个变量，**没有**任何面板自己的标记）、`verifyChildAccount`、**显式挂断**（`kill(-pid, SIGHUP)` → 2 秒不退补 `SIGKILL`，发信号前用 `/proc/<pid>/stat` 的 ppid+starttime 确认身份） |
+| `internal/terminal/frame.go`、`http.go`、`types.go`（新增） | 帧严格解码（字段闭集）、`InputLimiter`（256 KiB/s、200 帧/s）、关闭码 `1000/4001/4002`、错误→状态码唯一映射 `HTTPStatusOf` |
+| `internal/terminal/remote.go`（新增） | Web 侧调用端：本地先校验形态（错的 `session_id` 不占一次 IPC）、响应自洽性校验、代理拒绝翻成 Web 错误（404/409/403/503 各归各位） |
+| `internal/agent/terminalaction.go`、`terminalstream.go`（新增） | 动作 `terminal.create`、查询 `terminal.sessions`、WS 流 `pumpTerminal`（一个 `closeWith` 保证只发一次 close 帧；`statusCarrier` 把拒绝提升成代理错误码） |
+| `internal/agentclient/terminal.go`（新增） | Web→代理的终端客户端（连接、流、关闭） |
+| `internal/api/terminal.go`、`terminalgrant.go`、`terminalws.go`（新增） | 四条 HTTP 接口（列表/领许可/关闭/连接）、一次性许可（32 hex、30 秒、只用一次、只从子协议取、不回显）、WS 中继（镜像代理的关闭码，`sendableCloseCode` 拦掉 1005/1006/1015） |
+| `internal/agent/{registry,server,streams,systemquery}.go`、`internal/api/{router,server,users}.go`、`internal/audit/audit.go` | 登记表在账号可用时才登记两个能力；`/internal/v1/streams` 支持终端用途；中间件拒绝时 `denyTarget` 把 `target` 记成 `terminal:<id>`；审计动作 `terminal.attach`/`terminal.close` + 五个 stage |
+| `internal/config/config.go`、`cmd/upanel-{agent,web}/main.go` | 终端账号/home/shell、三个时限与两个上限（只能收紧）、Web 侧启动探测能力 |
+| `web/src/api/terminal.ts`、`terminal.test.ts`、`views/TerminalView.vue`（新增） | 与 openapi 同源的 DTO；xterm 页面：连接中/已连接/已断开/空/错误/无权限六态，固定提示“这是受限终端，不是 root shell”，`capabilities` 为空时整页说明未启用 |
+| `tests/integration/p06-3-terminal-acceptance.sh`、`p06-3-ws-client.py`（新增） | 真机验收 282 项断言 20 节；WS 客户端把“输入计划 → 期望帧”写成 JSON，由脚本驱动 |
+| `api/openapi.yaml`、`docs/CONTRACTS.md`（新增 §10.4）、`docs/DECISIONS.md` Q160—Q169 | 四条接口、`stage: P06.3`；契约写清两跳、两状态、409、收紧规则、帧表与限额、关闭码、许可规则、四道门表、错误映射、幂等 DELETE、能力软关闭与“明确不提供”清单，以及“回收 = 进程真的没了”的判定标准 |
+
+**刻意不做的事**：不做 root/sudo 终端、不做 `run` 帧或命令接口、不做 tmux 式持久化（会话最长 1 小时、
+进程不跨 Web/代理重启存活）、不做录像/回放、不做多人共享同一会话、不做 SFTP（文件走第 11 节契约）、
+断流期间的输出直接丢弃不补发（实时通道语义）。
+
+**本轮被真机抓出的缺陷（全部改产品，不改断言）**
+
+1. 领许可 / 关闭别人的会话返回 503 `AGENT_UNAVAILABLE`：代理查询层把 `ErrNotFound` 当执行失败 → 500，
+   Web 再翻成 503。`terminalRejection` 给每个查询/关闭错误带上判定，三层说同一个码（Q165）。
+2. 关闭一个已经不存在的会话返回 404，关闭别人的会话返回 403：`Close` 既不幂等、又承认了“这个 id 存在”。
+   改成幂等、非属主一律 `ErrNotFound`，与 `Get` 同一规则（Q165）。
+3. 帧非法/超速率时浏览器侧 `closed_by_server=False`：服务端只 `conn.Close()` 从不发 close 帧。
+   加 `4001`/`4002`，Web 只镜像代理给的码（Q166）。
+4. 终端环境里能读到 `UPANEL_TERMINAL=1`：`buildEnv` 多塞了标记变量，被 `env | grep -c UPANEL` 抓到。
+   从白名单删除——终端里的进程和一次 SSH 登录的差别不需要靠环境变量表达（Q167）。
+5. **会话已结束，`upanel-shell` 还在跑，代理里 master fd 也还开着**（第 13 节）
+   。根因不是 shell 忽略 SIGHUP（`SigIgn` 显示没忽略），而是 `os.File.Close` 对阻塞 fd 只做“标记 + 减引用”，
+   真正的 `close(2)` 要等读泵那次 `read` 返回 → tty 从不释放 → 挂断信号从未发出、`Wait` 永不返回。
+   改成“关 master + 显式 `kill(-pid, SIGHUP)`，2 秒不退补 `SIGKILL`”，配
+   `TestManagerGraceExpiryReapsShell` / `TestManagerCloseReapsShell` 两个原生用例断言 `/proc/<pid>` 消失（Q169）。
+6. 中间件层拒绝的终端路由审计 `target='user'`：拒绝发生在拿到会话 id 之前。`denyTarget` 按动作与
+   `:id` 形态给出 `terminal:<id>`，只有列表接口（URL 里没有 id）仍记 `user`（Q168）。
+
+**验收脚本自身的缺陷（记录，不掩盖）**：脚本以 CRLF 落地导致 `sh` 报 `set: Illegal option`；
+上传的二进制是 0644 没有执行位（`chmod +x` 且 `chmod 755 /tmp/upanel-bin` 才能让 `upanel-web` 穿过去）；
+能力断言把 `terminal.sessions` 拿去 `supported_actions` 里找；限速用例的填充字节 `x` 落进 PTY 行缓冲，
+把后续 `export` 污染成 `command not found`（改发 `\n`）；两个账号的会话状态用同一个 cookie jar 采样
+（改按 jar 分别 `wait_state_as`）；“审计 target 以 `terminal:` 开头”这条断言过宽，把列表接口的 `user`
+也算失败——改成“三类行分别精确比对”（脚本断言只增不减，282 > 277）。
+
+**实际执行的检查与证据**：VM 24.04.5 上 **PASS=282 / FAIL=0 / NOT RUN=0**；VM 内核原生 **962 用例 0 FAIL**
+（terminal 33 / api 200 / agent 206 / storage 159 / agentstore 72 / agentclient 39 / operations 57 /
+files 80 / monitoring 30 / journal 40 / logs 22 / store 11 / syscmd 13）；宿主 `go test ./...` 26 包 ok（3 个包无测试文件）、
+`gofmt` 无输出、`check.sh` **PASS 13 / FAIL 0 / NOT RUN 0**；前端 **29 文件 / 445 用例**；openapi valid 7 warning。
+证据 `docs/evidence/P06/2026-10-21-p06.3/`（含 18 份载荷）。
+
+**未验证（NOT RUN，逐条原因见 result.md §6）**：22.04.5 上的终端验收、真实浏览器里手工敲终端
+（xterm 渲染/输入法/粘贴/移动端键盘）、代理被 `kill -9` 时浏览器侧的表现、`/dev/pts` 耗尽与并发压力、
+终端页的可访问性。未验证项一律不计入通过项。
+
 ## 6. 未决问题与范围变更
 
 未批准任何范围变更。DECISIONS.md 第 8 节记录 Q1—Q80；P03.3 新增六条：Q67（阶段与事件必须同事务，
@@ -2920,6 +2995,11 @@ Q103（`cmd/upanel-web` 的用例会读机器上的 `/etc/upanel/upanel.json`，
 | P06.2-CHECK | P06 | 已执行通过：`sh scripts/check.sh` → **PASS 13 / FAIL 0 / NOT RUN 0**；`redocly lint api/openapi.yaml` valid + 6 warning（与 P06.1 同一批历史遗留）。必须在 `.nvmrc` 的 Node v22.23.3 下跑 | docs/evidence/P06/2026-10-21-p06.2/{check.txt,openapi-lint.txt} |
 | P06.2-VM | P06 | **已执行通过（Ubuntu 24.04.5 / 6.8.0-147，root 起代理、uid 999 起 Web）**：`p06-2-files-write-acceptance.sh` **通过 228 / 失败 0 / 未执行 0**（§0—§16）。含：声明后目标文件一字节未动、暂存区只有 `.part`、`commit_upload` 后 `staging` 归零且内容逐字节一致、`Content-Length` 不符 400、重复 `PUT` 409 `VERSION_CONFLICT`、放弃后 `reserved` 归零、超配额在预检就 `INSUFFICIENT_SPACE`、外部改文件后提交 **409 `PREFLIGHT_STALE` 且内容未被覆盖**（作业表留 `failed`/`rejected`）、三次覆盖 3 份备份且 `backup_count` 如实、`mkdir` 三种结果、目录复制与 `TREE_UNSUPPORTED`、非空目录不递归 `DIRECTORY_NOT_EMPTY`、递归删除再认证 + 带路径短语 + 条目数 4、`chmod 0640` 读回、`chown` 只收受管理账号名、只读根七动作全 `ROOT_READ_ONLY`、写动作路径形状与 P06.1 同判决且无字节入暂存、viewer 七动作全 403 | docs/evidence/P06/2026-10-21-p06.2/{p06-2-acceptance-2404.txt,payloads/,env.txt} |
 | P06.2-RESULT | P06 | 已产出：范围与逐文件改动、**与 STAGES §8 P06.2 验收条目逐条对应表**、实际执行的检查表、关键断言原文、4 类 6 个缺陷与修法（含每条钉住它的测试名）、5 起流程事故、8 条 NOT RUN 与复核命令、已知限制 | docs/evidence/P06/2026-10-21-p06.2/{result.md,commands.log} |
+| P06.3-VM | P06 | **已执行通过（Ubuntu 24.04.5 / 6.8.0-147，root 起代理、upanel-web 起 Web）**：`p06-3-terminal-acceptance.sh` **通过 282 / 失败 0 / 未执行 0**（§0—§20）。含：能力表登记 `terminal.create`（动作）与 `terminal.sessions`（查询）且没有任何 exec/shell/command 类能力；匿名 401、viewer 403（四条接口）；`terminal.create` 未再认证被拒 → 再认证 → 任务 `succeeded`；许可只能用一次、30 秒过期、不放在 URL 里、不回显在 101；四道门各自的状态码与审计 stage（无 Origin → 403 `CSRF_FAILED`、错子协议 → 400 `VALIDATION_ERROR`、坏许可 → 403 `FORBIDDEN`、别人/不存在的会话 → 404/409/503 且不泄露存在性）；终端里 `id -un` 是 `upanel-shell`、无特权组、`sudo -n` 失败、`/etc/shadow` 与代理密钥读不到、`/etc/upanel` 写不进、`env` 里没有 `UPANEL_*`；`stty size` 读回 43x132；帧闭集越界一律 `4001`、超速率 `4002` 且浏览器侧真的收到 close 帧；已连接时再连 → 409 `RESOURCE_BUSY`；断流宽限内重连接回同一个 shell（导出变量还在）；宽限到期会话消失且 `pgrep -u upanel-shell` **归零**；60 秒空闲 → `idle`、120 秒（收紧配置）→ `expired`；每账号第 2 个会话预检 `TERMINAL_SESSION_LIMIT`、全局第 3 个任务 `RESOURCE_BUSY`；关闭幂等、非法 `reason` 400、关闭必须带 CSRF；48 条终端审计行、四道门各有 stage、标记串在审计与两份日志里都搜不到、单行 `details` < 300 字节；账号改成 nologin 后代理仍能启动、不登记能力、接口 501；终端之外（系统/存储/服务/进程/日志/文件）回归正常 | docs/evidence/P06/2026-10-21-p06.3/{p06-3-acceptance-2404.txt,payloads/,env.txt} |
+| P06.3-UNIT-VM | P06 | 已执行通过：VM 内核上 13 个包的交叉编译测试二进制，**TOTAL PASS=962 / FAIL=0**（terminal 33 / api 200 / agent 206 / storage 159 / agentstore 72 / agentclient 39 / operations 57 / files 80 / monitoring 30 / journal 40 / logs 22 / store 11 / syscmd 13）。其中 `TestManagerGraceExpiryReapsShell` 与 `TestManagerCloseReapsShell` 是本轮 PTY 回收缺陷的照妖镜（断言 `/proc/<pid>` 在 5 秒内消失）；`TestManagerDetachKeepsPTY` 反过来钉住“断开不杀 PTY”；`TestLimitsCannotBeLoosened`、`TestDecodeClientFrame*`、`TestSendableCloseCode`、`TestDenyTargetPointsAtTerminalSession` 各钉住一条契约 | docs/evidence/P06/2026-10-21-p06.3/native-tests.txt |
+| P06.3-CHECK | P06 | 已执行通过：`sh scripts/check.sh`（Node v22.23.3）→ **PASS 13 / FAIL 0 / NOT RUN 0**；`redocly lint api/openapi.yaml` valid + 7 warning（第 7 条是只有 101 的 `connect` 操作被判 `operation-2xx-response`，属预期） | docs/evidence/P06/2026-10-21-p06.3/{check.txt,openapi-lint.txt} |
+| P06.3-FRONT | P06 | 已执行通过：`vue-tsc --noEmit` 0 error、`eslint .` 0 problem、`vitest run` **29 文件 / 445 用例全 passed**（新增 `terminal.test.ts`）、`vite build` 成功（`TerminalView` 346.92 kB） | docs/evidence/P06/2026-10-21-p06.3/{web-gates.txt,web-test.txt} |
+| P06.3-RESULT | P06 | 已产出：范围与逐文件改动、四道门与帧限额表、6 类真机缺陷与修法（Q165—Q169）、验收脚本自身的 7 处缺陷、实际执行的检查表、关键断言原文、5 条 NOT RUN 与原因、已知限制、下一子任务 P07.1 | docs/evidence/P06/2026-10-21-p06.3/{result.md,commands.log} |
 | P00-VM-C（LVM 根） | P00/P04 | **NOT RUN**（未创建） | 需在 P04 前补齐 |
 | P00-VM-D（SMB 客户端） | P00/P08 | **NOT RUN**（未创建） | 需在 P08 前补齐 |
 
@@ -2959,12 +3039,16 @@ Q103（`cmd/upanel-web` 的用例会读机器上的 `/etc/upanel/upanel.json`，
   生产动作可执行**），P04.1 的系统基础资源**只读**采集（CPU/内存/负载/网络/主机信息，
   代理侧 5 秒轮询缓存，`GET /api/v1/system/summary`），P04.2 的存储拓扑**只读**视图（块设备树、
   边、设备身份指纹、系统盘保护、分区表类型与空闲区间、挂载点容量；`GET /api/v1/storage/topology`
-  与 `/storage/devices[/:id]`），P04.4 的首页/磁盘/拓扑详情页面，P05.1 的服务列表、详情与保护名单。
+  与 `/storage/devices[/:id]`），P04.4 的首页/磁盘/拓扑详情页面，P05.1 的服务列表、详情与保护名单与
+  `service.control`，P05.2 的进程列表与 `process.signal`（TERM/KILL 两次独立操作），P05.3 的日志
+  查询与实时流，P06.1/P06.2 的受管理文件根/列表/文本/下载与七个写动作 + 上传，P06.3 的受限 Web 终端
+  （`upanel-shell` 的 PTY、两跳 WS、四道门、一次性许可、时限与元数据审计）。
   viewer 目前的“只读”体现在账号管理、任务查询与各只读接口上（写操作一律 403）。
   **代理的生产登记表从 P05.1 起不再是空的**：`service.control` 是第一个真实写动作，
-  但它只做“单个服务单元的启停/重启/开机启动”，仍然没有万能命令执行器。
-  磁盘写、共享、网络回滚、备份恢复这些高风险能力只有约定，没有实现，更没有 Linux 证据；
-  文件与终端页面也还没有。
+  但它只做“单个服务单元的启停/重启/开机启动”，仍然没有万能命令执行器；
+  P06.2 的七个文件动作同样只作用于**受管理根**内的路径，P06.3 的终端只有字节通道（无 `run` 帧、
+  无 `POST /exec`、无 sudo）。
+  磁盘写、共享、网络回滚、备份恢复这些高风险能力只有约定，没有实现，更没有 Linux 证据。
 - 预检与任务之间已经接上（P03.2：`POST /api/v1/jobs` 消费预检并落持久 job），但**能执行的动作
   仍然只有 `-acceptance-actions` 下的验收动作**：`acceptance.probe`/`acceptance.ping` 只在开关打开
   时登记，生产登记表为空。所以“从预检到执行”这条链路的**代码是对的、动作是假的**——这是
@@ -3176,3 +3260,14 @@ Q103（`cmd/upanel-web` 的用例会读机器上的 `/etc/upanel/upanel.json`，
   `PREFLIGHT_STALE` 并被要求重来，界面不提供合并。
 - `file.chown` 只接受受管理账号表里的名字，不接受数字 uid，也不接受 `root`；
   需要改属主为系统账号的场景目前无解，这是刻意的边界。
+- P06.3 的终端页**没有在真实浏览器里敲过**：`vitest` 用例覆盖的是 DTO 与状态机，xterm 的
+  渲染、输入法、复制粘贴、移动端软键盘都只有构建产物，没有人工现场；Firefox/Safari 未验证。
+- 终端只在 **24.04.5** 上做过真机验收（P06.1/P06.2 同一口径）；22.04.5 上没有任何终端证据。
+- 终端会话的上限就是“每人 1 个、全局 2 个、单连接”，因此**没有**做 `/dev/pts` 耗尽、
+  多会话并发、代理被 `kill -9` 时浏览器表现的压力与故障注入验证；
+  `kill -9` 那条只覆盖了“代理正常关闭连接”的审计（`agent_closed`）。
+- 断流期间的输出直接丢弃（实时通道语义），没有回滚缓冲：这是一条写进契约的限制，
+  不是缺陷，但用户在网络抖动后会看到输出缺口。
+- 终端身份是系统账号 `upanel-shell`：**所有管理员共用同一个系统身份**，因此文件权限层面
+  无法区分“哪个面板账号在 shell 里干了什么”（能区分的是审计里的 `terminal.attach/close`）。
+  需要按人隔离时要改成每账号一个系统身份，那是新决策，不在 P06 范围内。

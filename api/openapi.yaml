@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: uPanel API
-  version: 0.0.0-p06.2
+  version: 0.0.0-p06.3
   summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
   description: |
     uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。
@@ -23,7 +23,7 @@ info:
     name: Proprietary
     identifier: LicenseRef-Proprietary
 x-upanel-contract-status:
-  stage: P06.2
+  stage: P06.3
   implemented_paths:
     - get /api/v1/health/live
     - head /api/v1/health/live
@@ -60,6 +60,10 @@ x-upanel-contract-status:
     - put /api/v1/files/uploads/{id}/content
     - get /api/v1/files/uploads/{id}
     - delete /api/v1/files/uploads/{id}
+    - get /api/v1/terminal/sessions
+    - post /api/v1/terminal/sessions/{id}/connection-grants
+    - get /api/v1/terminal/sessions/{id}/connect
+    - delete /api/v1/terminal/sessions/{id}
   note: 只列出已实现并通过验收的接口；未实现模块不出现在 paths 中。
 servers:
   - url: https://127.0.0.1:9443/api/v1
@@ -87,6 +91,8 @@ tags:
     description: 应用、容器与部署
   - name: files
     description: 受管理文件根
+  - name: terminal
+    description: 受限交互终端（仅 admin，upanel-shell 身份，非 root）
   - name: proxy
     description: 反向代理与证书
   - name: ops
@@ -2251,6 +2257,242 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
+  /api/v1/terminal/sessions:
+    get:
+      operationId: listTerminalSessions
+      summary: 当前账号的受限终端会话（仅 admin）
+      description: |
+        CONTRACTS.md 第 10 节（P06.3 起），权限 admin。只返回**当前登录账号**的会话：
+        user_id 由服务端从会话里取，从不从请求参数取；代理再按 user_id 核对归属。
+        没有会话时 `sessions` 是空数组，不是 null。
+
+        响应同时带上终端边界（account、account_uid、三条时限、两个数量上限），
+        界面据此显示“以 upanel-shell（uid 998）运行、15 分钟无输入关闭、最长 1 小时”，
+        而不是把这些数字硬编码在页面上。
+
+        **会话不是任务**：terminal.create 提交后任务就结束了（它只负责把会话建出来），
+        会话活得比任务长，由代理的会话表管理；会话结束后就从表里消失，查询它得到 404。
+      tags: [terminal]
+      responses:
+        '200':
+          description: 当前账号的会话与终端边界。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/TerminalSessionsData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/terminal/sessions/{id}/connection-grants:
+    post:
+      operationId: createTerminalConnectionGrant
+      summary: 申请一次性终端连接许可（仅 admin + CSRF）
+      description: |
+        CONTRACTS.md 第 10 节（P06.3 起），权限 admin + CSRF。会话不属于当前账号时
+        返回 404 NOT_FOUND（不区分“没有这个会话”和“不是你的会话”，否则等于告诉
+        调用方别人的 session_id 是否有效）。
+
+        为什么需要这个接口：WebSocket 握手是一次 GET，浏览器无法为它添加自定义请求头，
+        因此 CSRF 令牌在握手请求里无处安放。许可把“经过 CSRF 校验的意图”与
+        “随后的握手”绑在一起——先 POST 拿到许可，再用子协议把它带回。
+
+        许可的约束（服务端强制，前端改不了）：**30 秒有效、只能使用一次**（任何一次
+        消费尝试都会把它删掉，失败也一样）、绑定当前账号与当前会话、只存在于 Web 进程
+        内存里、全局最多 32 个未消费许可。过期或已被使用一律 403 FORBIDDEN。
+
+        许可只经 WebSocket 子协议传递（`upanel.grant.<id>`），**禁止**放进 URL 查询参数：
+        查询串会落进访问日志、浏览器历史、Referer 与反代的 access log。
+
+        `connect_path` 是接下来要拨的路径，**相对 API 基址**（与 /files 下载地址同一套
+        规则），不含查询参数。
+      tags: [terminal]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TerminalSessionID'
+      responses:
+        '200':
+          description: 一次性连接许可。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/TerminalGrantData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: 未消费的许可已达上限（32 个）；等它们过期或先拨一条连接。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/terminal/sessions/{id}/connect:
+    get:
+      operationId: connectTerminalSession
+      summary: 升级成受限终端的 WebSocket（仅 admin）
+      description: |
+        CONTRACTS.md 第 10 节（P06.3 起）。这是一次 WebSocket 升级（`101 Switching
+        Protocols`），不是普通的 JSON 接口；成功之后这条连接上跑的是
+        `upanel.term.v1` 帧协议。
+
+        握手要求（三样都必须满足，缺一样就是 4xx，而且都在升级**之前**判定）：
+
+        1. `Origin` 头必须存在且在允许的来源里，否则 403 CSRF_FAILED
+           （浏览器发起的跨站 WebSocket 会带别的 Origin；命令行客户端不带 Origin，
+           因此同样被拒——本接口只服务于面板自己的页面）。
+        2. `Sec-WebSocket-Protocol` 必须同时包含 `upanel.term.v1` 与
+           `upanel.grant.<许可>`，否则 400 VALIDATION_ERROR / 403 FORBIDDEN。
+           服务端选中的子协议只有 `upanel.term.v1`。
+        3. 许可必须属于当前账号与当前会话且未被使用过。
+
+        服务端**先连代理再升级浏览器**：会话不存在、已被占用、代理不可用时回的是正常的
+        JSON 错误信封（404 / 409 / 503），而不是“101 之后再断”。升级之后的协议级错误
+        走 `error` 帧，因为那时已经没有状态码可给了。
+
+        帧（JSON 文本帧，终端数据是 base64）：
+
+        | 方向 | type | 字段 |
+        |---|---|---|
+        | 客户端→服务端 | `input` | `data_b64`（非空，解码后 ≤64 KiB） |
+        | 客户端→服务端 | `resize` | `cols`、`rows`（1—500） |
+        | 服务端→客户端 | `ready` | `session_id`、`account`、`account_uid`、`cols`、`rows`、`server_time` |
+        | 服务端→客户端 | `output` | `data_b64` |
+        | 服务端→客户端 | `exit` | `reason`，另有 `exit_code`（被信号终止时不出现）与 `signal` |
+        | 服务端→客户端 | `error` | `code`（`FRAME_INVALID` / `RATE_LIMITED`）、`message` |
+
+        客户端只能发 `input` 与 `resize`：未知 `type`、未知字段、尾部多余内容、超过
+        64 KiB 的帧一律 `FRAME_INVALID` 并断开——**没有任何“执行命令”的帧**，终端
+        只是写进 tty 的字节。输入限额 256 KiB/s 与 200 帧/s，超出 `RATE_LIMITED` 断开。
+
+        断开连接**不**结束会话：会话进入宽限期（默认 60 秒），这段时间内重连接回同一个
+        PTY；宽限期满才回收。空闲（无输入）与绝对寿命是两条独立的终止线。
+      tags: [terminal]
+      parameters:
+        - $ref: '#/components/parameters/TerminalSessionID'
+      responses:
+        '101':
+          description: |
+            已升级成 WebSocket，子协议是 `upanel.term.v1`。接下来按上表收发帧。
+          headers:
+            Sec-WebSocket-Protocol:
+              description: 服务端只选 `upanel.term.v1`（携带许可的子协议不会被回选）。
+              schema:
+                type: string
+                enum: [upanel.term.v1]
+        '400':
+          description: 没有声明 `upanel.term.v1` 子协议（或声明的子协议不止一个）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: 会话已经被另一条连接占用（同一时刻只允许一条连接）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/terminal/sessions/{id}:
+    delete:
+      operationId: closeTerminalSession
+      summary: 关闭自己的终端会话（仅 admin + CSRF）
+      description: |
+        CONTRACTS.md 第 10 节（P06.3 起），权限 admin + CSRF。只允许关闭自己创建的会话；
+        别人的会话是 404（同“不存在”）。
+
+        **幂等**：会话已经不在了（自己退出、空闲回收、到期、宽限期满）也回同样的成功体，
+        因为调用方要的结果是“它现在不在跑了”。`reason` 只影响日志与审计记录，
+        默认 `user`，闭集见下方枚举。
+      tags: [terminal]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TerminalSessionID'
+        - name: reason
+          in: query
+          required: false
+          description: 结束原因，只用于日志与审计；缺省 `user`。
+          schema:
+            type: string
+            enum: [user, idle, expired, disconnect, shutdown, exit, failed]
+            default: user
+      responses:
+        '200':
+          description: 会话已不在运行。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/TerminalClosedData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
 
 components:
   securitySchemes:
@@ -2447,6 +2689,17 @@ components:
       schema:
         type: string
         pattern: '^up_[0-9a-f]{32}$'
+
+    TerminalSessionID:
+      name: id
+      in: path
+      required: true
+      description: |
+        终端会话 id：32 位小写十六进制（terminal.create 任务结果里的 `session_id`）。
+        形态不对一律按“会话不存在”回答（404），不把内部细节写进错误信息。
+      schema:
+        type: string
+        pattern: '^[0-9a-f]{32}$'
 
     FilesExpectedVersion:
       name: expected_version
@@ -4506,6 +4759,143 @@ components:
         state:
           type: string
           enum: [deleted]
+
+    TerminalSessionInfo:
+      type: object
+      additionalProperties: false
+      required: [session_id, user_id, account, account_uid, state, cols, rows, created_at,
+                 last_activity_at, idle_deadline, expires_at, idle_timeout_seconds,
+                 max_duration_seconds]
+      properties:
+        session_id:
+          type: string
+          pattern: '^[0-9a-f]{32}$'
+        user_id:
+          type: integer
+          format: int64
+          description: 会话所属的面板账号 id（服务端从会话里取，不接受请求参数）。
+        account:
+          type: string
+          description: 实际运行 shell 的系统账号（正常是 upanel-shell）。
+        account_uid:
+          type: integer
+          format: uint32
+          description: 该账号的 uid。如实下发，界面据此证明“这不是 root”。
+        state:
+          type: string
+          enum: [attached, detached]
+          description: |
+            只有“连着”和“未连接（宽限期内）”两种。**没有 closed**：会话结束后就从
+            表里消失，查询它得到 404，而不是读一个永远停在 closed 的死行。
+        cols:
+          type: integer
+          minimum: 1
+          maximum: 500
+        rows:
+          type: integer
+          minimum: 1
+          maximum: 500
+        created_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        last_activity_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        attached_at:
+          type: [string, 'null']
+          description: 上次连接建立时间；从未连接过为 null。
+        idle_deadline:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        expires_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        idle_timeout_seconds:
+          type: integer
+          minimum: 60
+          maximum: 900
+        max_duration_seconds:
+          type: integer
+          minimum: 60
+          maximum: 3600
+
+    TerminalSessionsData:
+      type: object
+      additionalProperties: false
+      required: [account, account_uid, idle_timeout_seconds, max_duration_seconds,
+                 disconnect_grace_seconds, max_per_user, max_sessions, sessions]
+      properties:
+        account:
+          type: string
+        account_uid:
+          type: integer
+          format: uint32
+        idle_timeout_seconds:
+          type: integer
+          minimum: 60
+          maximum: 900
+          description: 无输入自动关闭的时限。配置只能收紧（15 分钟是上限）。
+        max_duration_seconds:
+          type: integer
+          minimum: 60
+          maximum: 3600
+          description: 会话绝对寿命。配置只能收紧（1 小时是上限）。
+        disconnect_grace_seconds:
+          type: integer
+          minimum: 5
+          maximum: 60
+          description: 断流后保留会话的时间，用来重连；配置只能收紧（60 秒是上限）。
+        max_per_user:
+          type: integer
+          minimum: 1
+          maximum: 1
+        max_sessions:
+          type: integer
+          minimum: 1
+          maximum: 2
+        sessions:
+          type: array
+          description: 当前账号的会话，按创建时间升序；没有会话时是空数组，不是 null。
+          items:
+            $ref: '#/components/schemas/TerminalSessionInfo'
+
+    TerminalGrantData:
+      type: object
+      additionalProperties: false
+      required: [session_id, grant, expires_at, protocol, grant_protocol, connect_path]
+      properties:
+        session_id:
+          type: string
+          pattern: '^[0-9a-f]{32}$'
+        grant:
+          type: string
+          pattern: '^[0-9a-f]{32}$'
+          description: |
+            一次性连接许可：30 秒有效、只能使用一次、绑定当前账号与当前会话。
+            只经 WebSocket 子协议传递，禁止放进 URL 查询参数。
+        expires_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        protocol:
+          type: string
+          enum: [upanel.term.v1]
+        grant_protocol:
+          type: string
+          pattern: '^upanel\.grant\.[0-9a-f]{32}$'
+        connect_path:
+          type: string
+          description: |
+            要拨的 WebSocket 路径，**相对 API 基址**（与 /files 下载地址同一套规则），
+            不含查询参数。
+          example: /terminal/sessions/0123456789abcdef0123456789abcdef/connect
+
+    TerminalClosedData:
+      type: object
+      additionalProperties: false
+      required: [session_id, closed]
+      properties:
+        session_id:
+          type: string
+          pattern: '^[0-9a-f]{32}$'
+        closed:
+          type: boolean
+          enum: [true]
+          description: 恒为 true：会话现在已经不在运行（幂等关闭）。
 
 
   responses:

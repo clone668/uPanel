@@ -34,6 +34,11 @@ type ProductionDeps struct {
 	// FileWrites 是文件写端（P06.2）。为 nil 时不登记 file.* 写动作，
 	// 也不提供 /internal/v1/uploads 路由。
 	FileWrites FileWriterSource
+	// Terminal 是受限终端的会话层（P06.3）。为 nil 时不登记 terminal.create 与
+	// terminal.sessions，也不接受 terminal.io 流许可——本机没有可用的终端账号
+	// （或不是 Linux）时，capabilities 就如实报告“没有终端”，
+	// 而不是留下一个点了报错的入口。
+	Terminal TerminalManager
 }
 
 // newSystemSummaryQuery 登记 system.summary：无参数，返回采集器最近一次快照。
