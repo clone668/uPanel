@@ -105,9 +105,14 @@ for d in "$BLK"/*; do
         for f in start size partition dev ro; do
             take "$p/$f" "$pdest/$f"
         done
-        # 分区上的 holders（LVM 在分区上时这里非空）
+        # 分区上的 holders（LVM/dm 在分区上时这里非空）。
+        # 写成 holders/list 而不是一个叫 holders 的文件：真机上 holders 是**目录**，
+        # 夹具必须保持同一形状，否则解析代码在夹具与真机之间会走不同的分支。
         for h in "$p/holders"/*; do
-            if [ -e "$h" ]; then basename "$h" >> "$pdest/holders"; fi
+            if [ -e "$h" ]; then
+                mkdir -p "$pdest/holders"
+                basename "$h" >> "$pdest/holders/list"
+            fi
         done
     done
 done

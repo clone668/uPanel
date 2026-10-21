@@ -1,0 +1,20 @@
+ ✓ src/router/routes.test.ts (6 tests) 9ms
+ ✓ src/router/redirect.test.ts (4 tests) 7ms
+ ✓ src/api/errors.test.ts (5 tests) 8ms
+ ✓ src/stores/mode.test.ts (5 tests) 8ms
+ ✓ src/utils/viewstate.test.ts (7 tests) 9ms
+ ✓ src/components/panels.test.ts (17 tests) 81ms
+ ✓ src/components/realdata.test.ts (17 tests) 182ms
+ ✓ src/components/services.test.ts (14 tests) 123ms
+ ✓ src/components/realdata-processes.test.ts (31 tests) 196ms
+ ✓ src/components/storage.test.ts (24 tests) 173ms
+ ✓ src/components/realdata-services.test.ts (22 tests) 118ms
+
+ Test Files  29 passed (29)
+      Tests  445 passed (445)
+   Start at  19:00:16
+   Duration  2.89s (import 84%, tests 11%, transform 3%, worker 1%)
+
+    Isolate  29 workers spawned · ~421ms startup each (spawn + environment, per file)
+             at least ~393ms faster with isolate: false — reuses workers across files instead of one per file
+

@@ -201,15 +201,17 @@ func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteData(w, r, http.StatusOK, capabilities{
-		Version:          s.opts.Version.Version,
-		Commit:           s.opts.Version.Commit,
-		BuildDate:        s.opts.Version.BuildDate,
-		GoVersion:        s.opts.Version.GoVersion,
-		Mode:             platform.ModeProduction.String(),
-		OS:               platform.Current().OS,
-		Arch:             platform.Current().Arch,
-		StartedAt:        s.startedAt.Format(time.RFC3339),
-		SupportedActions: s.registry.ActionNames(),
+		Version:   s.opts.Version.Version,
+		Commit:    s.opts.Version.Commit,
+		BuildDate: s.opts.Version.BuildDate,
+		GoVersion: s.opts.Version.GoVersion,
+		Mode:      platform.ModeProduction.String(),
+		OS:        platform.Current().OS,
+		Arch:      platform.Current().Arch,
+		StartedAt: s.startedAt.Format(time.RFC3339),
+		// 只报有执行器的动作：能预检但还不能执行的动作（P07.1 的存储动作）会给出
+		// 真实的拒绝原因，但提交一定 501，列进这里就是能力撒谎。见 ExecutableActionNames。
+		SupportedActions: s.registry.ExecutableActionNames(),
 		SupportedQueries: s.registry.QueryNames(),
 		Dependencies:     []depInfo{},
 	})

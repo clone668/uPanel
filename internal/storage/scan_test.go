@@ -400,7 +400,7 @@ func TestHealthNeverClaimsHealthy(t *testing.T) {
 				d.ID, *d.Health.TemperatureCelsius)
 		}
 		if len(d.Capabilities) != 0 {
-			t.Errorf("%s: Capabilities = %+v，写动作登记表还是空的，不能预告能力",
+			t.Errorf("%s: Capabilities = %+v，Scan 只采拓扑，能力由 Collector 按判决填（见 capabilities_test.go）",
 				d.ID, d.Capabilities)
 		}
 	}
@@ -518,6 +518,69 @@ func TestReadDiskLinksUsesSymlinkTarget(t *testing.T) {
 			continue
 		}
 		t.Fatalf("意外解析出设备 %q → %q（大文件与无关文件都不该变成设备）", dev, link)
+	}
+}
+
+// TestLinkNamesReadsDirectoryEntries 盯住 holders/slaves 的读取来源。
+//
+// 2026-10-21 在验收机上实测（6.8.0-147）：`/sys/block/sdc/sdc1/holders/dm-0` 存在，
+// 而 `/sys/block/sdc/sdc1/holders/list` 返回 No such file or directory。只读 list 的实现
+// 因此看不见“分区被 dm 占用”，判决层也就不会给出 DEVICE_HAS_HOLDERS——一块正被别的东西
+// 用着的分区会被判成“可以格式化”。目录项才是事实来源，list 只作退路。
+func TestLinkNamesReadsDirectoryEntries(t *testing.T) {
+	dir := t.TempDir()
+
+	// (1) 只有目录项、没有 list：真机分区的情况。
+	// 真机里这些条目是符号链接，但被读的只有名字；这里用普通文件，测试不依赖
+	// 宿主是否允许创建符号链接（Windows 默认不允许），真机形态由验收脚本覆盖。
+	only := filepath.Join(dir, "only-entries")
+	if err := os.MkdirAll(only, 0o755); err != nil {
+		t.Fatalf("建目录失败: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(only, "dm-0"), nil, 0o644); err != nil {
+		t.Fatalf("写目录项失败: %v", err)
+	}
+	if got := linkNames(only); len(got) != 1 || got[0] != "dm-0" {
+		t.Fatalf("目录项没有被读出来：%v", got)
+	}
+
+	// (2) 只有 list 文件：夹具与老内核的形态。
+	listed := filepath.Join(dir, "only-list")
+	if err := os.MkdirAll(listed, 0o755); err != nil {
+		t.Fatalf("建目录失败: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(listed, "list"), []byte("md0\n"), 0o644); err != nil {
+		t.Fatalf("写 list 失败: %v", err)
+	}
+	if got := linkNames(listed); len(got) != 1 || got[0] != "md0" {
+		t.Fatalf("list 退路没生效：%v", got)
+	}
+
+	// (3) 两者都在：合并去重靠 set 语义由调用方处理，这里不该把 list 自己当成依赖者，
+	// 也不该漏掉目录里的名字。
+	both := filepath.Join(dir, "both")
+	if err := os.MkdirAll(both, 0o755); err != nil {
+		t.Fatalf("建目录失败: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(both, "dm-1"), nil, 0o644); err != nil {
+		t.Fatalf("写目录项失败: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(both, "list"), []byte("dm-1\n"), 0o644); err != nil {
+		t.Fatalf("写 list 失败: %v", err)
+	}
+	got := linkNames(both)
+	for _, name := range got {
+		if name == "list" {
+			t.Fatalf("list 文件本身被当成依赖者：%v", got)
+		}
+	}
+	if len(got) != 1 || got[0] != "dm-1" {
+		t.Fatalf("目录项与 list 同时存在时结果不对：%v", got)
+	}
+
+	// (4) 目录不存在（设备没有 holders 目录）：空结果，不 panic。
+	if got := linkNames(filepath.Join(dir, "missing")); len(got) != 0 {
+		t.Fatalf("不存在的目录返回了 %v", got)
 	}
 }
 

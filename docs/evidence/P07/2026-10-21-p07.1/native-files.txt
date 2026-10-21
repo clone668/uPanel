@@ -1,0 +1,201 @@
+=== RUN   TestListRoot
+--- PASS: TestListRoot (0.02s)
+=== RUN   TestListSubdir
+--- PASS: TestListSubdir (0.02s)
+=== RUN   TestListCursorPaging
+--- PASS: TestListCursorPaging (0.25s)
+=== RUN   TestListRejectsEscape
+--- PASS: TestListRejectsEscape (0.01s)
+=== RUN   TestSymlinkIsNeverFollowed
+--- PASS: TestSymlinkIsNeverFollowed (0.02s)
+=== RUN   TestMagicLinkRejected
+--- PASS: TestMagicLinkRejected (0.01s)
+=== RUN   TestTextReadsContent
+--- PASS: TestTextReadsContent (0.01s)
+=== RUN   TestTextVersionConflict
+--- PASS: TestTextVersionConflict (0.02s)
+=== RUN   TestTextTooLarge
+--- PASS: TestTextTooLarge (0.04s)
+=== RUN   TestTextRejectsBinary
+--- PASS: TestTextRejectsBinary (0.01s)
+=== RUN   TestHardLinkRejected
+--- PASS: TestHardLinkRejected (0.03s)
+=== RUN   TestSpecialFileRejected
+--- PASS: TestSpecialFileRejected (0.01s)
+=== RUN   TestTextOnDirectoryRejected
+--- PASS: TestTextOnDirectoryRejected (0.01s)
+=== RUN   TestUnknownRoot
+--- PASS: TestUnknownRoot (0.01s)
+=== RUN   TestRootIdentityChangeIsUnavailable
+--- PASS: TestRootIdentityChangeIsUnavailable (0.01s)
+=== RUN   TestRootPathMustBeCleanAbsoluteNew
+--- PASS: TestRootPathMustBeCleanAbsoluteNew (0.00s)
+=== RUN   TestMissingRootIsReportedNotFatal
+2026/10/21 11:38:25 WARN 文件根登记失败，它会在 files.roots 里显示为不可用 root_id=gone path=/nonexistent-upanel-test error="no such file or directory"
+--- PASS: TestMissingRootIsReportedNotFatal (0.00s)
+=== RUN   TestRootsReportsMountInfo
+--- PASS: TestRootsReportsMountInfo (0.01s)
+=== RUN   TestDownloadHeaderAndBytes
+--- PASS: TestDownloadHeaderAndBytes (0.01s)
+=== RUN   TestDownloadRejectsRestricted
+--- PASS: TestDownloadRejectsRestricted (0.01s)
+=== RUN   TestListTruncatedOnHugeDirectory
+--- PASS: TestListTruncatedOnHugeDirectory (0.02s)
+=== RUN   TestNestedMountRejectedByXDEV
+    manager_linux_test.go:578: 需要 root 执行 mount；由 tests/integration 的 P06.1 验收脚本在 VM 上覆盖
+--- SKIP: TestNestedMountRejectedByXDEV (0.00s)
+=== RUN   TestUploadLifecycleHappyPath
+2026/10/21 11:38:25 INFO 已创建上传暂存 upload_id=up_4cefc8909033ccb68d88728c468b212e root_id=etc path=app.conf size_bytes=5 expires_at=2026-10-22T11:38:25.358Z
+2026/10/21 11:38:25 INFO 上传内容已收完 upload_id=up_4cefc8909033ccb68d88728c468b212e root_id=etc path=app.conf bytes=5 sha256=2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
+2026/10/21 11:38:25 INFO 已提交上传 upload_id=up_4cefc8909033ccb68d88728c468b212e root_id=etc path=app.conf bytes=5 sha256=2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824 backup=""
+--- PASS: TestUploadLifecycleHappyPath (0.15s)
+=== RUN   TestUploadShortContentFails
+2026/10/21 11:38:25 INFO 已创建上传暂存 upload_id=up_6b543fabc2ae59fd9e03f9959b0e0bc3 root_id=etc path=app.conf size_bytes=10 expires_at=2026-10-22T11:38:25.505Z
+2026/10/21 11:38:25 WARN 上传失败，暂存已删除 upload_id=up_6b543fabc2ae59fd9e03f9959b0e0bc3 root_id=etc path=app.conf reason="实际数据 3 字节与声明大小 10 字节不符"
+--- PASS: TestUploadShortContentFails (0.05s)
+=== RUN   TestUploadTooMuchContentFails
+2026/10/21 11:38:25 INFO 已创建上传暂存 upload_id=up_cfd1746583b9f904975ccd20b0ca552d root_id=etc path=app.conf size_bytes=3 expires_at=2026-10-22T11:38:25.558Z
+2026/10/21 11:38:25 WARN 上传失败，暂存已删除 upload_id=up_cfd1746583b9f904975ccd20b0ca552d root_id=etc path=app.conf reason="实际数据超过声明大小 3 字节"
+--- PASS: TestUploadTooMuchContentFails (0.04s)
+=== RUN   TestUploadContentOnlyOnce
+2026/10/21 11:38:25 INFO 已创建上传暂存 upload_id=up_a75ffc9b8a6ce0b0b4e6f49fc10e9a62 root_id=etc path=app.conf size_bytes=2 expires_at=2026-10-22T11:38:25.602Z
+2026/10/21 11:38:25 INFO 上传内容已收完 upload_id=up_a75ffc9b8a6ce0b0b4e6f49fc10e9a62 root_id=etc path=app.conf bytes=2 sha256=fb8e20fc2e4c3f248c60c39bd652f3c1347298bb977b8b4d5903b85055620603
+--- PASS: TestUploadContentOnlyOnce (0.05s)
+=== RUN   TestUploadOverwriteRules
+2026/10/21 11:38:25 INFO 已创建上传暂存 upload_id=up_6e07abf9ee8c04e36bc998b9314ed104 root_id=etc path=app.conf size_bytes=4 expires_at=2026-10-22T11:38:25.654Z
+2026/10/21 11:38:25 INFO 上传内容已收完 upload_id=up_6e07abf9ee8c04e36bc998b9314ed104 root_id=etc path=app.conf bytes=4 sha256=7aa7a5359173d05b63cfd682e3c38487f3cb4f7f1d60659fe59fab1505977d4c
+2026/10/21 11:38:25 INFO 已提交上传 upload_id=up_6e07abf9ee8c04e36bc998b9314ed104 root_id=etc path=app.conf bytes=4 sha256=7aa7a5359173d05b63cfd682e3c38487f3cb4f7f1d60659fe59fab1505977d4c backup=.upanel/backups/3a476fd988ea9ba1/1792582705709198589
+--- PASS: TestUploadOverwriteRules (0.09s)
+=== RUN   TestUploadRejectsOversizeDeclaration
+--- PASS: TestUploadRejectsOversizeDeclaration (0.01s)
+=== RUN   TestDeleteUploadReleasesReservation
+2026/10/21 11:38:25 INFO 已创建上传暂存 upload_id=up_8174c465230c457daea0bd90ce1071c6 root_id=etc path=app.conf size_bytes=1024 expires_at=2026-10-22T11:38:25.749Z
+2026/10/21 11:38:25 INFO 已删除上传暂存 upload_id=up_8174c465230c457daea0bd90ce1071c6 root_id=etc path=app.conf
+--- PASS: TestDeleteUploadReleasesReservation (0.03s)
+=== RUN   TestUploadExpirySweep
+2026/10/21 11:38:25 INFO 已创建上传暂存 upload_id=up_5865f9df55a0ea8129654f1c020e233a root_id=etc path=app.conf size_bytes=64 expires_at=2026-10-22T03:00:00.000Z
+2026/10/21 11:38:25 INFO 清理过期上传暂存 upload_id=up_5865f9df55a0ea8129654f1c020e233a root_id=etc path=app.conf state=open expires_at=2026-10-22T03:00:00.000Z
+--- PASS: TestUploadExpirySweep (0.05s)
+=== RUN   TestUploadParamsAndIDShapes
+--- PASS: TestUploadParamsAndIDShapes (0.01s)
+=== RUN   TestValidateRelPathAccepts
+--- PASS: TestValidateRelPathAccepts (0.00s)
+=== RUN   TestValidateRelPathRejects
+=== RUN   TestValidateRelPathRejects/绝对路径
+=== RUN   TestValidateRelPathRejects/父目录
+=== RUN   TestValidateRelPathRejects/嵌套父目录
+=== RUN   TestValidateRelPathRejects/中段父目录
+=== RUN   TestValidateRelPathRejects/当前目录
+=== RUN   TestValidateRelPathRejects/重复斜杠
+=== RUN   TestValidateRelPathRejects/结尾斜杠
+=== RUN   TestValidateRelPathRejects/NUL
+=== RUN   TestValidateRelPathRejects/单个名字段过长
+=== RUN   TestValidateRelPathRejects/总长超过_PATH_MAX
+--- PASS: TestValidateRelPathRejects (0.01s)
+    --- PASS: TestValidateRelPathRejects/绝对路径 (0.00s)
+    --- PASS: TestValidateRelPathRejects/父目录 (0.00s)
+    --- PASS: TestValidateRelPathRejects/嵌套父目录 (0.00s)
+    --- PASS: TestValidateRelPathRejects/中段父目录 (0.00s)
+    --- PASS: TestValidateRelPathRejects/当前目录 (0.00s)
+    --- PASS: TestValidateRelPathRejects/重复斜杠 (0.00s)
+    --- PASS: TestValidateRelPathRejects/结尾斜杠 (0.00s)
+    --- PASS: TestValidateRelPathRejects/NUL (0.00s)
+    --- PASS: TestValidateRelPathRejects/单个名字段过长 (0.00s)
+    --- PASS: TestValidateRelPathRejects/总长超过_PATH_MAX (0.00s)
+=== RUN   TestValidateRelPathRejectsInvalidUTF8
+--- PASS: TestValidateRelPathRejectsInvalidUTF8 (0.00s)
+=== RUN   TestValidateRootID
+--- PASS: TestValidateRootID (0.00s)
+=== RUN   TestValidateExpectedVersion
+--- PASS: TestValidateExpectedVersion (0.00s)
+=== RUN   TestParamsValidate
+--- PASS: TestParamsValidate (0.00s)
+=== RUN   TestHTTPStatusOfMapsEverySentinel
+=== RUN   TestHTTPStatusOfMapsEverySentinel/VALIDATION_ERROR
+=== RUN   TestHTTPStatusOfMapsEverySentinel/VALIDATION_ERROR#01
+=== RUN   TestHTTPStatusOfMapsEverySentinel/VALIDATION_ERROR#02
+=== RUN   TestHTTPStatusOfMapsEverySentinel/VALIDATION_ERROR#03
+=== RUN   TestHTTPStatusOfMapsEverySentinel/PATH_OUTSIDE_ROOT
+=== RUN   TestHTTPStatusOfMapsEverySentinel/PATH_OUTSIDE_ROOT#01
+=== RUN   TestHTTPStatusOfMapsEverySentinel/NOT_FOUND
+=== RUN   TestHTTPStatusOfMapsEverySentinel/NOT_FOUND#01
+=== RUN   TestHTTPStatusOfMapsEverySentinel/ROOT_UNAVAILABLE
+=== RUN   TestHTTPStatusOfMapsEverySentinel/FILE_NOT_TEXT
+=== RUN   TestHTTPStatusOfMapsEverySentinel/VERSION_CONFLICT
+=== RUN   TestHTTPStatusOfMapsEverySentinel/NOT_IMPLEMENTED
+--- PASS: TestHTTPStatusOfMapsEverySentinel (0.01s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/VALIDATION_ERROR (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/VALIDATION_ERROR#01 (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/VALIDATION_ERROR#02 (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/VALIDATION_ERROR#03 (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/PATH_OUTSIDE_ROOT (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/PATH_OUTSIDE_ROOT#01 (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/NOT_FOUND (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/NOT_FOUND#01 (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/ROOT_UNAVAILABLE (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/FILE_NOT_TEXT (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/VERSION_CONFLICT (0.00s)
+    --- PASS: TestHTTPStatusOfMapsEverySentinel/NOT_IMPLEMENTED (0.00s)
+=== RUN   TestHTTPStatusOfLeavesUnknownAlone
+--- PASS: TestHTTPStatusOfLeavesUnknownAlone (0.00s)
+=== RUN   TestAsHTTPErrorIsAlways500ForUnknown
+--- PASS: TestAsHTTPErrorIsAlways500ForUnknown (0.00s)
+=== RUN   TestJoinPath
+--- PASS: TestJoinPath (0.00s)
+=== RUN   TestLimitsAreContractual
+--- PASS: TestLimitsAreContractual (0.00s)
+=== RUN   TestMkdirCreatesDirectory
+--- PASS: TestMkdirCreatesDirectory (0.01s)
+=== RUN   TestMkdirRejectsBadPaths
+--- PASS: TestMkdirRejectsBadPaths (0.01s)
+=== RUN   TestWriteTextCreatesFile
+2026/10/21 11:38:25 INFO 已改写文本文件 root_id=etc path=conf/app.conf bytes=4 sha256=fe3209d6d4f51935b391288a43df48d9ddece1a992597ae53387ca16611a9179 backup=""
+--- PASS: TestWriteTextCreatesFile (0.03s)
+=== RUN   TestWriteTextOverwriteRequiresVersionAndLeavesBackup
+2026/10/21 11:38:25 INFO 已改写文本文件 root_id=etc path=app.conf bytes=6 sha256=76466a32f4c0dd5012ec1d588319a298053e09e8458ca2f3f09fc15537365a5d backup=.upanel/backups/3a476fd988ea9ba1/1792582705919004663
+--- PASS: TestWriteTextOverwriteRequiresVersionAndLeavesBackup (0.04s)
+=== RUN   TestWriteTextStaleVersionRejected
+--- PASS: TestWriteTextStaleVersionRejected (0.03s)
+=== RUN   TestWriteTextValidateRules
+--- PASS: TestWriteTextValidateRules (0.04s)
+=== RUN   TestWriteTextOntoDirectoryRejected
+--- PASS: TestWriteTextOntoDirectoryRejected (0.02s)
+=== RUN   TestDeleteFileAndTree
+2026/10/21 11:38:26 INFO 已删除文件 root_id=etc path=a.conf type=file entries=1 bytes=2
+2026/10/21 11:38:26 INFO 已删除文件 root_id=etc path=empty type=dir entries=1 bytes=0
+2026/10/21 11:38:26 INFO 已删除文件 root_id=etc path=tree type=dir entries=4 bytes=3
+--- PASS: TestDeleteFileAndTree (0.05s)
+=== RUN   TestMoveRenamesWithinRoot
+2026/10/21 11:38:26 INFO 已移动文件（同根 rename） root_id=etc source=a.conf target=c.conf
+--- PASS: TestMoveRenamesWithinRoot (0.03s)
+=== RUN   TestCopyIsIndependent
+2026/10/21 11:38:26 INFO 已改写文本文件 root_id=etc path=b.conf bytes=4 sha256=9bc63f3e495030aa3f5f79539e766bf76251cf19dde377a844e5f4f5d1a14bb8 backup=.upanel/backups/8b329cbb77643867/1792582706153435552
+--- PASS: TestCopyIsIndependent (0.09s)
+=== RUN   TestChmodChangesPlainBitsOnly
+2026/10/21 11:38:26 INFO 已修改权限 root_id=etc path=a.conf from=0644 to=0600
+--- PASS: TestChmodChangesPlainBitsOnly (0.01s)
+=== RUN   TestChownWithoutAccountsRefuses
+--- PASS: TestChownWithoutAccountsRefuses (0.01s)
+=== RUN   TestReadOnlyRootRefusesWrites
+--- PASS: TestReadOnlyRootRefusesWrites (0.01s)
+=== RUN   TestReservedDirIsInvisible
+--- PASS: TestReservedDirIsInvisible (0.01s)
+=== RUN   TestStatTreeCountsDirectories
+--- PASS: TestStatTreeCountsDirectories (0.02s)
+=== RUN   TestCopyDirectoryCopiesTree
+--- PASS: TestCopyDirectoryCopiesTree (0.06s)
+=== RUN   TestBackupPruneKeepsTen
+2026/10/21 11:38:26 INFO 已改写文本文件 root_id=etc path=app.conf bytes=3 sha256=2d27fbdf4e8ca207afbfa388ca9172fbcc6c70e534af2476b3b704f87debadcf backup=.upanel/backups/3a476fd988ea9ba1/1792584001000000000
+2026/10/21 11:38:26 INFO 已改写文本文件 root_id=etc path=app.conf bytes=3 sha256=81db67b6a5702b9b68f0016f061c409bf3fb16d062fc854d1b424bb4e9c28c56 backup=.upanel/backups/3a476fd988ea9ba1/1792584002000000000
+2026/10/21 11:38:26 INFO 已改写文本文件 root_id=etc path=app.conf bytes=3 sha256=1875add404b2a01dbb52d1e58dee41d1f480be457a34bd7e1bd2a69d53f35db3 backup=.upanel/backups/3a476fd988ea9ba1/1792584003000000000
+2026/10/21 11:38:26 INFO 已改写文本文件 root_id=etc path=app.conf bytes=3 sha256=e37ea1753db1b5df392e1cd344303873a97bc863d7371ad5f388e01ec5071e6a backup=.upanel/backups/3a476fd988ea9ba1/1792584004000000000
+2026/10/21 11:38:26 INFO 已改写文本文件 root_id=etc path=app.conf bytes=3 sha256=2dd694ef30f6ef76bdac0a56eb384e37d0e349d75133bfae26b909601a066c7b backup=.upanel/backups/3a476fd988ea9ba1/1792584005000000000
+2026/10/21 11:38:26 INFO 已改写文本文件 root_id=etc path=app.conf bytes=3 sha256=d5718db680631f5bdc6212d63efee1235cf9cc1d59516f275895acb4a813dcae backup=.upanel/backups/3a476fd988ea9ba1/1792584006000000000
+2026/10/21 11:38:26 INFO 已改写文本文件 root_id=etc path=app.conf bytes=3 sha256=b73ce4dd68dd4edc4730c5ea90a55751387089205178e86e07fbbf6eaa3a5e03 backup=.upanel/backups/3a476fd988ea9ba1/1792584007000000000
+2026/10/21 11:38:26 INFO 已改写文本文件 root_id=etc path=app.conf bytes=3 sha256=8260e407ae8e0e29db823a3603eeab154fbae1ae8bfb138f869c1bb031eb6aac backup=.upanel/backups/3a476fd988ea9ba1/1792584008000000000
+2026/10/21 11:38:26 INFO 已改写文本文件 root_id=etc path=app.conf bytes=3 sha256=ffc49ca90bd6b19ba3895c22fb2693806d90300f7705d3b3c7f6e83a4cd06405 backup=.upanel/backups/3a476fd988ea9ba1/1792584009000000000
+2026/10/21 11:38:26 INFO 已改写文本文件 root_id=etc path=app.conf bytes=4 sha256=33b34699a3d94a50fed1eded31bf82f60287e90d1b1426c21e9c5030c55abfb5 backup=.upanel/backups/3a476fd988ea9ba1/1792584010000000000
+2026/10/21 11:38:26 INFO 已改写文本文件 root_id=etc path=app.conf bytes=4 sha256=8fa7ff1218882e6ea381dd397280533a30f9f6af3f1d8d13f21768acc2415c21 backup=.upanel/backups/3a476fd988ea9ba1/1792584011000000000
+2026/10/21 11:38:26 INFO 已改写文本文件 root_id=etc path=app.conf bytes=4 sha256=4794619580f70d53ede7ac97b4760268a1803c7fab11413fd5bd1992b6ad285a backup=.upanel/backups/3a476fd988ea9ba1/1792584012000000000
+--- PASS: TestBackupPruneKeepsTen (0.40s)
+PASS

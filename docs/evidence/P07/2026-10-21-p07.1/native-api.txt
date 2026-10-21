@@ -1,0 +1,401 @@
+=== RUN   TestLoginSetsHardenedCookie
+--- PASS: TestLoginSetsHardenedCookie (8.49s)
+=== RUN   TestLoginEntryChecks
+--- PASS: TestLoginEntryChecks (2.53s)
+=== RUN   TestLoginWrongPasswordAndRateLimit
+--- PASS: TestLoginWrongPasswordAndRateLimit (15.85s)
+=== RUN   TestSessionRequiresCookieAndRotatesCSRF
+--- PASS: TestSessionRequiresCookieAndRotatesCSRF (7.21s)
+=== RUN   TestLogoutRequiresCSRFAndInvalidatesSession
+--- PASS: TestLogoutRequiresCSRFAndInvalidatesSession (4.84s)
+=== RUN   TestOriginGuardRejectsForeignOriginOnWrites
+--- PASS: TestOriginGuardRejectsForeignOriginOnWrites (4.81s)
+=== RUN   TestForgedOrRevokedSessionIsRejected
+--- PASS: TestForgedOrRevokedSessionIsRejected (3.92s)
+=== RUN   TestBodyLimitFor
+--- PASS: TestBodyLimitFor (0.00s)
+=== RUN   TestPreflightAcceptsTextWriteBody
+--- PASS: TestPreflightAcceptsTextWriteBody (7.98s)
+=== RUN   TestPreflightBodyLimitIsFinite
+--- PASS: TestPreflightBodyLimitIsFinite (3.69s)
+=== RUN   TestUploadContentIsNotCappedAtOneMiB
+--- PASS: TestUploadContentIsNotCappedAtOneMiB (4.68s)
+=== RUN   TestUploadContentRejectsShortTransferWithoutCap
+--- PASS: TestUploadContentRejectsShortTransferWithoutCap (7.03s)
+=== RUN   TestFilesRequiresSession
+--- PASS: TestFilesRequiresSession (4.71s)
+=== RUN   TestFilesForbiddenForViewer
+--- PASS: TestFilesForbiddenForViewer (8.33s)
+=== RUN   TestFilesUnavailableWithoutAgent
+--- PASS: TestFilesUnavailableWithoutAgent (8.19s)
+=== RUN   TestFileRootsOK
+--- PASS: TestFileRootsOK (3.67s)
+=== RUN   TestFileListRejectsBadParams
+--- PASS: TestFileListRejectsBadParams (4.67s)
+=== RUN   TestFileListOK
+--- PASS: TestFileListOK (7.19s)
+=== RUN   TestFileTextForwardsAgentVerdict
+=== RUN   TestFileTextForwardsAgentVerdict/越界
+=== RUN   TestFileTextForwardsAgentVerdict/版本冲突
+=== RUN   TestFileTextForwardsAgentVerdict/根不可用
+=== RUN   TestFileTextForwardsAgentVerdict/不是文本
+=== RUN   TestFileTextForwardsAgentVerdict/不存在
+=== RUN   TestFileTextForwardsAgentVerdict/代理不可用
+=== RUN   TestFileTextForwardsAgentVerdict/未知故障
+--- PASS: TestFileTextForwardsAgentVerdict (37.89s)
+    --- PASS: TestFileTextForwardsAgentVerdict/越界 (4.70s)
+    --- PASS: TestFileTextForwardsAgentVerdict/版本冲突 (4.62s)
+    --- PASS: TestFileTextForwardsAgentVerdict/根不可用 (3.94s)
+    --- PASS: TestFileTextForwardsAgentVerdict/不是文本 (8.24s)
+    --- PASS: TestFileTextForwardsAgentVerdict/不存在 (3.89s)
+    --- PASS: TestFileTextForwardsAgentVerdict/代理不可用 (4.75s)
+    --- PASS: TestFileTextForwardsAgentVerdict/未知故障 (7.74s)
+=== RUN   TestFileTextParamsCarryExpectedVersion
+--- PASS: TestFileTextParamsCarryExpectedVersion (4.88s)
+=== RUN   TestFileDownloadStreamsBytes
+--- PASS: TestFileDownloadStreamsBytes (4.99s)
+=== RUN   TestFileDownloadRejectedBeforeHeaders
+--- PASS: TestFileDownloadRejectedBeforeHeaders (3.92s)
+=== RUN   TestFileDownloadTruncatedIsHonest
+--- PASS: TestFileDownloadTruncatedIsHonest (8.33s)
+=== RUN   TestContentDisposition
+=== RUN   TestContentDisposition/普通名
+=== RUN   TestContentDisposition/中文
+=== RUN   TestContentDisposition/引号与反斜杠被替换
+=== RUN   TestContentDisposition/空格百分号编码
+=== RUN   TestContentDisposition/换行被丢掉（响应拆分）
+=== RUN   TestContentDisposition/空名兜底
+--- PASS: TestContentDisposition (0.00s)
+    --- PASS: TestContentDisposition/普通名 (0.00s)
+    --- PASS: TestContentDisposition/中文 (0.00s)
+    --- PASS: TestContentDisposition/引号与反斜杠被替换 (0.00s)
+    --- PASS: TestContentDisposition/空格百分号编码 (0.00s)
+    --- PASS: TestContentDisposition/换行被丢掉（响应拆分） (0.00s)
+    --- PASS: TestContentDisposition/空名兜底 (0.00s)
+=== RUN   TestPercentEncodeRFC5987
+--- PASS: TestPercentEncodeRFC5987 (0.00s)
+=== RUN   TestFilesUploadRequiresSession
+--- PASS: TestFilesUploadRequiresSession (3.74s)
+=== RUN   TestFilesUploadForbiddenForViewer
+--- PASS: TestFilesUploadForbiddenForViewer (12.87s)
+=== RUN   TestFilesUploadRequiresCSRF
+--- PASS: TestFilesUploadRequiresCSRF (4.90s)
+=== RUN   TestFilesUploadUnavailableWithoutAgent
+--- PASS: TestFilesUploadUnavailableWithoutAgent (4.95s)
+=== RUN   TestFilesUploadNotImplemented
+--- PASS: TestFilesUploadNotImplemented (4.59s)
+=== RUN   TestCreateUploadRejectsBadBody
+--- PASS: TestCreateUploadRejectsBadBody (7.91s)
+=== RUN   TestCreateUploadOK
+--- PASS: TestCreateUploadOK (3.82s)
+=== RUN   TestUploadContentRejectsBadRequests
+--- PASS: TestUploadContentRejectsBadRequests (27.36s)
+=== RUN   TestUploadContentForwardsStream
+--- PASS: TestUploadContentForwardsStream (7.62s)
+=== RUN   TestUploadContentReportsAgentErrors
+--- PASS: TestUploadContentReportsAgentErrors (26.20s)
+=== RUN   TestGetUploadOK
+--- PASS: TestGetUploadOK (6.58s)
+=== RUN   TestDeleteUploadOK
+--- PASS: TestDeleteUploadOK (5.70s)
+=== RUN   TestDeleteUploadReportsMissing
+--- PASS: TestDeleteUploadReportsMissing (3.95s)
+=== RUN   TestFilesHasNoDirectWriteRoute
+--- PASS: TestFilesHasNoDirectWriteRoute (4.89s)
+=== RUN   TestFrontendServesPagePaths
+--- PASS: TestFrontendServesPagePaths (0.23s)
+=== RUN   TestUnknownAPINeverReachesFrontend
+--- PASS: TestUnknownAPINeverReachesFrontend (0.22s)
+=== RUN   TestUnknownAPIPostAlsoJSON
+--- PASS: TestUnknownAPIPostAlsoJSON (0.36s)
+=== RUN   TestNoFrontendKeepsJSON404
+--- PASS: TestNoFrontendKeepsJSON404 (0.47s)
+=== RUN   TestRegisteredAPIPathWrongMethodStaysJSON
+--- PASS: TestRegisteredAPIPathWrongMethodStaysJSON (0.59s)
+=== RUN   TestCreateJobRequiresIdempotencyKey
+--- PASS: TestCreateJobRequiresIdempotencyKey (9.32s)
+=== RUN   TestCreateJobRejectsUnknownFields
+--- PASS: TestCreateJobRejectsUnknownFields (6.74s)
+=== RUN   TestCreateJobAndReadBack
+--- PASS: TestCreateJobAndReadBack (10.77s)
+=== RUN   TestCreateJobReplayReturnsSameJob
+--- PASS: TestCreateJobReplayReturnsSameJob (5.68s)
+=== RUN   TestCreateJobSameKeyDifferentBody
+--- PASS: TestCreateJobSameKeyDifferentBody (10.80s)
+=== RUN   TestCreateJobConsumesPreflight
+--- PASS: TestCreateJobConsumesPreflight (6.79s)
+=== RUN   TestCreateJobRejectsExpiredPreflight
+--- PASS: TestCreateJobRejectsExpiredPreflight (9.44s)
+=== RUN   TestCreateJobRequiresReauth
+--- PASS: TestCreateJobRequiresReauth (6.05s)
+=== RUN   TestCreateJobReportsAgentRejection
+--- PASS: TestCreateJobReportsAgentRejection (5.99s)
+=== RUN   TestCreateJobAgentUnavailableKeepsQueued
+--- PASS: TestCreateJobAgentUnavailableKeepsQueued (10.04s)
+=== RUN   TestCancelJobNotCancelable
+--- PASS: TestCancelJobNotCancelable (6.81s)
+=== RUN   TestCancelJobCancellable
+--- PASS: TestCancelJobCancellable (7.48s)
+=== RUN   TestJobPermissions
+--- PASS: TestJobPermissions (13.06s)
+=== RUN   TestGetJobNotFound
+--- PASS: TestGetJobNotFound (10.35s)
+=== RUN   TestJobEventsStreamsFrames
+--- PASS: TestJobEventsStreamsFrames (6.71s)
+=== RUN   TestJobEventsResumeSkipsDelivered
+--- PASS: TestJobEventsResumeSkipsDelivered (6.95s)
+=== RUN   TestJobEventsRejectsBadLastEventID
+--- PASS: TestJobEventsRejectsBadLastEventID (10.06s)
+=== RUN   TestJobEventsRequiresAdmin
+--- PASS: TestJobEventsRequiresAdmin (13.77s)
+=== RUN   TestJobEventsGapAfterPrune
+--- PASS: TestJobEventsGapAfterPrune (6.83s)
+=== RUN   TestJobEventsConnectionLimit
+--- PASS: TestJobEventsConnectionLimit (6.83s)
+=== RUN   TestJobLogsEndpoint
+--- PASS: TestJobLogsEndpoint (11.55s)
+=== RUN   TestLogsRequiresSession
+--- PASS: TestLogsRequiresSession (4.08s)
+=== RUN   TestLogsForbiddenForViewer
+--- PASS: TestLogsForbiddenForViewer (11.86s)
+=== RUN   TestLogsRejectsBadParams
+--- PASS: TestLogsRejectsBadParams (6.22s)
+=== RUN   TestLogsUnavailableWithoutAgent
+--- PASS: TestLogsUnavailableWithoutAgent (3.74s)
+=== RUN   TestLogsReturnsPage
+--- PASS: TestLogsReturnsPage (8.51s)
+=== RUN   TestLogsMapsReaderErrors
+=== RUN   TestLogsMapsReaderErrors/参数
+=== RUN   TestLogsMapsReaderErrors/游标
+=== RUN   TestLogsMapsReaderErrors/代理
+=== RUN   TestLogsMapsReaderErrors/其它
+--- PASS: TestLogsMapsReaderErrors (20.65s)
+    --- PASS: TestLogsMapsReaderErrors/参数 (3.89s)
+    --- PASS: TestLogsMapsReaderErrors/游标 (3.96s)
+    --- PASS: TestLogsMapsReaderErrors/代理 (8.28s)
+    --- PASS: TestLogsMapsReaderErrors/其它 (4.52s)
+=== RUN   TestLogsStreamFrames
+--- PASS: TestLogsStreamFrames (5.25s)
+=== RUN   TestLogsStreamResumesFromLastEventID
+--- PASS: TestLogsStreamResumesFromLastEventID (3.76s)
+=== RUN   TestLogsStreamRejectsBadLastEventID
+--- PASS: TestLogsStreamRejectsBadLastEventID (8.87s)
+=== RUN   TestLogsStreamReportsError
+--- PASS: TestLogsStreamReportsError (3.74s)
+=== RUN   TestLogsStreamReleasesOnDisconnect
+--- PASS: TestLogsStreamReleasesOnDisconnect (4.13s)
+=== RUN   TestRequestIDGeneratedWhenAbsent
+--- PASS: TestRequestIDGeneratedWhenAbsent (0.38s)
+=== RUN   TestRequestIDInheritedOnlyWhenValid
+=== RUN   TestRequestIDInheritedOnlyWhenValid/合法值沿用
+=== RUN   TestRequestIDInheritedOnlyWhenValid/空值重新生成
+=== RUN   TestRequestIDInheritedOnlyWhenValid/含空格被丢弃
+=== RUN   TestRequestIDInheritedOnlyWhenValid/含控制字符被丢弃
+=== RUN   TestRequestIDInheritedOnlyWhenValid/超长被丢弃
+--- PASS: TestRequestIDInheritedOnlyWhenValid (0.28s)
+    --- PASS: TestRequestIDInheritedOnlyWhenValid/合法值沿用 (0.00s)
+    --- PASS: TestRequestIDInheritedOnlyWhenValid/空值重新生成 (0.00s)
+    --- PASS: TestRequestIDInheritedOnlyWhenValid/含空格被丢弃 (0.00s)
+    --- PASS: TestRequestIDInheritedOnlyWhenValid/含控制字符被丢弃 (0.00s)
+    --- PASS: TestRequestIDInheritedOnlyWhenValid/超长被丢弃 (0.00s)
+=== RUN   TestUnknownPathsReturnJSON404
+=== RUN   TestUnknownPathsReturnJSON404//
+=== RUN   TestUnknownPathsReturnJSON404//index.html
+=== RUN   TestUnknownPathsReturnJSON404//api/v1
+=== RUN   TestUnknownPathsReturnJSON404//api/v1/
+=== RUN   TestUnknownPathsReturnJSON404//api/v1/unknown
+=== RUN   TestUnknownPathsReturnJSON404//api/v1/health
+=== RUN   TestUnknownPathsReturnJSON404//api/v1/health/live/
+=== RUN   TestUnknownPathsReturnJSON404//assets/app.js
+--- PASS: TestUnknownPathsReturnJSON404 (0.39s)
+    --- PASS: TestUnknownPathsReturnJSON404// (0.00s)
+    --- PASS: TestUnknownPathsReturnJSON404//index.html (0.00s)
+    --- PASS: TestUnknownPathsReturnJSON404//api/v1 (0.00s)
+    --- PASS: TestUnknownPathsReturnJSON404//api/v1/ (0.00s)
+    --- PASS: TestUnknownPathsReturnJSON404//api/v1/unknown (0.00s)
+    --- PASS: TestUnknownPathsReturnJSON404//api/v1/health (0.00s)
+    --- PASS: TestUnknownPathsReturnJSON404//api/v1/health/live/ (0.00s)
+    --- PASS: TestUnknownPathsReturnJSON404//assets/app.js (0.00s)
+=== RUN   TestMethodNotAllowedIsJSONWithAllow
+--- PASS: TestMethodNotAllowedIsJSONWithAllow (0.43s)
+=== RUN   TestHeadHealthLiveHasNoBody
+--- PASS: TestHeadHealthLiveHasNoBody (0.41s)
+=== RUN   TestRecoveryTurnsPanicInto500WithoutLeakingStack
+--- PASS: TestRecoveryTurnsPanicInto500WithoutLeakingStack (0.43s)
+=== RUN   TestBodyLimitMiddlewareRejectsOversizedBody
+--- PASS: TestBodyLimitMiddlewareRejectsOversizedBody (0.00s)
+=== RUN   TestIsBodyTooLargeFalseForOtherErrors
+--- PASS: TestIsBodyTooLargeFalseForOtherErrors (0.00s)
+=== RUN   TestPreflightReturnsPlanToAdmin
+--- PASS: TestPreflightReturnsPlanToAdmin (7.16s)
+=== RUN   TestPreflightWithoutPhraseReturnsNull
+--- PASS: TestPreflightWithoutPhraseReturnsNull (6.63s)
+=== RUN   TestPreflightRequiresAdminAndCSRF
+--- PASS: TestPreflightRequiresAdminAndCSRF (13.45s)
+=== RUN   TestPreflightAgentUnavailable
+--- PASS: TestPreflightAgentUnavailable (5.22s)
+=== RUN   TestPreflightAgentUnreachable
+--- PASS: TestPreflightAgentUnreachable (3.83s)
+=== RUN   TestPreflightRejectsUnknownActionAndBadParams
+--- PASS: TestPreflightRejectsUnknownActionAndBadParams (9.82s)
+=== RUN   TestPreflightValidatesRequestShape
+=== RUN   TestPreflightValidatesRequestShape/非_JSON_Content-Type
+=== RUN   TestPreflightValidatesRequestShape/非法_JSON
+=== RUN   TestPreflightValidatesRequestShape/参数不是对象
+=== RUN   TestPreflightValidatesRequestShape/动作名不合法
+=== RUN   TestPreflightValidatesRequestShape/未知字段
+--- PASS: TestPreflightValidatesRequestShape (3.86s)
+    --- PASS: TestPreflightValidatesRequestShape/非_JSON_Content-Type (0.01s)
+    --- PASS: TestPreflightValidatesRequestShape/非法_JSON (0.00s)
+    --- PASS: TestPreflightValidatesRequestShape/参数不是对象 (0.02s)
+    --- PASS: TestPreflightValidatesRequestShape/动作名不合法 (0.02s)
+    --- PASS: TestPreflightValidatesRequestShape/未知字段 (0.01s)
+=== RUN   TestPreflightRejectsWrongMethod
+--- PASS: TestPreflightRejectsWrongMethod (5.87s)
+=== RUN   TestPreflightPersistsBindingRow
+--- PASS: TestPreflightPersistsBindingRow (7.09s)
+=== RUN   TestProcessesRouteRequiresSession
+--- PASS: TestProcessesRouteRequiresSession (6.81s)
+=== RUN   TestProcessesRouteForbiddenForViewer
+--- PASS: TestProcessesRouteForbiddenForViewer (13.23s)
+=== RUN   TestProcessListPassesThrough
+--- PASS: TestProcessListPassesThrough (3.74s)
+=== RUN   TestProcessListNilNormalized
+--- PASS: TestProcessListNilNormalized (3.91s)
+=== RUN   TestProcessListAgentUnavailable
+--- PASS: TestProcessListAgentUnavailable (6.42s)
+=== RUN   TestProcessListWithoutAgent
+--- PASS: TestProcessListWithoutAgent (7.39s)
+=== RUN   TestHealthLiveShape
+--- PASS: TestHealthLiveShape (0.42s)
+=== RUN   TestHealthLiveRejectsOtherMethods
+--- PASS: TestHealthLiveRejectsOtherMethods (0.42s)
+=== RUN   TestUnknownPathReturnsJSON404
+--- PASS: TestUnknownPathReturnsJSON404 (0.33s)
+=== RUN   TestMockModeMustBindLoopback18881
+--- PASS: TestMockModeMustBindLoopback18881 (0.35s)
+=== RUN   TestNewRejectsInvalidOptions
+--- PASS: TestNewRejectsInvalidOptions (0.26s)
+=== RUN   TestServeBindsAndStops
+--- PASS: TestServeBindsAndStops (0.37s)
+=== RUN   TestServicesRoutesRequireSession
+--- PASS: TestServicesRoutesRequireSession (3.92s)
+=== RUN   TestServicesRoutesAllowedForViewer
+--- PASS: TestServicesRoutesAllowedForViewer (12.77s)
+=== RUN   TestServiceListPassesThrough
+--- PASS: TestServiceListPassesThrough (3.77s)
+=== RUN   TestServiceListNilUnitsNormalized
+--- PASS: TestServiceListNilUnitsNormalized (3.85s)
+=== RUN   TestServiceDetailPassesThrough
+--- PASS: TestServiceDetailPassesThrough (6.89s)
+=== RUN   TestServiceDetailNotFound
+--- PASS: TestServiceDetailNotFound (5.41s)
+=== RUN   TestServiceDetailTemplateUnit
+--- PASS: TestServiceDetailTemplateUnit (6.27s)
+=== RUN   TestServiceDetailRejectsInvalidName
+--- PASS: TestServiceDetailRejectsInvalidName (3.81s)
+=== RUN   TestServicesUnavailableWhenReaderMissing
+--- PASS: TestServicesUnavailableWhenReaderMissing (8.61s)
+=== RUN   TestServicesErrorMapping
+=== RUN   TestServicesErrorMapping/代理不可用
+=== RUN   TestServicesErrorMapping/依赖缺失
+=== RUN   TestServicesErrorMapping/非法单元名
+=== RUN   TestServicesErrorMapping/内部错误
+--- PASS: TestServicesErrorMapping (19.26s)
+    --- PASS: TestServicesErrorMapping/代理不可用 (3.93s)
+    --- PASS: TestServicesErrorMapping/依赖缺失 (3.73s)
+    --- PASS: TestServicesErrorMapping/非法单元名 (7.61s)
+    --- PASS: TestServicesErrorMapping/内部错误 (3.99s)
+=== RUN   TestStorageRoutesRequireSession
+--- PASS: TestStorageRoutesRequireSession (5.65s)
+=== RUN   TestStorageRoutesAllowedForViewer
+--- PASS: TestStorageRoutesAllowedForViewer (9.61s)
+=== RUN   TestStorageTopologyPassesThrough
+--- PASS: TestStorageTopologyPassesThrough (5.58s)
+=== RUN   TestStorageDeviceListShape
+--- PASS: TestStorageDeviceListShape (3.74s)
+=== RUN   TestStorageDeviceDetailAnd404
+--- PASS: TestStorageDeviceDetailAnd404 (7.39s)
+=== RUN   TestStorageDeviceIDIsNotACommand
+--- PASS: TestStorageDeviceIDIsNotACommand (3.72s)
+=== RUN   TestStorageUnavailableWhenAgentDown
+--- PASS: TestStorageUnavailableWhenAgentDown (3.94s)
+=== RUN   TestStorageNotConfiguredIs503
+--- PASS: TestStorageNotConfiguredIs503 (5.81s)
+=== RUN   TestStorageScanFailureIsReportedNotHidden
+--- PASS: TestStorageScanFailureIsReportedNotHidden (5.05s)
+=== RUN   TestStorageDetailOtherErrorIs500
+--- PASS: TestStorageDetailOtherErrorIs500 (6.28s)
+=== RUN   TestSystemSummaryRequiresSession
+--- PASS: TestSystemSummaryRequiresSession (3.93s)
+=== RUN   TestSystemSummaryAllowedForViewer
+--- PASS: TestSystemSummaryAllowedForViewer (11.17s)
+=== RUN   TestSystemSummaryPassesThroughDegraded
+--- PASS: TestSystemSummaryPassesThroughDegraded (4.00s)
+=== RUN   TestSystemSummaryWithoutMonitorReturns503
+--- PASS: TestSystemSummaryWithoutMonitorReturns503 (6.08s)
+=== RUN   TestSystemSummaryMapsAgentUnavailable
+--- PASS: TestSystemSummaryMapsAgentUnavailable (5.01s)
+=== RUN   TestSystemSummaryMapsCollectionFailure
+--- PASS: TestSystemSummaryMapsCollectionFailure (4.92s)
+=== RUN   TestSystemSummaryRejectsNonGET
+--- PASS: TestSystemSummaryRejectsNonGET (4.81s)
+=== RUN   TestTerminalRequiresSession
+--- PASS: TestTerminalRequiresSession (5.58s)
+=== RUN   TestTerminalForbiddenForViewer
+--- PASS: TestTerminalForbiddenForViewer (9.22s)
+=== RUN   TestTerminalUnavailableWithoutAgent
+--- PASS: TestTerminalUnavailableWithoutAgent (5.79s)
+=== RUN   TestTerminalSessionsShape
+--- PASS: TestTerminalSessionsShape (5.48s)
+=== RUN   TestTerminalSessionsEmptyIsArray
+--- PASS: TestTerminalSessionsEmptyIsArray (4.68s)
+=== RUN   TestTerminalGrantRequiresCSRF
+--- PASS: TestTerminalGrantRequiresCSRF (5.22s)
+=== RUN   TestTerminalGrantForeignSessionIsNotFound
+--- PASS: TestTerminalGrantForeignSessionIsNotFound (5.14s)
+=== RUN   TestTerminalGrantBadSessionIDIsNotFound
+--- PASS: TestTerminalGrantBadSessionIDIsNotFound (6.01s)
+=== RUN   TestTerminalGrantShapeOfResponse
+--- PASS: TestTerminalGrantShapeOfResponse (3.98s)
+=== RUN   TestTerminalConnectRequiresOrigin
+--- PASS: TestTerminalConnectRequiresOrigin (5.49s)
+=== RUN   TestTerminalConnectRequiresSubprotocol
+--- PASS: TestTerminalConnectRequiresSubprotocol (5.69s)
+=== RUN   TestTerminalConnectRejectsUnknownGrant
+--- PASS: TestTerminalConnectRejectsUnknownGrant (4.68s)
+=== RUN   TestTerminalGrantIsSingleUse
+--- PASS: TestTerminalGrantIsSingleUse (5.27s)
+=== RUN   TestTerminalClose
+--- PASS: TestTerminalClose (4.92s)
+=== RUN   TestTerminalCloseAgentErrorsSurvive
+--- PASS: TestTerminalCloseAgentErrorsSurvive (5.76s)
+=== RUN   TestTerminalGrantStore
+--- PASS: TestTerminalGrantStore (0.00s)
+=== RUN   TestTerminalConnectRelaysBothWays
+--- PASS: TestTerminalConnectRelaysBothWays (4.32s)
+=== RUN   TestTerminalConnectForeignGrantRejectedWhenSessionNotOwned
+--- PASS: TestTerminalConnectForeignGrantRejectedWhenSessionNotOwned (5.68s)
+=== RUN   TestSendableCloseCode
+--- PASS: TestSendableCloseCode (0.00s)
+=== RUN   TestDenyTargetPointsAtTerminalSession
+--- PASS: TestDenyTargetPointsAtTerminalSession (0.00s)
+=== RUN   TestUsersRequireLoginAndAdmin
+--- PASS: TestUsersRequireLoginAndAdmin (8.65s)
+=== RUN   TestUsersListIsRedacted
+--- PASS: TestUsersListIsRedacted (5.10s)
+=== RUN   TestUsersListPagination
+--- PASS: TestUsersListPagination (10.20s)
+=== RUN   TestCreateUserAndLogin
+--- PASS: TestCreateUserAndLogin (12.40s)
+=== RUN   TestUpdateUserNeedsReauthAndVersion
+--- PASS: TestUpdateUserNeedsReauthAndVersion (11.27s)
+=== RUN   TestSetUserPasswordRevokesTargetSessions
+--- PASS: TestSetUserPasswordRevokesTargetSessions (19.72s)
+=== RUN   TestDeleteUserAndAuditTrail
+--- PASS: TestDeleteUserAndAuditTrail (12.76s)
+=== RUN   TestUserWritesRequireCSRF
+--- PASS: TestUserWritesRequireCSRF (8.98s)
+=== RUN   TestAuditFailureRollsBackBusiness
+--- PASS: TestAuditFailureRollsBackBusiness (5.82s)
+PASS

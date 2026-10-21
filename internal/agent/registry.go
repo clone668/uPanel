@@ -414,6 +414,14 @@ func RegisterProductionActions(reg *Registry, deps ProductionDeps) error {
 			return fmt.Errorf("代理登记 terminal.create 失败: %w", err)
 		}
 	}
+	if deps.Storage != nil {
+		// 四个存储写动作只登记解码与预检（Execute 为 nil）：P07.1 只做拒绝逻辑，
+		// 破坏性执行器在 P07.2/P07.3 登记。它们因此不会出现在
+		// capabilities.supported_actions 里——见 ExecutableActionNames。
+		if err := RegisterStorageActions(reg, deps.Storage); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -475,6 +483,27 @@ func (r *Registry) Action(name string) (Action, bool) {
 
 // ActionNames 返回按字典序排列的动作名（供 capabilities 使用，输出稳定）。
 func (r *Registry) ActionNames() []string { return sortedKeys(r.actions) }
+
+// ExecutableActionNames 返回**能真正执行**的动作名（有执行器的那些）。
+//
+// capabilities.supported_actions 用的是这一份，而不是 ActionNames：
+// 一个只登记了预检、没有执行器的动作（P07.1 的四个存储动作就是这种）可以被预检、
+// 会给出真实的拒绝原因，但提交一定会 501。把它列进 supported_actions 就是在
+// 告诉前端“这个能做”，而它做不了——那是能力撒谎。
+//
+// 反过来，动作仍然要登记：不登记就连接不到预检，用户就看不到“为什么不能碰这块盘”。
+// 两个列表的差别因此是诚实的差别，不是遗漏。
+func (r *Registry) ExecutableActionNames() []string {
+	names := make([]string, 0, len(r.actions))
+	for name, action := range r.actions {
+		if action.Execute == nil {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
 
 // QueryNames 返回按字典序排列的查询名。
 func (r *Registry) QueryNames() []string { return sortedKeys(r.queries) }

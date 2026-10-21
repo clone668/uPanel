@@ -35,6 +35,12 @@ type Options struct {
 	Prober HealthProber
 	// NetworkCapacityTimeout 是网络挂载容量查询的时限；0 时用默认值。
 	NetworkCapacityTimeout time.Duration
+	// Env 是存储写动作预检需要的外部探针（签名读取、占用检查）。
+	//
+	// 零值表示**不填能力列表**：设备上的 capabilities 保持空数组，界面据此不显示
+	// 破坏性按钮。这是刻意的默认——忘了接线时得到的是“不知道能做什么”，
+	// 而不是“什么都能做”。生产装配见 cmd/upanel-agent/main.go。
+	Env Env
 	// Root 指向真实的 /sys、/proc、/dev；测试时指向夹具。
 	Root   Root
 	Logger *slog.Logger
@@ -69,8 +75,10 @@ type Collector struct {
 	interval       time.Duration
 	capacityTTL    time.Duration
 	healthInterval time.Duration
+	capabilityTTL  time.Duration
 	prober         HealthProber
 	root           Root
+	env            Env
 	logger         *slog.Logger
 
 	mu       sync.Mutex
@@ -80,6 +88,9 @@ type Collector struct {
 	// 容量缓存在网络挂载并发查询时会被多个 goroutine 读写，单独一把锁。
 	capsMu sync.Mutex
 	caps   map[string]cachedCapacity
+	// deviceCaps 是设备能力的缓存（与容量共用一把锁：两者都只在 Refresh 里写，
+	// 而且都是“观测值的缓存”，没有理由让它们互相等）。
+	deviceCaps map[string]cachedCapability
 
 	// 计数器与健康各自一把锁：它们由不同的 goroutine 写（扫描循环与探测循环），
 	// 不能让它们互相等。健康探测可能持续几秒，扫描不能被它挡住。
@@ -130,10 +141,13 @@ func NewCollector(opts Options) *Collector {
 		interval:       interval,
 		capacityTTL:    ttl,
 		healthInterval: healthInterval,
+		capabilityTTL:  DefaultCapabilityTTL,
 		prober:         opts.Prober,
 		root:           root,
+		env:            opts.Env,
 		logger:         opts.Logger,
 		caps:           map[string]cachedCapacity{},
+		deviceCaps:     map[string]cachedCapability{},
 		lastCounters:   map[string]DiskCounters{},
 		health:         map[string]cachedHealth{},
 	}
@@ -198,6 +212,9 @@ func (c *Collector) Refresh(ctx context.Context) Topology {
 	c.attachIO(topo, now)
 	c.applyHealth(topo)
 	c.fillCapacities(ctx, topo, now)
+	// 能力在容量之后填：判决会用到挂载点（挂着的盘不能格式化），
+	// 而挂载信息来自扫描本身，与容量无关。顺序只是为了让人读起来顺。
+	c.fillCapabilities(ctx, topo, now)
 
 	c.cached = cloneTopology(*topo)
 	c.hasCache = true
@@ -224,6 +241,16 @@ func (c *Collector) Topology(ctx context.Context) Topology {
 		return snap
 	}
 	return c.Refresh(ctx)
+}
+
+// Assess 用**当前快照**与生产探针对一次存储写动作做预检判决（P07.1）。
+//
+// 为什么用缓存快照而不是现场重扫：预检必须绑定用户看到的那份拓扑。现场重扫会得到
+// 一个新的 snapshot_version，于是每一份预检在提交时都对不上——预检就变成了摆设。
+// 状态真变了的时候，提交期的复核会拿新快照重算，得到 PREFLIGHT_STALE，那正是
+// 这条机制该有的表现。
+func (c *Collector) Assess(ctx context.Context, action string, params any) (Assessment, error) {
+	return Assess(ctx, c.Topology(ctx), action, params, c.env)
 }
 
 // attachIO 读取 /proc/diskstats 并给每台设备补上计数与速率。

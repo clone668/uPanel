@@ -50,7 +50,7 @@ func Scan(ctx context.Context, root Root) (*Topology, error) {
 		dev := readDevice(root.Sys, dir, name, KindDisk, now)
 		devices[name] = dev
 		order = append(order, name)
-		holders[name] = readList(joinPath(dir, "holders", "list"))
+		holders[name] = linkNames(joinPath(dir, "holders"))
 	}
 
 	edges := []Edge{}
@@ -76,7 +76,7 @@ func Scan(ctx context.Context, root Root) (*Topology, error) {
 			devDirs[pn] = pdir
 			pdev := readDevice(root.Sys, pdir, pn, KindPartition, now)
 			devices[pn] = pdev
-			holders[pn] = readList(joinPath(pdir, "holders", "list"))
+			holders[pn] = linkNames(joinPath(pdir, "holders"))
 			startSectors, _ := readUint(joinPath(pdir, "start"))
 			number, _ := readUint(joinPath(pdir, "partition"))
 			table.Partitions = append(table.Partitions, Partition{
@@ -99,7 +99,7 @@ func Scan(ctx context.Context, root Root) (*Topology, error) {
 		edgeSeen[e.FromDeviceID+"->"+e.ToDeviceID] = true
 	}
 	for _, name := range order {
-		slaves := readList(joinPath(blockDir, name, "slaves", "list"))
+		slaves := linkNames(joinPath(blockDir, name, "slaves"))
 		for _, s := range slaves {
 			if _, ok := devices[s]; !ok {
 				continue
@@ -113,7 +113,7 @@ func Scan(ctx context.Context, root Root) (*Topology, error) {
 		}
 		// holders 是 slaves 的反向视图。有些内核/驱动只在一侧给出信息，
 		// 两边都看，缺的那一侧补上（关系本身不依赖名字猜测）。
-		for _, h := range readList(joinPath(blockDir, name, "holders", "list")) {
+		for _, h := range linkNames(joinPath(blockDir, name, "holders")) {
 			if _, ok := devices[h]; !ok {
 				continue
 			}
@@ -810,7 +810,8 @@ func linkRank(link string) int {
 // 指纹只由**内容**决定，所以先把两类“会自己变但不是内容”的字段清掉：
 //   - 每个节点上的 collected_at（每 5 秒一次扫描都会变）；
 //   - 挂载点容量（由 Collector 后填，statfs 每次都可能不同）；
-//   - 网络挂载的可达性与容量（同样是后填的观测值，不是配置内容）。
+//   - 网络挂载的可达性与容量（同样是后填的观测值，不是配置内容）；
+//   - 设备能力（由 Collector 后填，占用状态一变就变——那是观测值，不是拓扑内容）。
 //
 // 不清掉这几样，“内容没变版本就不变”不成立，预检会把一次没有任何变化的写操作判成
 // “拓扑已改变”，或者反过来把真正的变化混在噪声里看不出来。
@@ -819,6 +820,9 @@ func snapshotVersion(nodes []Device, edges []Edge, networkMounts []NetworkMount)
 	for i, n := range nodes {
 		n.CollectedAt = time.Time{}
 		n.Health.CheckedAt = nil
+		// 能力列表是判决的投影，不是拓扑内容：一个进程打开了盘就会变。
+		// 把它算进版本会让版本随占用抖动，预检的“版本未变”就失去意义。
+		n.Capabilities = nil
 		if n.Filesystem != nil {
 			fs := *n.Filesystem
 			fs.Mounts = make([]Mount, len(n.Filesystem.Mounts))

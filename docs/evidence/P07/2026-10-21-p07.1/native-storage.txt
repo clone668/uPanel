@@ -1,0 +1,563 @@
+=== RUN   TestAssessInitializeBlankDisk
+--- PASS: TestAssessInitializeBlankDisk (0.00s)
+=== RUN   TestAssessInitializeRefusesExistingTable
+=== RUN   TestAssessInitializeRefusesExistingTable/GPT
+=== RUN   TestAssessInitializeRefusesExistingTable/MBR
+=== RUN   TestAssessInitializeRefusesExistingTable/判不出类型
+=== RUN   TestAssessInitializeRefusesExistingTable/只拿到内核分区列表
+=== RUN   TestAssessInitializeRefusesExistingTable/盘在休眠没读
+=== RUN   TestAssessInitializeRefusesExistingTable/内核还认得分区
+--- PASS: TestAssessInitializeRefusesExistingTable (0.01s)
+    --- PASS: TestAssessInitializeRefusesExistingTable/GPT (0.00s)
+    --- PASS: TestAssessInitializeRefusesExistingTable/MBR (0.00s)
+    --- PASS: TestAssessInitializeRefusesExistingTable/判不出类型 (0.00s)
+    --- PASS: TestAssessInitializeRefusesExistingTable/只拿到内核分区列表 (0.00s)
+    --- PASS: TestAssessInitializeRefusesExistingTable/盘在休眠没读 (0.00s)
+    --- PASS: TestAssessInitializeRefusesExistingTable/内核还认得分区 (0.00s)
+=== RUN   TestAssessInitializeRefusesSignature
+=== RUN   TestAssessInitializeRefusesSignature/ext
+=== RUN   TestAssessInitializeRefusesSignature/xfs
+=== RUN   TestAssessInitializeRefusesSignature/btrfs
+=== RUN   TestAssessInitializeRefusesSignature/swap
+=== RUN   TestAssessInitializeRefusesSignature/luks
+=== RUN   TestAssessInitializeRefusesSignature/lvm2
+=== RUN   TestAssessInitializeRefusesSignature/md
+=== RUN   TestAssessInitializeRefusesSignature/unknown
+--- PASS: TestAssessInitializeRefusesSignature (0.00s)
+    --- PASS: TestAssessInitializeRefusesSignature/ext (0.00s)
+    --- PASS: TestAssessInitializeRefusesSignature/xfs (0.00s)
+    --- PASS: TestAssessInitializeRefusesSignature/btrfs (0.00s)
+    --- PASS: TestAssessInitializeRefusesSignature/swap (0.00s)
+    --- PASS: TestAssessInitializeRefusesSignature/luks (0.00s)
+    --- PASS: TestAssessInitializeRefusesSignature/lvm2 (0.00s)
+    --- PASS: TestAssessInitializeRefusesSignature/md (0.00s)
+    --- PASS: TestAssessInitializeRefusesSignature/unknown (0.00s)
+=== RUN   TestAssessFailClosedWithoutProbes
+--- PASS: TestAssessFailClosedWithoutProbes (0.00s)
+=== RUN   TestAssessSignatureReadError
+--- PASS: TestAssessSignatureReadError (0.00s)
+=== RUN   TestAssessInitializeRejectsBadTableType
+--- PASS: TestAssessInitializeRejectsBadTableType (0.00s)
+=== RUN   TestAssessSystemDisk
+--- PASS: TestAssessSystemDisk (0.00s)
+=== RUN   TestAssessRecursiveProtectionThroughStack
+--- PASS: TestAssessRecursiveProtectionThroughStack (0.00s)
+=== RUN   TestAssessRefusesOccupiedDevice
+=== RUN   TestAssessRefusesOccupiedDevice/已挂载
+=== RUN   TestAssessRefusesOccupiedDevice/活动交换区
+=== RUN   TestAssessRefusesOccupiedDevice/有_holders
+=== RUN   TestAssessRefusesOccupiedDevice/有进程打开
+=== RUN   TestAssessRefusesOccupiedDevice/占用检查失败
+=== RUN   TestAssessRefusesOccupiedDevice/整盘被打开时分区动作也拒
+--- PASS: TestAssessRefusesOccupiedDevice (0.00s)
+    --- PASS: TestAssessRefusesOccupiedDevice/已挂载 (0.00s)
+    --- PASS: TestAssessRefusesOccupiedDevice/活动交换区 (0.00s)
+    --- PASS: TestAssessRefusesOccupiedDevice/有_holders (0.00s)
+    --- PASS: TestAssessRefusesOccupiedDevice/有进程打开 (0.00s)
+    --- PASS: TestAssessRefusesOccupiedDevice/占用检查失败 (0.00s)
+    --- PASS: TestAssessRefusesOccupiedDevice/整盘被打开时分区动作也拒 (0.00s)
+=== RUN   TestAssessDeviceState
+=== RUN   TestAssessDeviceState/只读
+=== RUN   TestAssessDeviceState/离线
+--- PASS: TestAssessDeviceState (0.00s)
+    --- PASS: TestAssessDeviceState/只读 (0.00s)
+    --- PASS: TestAssessDeviceState/离线 (0.00s)
+=== RUN   TestAssessUnsupportedKind
+--- PASS: TestAssessUnsupportedKind (0.00s)
+=== RUN   TestAssessDeviceNotFound
+--- PASS: TestAssessDeviceNotFound (0.00s)
+=== RUN   TestAssessTopologyUnavailable
+--- PASS: TestAssessTopologyUnavailable (0.00s)
+=== RUN   TestAssessIdentityUnknown
+--- PASS: TestAssessIdentityUnknown (0.00s)
+=== RUN   TestAssessIdentityLowConfidenceIsWarning
+--- PASS: TestAssessIdentityLowConfidenceIsWarning (0.00s)
+=== RUN   TestAssessIdentityConflict
+--- PASS: TestAssessIdentityConflict (0.00s)
+=== RUN   TestAssessPartitionIdentityBindsDisk
+--- PASS: TestAssessPartitionIdentityBindsDisk (0.00s)
+=== RUN   TestAssessCreateRegion
+=== RUN   TestAssessCreateRegion/合法
+=== RUN   TestAssessCreateRegion/起点没对齐
+=== RUN   TestAssessCreateRegion/大小没对齐
+=== RUN   TestAssessCreateRegion/太小
+=== RUN   TestAssessCreateRegion/零大小
+=== RUN   TestAssessCreateRegion/超出空闲区
+=== RUN   TestAssessCreateRegion/落在分区表区
+=== RUN   TestAssessCreateRegion/整数溢出
+--- PASS: TestAssessCreateRegion (0.01s)
+    --- PASS: TestAssessCreateRegion/合法 (0.00s)
+    --- PASS: TestAssessCreateRegion/起点没对齐 (0.00s)
+    --- PASS: TestAssessCreateRegion/大小没对齐 (0.00s)
+    --- PASS: TestAssessCreateRegion/太小 (0.00s)
+    --- PASS: TestAssessCreateRegion/零大小 (0.00s)
+    --- PASS: TestAssessCreateRegion/超出空闲区 (0.00s)
+    --- PASS: TestAssessCreateRegion/落在分区表区 (0.00s)
+    --- PASS: TestAssessCreateRegion/整数溢出 (0.00s)
+=== RUN   TestAssessCreateRefusesNonGPT
+--- PASS: TestAssessCreateRefusesNonGPT (0.00s)
+=== RUN   TestAssessCreateNoFreeRegion
+--- PASS: TestAssessCreateNoFreeRegion (0.00s)
+=== RUN   TestAssessCreateNameInvalid
+--- PASS: TestAssessCreateNameInvalid (0.00s)
+=== RUN   TestAssessDeletePartition
+=== RUN   TestAssessDeletePartition/空白分区
+=== RUN   TestAssessDeletePartition/已有_ext4
+=== RUN   TestAssessDeletePartition/LUKS_加密头
+=== RUN   TestAssessDeletePartition/LVM2_物理卷
+=== RUN   TestAssessDeletePartition/md_成员
+--- PASS: TestAssessDeletePartition (0.00s)
+    --- PASS: TestAssessDeletePartition/空白分区 (0.00s)
+    --- PASS: TestAssessDeletePartition/已有_ext4 (0.00s)
+    --- PASS: TestAssessDeletePartition/LUKS_加密头 (0.00s)
+    --- PASS: TestAssessDeletePartition/LVM2_物理卷 (0.00s)
+    --- PASS: TestAssessDeletePartition/md_成员 (0.00s)
+=== RUN   TestAssessDeleteRefusesMBRParent
+--- PASS: TestAssessDeleteRefusesMBRParent (0.00s)
+=== RUN   TestAssessDeleteMissingPartition
+--- PASS: TestAssessDeleteMissingPartition (0.00s)
+=== RUN   TestAssessParentUnknown
+--- PASS: TestAssessParentUnknown (0.00s)
+=== RUN   TestAssessFormat
+=== RUN   TestAssessFormat/空白分区允许
+=== RUN   TestAssessFormat/已有数据要告警
+=== RUN   TestAssessFormat/标签超长
+=== RUN   TestAssessFormat/不支持的文件系统
+--- PASS: TestAssessFormat (0.00s)
+    --- PASS: TestAssessFormat/空白分区允许 (0.00s)
+    --- PASS: TestAssessFormat/已有数据要告警 (0.00s)
+    --- PASS: TestAssessFormat/标签超长 (0.00s)
+    --- PASS: TestAssessFormat/不支持的文件系统 (0.00s)
+=== RUN   TestAssessRejectsUnknownAction
+--- PASS: TestAssessRejectsUnknownAction (0.00s)
+=== RUN   TestRegionInsideFree
+--- PASS: TestRegionInsideFree (0.00s)
+=== RUN   TestValidateLabel
+--- PASS: TestValidateLabel (0.00s)
+=== RUN   TestProcBusyScannerFindsHolder
+--- PASS: TestProcBusyScannerFindsHolder (0.02s)
+=== RUN   TestProcBusyScannerSkipsSelf
+--- PASS: TestProcBusyScannerSkipsSelf (0.01s)
+=== RUN   TestProcBusyScannerClean
+--- PASS: TestProcBusyScannerClean (0.01s)
+=== RUN   TestProcBusyScannerMissingDevice
+--- PASS: TestProcBusyScannerMissingDevice (0.01s)
+=== RUN   TestProcBusyScannerFailsClosed
+--- PASS: TestProcBusyScannerFailsClosed (0.01s)
+=== RUN   TestProcBusyScannerProcUnreadable
+--- PASS: TestProcBusyScannerProcUnreadable (0.00s)
+=== RUN   TestProcBusyScannerFdError
+--- PASS: TestProcBusyScannerFdError (0.01s)
+=== RUN   TestIsVanished
+--- PASS: TestIsVanished (0.00s)
+=== RUN   TestDeviceCapabilitiesStates
+=== RUN   TestDeviceCapabilitiesStates/没有分区表的空白盘
+=== RUN   TestDeviceCapabilitiesStates/已初始化的_GPT_空白盘
+=== RUN   TestDeviceCapabilitiesStates/GPT_里的空白分区
+=== RUN   TestDeviceCapabilitiesStates/已挂载的分区
+=== RUN   TestDeviceCapabilitiesStates/受保护的整盘
+=== RUN   TestDeviceCapabilitiesStates/不存在的设备
+=== RUN   TestDeviceCapabilitiesStates/没有探针
+--- PASS: TestDeviceCapabilitiesStates (0.02s)
+    --- PASS: TestDeviceCapabilitiesStates/没有分区表的空白盘 (0.00s)
+    --- PASS: TestDeviceCapabilitiesStates/已初始化的_GPT_空白盘 (0.00s)
+    --- PASS: TestDeviceCapabilitiesStates/GPT_里的空白分区 (0.00s)
+    --- PASS: TestDeviceCapabilitiesStates/已挂载的分区 (0.00s)
+    --- PASS: TestDeviceCapabilitiesStates/受保护的整盘 (0.00s)
+    --- PASS: TestDeviceCapabilitiesStates/不存在的设备 (0.00s)
+    --- PASS: TestDeviceCapabilitiesStates/没有探针 (0.00s)
+=== RUN   TestDeviceCapabilitiesReasonTruncated
+--- PASS: TestDeviceCapabilitiesReasonTruncated (0.00s)
+=== RUN   TestJoinReasons
+--- PASS: TestJoinReasons (0.00s)
+=== RUN   TestFillCapabilitiesWithoutEnvKeepsEmpty
+--- PASS: TestFillCapabilitiesWithoutEnvKeepsEmpty (0.00s)
+=== RUN   TestFillCapabilitiesMemoisesProbes
+--- PASS: TestFillCapabilitiesMemoisesProbes (0.00s)
+=== RUN   TestFillCapabilitiesCache
+--- PASS: TestFillCapabilitiesCache (0.00s)
+=== RUN   TestFillCapabilitiesCacheFollowsState
+--- PASS: TestFillCapabilitiesCacheFollowsState (0.00s)
+=== RUN   TestPruneCapabilities
+--- PASS: TestPruneCapabilities (0.00s)
+=== RUN   TestCapabilityActionsAreRegisteredActions
+--- PASS: TestCapabilityActionsAreRegisteredActions (0.00s)
+=== RUN   TestOSCapacityReaderNetworkTimeoutQuarantines
+--- PASS: TestOSCapacityReaderNetworkTimeoutQuarantines (0.02s)
+=== RUN   TestOSCapacityReaderQuarantineExpires
+--- PASS: TestOSCapacityReaderQuarantineExpires (0.04s)
+=== RUN   TestOSCapacityReaderLocalNeverSpawns
+--- PASS: TestOSCapacityReaderLocalNeverSpawns (0.00s)
+=== RUN   TestOSCapacityReaderHelperNilFallsBack
+--- PASS: TestOSCapacityReaderHelperNilFallsBack (0.00s)
+=== RUN   TestOSCapacityReaderContextCancelled
+--- PASS: TestOSCapacityReaderContextCancelled (0.00s)
+=== RUN   TestExecStatfsHelperParsesOutput
+=== RUN   TestExecStatfsHelperParsesOutput/正常输出
+=== RUN   TestExecStatfsHelperParsesOutput/helper_报_statfs_失败
+=== RUN   TestExecStatfsHelperParsesOutput/输出不是_JSON
+=== RUN   TestExecStatfsHelperParsesOutput/超时
+=== RUN   TestExecStatfsHelperParsesOutput/helper_启动失败
+--- PASS: TestExecStatfsHelperParsesOutput (0.01s)
+    --- PASS: TestExecStatfsHelperParsesOutput/正常输出 (0.00s)
+    --- PASS: TestExecStatfsHelperParsesOutput/helper_报_statfs_失败 (0.00s)
+    --- PASS: TestExecStatfsHelperParsesOutput/输出不是_JSON (0.00s)
+    --- PASS: TestExecStatfsHelperParsesOutput/超时 (0.00s)
+    --- PASS: TestExecStatfsHelperParsesOutput/helper_启动失败 (0.00s)
+=== RUN   TestExecStatfsHelperArgs
+--- PASS: TestExecStatfsHelperArgs (0.00s)
+=== RUN   TestRunStatfsHelperRejectsBadArgs
+{"capacity":null,"error":"需要且只需要一个挂载点路径"}
+{"capacity":null,"error":"需要且只需要一个挂载点路径"}
+{"capacity":null,"error":"挂载点必须是绝对路径"}
+{"capacity":null,"error":"需要且只需要一个挂载点路径"}
+--- PASS: TestRunStatfsHelperRejectsBadArgs (0.00s)
+=== RUN   TestRunStatfsHelperSucceedsOnRealPath
+{"capacity":{"total_bytes":"40483942400","available_bytes":"37530394624","used_percent":7.3,"inode_total":"5111808","inode_available":"5024582","inode_used_percent":1.7,"collected_at":"0001-01-01T00:00:00Z"},"error":""}
+{"capacity":null,"error":"storage: 容量不可读: statfs /nonexistent-upanel-check 失败: no such file or directory"}
+--- PASS: TestRunStatfsHelperSucceedsOnRealPath (0.01s)
+=== RUN   TestCapacityReasonDistinguishes
+--- PASS: TestCapacityReasonDistinguishes (0.00s)
+=== RUN   TestCollectorAttachesDiskstats
+--- PASS: TestCollectorAttachesDiskstats (0.19s)
+=== RUN   TestCollectorIORateAfterSecondScan
+--- PASS: TestCollectorIORateAfterSecondScan (0.18s)
+=== RUN   TestCollectorProbesOnlyDisksAndCaches
+--- PASS: TestCollectorProbesOnlyDisksAndCaches (0.09s)
+=== RUN   TestCollectorMergesHealthIntoSnapshot
+--- PASS: TestCollectorMergesHealthIntoSnapshot (0.18s)
+=== RUN   TestCollectorNoProberIsUnknown
+--- PASS: TestCollectorNoProberIsUnknown (0.07s)
+=== RUN   TestCollectorPrunesHealthOfRemovedDevices
+--- PASS: TestCollectorPrunesHealthOfRemovedDevices (0.07s)
+=== RUN   TestCollectorProbeDueWaitsForFirstScan
+--- PASS: TestCollectorProbeDueWaitsForFirstScan (0.00s)
+=== RUN   TestFillCapacitiesLimitsNetworkConcurrency
+--- PASS: TestFillCapacitiesLimitsNetworkConcurrency (0.07s)
+=== RUN   TestFillCapacitiesDedupesSamePath
+--- PASS: TestFillCapacitiesDedupesSamePath (0.00s)
+=== RUN   TestFillCapacitiesErrorReasonTravels
+--- PASS: TestFillCapacitiesErrorReasonTravels (0.00s)
+=== RUN   TestFillCapacitiesFillsNetworkMounts
+--- PASS: TestFillCapacitiesFillsNetworkMounts (0.00s)
+=== RUN   TestFillCapacitiesNetworkTimeoutIsUnreachable
+--- PASS: TestFillCapacitiesNetworkTimeoutIsUnreachable (0.00s)
+=== RUN   TestCollectorFirstScanFillsTopology
+--- PASS: TestCollectorFirstScanFillsTopology (0.09s)
+=== RUN   TestCollectorFailedScanKeepsLastGood
+--- PASS: TestCollectorFailedScanKeepsLastGood (0.08s)
+=== RUN   TestCollectorCapacityTTL
+--- PASS: TestCollectorCapacityTTL (0.30s)
+=== RUN   TestCollectorCapacityErrorIsNull
+--- PASS: TestCollectorCapacityErrorIsNull (0.06s)
+=== RUN   TestCollectorDropsStaleCapacityOnError
+--- PASS: TestCollectorDropsStaleCapacityOnError (0.13s)
+=== RUN   TestCollectorSnapshotIsCopy
+--- PASS: TestCollectorSnapshotIsCopy (0.08s)
+=== RUN   TestCollectorRunScansImmediately
+--- PASS: TestCollectorRunScansImmediately (0.09s)
+=== RUN   TestParseDiskstatsRealCapture
+=== RUN   TestParseDiskstatsRealCapture/diskstats-2404.txt
+=== RUN   TestParseDiskstatsRealCapture/diskstats-2204.txt
+=== RUN   TestParseDiskstatsRealCapture/diskstats-smart-2404.txt
+--- PASS: TestParseDiskstatsRealCapture (0.01s)
+    --- PASS: TestParseDiskstatsRealCapture/diskstats-2404.txt (0.00s)
+    --- PASS: TestParseDiskstatsRealCapture/diskstats-2204.txt (0.00s)
+    --- PASS: TestParseDiskstatsRealCapture/diskstats-smart-2404.txt (0.00s)
+=== RUN   TestParseDiskstatsIgnoresExtraColumns
+--- PASS: TestParseDiskstatsIgnoresExtraColumns (0.00s)
+=== RUN   TestParseDiskstatsBadLineKeepsOthers
+--- PASS: TestParseDiskstatsBadLineKeepsOthers (0.00s)
+=== RUN   TestParseDiskstatsEmpty
+--- PASS: TestParseDiskstatsEmpty (0.00s)
+=== RUN   TestComputeRateBasic
+--- PASS: TestComputeRateBasic (0.00s)
+=== RUN   TestComputeRateNoIOIsZeroLatencyNull
+--- PASS: TestComputeRateNoIOIsZeroLatencyNull (0.00s)
+=== RUN   TestComputeRateNullOnReset
+--- PASS: TestComputeRateNullOnReset (0.00s)
+=== RUN   TestComputeRateNullOnFirstSample
+--- PASS: TestComputeRateNullOnFirstSample (0.00s)
+=== RUN   TestComputeRateNullOnAbnormalInterval
+--- PASS: TestComputeRateNullOnAbnormalInterval (0.00s)
+=== RUN   TestIOStatsJSONShape
+--- PASS: TestIOStatsJSONShape (0.00s)
+=== RUN   TestRound2NeverNegative
+--- PASS: TestRound2NeverNegative (0.00s)
+=== RUN   TestFetcherDecodesTopology
+--- PASS: TestFetcherDecodesTopology (0.00s)
+=== RUN   TestFetcherMapsUnavailable
+--- PASS: TestFetcherMapsUnavailable (0.00s)
+=== RUN   TestFetcherDoesNotHideAgentRefusal
+--- PASS: TestFetcherDoesNotHideAgentRefusal (0.00s)
+=== RUN   TestFetcherRejectsIncompletePayload
+=== RUN   TestFetcherRejectsIncompletePayload/缺_collected_at_且没说失败
+=== RUN   TestFetcherRejectsIncompletePayload/标了失败却没给原因
+=== RUN   TestFetcherRejectsIncompletePayload/缺_interval_ms
+=== RUN   TestFetcherRejectsIncompletePayload/缺_snapshot_version
+--- PASS: TestFetcherRejectsIncompletePayload (0.00s)
+    --- PASS: TestFetcherRejectsIncompletePayload/缺_collected_at_且没说失败 (0.00s)
+    --- PASS: TestFetcherRejectsIncompletePayload/标了失败却没给原因 (0.00s)
+    --- PASS: TestFetcherRejectsIncompletePayload/缺_interval_ms (0.00s)
+    --- PASS: TestFetcherRejectsIncompletePayload/缺_snapshot_version (0.00s)
+=== RUN   TestFetcherAllowsFailedSnapshotWithReason
+--- PASS: TestFetcherAllowsFailedSnapshotWithReason (0.00s)
+=== RUN   TestFetcherDevice
+--- PASS: TestFetcherDevice (0.00s)
+=== RUN   TestNewFetcherRequiresAgent
+--- PASS: TestNewFetcherRequiresAgent (0.00s)
+=== RUN   TestIdentityPrecedence
+=== RUN   TestIdentityPrecedence/有_wwid_最可信
+=== RUN   TestIdentityPrecedence/只有序列号也够_high
+=== RUN   TestIdentityPrecedence/by-id_的_wwn-_链接_high
+=== RUN   TestIdentityPrecedence/by-id_的_scsi-S（含_VPD_序列号）medium
+=== RUN   TestIdentityPrecedence/by-id_的_ata-_也_medium
+=== RUN   TestIdentityPrecedence/只有_scsi-（型号+序号，没有序列号）low
+=== RUN   TestIdentityPrecedence/什么都没有：型号+地址兜底，low
+=== RUN   TestIdentityPrecedence/连型号都没有：unknown
+--- PASS: TestIdentityPrecedence (0.06s)
+    --- PASS: TestIdentityPrecedence/有_wwid_最可信 (0.01s)
+    --- PASS: TestIdentityPrecedence/只有序列号也够_high (0.01s)
+    --- PASS: TestIdentityPrecedence/by-id_的_wwn-_链接_high (0.00s)
+    --- PASS: TestIdentityPrecedence/by-id_的_scsi-S（含_VPD_序列号）medium (0.00s)
+    --- PASS: TestIdentityPrecedence/by-id_的_ata-_也_medium (0.00s)
+    --- PASS: TestIdentityPrecedence/只有_scsi-（型号+序号，没有序列号）low (0.00s)
+    --- PASS: TestIdentityPrecedence/什么都没有：型号+地址兜底，low (0.01s)
+    --- PASS: TestIdentityPrecedence/连型号都没有：unknown (0.00s)
+=== RUN   TestFingerprintIgnoresCapacity
+--- PASS: TestFingerprintIgnoresCapacity (0.00s)
+=== RUN   TestByIDLinkRankPreference
+--- PASS: TestByIDLinkRankPreference (0.00s)
+=== RUN   TestSelectNetworkMountsKeepsOnlyBlocklessNetworkFS
+--- PASS: TestSelectNetworkMountsKeepsOnlyBlocklessNetworkFS (0.00s)
+=== RUN   TestSelectNetworkMountsDedupesPathAndHandlesEmpty
+--- PASS: TestSelectNetworkMountsDedupesPathAndHandlesEmpty (0.00s)
+=== RUN   TestNetworkMountJSONShape
+--- PASS: TestNetworkMountJSONShape (0.00s)
+=== RUN   TestSnapshotVersionIgnoresNetworkMountObservations
+--- PASS: TestSnapshotVersionIgnoresNetworkMountObservations (0.00s)
+=== RUN   TestCloneTopologyCopiesNetworkMounts
+--- PASS: TestCloneTopologyCopiesNetworkMounts (0.00s)
+=== RUN   TestCapacityReasonText
+--- PASS: TestCapacityReasonText (0.00s)
+=== RUN   TestProtectionThroughLVM
+--- PASS: TestProtectionThroughLVM (0.06s)
+=== RUN   TestProtectionThroughRAID
+--- PASS: TestProtectionThroughRAID (0.09s)
+=== RUN   TestSwapDeviceAndSwapFileProtection
+--- PASS: TestSwapDeviceAndSwapFileProtection (0.08s)
+=== RUN   TestMountForPathBoundaries
+--- PASS: TestMountForPathBoundaries (0.00s)
+=== RUN   TestMissingRootMountIsNotGuessed
+--- PASS: TestMissingRootMountIsNotGuessed (0.05s)
+=== RUN   TestScanRealCapture2404
+--- PASS: TestScanRealCapture2404 (0.10s)
+=== RUN   TestProtectionSystemDisk2404
+--- PASS: TestProtectionSystemDisk2404 (0.08s)
+=== RUN   TestEdgesDirection
+--- PASS: TestEdgesDirection (0.09s)
+=== RUN   TestPartitionTableFromDevice
+--- PASS: TestPartitionTableFromDevice (0.07s)
+=== RUN   TestIdentityHonestOnPhysicalMachine
+--- PASS: TestIdentityHonestOnPhysicalMachine (0.14s)
+=== RUN   TestHealthNeverClaimsHealthy
+--- PASS: TestHealthNeverClaimsHealthy (0.08s)
+=== RUN   TestScanRealCapture2204
+--- PASS: TestScanRealCapture2204 (0.07s)
+=== RUN   TestScanStableOrdering
+--- PASS: TestScanStableOrdering (0.09s)
+=== RUN   TestReadDiskLinksUsesSymlinkTarget
+--- PASS: TestReadDiskLinksUsesSymlinkTarget (0.04s)
+=== RUN   TestLinkNamesReadsDirectoryEntries
+--- PASS: TestLinkNamesReadsDirectoryEntries (0.01s)
+=== RUN   TestSnapshotVersionIgnoresTimeAndCapacity
+--- PASS: TestSnapshotVersionIgnoresTimeAndCapacity (0.15s)
+=== RUN   TestDeviceWithTwoMountPointsKeepsBoth
+--- PASS: TestDeviceWithTwoMountPointsKeepsBoth (0.49s)
+=== RUN   TestClassifySignature
+=== RUN   TestClassifySignature/全零_=_空白
+=== RUN   TestClassifySignature/LUKS1
+=== RUN   TestClassifySignature/LUKS2
+=== RUN   TestClassifySignature/LVM2_PV
+=== RUN   TestClassifySignature/XFS
+=== RUN   TestClassifySignature/Btrfs
+=== RUN   TestClassifySignature/md_1.2
+=== RUN   TestClassifySignature/md_1.1
+=== RUN   TestClassifySignature/swap_v1_在最末尾
+=== RUN   TestClassifySignature/swap_v1_在_4_KiB_页面末（整盘_mkswap_的真实位置）
+=== RUN   TestClassifySignature/swap_v1_在_64_KiB_页面末
+=== RUN   TestClassifySignature/老式_swap_v0_在_4_KiB_页面末
+=== RUN   TestClassifySignature/SWAPSPACE2_出现在非页面边界
+=== RUN   TestClassifySignature/NTFS
+=== RUN   TestClassifySignature/exFAT
+=== RUN   TestClassifySignature/ext4_超级块
+=== RUN   TestClassifySignature/认不出的非零内容
+--- PASS: TestClassifySignature (0.02s)
+    --- PASS: TestClassifySignature/全零_=_空白 (0.00s)
+    --- PASS: TestClassifySignature/LUKS1 (0.00s)
+    --- PASS: TestClassifySignature/LUKS2 (0.00s)
+    --- PASS: TestClassifySignature/LVM2_PV (0.00s)
+    --- PASS: TestClassifySignature/XFS (0.00s)
+    --- PASS: TestClassifySignature/Btrfs (0.00s)
+    --- PASS: TestClassifySignature/md_1.2 (0.00s)
+    --- PASS: TestClassifySignature/md_1.1 (0.00s)
+    --- PASS: TestClassifySignature/swap_v1_在最末尾 (0.00s)
+    --- PASS: TestClassifySignature/swap_v1_在_4_KiB_页面末（整盘_mkswap_的真实位置） (0.00s)
+    --- PASS: TestClassifySignature/swap_v1_在_64_KiB_页面末 (0.00s)
+    --- PASS: TestClassifySignature/老式_swap_v0_在_4_KiB_页面末 (0.00s)
+    --- PASS: TestClassifySignature/SWAPSPACE2_出现在非页面边界 (0.00s)
+    --- PASS: TestClassifySignature/NTFS (0.00s)
+    --- PASS: TestClassifySignature/exFAT (0.00s)
+    --- PASS: TestClassifySignature/ext4_超级块 (0.00s)
+    --- PASS: TestClassifySignature/认不出的非零内容 (0.00s)
+=== RUN   TestClassifySignatureExtMagicOnly
+--- PASS: TestClassifySignatureExtMagicOnly (0.00s)
+=== RUN   TestClassifySignatureVFATNeedsBPB
+--- PASS: TestClassifySignatureVFATNeedsBPB (0.00s)
+=== RUN   TestClassifySignatureTailWinsOverHead
+--- PASS: TestClassifySignatureTailWinsOverHead (0.00s)
+=== RUN   TestDeviceSignatureProber
+--- PASS: TestDeviceSignatureProber (0.02s)
+=== RUN   TestDeviceSignatureProberShortDevice
+--- PASS: TestDeviceSignatureProberShortDevice (0.00s)
+=== RUN   TestDeviceSignatureProberTooSmall
+--- PASS: TestDeviceSignatureProberTooSmall (0.00s)
+=== RUN   TestDeviceSignatureProberSleeping
+--- PASS: TestDeviceSignatureProberSleeping (0.01s)
+=== RUN   TestDeviceSysDirPartition
+--- PASS: TestDeviceSysDirPartition (0.01s)
+=== RUN   TestEvaluateSmartNVMeRealCapture
+--- PASS: TestEvaluateSmartNVMeRealCapture (0.00s)
+=== RUN   TestEvaluateSmartSCSIUnsupportedRealCapture
+--- PASS: TestEvaluateSmartSCSIUnsupportedRealCapture (0.00s)
+=== RUN   TestEvaluateSmartUSBUnknownBridgeRealCapture
+--- PASS: TestEvaluateSmartUSBUnknownBridgeRealCapture (0.00s)
+=== RUN   TestEvaluateSmartUSBSatOpenFailedRealCapture
+--- PASS: TestEvaluateSmartUSBSatOpenFailedRealCapture (0.00s)
+=== RUN   TestEvaluateSmartBitmask
+=== RUN   TestEvaluateSmartBitmask/磁盘失效
+=== RUN   TestEvaluateSmartBitmask/预失效属性当前低于阈值
+=== RUN   TestEvaluateSmartBitmask/属性过去低于阈值
+=== RUN   TestEvaluateSmartBitmask/错误日志有记录
+=== RUN   TestEvaluateSmartBitmask/自检日志有失败记录
+=== RUN   TestEvaluateSmartBitmask/SMART_命令失败
+=== RUN   TestEvaluateSmartBitmask/打不开设备
+=== RUN   TestEvaluateSmartBitmask/命令行被拒绝
+=== RUN   TestEvaluateSmartBitmask/失效与错误日志同时置位时以失效为准
+--- PASS: TestEvaluateSmartBitmask (0.01s)
+    --- PASS: TestEvaluateSmartBitmask/磁盘失效 (0.00s)
+    --- PASS: TestEvaluateSmartBitmask/预失效属性当前低于阈值 (0.00s)
+    --- PASS: TestEvaluateSmartBitmask/属性过去低于阈值 (0.00s)
+    --- PASS: TestEvaluateSmartBitmask/错误日志有记录 (0.00s)
+    --- PASS: TestEvaluateSmartBitmask/自检日志有失败记录 (0.00s)
+    --- PASS: TestEvaluateSmartBitmask/SMART_命令失败 (0.00s)
+    --- PASS: TestEvaluateSmartBitmask/打不开设备 (0.00s)
+    --- PASS: TestEvaluateSmartBitmask/命令行被拒绝 (0.00s)
+    --- PASS: TestEvaluateSmartBitmask/失效与错误日志同时置位时以失效为准 (0.00s)
+=== RUN   TestEvaluateSmartOverallFailureIsCritical
+--- PASS: TestEvaluateSmartOverallFailureIsCritical (0.00s)
+=== RUN   TestEvaluateSmartNVMECriticalWarning
+=== RUN   TestEvaluateSmartNVMECriticalWarning/备用块不足是告警
+=== RUN   TestEvaluateSmartNVMECriticalWarning/温度越界是告警
+=== RUN   TestEvaluateSmartNVMECriticalWarning/可靠性下降是严重
+=== RUN   TestEvaluateSmartNVMECriticalWarning/只读模式是严重
+=== RUN   TestEvaluateSmartNVMECriticalWarning/介质错误计数是告警
+=== RUN   TestEvaluateSmartNVMECriticalWarning/寿命用尽是告警
+--- PASS: TestEvaluateSmartNVMECriticalWarning (0.01s)
+    --- PASS: TestEvaluateSmartNVMECriticalWarning/备用块不足是告警 (0.00s)
+    --- PASS: TestEvaluateSmartNVMECriticalWarning/温度越界是告警 (0.00s)
+    --- PASS: TestEvaluateSmartNVMECriticalWarning/可靠性下降是严重 (0.00s)
+    --- PASS: TestEvaluateSmartNVMECriticalWarning/只读模式是严重 (0.00s)
+    --- PASS: TestEvaluateSmartNVMECriticalWarning/介质错误计数是告警 (0.00s)
+    --- PASS: TestEvaluateSmartNVMECriticalWarning/寿命用尽是告警 (0.00s)
+=== RUN   TestEvaluateSmartNVMECleanLogIsHealthy
+--- PASS: TestEvaluateSmartNVMECleanLogIsHealthy (0.00s)
+=== RUN   TestEvaluateSmartATAWhenFailed
+--- PASS: TestEvaluateSmartATAWhenFailed (0.00s)
+=== RUN   TestEvaluateSmartStandby
+--- PASS: TestEvaluateSmartStandby (0.00s)
+=== RUN   TestEvaluateSmartUnparsableOutput
+=== RUN   TestEvaluateSmartUnparsableOutput/空输出成功退出
+=== RUN   TestEvaluateSmartUnparsableOutput/截断的_JSON
+=== RUN   TestEvaluateSmartUnparsableOutput/完全不是_JSON
+=== RUN   TestEvaluateSmartUnparsableOutput/打不开设备
+--- PASS: TestEvaluateSmartUnparsableOutput (0.00s)
+    --- PASS: TestEvaluateSmartUnparsableOutput/空输出成功退出 (0.00s)
+    --- PASS: TestEvaluateSmartUnparsableOutput/截断的_JSON (0.00s)
+    --- PASS: TestEvaluateSmartUnparsableOutput/完全不是_JSON (0.00s)
+    --- PASS: TestEvaluateSmartUnparsableOutput/打不开设备 (0.00s)
+=== RUN   TestEvaluateSmartEmptyArrays
+--- PASS: TestEvaluateSmartEmptyArrays (0.00s)
+=== RUN   TestEvaluateSmartEmptyJSONObject
+--- PASS: TestEvaluateSmartEmptyJSONObject (0.00s)
+=== RUN   TestEvaluateSmartExitStatusMismatch
+--- PASS: TestEvaluateSmartExitStatusMismatch (0.00s)
+=== RUN   TestTemperatureNeverZero
+=== RUN   TestTemperatureNeverZero/current_为_0
+=== RUN   TestTemperatureNeverZero/current_为负
+=== RUN   TestTemperatureNeverZero/没有_temperature_字段
+=== RUN   TestTemperatureNeverZero/正常温度
+--- PASS: TestTemperatureNeverZero (0.00s)
+    --- PASS: TestTemperatureNeverZero/current_为_0 (0.00s)
+    --- PASS: TestTemperatureNeverZero/current_为负 (0.00s)
+    --- PASS: TestTemperatureNeverZero/没有_temperature_字段 (0.00s)
+    --- PASS: TestTemperatureNeverZero/正常温度 (0.00s)
+=== RUN   TestSmartProberSleepingDeviceNoSpawn
+--- PASS: TestSmartProberSleepingDeviceNoSpawn (0.01s)
+=== RUN   TestSmartProberArgs
+--- PASS: TestSmartProberArgs (0.01s)
+=== RUN   TestSmartProberTimeout
+--- PASS: TestSmartProberTimeout (0.00s)
+=== RUN   TestSmartProberLaunchFailure
+--- PASS: TestSmartProberLaunchFailure (0.00s)
+=== RUN   TestSmartProberNoPath
+--- PASS: TestSmartProberNoPath (0.00s)
+=== RUN   TestFindSmartctlConfiguredPath
+--- PASS: TestFindSmartctlConfiguredPath (0.00s)
+=== RUN   TestSleepingSysfsStates
+=== RUN   TestSleepingSysfsStates/power-status_suspended
+=== RUN   TestSleepingSysfsStates/runtime_status_suspended
+=== RUN   TestSleepingSysfsStates/device_state_standby
+=== RUN   TestSleepingSysfsStates/device_state_running
+=== RUN   TestSleepingSysfsStates/runtime_status_active
+=== RUN   TestSleepingSysfsStates/什么都不存在
+--- PASS: TestSleepingSysfsStates (0.03s)
+    --- PASS: TestSleepingSysfsStates/power-status_suspended (0.00s)
+    --- PASS: TestSleepingSysfsStates/runtime_status_suspended (0.01s)
+    --- PASS: TestSleepingSysfsStates/device_state_standby (0.01s)
+    --- PASS: TestSleepingSysfsStates/device_state_running (0.00s)
+    --- PASS: TestSleepingSysfsStates/runtime_status_active (0.01s)
+    --- PASS: TestSleepingSysfsStates/什么都不存在 (0.00s)
+=== RUN   TestFirstLine
+--- PASS: TestFirstLine (0.00s)
+=== RUN   TestIsNetworkFS
+--- PASS: TestIsNetworkFS (0.00s)
+=== RUN   TestParsePartitionTableRealCapture
+--- PASS: TestParsePartitionTableRealCapture (0.00s)
+=== RUN   TestParsePartitionTableSyntheticGPT
+--- PASS: TestParsePartitionTableSyntheticGPT (0.00s)
+=== RUN   TestParsePartitionTableBrokenGPT
+=== RUN   TestParsePartitionTableBrokenGPT/GPT_头长度异常
+=== RUN   TestParsePartitionTableBrokenGPT/条目表参数异常（条目数为_0）
+=== RUN   TestParsePartitionTableBrokenGPT/条目表参数异常（条目尺寸_16_字节）
+=== RUN   TestParsePartitionTableBrokenGPT/可用区间反了
+--- PASS: TestParsePartitionTableBrokenGPT (0.00s)
+    --- PASS: TestParsePartitionTableBrokenGPT/GPT_头长度异常 (0.00s)
+    --- PASS: TestParsePartitionTableBrokenGPT/条目表参数异常（条目数为_0） (0.00s)
+    --- PASS: TestParsePartitionTableBrokenGPT/条目表参数异常（条目尺寸_16_字节） (0.00s)
+    --- PASS: TestParsePartitionTableBrokenGPT/可用区间反了 (0.00s)
+=== RUN   TestParsePartitionTableMBR
+--- PASS: TestParsePartitionTableMBR (0.00s)
+=== RUN   TestParsePartitionTableUnreadable
+--- PASS: TestParsePartitionTableUnreadable (0.00s)
+=== RUN   TestProbeSkipsWithoutWaking
+--- PASS: TestProbeSkipsWithoutWaking (0.01s)
+=== RUN   TestTopologyJSONWire
+--- PASS: TestTopologyJSONWire (0.00s)
+=== RUN   TestUnknownIsNullNotZero
+--- PASS: TestUnknownIsNullNotZero (0.00s)
+=== RUN   TestCapacityPercentOneDecimal
+--- PASS: TestCapacityPercentOneDecimal (0.00s)
+=== RUN   TestRound1
+--- PASS: TestRound1 (0.00s)
+PASS

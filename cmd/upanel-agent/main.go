@@ -218,6 +218,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Logger:                 logger,
 		HealthInterval:         cfg.Agent.Storage.SmartInterval(),
 		NetworkCapacityTimeout: cfg.Agent.Storage.NetworkCapacityTimeout(),
+		// P07.1：存储写动作预检需要的探针（设备签名、进程占用），全部只读。
+		// 接上之后每台设备的 capabilities 才会被填成真实状态；没接就是空数组。
+		Env: storage.SystemEnv(),
 	}
 	if cfg.Agent.Storage.SmartEnabled {
 		if path, ok := storage.FindSmartctl(cfg.Agent.Storage.SmartctlPath); ok {

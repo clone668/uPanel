@@ -1,0 +1,115 @@
+=== RUN   TestMirrorAgentEventsIsIdempotent
+--- PASS: TestMirrorAgentEventsIsIdempotent (0.42s)
+=== RUN   TestMirroredEventKeepsAgentPayload
+--- PASS: TestMirroredEventKeepsAgentPayload (0.37s)
+=== RUN   TestUnknownAgentEventKindBecomesLog
+--- PASS: TestUnknownAgentEventKindBecomesLog (0.34s)
+=== RUN   TestListJobEventsRespectsAfterSeq
+--- PASS: TestListJobEventsRespectsAfterSeq (0.41s)
+=== RUN   TestListJobEventsEnforcesOwnership
+--- PASS: TestListJobEventsEnforcesOwnership (0.27s)
+=== RUN   TestBoundsReflectPrunedHistory
+--- PASS: TestBoundsReflectPrunedHistory (0.28s)
+=== RUN   TestListJobLogsPaginates
+--- PASS: TestListJobLogsPaginates (0.27s)
+=== RUN   TestPruneKeepsStatusEventsAndNewestLogs
+--- PASS: TestPruneKeepsStatusEventsAndNewestLogs (1.61s)
+=== RUN   TestSubmitTenTimesExecutesOnce
+--- PASS: TestSubmitTenTimesExecutesOnce (0.34s)
+=== RUN   TestSameKeyDifferentBodyConflicts
+--- PASS: TestSameKeyDifferentBodyConflicts (0.31s)
+=== RUN   TestDifferentKeySamePreflightIsUsed
+--- PASS: TestDifferentKeySamePreflightIsUsed (0.45s)
+=== RUN   TestSubmitRejectsExpiredPreflight
+--- PASS: TestSubmitRejectsExpiredPreflight (0.29s)
+=== RUN   TestSubmitRejectsSessionChange
+--- PASS: TestSubmitRejectsSessionChange (0.32s)
+=== RUN   TestSubmitRejectsForeignPreflight
+--- PASS: TestSubmitRejectsForeignPreflight (0.29s)
+=== RUN   TestSubmitRejectsBlockedPreflight
+--- PASS: TestSubmitRejectsBlockedPreflight (0.31s)
+=== RUN   TestSubmitRequiresReauth
+--- PASS: TestSubmitRequiresReauth (0.29s)
+=== RUN   TestSubmitAgentUnavailableKeepsJobForReconcile
+--- PASS: TestSubmitAgentUnavailableKeepsJobForReconcile (0.27s)
+=== RUN   TestSubmitAgentRejectionMarksJobFailed
+--- PASS: TestSubmitAgentRejectionMarksJobFailed (0.26s)
+=== RUN   TestGetJobUnconfirmedWhenAgentHasNoRecord
+--- PASS: TestGetJobUnconfirmedWhenAgentHasNoRecord (0.28s)
+=== RUN   TestGetJobTerminalDoesNotCallAgent
+--- PASS: TestGetJobTerminalDoesNotCallAgent (0.28s)
+=== RUN   TestCancelRespectsPolicy
+--- PASS: TestCancelRespectsPolicy (0.32s)
+=== RUN   TestCancelCancellableJob
+--- PASS: TestCancelCancellableJob (0.39s)
+=== RUN   TestCancelFinishedJob
+--- PASS: TestCancelFinishedJob (0.35s)
+=== RUN   TestListAndGetRespectOwnership
+--- PASS: TestListAndGetRespectOwnership (0.38s)
+=== RUN   TestSubmitValidatesIdempotencyKey
+--- PASS: TestSubmitValidatesIdempotencyKey (0.27s)
+=== RUN   TestJobEventsRecordTransitions
+--- PASS: TestJobEventsRecordTransitions (0.42s)
+=== RUN   TestSweepPendingResolvesQueuedJobAfterAgentComesBack
+--- PASS: TestSweepPendingResolvesQueuedJobAfterAgentComesBack (0.33s)
+=== RUN   TestSweepPendingMarksUnconfirmedWhenAgentNeverSawOperation
+--- PASS: TestSweepPendingMarksUnconfirmedWhenAgentNeverSawOperation (0.33s)
+=== RUN   TestSweepPendingMarksUnknownResultInterrupted
+--- PASS: TestSweepPendingMarksUnknownResultInterrupted (0.30s)
+=== RUN   TestSweepPendingSkipsInFlightSubmit
+--- PASS: TestSweepPendingSkipsInFlightSubmit (0.32s)
+=== RUN   TestSweepPendingKeepsJobWhenAgentIsDown
+--- PASS: TestSweepPendingKeepsJobWhenAgentIsDown (0.33s)
+=== RUN   TestSweepSkipsTerminalJobs
+--- PASS: TestSweepSkipsTerminalJobs (0.41s)
+=== RUN   TestRepeatSubmitSurvivesWebRestart
+--- PASS: TestRepeatSubmitSurvivesWebRestart (0.35s)
+=== RUN   TestSubmitRacingSweepDoesNotMarkFalseFailure
+--- PASS: TestSubmitRacingSweepDoesNotMarkFalseFailure (0.36s)
+=== RUN   TestRunReconcilerStopsWithContext
+--- PASS: TestRunReconcilerStopsWithContext (0.41s)
+=== RUN   TestPurgeExpiredIdempotencyKeysRemovesFinishedJobs
+--- PASS: TestPurgeExpiredIdempotencyKeysRemovesFinishedJobs (0.36s)
+=== RUN   TestPurgeExpiredIdempotencyKeysKeepsUnfinishedJobs
+--- PASS: TestPurgeExpiredIdempotencyKeysKeepsUnfinishedJobs (0.38s)
+=== RUN   TestCreatePreflightStoresBindings
+--- PASS: TestCreatePreflightStoresBindings (0.25s)
+=== RUN   TestCreatePreflightRejectsBadInput
+=== RUN   TestCreatePreflightRejectsBadInput/空动作名
+=== RUN   TestCreatePreflightRejectsBadInput/动作名太长大写
+=== RUN   TestCreatePreflightRejectsBadInput/动作名没有点
+=== RUN   TestCreatePreflightRejectsBadInput/动作名含连字符
+=== RUN   TestCreatePreflightRejectsBadInput/用户为_0
+=== RUN   TestCreatePreflightRejectsBadInput/会话哈希长度不对
+=== RUN   TestCreatePreflightRejectsBadInput/参数不是对象
+=== RUN   TestCreatePreflightRejectsBadInput/参数不是_JSON
+=== RUN   TestCreatePreflightRejectsBadInput/参数过大
+--- PASS: TestCreatePreflightRejectsBadInput (0.31s)
+    --- PASS: TestCreatePreflightRejectsBadInput/空动作名 (0.00s)
+    --- PASS: TestCreatePreflightRejectsBadInput/动作名太长大写 (0.00s)
+    --- PASS: TestCreatePreflightRejectsBadInput/动作名没有点 (0.00s)
+    --- PASS: TestCreatePreflightRejectsBadInput/动作名含连字符 (0.00s)
+    --- PASS: TestCreatePreflightRejectsBadInput/用户为_0 (0.00s)
+    --- PASS: TestCreatePreflightRejectsBadInput/会话哈希长度不对 (0.00s)
+    --- PASS: TestCreatePreflightRejectsBadInput/参数不是对象 (0.00s)
+    --- PASS: TestCreatePreflightRejectsBadInput/参数不是_JSON (0.00s)
+    --- PASS: TestCreatePreflightRejectsBadInput/参数过大 (0.09s)
+=== RUN   TestCreatePreflightWithoutAgentIsUnavailable
+--- PASS: TestCreatePreflightWithoutAgentIsUnavailable (0.22s)
+=== RUN   TestCreatePreflightPassesAgentErrors
+--- PASS: TestCreatePreflightPassesAgentErrors (0.42s)
+=== RUN   TestCreatePreflightRejectsSuspiciousExpiry
+=== RUN   TestCreatePreflightRejectsSuspiciousExpiry/超过_120_秒
+=== RUN   TestCreatePreflightRejectsSuspiciousExpiry/已经过期
+=== RUN   TestCreatePreflightRejectsSuspiciousExpiry/不是_RFC3339
+--- PASS: TestCreatePreflightRejectsSuspiciousExpiry (0.69s)
+    --- PASS: TestCreatePreflightRejectsSuspiciousExpiry/超过_120_秒 (0.22s)
+    --- PASS: TestCreatePreflightRejectsSuspiciousExpiry/已经过期 (0.22s)
+    --- PASS: TestCreatePreflightRejectsSuspiciousExpiry/不是_RFC3339 (0.25s)
+=== RUN   TestCreatePreflightAcceptsClockSkewWithinAllowance
+--- PASS: TestCreatePreflightAcceptsClockSkewWithinAllowance (0.20s)
+=== RUN   TestCreatePreflightEmptyParamsBecomeObject
+--- PASS: TestCreatePreflightEmptyParamsBecomeObject (0.22s)
+=== RUN   TestNewRequiresDatabaseAndLogger
+--- PASS: TestNewRequiresDatabaseAndLogger (0.00s)
+PASS

@@ -166,6 +166,29 @@ func readList(path string) []string {
 	return out
 }
 
+// linkNames 列出 sysfs 关系目录里的条目名（`holders/`、`slaves/` 里是符号链接）。
+//
+// 为什么不用那个看起来更方便的 `list` 文件：6.8 内核对**分区**根本不挂这个属性。
+// 2026-10-21 在验收机上实测：/sys/block/sdc/sdc1/holders/dm-0 存在，
+// /sys/block/sdc/sdc1/holders/list 返回 No such file or directory；dm 一侧的
+// /sys/block/dm-0/slaves/sdc1 同理。只读 list 会让“分区正被 dm/md 占用”完全看不见——
+// 而那正是最该拒绝的现场（判决层也因此拿不到 DEVICE_HAS_HOLDERS / DEVICE_IS_STACKED）。
+// 所以目录项才是事实来源，list 只作为退路（有些内核/驱动只在文件里给出）。
+func linkNames(dir string) []string {
+	names := make([]string, 0, 4)
+	for _, n := range dirNames(dir) {
+		// 汇总文件与目录项在同一个目录里，它不是依赖者本身。
+		if n == "list" {
+			continue
+		}
+		names = append(names, n)
+	}
+	if len(names) > 0 {
+		return names
+	}
+	return readList(joinPath(dir, "list"))
+}
+
 // dirNames 列出目录里的条目名（不递归）。目录不存在时返回 nil。
 func dirNames(path string) []string {
 	entries, err := os.ReadDir(path)

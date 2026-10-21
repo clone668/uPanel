@@ -8,7 +8,9 @@
 #   * p02-3 / p02-4 / p03-1 / p03-2 / p03-3 / p03-4 / p04-1 / p04-2 / p04-3：**root**（代理只能在 root 下启动，
 #     p03-4 还要 kill 代理、替换代理库来制造重启与数据丢失；p04-2 要挂载一块临时 loop 镜像；
 #     p04-3 要停掉本机 NFS 服务、等 5 分钟隔离期到期，整脚本约 20 分钟——嫌慢可设 WAIT_QUARANTINE=0，
-#     此时“隔离到期后容量自愈”一项如实记为 NOT RUN，其它断言照跑）。
+#     此时“隔离到期后容量自愈”一项如实记为 NOT RUN，其它断言照跑；
+#     p07-1 要在三块**一次性空盘**上造分区/文件系统/swap/dm 现场（默认 sdb sdc sdd，
+#     可用 SPARE_DISKS 覆盖），它会先算出承载 / 的整盘，一旦有盘与根设备同源就拒绝运行）。
 # 典型事故：用 `sudo sh p01-2-acceptance.sh` 跑 p01-2，root 绕过目录权限，
 # “数据库目录不可写即拒绝启动”那条永远等不到退出，脚本会一直挂着。
 #
@@ -39,7 +41,7 @@ if [ -n "$DEPLOY_DIR" ] && [ ! -d "$DEPLOY_DIR/systemd" ]; then
 fi
 
 NONROOT_SCRIPTS="p01-1-acceptance p01-2-acceptance p01-4-acceptance p02-1-acceptance p02-2-acceptance"
-ROOT_SCRIPTS="p02-3-agent-acceptance p02-4-agent-secrets-acceptance p03-1-preflight-acceptance p03-2-jobs-acceptance p03-3-events-acceptance p03-4-reconcile-acceptance p04-1-system-acceptance p04-2-storage-acceptance p04-3-storage-health-acceptance p05-1-services-acceptance p05-2-processes-acceptance p05-3-logs-acceptance"
+ROOT_SCRIPTS="p02-3-agent-acceptance p02-4-agent-secrets-acceptance p03-1-preflight-acceptance p03-2-jobs-acceptance p03-3-events-acceptance p03-4-reconcile-acceptance p04-1-system-acceptance p04-2-storage-acceptance p04-3-storage-health-acceptance p05-1-services-acceptance p05-2-processes-acceptance p05-3-logs-acceptance p06-1-files-acceptance p06-2-files-write-acceptance p06-3-terminal-acceptance p07-1-storage-guard-acceptance"
 
 if [ $# -gt 0 ]; then
     SELECTED="$*"

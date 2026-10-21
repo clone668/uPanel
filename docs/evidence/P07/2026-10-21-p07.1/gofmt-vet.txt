@@ -1,0 +1,3 @@
+# gofmt -l cmd internal（无输出即无格式漂移）
+# go vet ./...
+# exit=0
