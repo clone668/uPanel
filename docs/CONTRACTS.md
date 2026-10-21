@@ -410,6 +410,38 @@ service.control 不需要再认证、不需要确认短语，`cancellable=false`
 
 不存在的单元不触发任何 systemctl 控制命令，也不做“按前缀批量操作”。
 
+### 10.2 进程列表与信号（P05.2 起）
+
+GET /processes 返回 `status`、`error`（失败时）、`collected_at`、`interval_ms`、`total`、`truncated`、`processes`；权限 **admin**（进程列表带属主与命令行，比服务状态更接近主机内部，不向 viewer 开放）。数据经代理的 `processes.list` 取回，Web 不直接读 /proc。
+
+Process 字段：`pid`、`start_time_ticks`、`ppid`、`owner`、`state`、`cpu_percent`、`memory_bytes`、`command`、`unit`、`protection`、`capabilities`。
+
+**身份是 `pid` + `start_time_ticks`，不是 `pid`。** 内核会重用 PID；`start_time_ticks`（/proc/<pid>/stat 第 22 字段，开机以来的时钟滴答数）不会。两者相加才指认“那一个”进程，预检、执行前复核与结果读回都用这一对。身份指纹是 `sha256("process/v1|<pid>|<start_time_ticks>")`，状态版本是 `sha256("process-state/v1|<pid>|<start_time_ticks>")`；状态版本刻意与身份同源——进程的 CPU、内存、运行状态随时在变，把它们算进去会让每一份预检在几秒内无谓失效，而不算进去也不会放过任何一次 PID 重用。
+
+state 闭集（/proc 状态字母归一化）：`running`、`sleeping`、`disk_sleep`、`zombie`、`stopped`、`tracing`、`dead`、`idle`、`paging`、`unknown`。内核新增字母时给 `unknown`，不猜。
+
+`cpu_percent` 是两次相邻采样之间 CPU 时间的增量除以墙钟时间（单核基准，可以超过 100）。**新出现的进程第一份快照里没有上一样本，值就是 `null`，不是 `0`**——0 会被读成“完全空闲”。`memory_bytes` 是十进制字符串（超过 2^53 的字节数不能走 JSON number），内核线程与已退出进程为 `null`：它们没有 VmRSS，给 0 是编数。`command` 是脱敏后的摘要（1—256 字符）：argv[0] 取基名，敏感开关（密码、令牌、密钥类参数）的值替换成固定掩码，无 argv 的进程显示成 `[comm]`。`unit` 来自 cgroup v2 归属，非 systemd 单元为空字符串。
+
+`protection` 包含 `protected` 布尔、`category`（未保护时省略）与 `reasons`（人类可读，去重且顺序固定）。category 闭集：`init`（PID 1）、`kernel_thread`（无用户空间的线程）、`self`（面板与代理自身）、`ssh`（远程登录）、`systemd_core`（日志/会话/设备管理/总线）、`network`（网络基础服务）、`other_module`（由反代、共享、容器模块负责的守护进程）。保护名单是代码里的固定表，只能通过改代码扩充；不接受配置、API 写入或临时豁免。
+
+`capabilities` 只列出当前状态与保护规则下真正能发送的信号，固定顺序 `TERM`、`KILL`。受保护与已退出（`zombie`/`dead`）的进程一律为空数组：空数组表示“这里不提供动作入口”，前端必须渲染成“不可操作”，不得摆一个点了就报错的按钮。
+
+`interval_ms` 默认 5000，列表走缓存快照（每 5 秒采集一次），单次最多收录 2000 个进程，超出时 `truncated=true` 并按 PID 升序截断——`truncated=true` 表示“不是只有这些”，不是完整列表。采集失败时保留上一次成功内容并在 `status`/`error` 里标明原因与 `collected_at`，不清空列表：清空会被读成“这台机器没有进程”。预检与执行**不使用缓存**，每次都现场读 /proc——列表最多 5 秒旧，而“现在这个 PID 上还是不是那个进程”必须看现在。
+
+process.signal 的参数只有 `pid`、`start_time_ticks`、`signal`（`TERM` | `KILL`，大写闭集）。不接受的输入：只有 PID 没有 starttime（那样等于允许误杀被重用的 PID）、按名字/正则/前缀匹配、批量目标、`force`/`now` 之类会被翻译成 kill 选项的开关、负数或 0 的 PID。一个进程，一个信号。
+
+阻塞项代码：`PROCESS_NOT_FOUND`（这个 PID 上没有进程）、`PROCESS_IDENTITY_MISMATCH`（PID 还在，但 starttime 变了——这是另一个进程）、`PROCESS_PROTECTED`（PID 1、内核线程、面板/代理自身、受保护系统服务进程，理由随附）、`PROCESS_ALREADY_EXITED`（僵尸或已死，发信号不会让它更快消失）。**判定顺序固定为：参数 → 现场读取 → 身份 → 保护 → 是否已退出。** 身份先于保护：一个被重用的 PID 不是“受保护的进程”，而是“不是你要找的那个进程”，两者处置完全不同。
+
+告警项代码：`process_terminate`（SIGTERM 可以被捕获或忽略）、`process_force_kill`（SIGKILL 无法被捕获或忽略）。影响类别：`process_termination`、`process_data_loss`、`none`。资源锁固定为 `process:<pid>:<start_time_ticks>`——按身份加锁，同一 PID 上的两个不同进程不会互相阻塞，同一个进程的并发操作不会叠加。
+
+TERM 与 KILL 是**两次独立操作**，门槛不同：TERM 不需要再认证、不需要确认短语；KILL 需要 5 分钟内的密码再认证加确认短语 `KILL XXXXXX`（字母表去掉易混的 I/O/0/1，6 位，一次性，只在该次预检响应里出现，落库只存哈希）。两者的 `cancellable` 都是 `false`：信号发出之后没有“安全取消”可言。门槛在生成预检时按信号算定并落库（`requires_reauth` 与短语哈希），提交与执行读的是那份记录——所以受保护的 KILL 预检仍然带着再认证要求与短语，拦下它的是 `allowed=false`（提交得到 409 `DEPENDENCY_BLOCKED`），不是把门槛藏起来。
+
+**面板不会在 TERM 超时后自动升级为 KILL。** 那等于把一个普通动作偷偷变成强制动作，还顺手绕过了 KILL 的再认证与短语。TERM 超时按失败结束并如实说明“信号已发出但进程仍在运行，需要单独发起 KILL 预检”。
+
+执行顺序：现场复核（重新读 /proc 比对 starttime、保护名单与退出状态，任一不符就一个信号都不发）→ 发送信号 → 轮询读回（间隔 100 毫秒；TERM 最多 10 秒，KILL 最多 5 秒）。**发送成功不算成功**：只有读回确认进程消失、变成僵尸，或那个 PID 已经被另一个 starttime 的进程占用，才算 `outcome=verified`。读回超时必须让任务失败：TERM 说明进程未退出，KILL 说明它可能停在不可中断的内核等待（D 状态），提示到主机上确认。发送时内核回 `ESRCH`（检查与发送之间进程自己退出了）说明意图已达成，但结果里 `delivered=false` 并附一句“信号未送出”——不把没发生的事说成发生了。
+
+不支持批量、不支持向“同名进程”发信号、不支持在列表接口上直接终止：任何写操作都必须走 `process.signal` 的预检与任务。
+
 ## 11. 文件契约
 
 所有文件 API 为 admin。以下为数据访问接口，实际修改通过第 5 节动作提交。

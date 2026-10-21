@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: uPanel API
-  version: 0.0.0-p05.1
+  version: 0.0.0-p05.2
   summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
   description: |
     uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。
@@ -23,7 +23,7 @@ info:
     name: Proprietary
     identifier: LicenseRef-Proprietary
 x-upanel-contract-status:
-  stage: P05.1
+  stage: P05.2
   implemented_paths:
     - get /api/v1/health/live
     - head /api/v1/health/live
@@ -49,6 +49,7 @@ x-upanel-contract-status:
     - get /api/v1/jobs/{id}/logs
     - get /api/v1/services
     - get /api/v1/services/{unit}
+    - get /api/v1/processes
   note: 只列出已实现并通过验收的接口；未实现模块不出现在 paths 中。
 servers:
   - url: https://127.0.0.1:9443/api/v1
@@ -875,6 +876,58 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           description: 代理不可用（未配置 socket 或连接失败），或本机没有可用的 systemctl。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/processes:
+    get:
+      operationId: listProcesses
+      summary: 主机进程列表（含保护名单与可发送的信号）
+      description: |
+        CONTRACTS.md 第 10.2 节（P05.2 起），权限 admin。经代理的 processes.list 查询取回
+        最近一次采集的快照；Web 不直接读 /proc。
+
+        进程身份是 **pid + start_time_ticks**，不是 pid：内核会重用 PID，而 starttime
+        （/proc/<pid>/stat 第 22 字段，开机以来的时钟滴答数）不会。终止进程必须把两者
+        一起提交，旧预检因此杀不到被重用的新进程。
+
+        采集失败时**不清空列表**：status 为 error，error 说明原因，processes 仍是上一次
+        成功的内容，collected_at 是那次的时间。空列表会被读成“这台机器没有进程”。
+
+        capabilities 只列出当前状态与保护规则下真正能发送的信号（TERM、KILL），
+        受保护与已退出（zombie/dead）的进程一律为空数组。写操作必须走 process.signal
+        的预检与任务，且 TERM 与 KILL 是两次独立操作，不在本接口提供任何捷径。
+
+        truncated 为 true 表示进程数超过上限（2000）被截断，不是“只有这些”。
+      tags: [services]
+      responses:
+        '200':
+          description: 进程列表与采集元数据。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ProcessListData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: 代理不可用（未配置 socket 或连接失败）。
           headers:
             X-Request-ID:
               $ref: '#/components/headers/RequestId'
@@ -3019,6 +3072,121 @@ components:
             self：面板与代理自身；ssh：远程登录；systemd_core：日志/会话/设备管理/总线；
             network：网络基础服务；other_module：由反代、共享、容器模块管理，通用服务
             接口整体拒绝，避免绕过那些模块的依赖检查。未保护时不出现。
+        reasons:
+          type: array
+          description: 人类可读理由，去重且顺序固定；未保护时为空数组。
+          items:
+            type: string
+
+    ProcessListData:
+      type: object
+      additionalProperties: false
+      description: |
+        GET /processes 的响应体（CONTRACTS.md 第 10.2 节）。
+        status=error 时 processes 仍是上一次成功采集的内容，collected_at 是那次的时间。
+        没有 snapshot_version：进程快照每秒都在变，用版本去绑预检只会让每次提交都无谓失效。
+      required: [status, collected_at, interval_ms, total, truncated, processes]
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+          description: 最近一次采集尝试的结果；error 不影响 processes 的可用性。
+        error:
+          type: string
+          maxLength: 500
+          description: 采集失败的原因；成功时不出现。
+        collected_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        interval_ms:
+          type: integer
+          minimum: 1
+          description: 采集间隔，P05.2 为 5000（5 秒）。
+        total:
+          type: integer
+          minimum: 0
+          description: 这台机器上实际看到的进程数；被截断时大于 processes 的长度。
+        truncated:
+          type: boolean
+          description: 进程数超过上限（2000）被截断时为 true，表示“只显示前 N 个”。
+        processes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProcessEntry'
+
+    ProcessEntry:
+      type: object
+      additionalProperties: false
+      description: |
+        一个进程（CONTRACTS.md 第 10.2 节）。pid 单独不足以标识一个进程：
+        身份是 pid + start_time_ticks。没有值的 CPU 与内存一律是 null，不是 0。
+      required: [pid, start_time_ticks, ppid, owner, state, cpu_percent, memory_bytes,
+                 command, unit, protection, capabilities]
+      properties:
+        pid:
+          type: integer
+          minimum: 1
+          description: 进程号。
+        start_time_ticks:
+          type: integer
+          minimum: 1
+          description: |
+            /proc/<pid>/stat 第 22 字段（开机以来的时钟滴答数）。
+            与 pid 一起构成进程身份；同一个 pid 换了 starttime 就是另一个进程。
+        ppid:
+          type: integer
+          minimum: 0
+        owner:
+          type: string
+          description: 有效用户名的名字（来自 /etc/passwd）；查不到时是 uid:<数字>。
+        state:
+          type: string
+          enum: [running, sleeping, disk_sleep, zombie, stopped, tracing, dead, idle, paging, unknown]
+          description: 归一化后的进程状态（/proc/<pid>/stat 的状态字母）。
+        cpu_percent:
+          type: [number, 'null']
+          minimum: 0
+          description: 相对**单核**的 CPU 占用百分比（多线程进程可以超过 100）；第一次采集为 null。
+        memory_bytes:
+          $ref: '#/components/schemas/NullableByteString'
+        command:
+          type: string
+          maxLength: 256
+          description: |
+            **脱敏后**的命令摘要：argv[0] 取基名，敏感参数的值替换成 ***，超长截断。
+            它不是完整命令行，也不能拿来当审计全文。内核线程显示成 [comm]。
+        unit:
+          type: string
+          description: |
+            所属 systemd 单元（cgroup 里的 .service 或 .scope）；空串表示不在任何单元里
+            （内核线程、宿主上直接启动的进程）。
+        protection:
+          $ref: '#/components/schemas/ProcessProtection'
+        capabilities:
+          type: array
+          description: |
+            当前状态与保护规则下允许发送的信号，固定顺序 TERM、KILL。
+            受保护与已退出（zombie/dead）的进程一律为空数组；空数组表示“这里不提供动作入口”。
+          items:
+            type: string
+            enum: [TERM, KILL]
+
+    ProcessProtection:
+      type: object
+      additionalProperties: false
+      description: |
+        进程保护判定（CONTRACTS.md 第 10.2 节）。名单是代码里的固定表，只能通过改代码扩充；
+        不接受配置、API 写入或临时豁免。判定依据是 PID 1、内核线程、面板/代理自身，
+        以及 cgroup 单元名命中的服务保护名单（不按命令名猜）。
+      required: [protected, reasons]
+      properties:
+        protected:
+          type: boolean
+        category:
+          type: string
+          enum: [init, kernel_thread, self, ssh, systemd_core, network, other_module]
+          description: |
+            init：PID 1；kernel_thread：内核线程；self：面板与代理自身（含其进程树）；
+            其余与服务单元共用同一套类别。未保护时不出现。
         reasons:
           type: array
           description: 人类可读理由，去重且顺序固定；未保护时为空数组。

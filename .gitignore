@@ -22,6 +22,7 @@
 # 二进制与发布包
 /bin/
 /dist/
+/.build/
 *.exe
 *.test
 *.out

@@ -26,8 +26,13 @@ const menuOptions = computed<MenuOption[]>(() =>
 )
 
 // 只有会出现在导航里的路径才高亮；未知路径（404 页面）不高亮任何项。
-// 子页面（例如 /storage/devices/sda）同样高亮它所属的模块。
+// 判定优先用路由 meta.moduleKey（模块是导航的唯一来源），再退回路径前缀：
+// 一个模块可以有多个页面（例如“服务与进程”同时有 /services 与 /processes），
+// 按路径前缀匹配会让第二个页面在整个导航里都不高亮。
 const activeKey = computed<string | null>(() => {
+  const key = route.meta.moduleKey
+  const byModule = visibleModules().find((module) => module.key === key)
+  if (byModule !== undefined) return byModule.path
   const hit = visibleModules().find(
     (module) => route.path === module.path || route.path.startsWith(`${module.path}/`),
   )

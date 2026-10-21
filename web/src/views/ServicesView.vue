@@ -12,6 +12,7 @@
 
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { NAlert, NInput, NCard, NTag } from 'naive-ui'
+import { RouterLink } from 'vue-router'
 
 import { ApiError } from '@/api/client'
 import {
@@ -132,6 +133,7 @@ onBeforeUnmount(() => {
         </p>
         <p class="services__line services__meta">
           启停、重启与开机启动在单元详情页操作：先看预检给出的影响与阻塞项，再提交任务。
+          <RouterLink v-if="session.isAdmin" to="/processes">进程列表与终止 →</RouterLink>
           <template v-if="!session.isAdmin">当前角色是只读（viewer），只能查看状态。</template>
         </p>
       </NCard>

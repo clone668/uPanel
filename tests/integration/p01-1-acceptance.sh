@@ -209,8 +209,17 @@ expect_eq "agent-no-tcp-listener" "$TCP_COUNT" "0"
 if [ -z "$SUDO" ]; then AS_WEB="runuser -u upanel-web --"; else AS_WEB="sudo -u upanel-web"; fi
 
 CAPS=$($AS_WEB curl -s --max-time 5 --unix-socket "$SOCKET" http://localhost/internal/v1/capabilities)
+# capabilities 是全量闭集：生产代理只要依赖齐备就会登记全部查询与动作，
+# P05.1 起 supported_actions 不再为空。断言**完全等于**当前应有的集合——
+# 少报是隐藏能力，多报是编造能力，两种都算失败（DECISIONS Q86/Q115）。
+# 新增查询/动作时必须同步更新这两行。
+EXPECTED_QUERIES="['processes.list', 'services.list', 'services.unit', 'storage.topology', 'system.summary']"
+EXPECTED_ACTIONS="['process.signal', 'service.control']"
+CAPS_QUERIES=$(printf '%s' "$CAPS" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["supported_queries"])')
+CAPS_ACTIONS=$(printf '%s' "$CAPS" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["supported_actions"])')
 expect_contains "agent-capabilities-version" "$CAPS" '"version"'
-expect_contains "agent-capabilities-empty-actions" "$CAPS" '"supported_actions":[]'
+expect_eq "agent-capabilities-queries-exact" "$EXPECTED_QUERIES" "$CAPS_QUERIES"
+expect_eq "agent-capabilities-actions-exact" "$EXPECTED_ACTIONS" "$CAPS_ACTIONS"
 expect_contains "agent-capabilities-mode" "$CAPS" '"mode":"production"'
 
 ROOT_CODE=$($SUDO curl -s -o /dev/null -w '%{http_code}' --max-time 5 --unix-socket "$SOCKET" \

@@ -90,6 +90,13 @@ func (s *Server) routes() *gin.Engine {
 		sv.GET("", s.handleListServices)
 		sv.GET("/:unit", s.handleGetService)
 
+		// 进程列表（P05.2）：权限 admin（CONTRACTS.md 第 10 节）。终止进程是写操作，
+		// 走预检 → 任务链路（action=process.signal），而且 TERM 与 KILL 是两次独立操作：
+		// KILL 的预检要求再认证与确认短语。这里不提供“直接 kill”的入口。
+		pr := v1.Group("/processes")
+		pr.Use(s.requireSession(), s.requireAdmin())
+		pr.GET("", s.handleListProcesses)
+
 		// 系统写操作的统一入口（P03.1）：先预检，再由 POST /jobs 创建任务（P03.2）。
 		// 预检只读不写系统；再认证在**提交任务**时校验（按动作登记策略），不在预检阶段。
 		ops := v1.Group("/operations", s.auditRoute(audit.ActionOperationPreflight))

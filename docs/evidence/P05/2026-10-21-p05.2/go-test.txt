@@ -1,0 +1,30 @@
+# 宿主 go test（P05.2）
+# 执行时间：2026-10-21T02:32:01Z
+
+$ go test ./... -count=1
+ok  	upanel/cmd/upanel-agent	1.485s
+ok  	upanel/cmd/upanel-web	4.070s
+ok  	upanel/cmd/upanelctl	1.858s
+ok  	upanel/internal/agent	8.488s
+ok  	upanel/internal/agentclient	1.647s
+ok  	upanel/internal/agentstore	2.425s
+ok  	upanel/internal/api	42.090s
+ok  	upanel/internal/audit	1.338s
+ok  	upanel/internal/auth	27.785s
+ok  	upanel/internal/config	0.985s
+ok  	upanel/internal/httpx	0.905s
+ok  	upanel/internal/logging	0.649s
+ok  	upanel/internal/monitoring	0.815s
+ok  	upanel/internal/operations	4.271s
+ok  	upanel/internal/platform	0.613s
+ok  	upanel/internal/processes	1.027s
+ok  	upanel/internal/services	1.035s
+ok  	upanel/internal/storage	2.531s
+ok  	upanel/internal/store	1.221s
+ok  	upanel/internal/syscmd	1.107s
+?   	upanel/internal/testsupport	[no test files]
+ok  	upanel/internal/version	0.467s
+ok  	upanel/internal/webui	0.858s
+?   	upanel/migrations	[no test files]
+?   	upanel/migrations/agentdb	[no test files]
+exit=0

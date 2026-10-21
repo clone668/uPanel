@@ -51,6 +51,12 @@ PROBE_USER=upanel-probe
 # 完全无关的用户：连 socket 的文件权限都过不去，只能拿到连接失败。
 OUTSIDER_USER=nobody
 
+# capabilities 的完整闭集。生产代理只要依赖齐备就会登记全部查询与动作，
+# 断言**完全等于**当前应有的集合：少报是隐藏能力，多报是编造能力，两种都算失败。
+# 新增查询/动作时同步改这两行（P05.1 加 service.control，P05.2 加 processes.list / process.signal）。
+EXPECTED_QUERIES="['processes.list', 'services.list', 'services.unit', 'storage.topology', 'system.summary']"
+EXPECTED_ACTIONS="['process.signal', 'service.control']"
+
 PASSED=0
 FAILED=0
 FAILED_NAMES=""
@@ -266,10 +272,11 @@ echo "== 3. capabilities 只对 Web 账号开放"
 call web GET /internal/v1/capabilities
 expect_eq "capabilities-web-200" "200" "$CODE"
 expect_eq "capabilities-mode-production" "production" "$(jget "$RESP" 'd["data"]["mode"]')"
-expect_eq "capabilities-actions-empty" "[]" "$(jget "$RESP" 'd["data"]["supported_actions"]')"
-# 查询表随阶段增长：P04.1 加 system.summary，P04.2 加 storage.topology。
+# 查询与动作表随阶段增长：P04.1 加 system.summary，P04.2 加 storage.topology，
+# P05.1 加 services.* / service.control，P05.2 加 processes.list / process.signal。
 # 这里断言**完全等于**当前应有的集合（字典序）：少报是隐藏能力，多报是编造能力，两种都算失败。
-expect_eq "capabilities-queries-exact" "['storage.topology', 'system.summary']" "$(jget "$RESP" 'd["data"]["supported_queries"]')"
+expect_eq "capabilities-queries-exact" "$EXPECTED_QUERIES" "$(jget "$RESP" 'd["data"]["supported_queries"]')"
+expect_eq "capabilities-actions-exact" "$EXPECTED_ACTIONS" "$(jget "$RESP" 'd["data"]["supported_actions"]')"
 CAPS_BODY=$(cat "$RESP" 2>/dev/null)
 
 call root GET /internal/v1/capabilities

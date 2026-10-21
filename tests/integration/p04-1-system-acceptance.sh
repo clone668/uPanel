@@ -11,7 +11,8 @@
 # 退出码：0 全部通过；1 有失败项；2 环境不满足（非 root）。
 #
 # 覆盖的验收点（STAGES P04.1、PLAN §8、CONTRACTS §3/§15）：
-#   1. 代理启动后 capabilities 如实报告 system.summary，写动作仍然为空
+#   1. 代理启动后 capabilities 如实报告当前全部已登记查询（含 system.summary），
+#      且报告的写动作集合与本阶段实际登记的动作完全一致（P05.1 起不再为空）
 #   2. system.summary 返回的真实数值与同一台 VM 上 /proc 的结果一致
 #      （内存总量按字节精确比对、核数、负载、内存可用、boot_id、发行版 ID、开机时长）
 #   3. 采集时间戳：collected_at 是最近 5 秒内的 UTC 时间，interval_ms=5000，stale=false
@@ -53,6 +54,12 @@ ORIGIN="$BASE"
 WEB_USER=upanel-web
 PASSWORD='vm-correct-horse-9'
 VIEWER_PASSWORD='vm-viewer-horse-42'
+
+# capabilities 的完整闭集。生产代理只要依赖齐备就会登记全部查询与动作，
+# 所以这里断言**完全等于**当前应有的集合：少报是隐藏能力，多报是编造能力，两种都算失败。
+# 新增查询/动作时同步改这两行（P05.1 加 service.control，P05.2 加 processes.list / process.signal）。
+EXPECTED_QUERIES="['processes.list', 'services.list', 'services.unit', 'storage.topology', 'system.summary']"
+EXPECTED_ACTIONS="['process.signal', 'service.control']"
 
 AGENT_LOG=$WORK/logs/agent.log
 WEB_LOG=$WORK/logs/web.log
@@ -286,8 +293,8 @@ expect_eq "代理进程 uid=0" "0" "$(ps -o uid= -p "$AGENT_PID" 2>/dev/null | t
 
 call web GET /internal/v1/capabilities
 expect_eq "capabilities 200" "200" "$CODE"
-expect_eq "capabilities 报告 system.summary" "['storage.topology', 'system.summary']" "$(jget "$RESP" 'd["data"]["supported_queries"]')"
-expect_eq "capabilities 仍不报告任何写动作" "[]" "$(jget "$RESP" 'd["data"]["supported_actions"]')"
+expect_eq "capabilities 报告 system.summary" "$EXPECTED_QUERIES" "$(jget "$RESP" 'd["data"]["supported_queries"]')"
+expect_eq "capabilities 报告的写动作集合与已登记动作一致" "$EXPECTED_ACTIONS" "$(jget "$RESP" 'd["data"]["supported_actions"]')"
 
 echo
 echo "== 2. 采集结果与本机 /proc 一致 =="

@@ -50,6 +50,14 @@ export const appRoutes: readonly RouteRecordRaw[] = [
     meta: { moduleKey: 'services' },
   },
   {
+    // 进程列表属于“服务与进程”模块：meta.moduleKey 指回 services，
+    // 导航高亮与页面标题都据此取。
+    path: '/processes',
+    name: 'processes',
+    component: () => import('@/views/ProcessesView.vue'),
+    meta: { moduleKey: 'services' },
+  },
+  {
     path: '/jobs',
     name: 'jobs',
     component: () => import('@/views/JobsView.vue'),

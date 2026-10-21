@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"upanel/internal/monitoring"
+	"upanel/internal/processes"
 	"upanel/internal/services"
 	"upanel/internal/storage"
 )
@@ -22,6 +23,9 @@ type ProductionDeps struct {
 	// Services 是服务单元采集器（P05.1）。为 nil 时不登记 services.list/services.unit，
 	// 也不登记 service.control 动作——capabilities 因此不会报告一条没有实现的能力。
 	Services *services.Collector
+	// Processes 是进程采集器（P05.2）。为 nil 时不登记 processes.list，
+	// 也不登记 process.signal 动作。
+	Processes *processes.Collector
 }
 
 // newSystemSummaryQuery 登记 system.summary：无参数，返回采集器最近一次快照。

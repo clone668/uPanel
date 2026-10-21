@@ -22,6 +22,7 @@ import (
 	"upanel/internal/logging"
 	"upanel/internal/monitoring"
 	"upanel/internal/platform"
+	"upanel/internal/processes"
 	"upanel/internal/services"
 	"upanel/internal/storage"
 	"upanel/internal/version"
@@ -248,7 +249,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 			"configured", cfg.Agent.Services.SystemctlPath)
 	}
 
-	// 动作登记表：生产表自 P05.1 起有 service.control（受保护名单与读回验证见 internal/services）。
+	// 进程采集（P05.2）：每 5 秒扫一次 /proc，processes.list 读这份快照；
+	// 预检与执行现场读取 /proc。它只读 /proc，唯一的写操作是 syscall.Kill，
+	// 参数由 internal/processes 构造，信号只能是 TERM 或 KILL。
+	processesCollector := processes.NewCollector(processes.Options{Logger: logger})
+	logger.Info("已启用进程状态采集",
+		"interval", processes.DefaultInterval.String(),
+		"max_processes", processes.MaxProcesses,
+		"self_pid", os.Getpid())
+
+	// 动作登记表：生产表自 P05.1 起有 service.control，P05.2 起有 process.signal（受保护名单与读回验证见 internal/services）。
 	// 验收表只能靠显式参数启用，且动作全部以 acceptance. 开头、不读写任何系统资源。
 	registry := agent.NewRegistry()
 	if *acceptance {
@@ -257,7 +267,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 			"actions", registry.ActionNames())
 	}
 	// 查询表在两种模式下都是生产实现：验收要验证的就是真实采集链路。
-	deps := agent.ProductionDeps{Collector: collector, Storage: storageCollector, Services: servicesCollector}
+	deps := agent.ProductionDeps{
+		Collector: collector,
+		Storage:   storageCollector,
+		Services:  servicesCollector,
+		Processes: processesCollector,
+	}
 	if err := agent.RegisterProductionQueries(registry, deps); err != nil {
 		logger.Error("登记生产查询失败", "error", err)
 		return 1
@@ -318,6 +333,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if servicesCollector != nil {
 		go servicesCollector.Run(ctx)
 	}
+	go processesCollector.Run(ctx)
 
 	if err := srv.Serve(ctx); err != nil {
 		logger.Error("代理退出", "error", err)

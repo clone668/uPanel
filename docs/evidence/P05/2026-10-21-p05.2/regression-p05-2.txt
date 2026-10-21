@@ -1,0 +1,128 @@
+# P05.2 回归（VM upanel-2404）
+# 生成时间：2026-10-21T02:48:58Z
+# 主机：Linux 6.8.0-147-generic x86_64 / Ubuntu 24.04.5 LTS
+# uptime：up 27 minutes
+
+## 第一轮（定向回归：p02-3 p03-1 p03-2 p04-1 p05-1 p05-2）
+## 目的：确认 P05.1/P05.2 没有破坏既有阶段。结果 = 4 个脚本 0 失败，
+## p04-1 有 2 条陈旧断言、p02-3 有 45 条失败（上传布局）。
+```
+== p02-3-agent-acceptance（root）
+==================================================
+PASS 32 / FAIL 45
+失败项: | unit-runs-as-root | unit-execstart-agent | unit-runtime-directory | systemd-analyze-verify-clean | agent-socket-created | systemd-service-active | systemd-mainpid-present | agent-process-runs-as-root | socket-is-unix-socket | socket-owner-root | socket-group-web-user | socket-mode-660 | run-dir-owner-root | run-dir-mode-755 | capabilities-web-200 | capabilities-mode-production | capabilities-actions-empty | capabilities-queries-exact | capabilities-root-403 | capabilities-root-code | same-group-other-uid-403 | same-group-other-uid-code | denied-without-leaking-allowed-uid | unknown-query-400 | unknown-query-code | unknown-query-message | registered-query-200 | registered-query-has-data | command-query-rejected-400 | unknown-field-envelope-400 | unknown-field-params-400 | non-json-body-400 | empty-body-400 | oversize-body-413 | queries-requires-post-405 | root-path-404-for-web | unknown-path-403-for-root | same-group-other-uid-403-on-queries | unknown-path-404-for-web | operations-rejects-unknown-fields-400 | syscmd-unit-tests-exit-0 | agent-unit-tests-exit-0 | journal-readable | journal-shows-listening | capabilities-report-production
+
+== p03-1-preflight-acceptance（root）
+== 11. 汇总 ==
+通过 93 项，失败 0 项
+P03.1 验收全部通过
+
+== p03-2-jobs-acceptance（root）
+== 12. 汇总 ==
+通过 102 项，失败 0 项
+P03.2 验收全部通过
+
+== p04-1-system-acceptance（root）
+
+通过 70 项，失败 2 项
+失败项: | capabilities 报告 system.summary | capabilities 仍不报告任何写动作
+
+== p05-1-services-acceptance（root）
+
+结果: PASS=140 FAIL=0 NOT RUN=3
+载荷目录（可拷回宿主做前端真实数据回归）: /var/tmp/upanel-accept-p05-1/payloads
+
+== p05-2-processes-acceptance（root）
+== 12. 汇总 ==
+PASS=128 FAIL=0 NOT RUN=0
+NOT RUN 不等于通过；每一条都在脚本头部写明了原因。
+
+== 汇总 ==
+运行脚本数: 6
+失败脚本数: 2
+日志目录: /var/tmp/upanel-logs
+
+  p02-3-agent-acceptance: exit=1（日志 /var/tmp/upanel-logs/p02-3-agent-acceptance.log）
+  p04-1-system-acceptance: exit=1（日志 /var/tmp/upanel-logs/p04-1-system-acceptance.log）
+```
+
+## 第二轮（run A：断言收紧后跑受影响的 5 个脚本）
+## p01-1 / p04-1 / p04-3 通过；p02-3 仍缺 tests/fixtures；p04-2 卡在一条已被 P04.3 推翻的断言。
+```
+== p01-1-acceptance（非 root）
+
+== 汇总 ==
+PASS 30 / FAIL 0
+
+== p02-3-agent-acceptance（root）
+==================================================
+PASS 85 / FAIL 2
+失败项: | agent-unit-tests-exit-0 | agent-unit-tests-no-fail
+
+== p04-1-system-acceptance（root）
+PASS  Web 日志里没有 panic
+
+通过 72 项，失败 0 项
+
+== p04-2-storage-acceptance（root）
+
+通过 107 项，失败 1 项，未执行 0 项
+失败项: | P04.2 的 health.status 一律 unknown
+
+== p04-3-storage-health-acceptance（root）
+
+通过 77 项，失败 0 项，未执行 3 项
+未执行项：USB 盘在拓扑里可见 | NVMe 真实 healthy | 隔离到期后容量自愈
+
+== 汇总 ==
+运行脚本数: 5
+失败脚本数: 2
+日志目录: /var/tmp/upanel-logs
+
+  p02-3-agent-acceptance: exit=1（日志 /var/tmp/upanel-logs/p02-3-agent-acceptance.log）
+  p04-2-storage-acceptance: exit=1（日志 /var/tmp/upanel-logs/p04-2-storage-acceptance.log）
+```
+
+## 第三轮（run B：补夹具 + 改 p04-2 断言后重跑那两个）
+```
+== p02-3-agent-acceptance（root）
+
+==================================================
+PASS 87 / FAIL 0
+
+== p04-2-storage-acceptance（root）
+PASS  Web 日志里没有 panic
+
+通过 110 项，失败 0 项，未执行 0 项
+
+== 汇总 ==
+运行脚本数: 2
+失败脚本数: 0
+日志目录: /var/tmp/upanel-logs
+```
+
+## run B 脚本日志末尾（其余脚本的日志目录每轮重建，结果以 stdout 汇总为准）
+
+### p02-3-agent-acceptance
+```
+PASS  journal-readable
+PASS  journal-shows-listening
+PASS  journal-has-no-password
+PASS  journal-has-no-secret
+PASS  capabilities-report-production
+
+==================================================
+PASS 87 / FAIL 0
+```
+
+### p04-2-storage-acceptance
+```
+
+== 14. 日志卫生 ==
+PASS  代理日志里没有 shell 命令行痕迹
+PASS  代理日志里没有私钥泄漏
+PASS  代理日志里没有 panic
+PASS  Web 日志里没有 panic
+
+通过 110 项，失败 0 项，未执行 0 项
+```

@@ -1,0 +1,9 @@
+# 宿主 Go 闸门（P05.2）
+# 执行时间：2026-10-21T02:31:55Z
+# go version：go version go1.27.3 windows/amd64
+
+$ go build ./...
+exit=0
+
+$ go vet ./...
+exit=0

@@ -1,0 +1,102 @@
+# 宿主前端闸门（P05.2）
+# 执行时间：2026-10-21T02:32:50Z
+# node：v22.23.3  npm：10.9.9
+
+$ npm run typecheck
+
+> upanel-web@0.0.0 typecheck
+> vue-tsc --noEmit -p tsconfig.json
+
+exit=0
+$ npm run lint
+
+> upanel-web@0.0.0 lint
+> eslint .
+
+exit=0
+
+$ npm run test
+
+> upanel-web@0.0.0 test
+> vitest run
+
+
+ RUN  v5.0.5 H:/Code/uPanel/web
+
+ ✓ src/api/preflights.test.ts (10 tests) 57ms
+ ✓ src/api/storage.test.ts (16 tests) 61ms
+ ✓ src/api/client.test.ts (12 tests) 69ms
+ ✓ src/api/processes.test.ts (12 tests) 53ms
+ ✓ src/api/services.test.ts (13 tests) 68ms
+ ✓ src/api/system.test.ts (5 tests) 46ms
+ ✓ src/utils/format.test.ts (27 tests) 49ms
+ ✓ src/api/jobstream.test.ts (19 tests) 17ms
+ ✓ src/utils/polling.test.ts (5 tests) 21ms
+ ✓ src/utils/viewstate.test.ts (7 tests) 12ms
+ ✓ src/api/errors.test.ts (5 tests) 7ms
+ ✓ src/modules/registry.test.ts (7 tests) 12ms
+ ✓ src/api/jobs.test.ts (17 tests) 18ms
+ ✓ src/router/routes.test.ts (6 tests) 8ms
+ ✓ src/router/redirect.test.ts (4 tests) 7ms
+ ✓ src/stores/mode.test.ts (5 tests) 7ms
+ ✓ src/components/services.test.ts (14 tests) 86ms
+ ✓ src/components/realdata-processes.test.ts (31 tests) 118ms
+ ✓ src/components/realdata-services.test.ts (22 tests) 64ms
+ ✓ src/components/panels.test.ts (17 tests) 46ms
+ ✓ src/components/realdata.test.ts (17 tests) 115ms
+ ✓ src/components/storage.test.ts (24 tests) 118ms
+
+ Test Files  22 passed (22)
+      Tests  295 passed (295)
+   Start at  10:33:01
+   Duration  1.89s (import 84%, tests 9%, transform 5%, worker 2%)
+
+exit=0
+
+$ npm run build
+
+> upanel-web@0.0.0 build
+> vite build
+
+[36mvite v8.3.4 [32mbuilding client environment for production...[36m[39m
+transforming...
+✓ 2764 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                               1.36 kB │ gzip:  0.96 kB
+dist/assets/ApiErrorPanel-C64pX_HY.css        0.28 kB │ gzip:  0.18 kB
+dist/assets/LoginView-cud7mG0l.css            0.32 kB │ gzip:  0.19 kB
+dist/assets/StatTile-DColcoO1.css             0.56 kB │ gzip:  0.27 kB
+dist/assets/HealthBadge-B8QssTuN.css          0.77 kB │ gzip:  0.28 kB
+dist/assets/ServicesView-CtjRm_g9.css         0.97 kB │ gzip:  0.40 kB
+dist/assets/StorageView-dMAcJKKp.css          1.27 kB │ gzip:  0.46 kB
+dist/assets/JobsView-CadWjv_X.css             1.31 kB │ gzip:  0.44 kB
+dist/assets/OverviewView-DANrO981.css         1.40 kB │ gzip:  0.43 kB
+dist/assets/ServiceUnitView-BhNDIoai.css      1.48 kB │ gzip:  0.47 kB
+dist/assets/index-CniqXCub.css                1.49 kB │ gzip:  0.63 kB
+dist/assets/StorageDeviceView-BwPiuJyi.css    1.76 kB │ gzip:  0.52 kB
+dist/assets/ProcessesView-CuBgCbuB.css        2.01 kB │ gzip:  0.63 kB
+dist/assets/NotFoundView-DIyDtSjG.js          0.51 kB │ gzip:  0.44 kB
+dist/assets/StatTile-D81A0Rxn.js              0.55 kB │ gzip:  0.36 kB
+dist/assets/preflights-BWSCRV8C.js            1.25 kB │ gzip:  0.63 kB
+dist/assets/storage-fgEu0rFv.js               1.74 kB │ gzip:  1.14 kB
+dist/assets/jobs-CUV2FDdu.js                  1.82 kB │ gzip:  1.10 kB
+dist/assets/services-DykJiqqR.js              2.97 kB │ gzip:  1.45 kB
+dist/assets/ApiErrorPanel-DpGvrR_-.js         3.30 kB │ gzip:  1.79 kB
+dist/assets/HealthBadge-CdQrDuHN.js           3.63 kB │ gzip:  1.74 kB
+dist/assets/polling-3ExDrskz.js               3.72 kB │ gzip:  1.73 kB
+dist/assets/ServicesView-DQSzh9to.js          7.30 kB │ gzip:  3.01 kB
+dist/assets/OverviewView-BV5S-Dog.js         11.36 kB │ gzip:  4.10 kB
+dist/assets/StorageDeviceView-Bzcqakrs.js    13.74 kB │ gzip:  4.82 kB
+dist/assets/ServiceUnitView-DJ8w5nMF.js      14.15 kB │ gzip:  5.71 kB
+dist/assets/Progress-C3XxDX68.js             16.44 kB │ gzip:  4.41 kB
+dist/assets/ProcessesView-BV8NcTV8.js        18.38 kB │ gzip:  7.44 kB
+dist/assets/StorageView-Bo6fl-6T.js          20.04 kB │ gzip:  7.49 kB
+dist/assets/JobsView-BVYQbOwN.js             22.40 kB │ gzip:  7.79 kB
+dist/assets/LoginView-CE1wMwYL.js            35.32 kB │ gzip: 11.61 kB
+dist/assets/Input-DoT83Ih3.js                35.64 kB │ gzip: 10.55 kB
+dist/assets/Button-DY86joZa.js              144.03 kB │ gzip: 51.75 kB
+dist/assets/index-DkCAbCLh.js               290.19 kB │ gzip: 87.55 kB
+
+[32m✓ built in 522ms[39m
+exit=0

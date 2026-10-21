@@ -133,6 +133,18 @@ func (s *Server) handlePreflights(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 策略在**生成预检**时确定，而不是在提交时：随参数变化的门槛（例如 TERM 与 KILL）
+	// 必须在这一刻就落到预检记录里，之后任何人都改不了它。
+	policy, err := action.ResolvePolicy(params)
+	if err != nil {
+		if errors.Is(err, ErrParamsInvalid) {
+			httpx.WriteError(w, r, http.StatusBadRequest, httpx.CodeValidationError, err.Error())
+			return
+		}
+		s.internalError(w, r, "动作策略不合法", err)
+		return
+	}
+
 	ref, err := newPlanRef()
 	if err != nil {
 		s.internalError(w, r, "生成预检引用失败", err)
@@ -205,8 +217,8 @@ func (s *Server) handlePreflights(w http.ResponseWriter, r *http.Request) {
 
 	phrase := ""
 	phraseHash := ""
-	if action.Policy.RequiresPhrase {
-		phrase, err = newConfirmationPhrase(action.Policy.PhraseVerb)
+	if policy.RequiresPhrase {
+		phrase, err = newConfirmationPhrase(policy.PhraseVerb)
 		if err != nil {
 			s.internalError(w, r, "生成确认短语失败", err)
 			return
@@ -227,7 +239,7 @@ func (s *Server) handlePreflights(w http.ResponseWriter, r *http.Request) {
 		Warnings:            warningsBytes,
 		Impacts:             impactsBytes,
 		Locks:               locksBytes,
-		RequiresReauth:      action.Policy.RequiresReauth,
+		RequiresReauth:      policy.RequiresReauth,
 		PhraseHash:          phraseHash,
 		UserID:              req.Actor.UserID,
 		SessionHash:         req.Actor.SessionIDHash,
@@ -263,10 +275,10 @@ func (s *Server) handlePreflights(w http.ResponseWriter, r *http.Request) {
 		Blockers:           nonNilNotices(plan.Blockers),
 		Warnings:           nonNilNotices(plan.Warnings),
 		Impacts:            nonNilImpacts(plan.Impacts),
-		RequiresReauth:     action.Policy.RequiresReauth,
-		RequiresPhrase:     action.Policy.RequiresPhrase,
+		RequiresReauth:     policy.RequiresReauth,
+		RequiresPhrase:     policy.RequiresPhrase,
 		ConfirmationPhrase: phrase,
-		Cancellable:        action.Policy.Cancellable,
+		Cancellable:        policy.Cancellable,
 		Locks:              locks,
 	})
 }

@@ -39,7 +39,7 @@ if [ -n "$DEPLOY_DIR" ] && [ ! -d "$DEPLOY_DIR/systemd" ]; then
 fi
 
 NONROOT_SCRIPTS="p01-1-acceptance p01-2-acceptance p01-4-acceptance p02-1-acceptance p02-2-acceptance"
-ROOT_SCRIPTS="p02-3-agent-acceptance p02-4-agent-secrets-acceptance p03-1-preflight-acceptance p03-2-jobs-acceptance p03-3-events-acceptance p03-4-reconcile-acceptance p04-1-system-acceptance p04-2-storage-acceptance p04-3-storage-health-acceptance"
+ROOT_SCRIPTS="p02-3-agent-acceptance p02-4-agent-secrets-acceptance p03-1-preflight-acceptance p03-2-jobs-acceptance p03-3-events-acceptance p03-4-reconcile-acceptance p04-1-system-acceptance p04-2-storage-acceptance p04-3-storage-health-acceptance p05-1-services-acceptance p05-2-processes-acceptance"
 
 if [ $# -gt 0 ]; then
     SELECTED="$*"

@@ -1,0 +1,179 @@
+# P05.2 实际执行的命令（2026-10-21）
+
+按执行顺序记录。宿主机：Windows + Git Bash（`H:\Code\uPanel`），Go 1.27.3
+（`/h/Code/go/bin`）、Node v22.23.3（`/h/Code/.toolchains/node-v22.23.3-win-x64`）。
+注意：Windows 侧 `python` 看不到 Git Bash 的 `/tmp`；`ssh` 用 `-p`、`scp` 用 `-P`。
+
+## 1. 交叉编译并送进 VM
+
+```sh
+mkdir -p .build/linux-amd64
+for b in upanel-web upanel-agent upanelctl; do
+  GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o .build/linux-amd64/$b ./cmd/$b
+done
+file .build/linux-amd64/upanel-agent   # ELF 64-bit LSB executable, x86-64
+
+KEY=/h/Code/vms/upanel-2404/id_ed25519
+scp -i $KEY -P 2222 .build/linux-amd64/upanel-agent .build/linux-amd64/upanel-web \
+    .build/linux-amd64/upanelctl upanel@127.0.0.1:/tmp/upanel-bin/
+scp -i $KEY -P 2222 tests/integration/p05-2-processes-acceptance.sh \
+    upanel@127.0.0.1:/tmp/upanel-bin/p05-2.sh
+scp -i $KEY -P 2222 tests/integration/p05-2-payload-validate.py \
+    upanel@127.0.0.1:/tmp/upanel-bin/p05-2-payload-validate.py
+```
+
+（`scp` 目标目录 `/tmp/upanel-bin` 必须先存在：`ssh ... 'mkdir -p /tmp/upanel-bin'`。
+脚本按 `$HERE` 找校验程序，两者必须同目录。）
+
+## 2. VM 内跑验收（root）
+
+```sh
+ssh -i $KEY -p 2222 upanel@127.0.0.1 'sudo BIN_DIR=/tmp/upanel-bin sh /tmp/upanel-bin/p05-2.sh'
+```
+
+第一轮：宿主上 8 条断言 + 校验器 3 条 FAIL，全部指向同一件事——**清单是 5 秒缓存快照**，
+脚本在进程刚起、快照还没刷新时就断言（或反之，进程已被清理后还在查它）。第一轮的终端输出
+没有单独归档，修好 harness（`wait_in_snapshot`、僵尸存活 8 s → 20 s、CPU 检查容忍进程已退出）
+后重跑得到第二轮，本目录记录的是第二轮。
+
+第二轮（`p05-2-acceptance-2404.txt`）：
+
+```sh
+ssh -i $KEY -p 2222 upanel@127.0.0.1 'sudo BIN_DIR=/tmp/upanel-bin sh /tmp/upanel-bin/p05-2.sh' \
+  | tee docs/evidence/P05/2026-10-21-p05.2/p05-2-acceptance-2404.txt
+```
+
+脚本自己完成：起代理（root）与 Web（`upanel-web` uid 999，端口 19450）→ init-admin →
+管理员与 viewer 登录 → 读 `/processes` 并与 `ps` / `/proc` 现场对照 → TERM 与 KILL 各走一次
+预检与任务 → 四种受保护进程 + 僵尸 + 参数边界 → 用 `ns_last_pid` 强制 PID 重用 →
+viewer 403 与审计 → 写 31 个载荷到 `/var/tmp/upanel-accept-p05-2/payloads/` → 清理。
+
+## 3. 取回证据
+
+```sh
+ssh -i $KEY -p 2222 upanel@127.0.0.1 \
+  'cd /var/tmp/upanel-accept-p05-2 && tar czf /tmp/p052.tgz payloads logs && ls -l /tmp/p052.tgz'
+scp -i $KEY -P 2222 upanel@127.0.0.1:/tmp/p052.tgz /c/Users/huxi/AppData/Local/Temp/p052.tgz
+mkdir -p /c/Users/huxi/AppData/Local/Temp/p052
+tar xzf /c/Users/huxi/AppData/Local/Temp/p052.tgz -C /c/Users/huxi/AppData/Local/Temp/p052
+
+E=docs/evidence/P05/2026-10-21-p05.2
+cp -r /c/Users/huxi/AppData/Local/Temp/p052/payloads $E/payloads        # 31 个文件
+cp -r /c/Users/huxi/AppData/Local/Temp/p052/logs     $E/vm-logs-2404    # agent.log / web.log
+```
+
+夹具与载荷逐个比对过（22 个 JSON 全部字节相同）：
+
+```sh
+for f in web/src/fixtures/p05-2-vm/*.json; do
+  cmp -s "$f" "payloads/$(basename $f)" || echo "DIFF $(basename $f)"
+done
+# 无输出
+```
+
+## 4. 环境采集
+
+```sh
+ssh -i $KEY -p 2222 upanel@127.0.0.1 \
+  'date -u; . /etc/os-release; echo $PRETTY_NAME; uname -r; systemctl --version; nproc;
+   grep MemTotal /proc/meminfo; cat /proc/sys/kernel/pid_max; cat /proc/sys/kernel/ns_last_pid;
+   cat /proc/uptime; getconf CLK_TCK; ps -e --no-headers | wc -l'
+# → 逐字抄进 docs/evidence/P05/2026-10-21-p05.2/env.txt
+```
+
+## 5. 宿主闸门
+
+```sh
+export PATH="/h/Code/go/bin:/c/Program Files/Go/bin:/h/Code/.toolchains/node-v22.23.3-win-x64:$PATH"
+
+go version                                    # go1.27.3 windows/amd64
+go build ./...                                # exit 0  → go-gates.txt
+go vet ./...                                  # exit 0  → go-gates.txt
+go test ./... -count=1                        # 22 个包 ok → go-test.txt
+
+cd web
+npm run typecheck                             # vue-tsc --noEmit，exit 0
+npm run lint                                  # eslint .，exit 0
+npm run test                                  # vitest run，295 passed（22 文件）
+npm run build                                 # vite build，522 ms
+cd ..
+
+sh scripts/check.sh                           # PASS 13 / FAIL 0 / NOT RUN 0 → check.txt
+```
+
+`check.sh` 必须在 `.nvmrc` 指定的 Node（v22.23.3）下跑：PATH 里是系统 Node 时
+`node-version` 这一项会 FAIL（工具链没切，不是产品问题）。
+
+## 6. 前端真实数据回放
+
+```sh
+cd web
+node node_modules/vitest/vitest.mjs run src/components/realdata-processes.test.ts
+# 31 passed
+```
+
+夹具就是第 3 步 `payloads/` 里那批文件，逐字节相同（`cmp` 核过）。
+
+## 7. 定向回归（VM 内，P05.1/P05.2 是否破坏既有阶段）
+
+第一轮：p02-3、p03-1、p03-2、p04-1、p05-1、p05-2。
+
+```sh
+# VM 内
+sudo env BIN_DIR=/tmp/upanel-bin SRC_DIR=/tmp/upanel-bin/tests/integration \
+  DEPLOY_DIR=/tmp/upanel-bin/deploy \
+  sh /tmp/upanel-bin/tests/integration/run-all.sh \
+     p02-3-agent-acceptance p03-1-preflight-acceptance p03-2-jobs-acceptance \
+     p04-1-system-acceptance p05-1-services-acceptance p05-2-processes-acceptance
+```
+
+结果：p03-1 93/0、p03-2 102/0、p05-1 PASS=140 FAIL=0 NOT RUN=3、p05-2 PASS=128 FAIL=0 NOT RUN=0；
+p04-1 70 通过 2 失败（陈旧断言）；p02-3 45 失败（**测试夹具上传缺失**，见下）。
+
+第一轮暴露的两类问题都不是产品缺陷：
+
+* p04-1 的两条失败是 P05.1/P05.2 **登记了新的查询与动作**之后没有同步的陈旧断言：
+  `期望 '['storage.topology', 'system.summary']'，实际 '['processes.list', 'services.list', 'services.unit', 'storage.topology', 'system.summary']'`、
+  `期望 '[]'，实际 '['process.signal', 'service.control']'`。
+* p02-3 的 45 条失败里有 43 条来自上传布局：脚本按 `DEPLOY_DIR="$ROOT/deploy"`（即
+  `/tmp/upanel-bin/deploy`）找单元模板，而当时 `deploy/` 被放在 `/tmp/deploy`；另 2 条
+  （`agent-unit-tests-*`）来自 `tests/fixtures/` 没上传，测试二进制在 VM 上找不到
+  `storage-2404`、`stat-cpu-2404.txt` 等夹具。
+
+处理（都不改产品语义）：
+
+```sh
+# 1) 上传布局改正
+mv /tmp/deploy /tmp/upanel-bin/deploy
+# 2) 单元测试二进制（宿主交叉编译）
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go test -c -o .build/linux-amd64/tests/syscmd.test ./internal/syscmd
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go test -c -o .build/linux-amd64/tests/agent.test  ./internal/agent
+# 3) 夹具补齐（agent 的 storage/system 查询用例要读这些真实字节）
+tar czf /tmp/fixtures.tgz -C tests fixtures
+scp -P 2222 /tmp/fixtures.tgz upanel@127.0.0.1:/tmp/
+ssh -p 2222 upanel@127.0.0.1 'tar xzf /tmp/fixtures.tgz -C /tmp/upanel-bin/tests'
+# 4) 五个脚本的 capabilities 断言从“某一阶段的子集/空集”改成当前完整闭集
+#    （p01-1、p02-3、p04-1、p04-2、p04-3；p04-2 另把“health.status 一律 unknown”
+#     改成 P04.3 状态机下的三条不变量）
+```
+
+第二轮（run A）：断言修好之后，把受影响的脚本连同 p04-2/p04-3 一起跑一遍。
+
+```sh
+sudo env BIN_DIR=/tmp/upanel-bin SRC_DIR=/tmp/upanel-bin/tests/integration   DEPLOY_DIR=/tmp/upanel-bin/deploy WAIT_QUARANTINE=0   sh /tmp/upanel-bin/tests/integration/run-all.sh      p01-1-acceptance p02-3-agent-acceptance p04-1-system-acceptance      p04-2-storage-acceptance p04-3-storage-health-acceptance
+# p04-3 用 WAIT_QUARANTINE=0 跑（20 分钟隔离期不计入本轮），
+# 因此“隔离到期后容量自愈”如实记为 NOT RUN。
+```
+
+run A 结果：p01-1 PASS 30/0、p04-1 通过 72/0、p04-3 通过 77/0 未执行 3；
+p02-3 85 通过 2 失败（仍是缺 `tests/fixtures/`，夹具在上一步才补传）；
+p04-2 107 通过 1 失败（`P04.2 的 health.status 一律 unknown`，P04.3 引入
+`unsupported` 后这条断言已不成立，改成三条不变量）。
+
+第三轮（run B）：只重跑这两个，确认全绿。
+
+```sh
+sudo env BIN_DIR=/tmp/upanel-bin SRC_DIR=/tmp/upanel-bin/tests/integration   DEPLOY_DIR=/tmp/upanel-bin/deploy   sh /tmp/upanel-bin/tests/integration/run-all.sh      p02-3-agent-acceptance p04-2-storage-acceptance
+```
+
+run B 结果：p02-3 PASS 87/0、p04-2 通过 110/0。原始输出见 `regression-p05-2.txt`。

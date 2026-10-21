@@ -46,7 +46,17 @@ type Action struct {
 	// 执行器收到的是**预检里的规范化参数**：提交那一刻不再接受新参数（CONTRACTS.md 4.2）。
 	Execute func(ctx context.Context, in ExecuteInput) (Result, error)
 	// Policy 是动作策略：再认证、确认短语、可取消。
+	//
+	// 它与 PolicyFor 只能二选一：策略要么对全部参数相同（Policy），要么随参数变化
+	// （PolicyFor）。两处都写会让“读到的是哪一份”取决于调用点。
 	Policy ActionPolicy
+	// PolicyFor 按参数给出策略，用于“同一个动作、不同参数不同门槛”的情形。
+	//
+	// P05.2 的第一个使用者是 process.signal：TERM 只是请求退出，不需要再认证；
+	// KILL 无法被捕获或忽略，必须再认证并输入确认短语。策略是在**预检生成**时算的，
+	// 结果随预检一起落库（RequiresReauth / PhraseHash），提交时读的是那份存量记录，
+	// 因此前端改不了门槛，执行时也不会重新问一遍“现在要不要短语”。
+	PolicyFor func(params any) (ActionPolicy, error)
 }
 
 // ActionPolicy 是动作在预检 DTO 里对外声明的策略。
@@ -63,6 +73,40 @@ type ActionPolicy struct {
 	// Cancellable 表示任务开始后允许安全取消。前端不能自行展示无效的取消按钮，
 	// 因此这个值随预检一起下发。
 	Cancellable bool
+}
+
+// resolvePolicy 返回这个动作在给定参数下的策略。
+//
+// 没登记 PolicyFor 时就是静态 Policy（登记时已校验过）。登记了 PolicyFor 时必须
+// 走它：这样“TERM 不需要短语、KILL 需要”这类区分只有一个来源。
+func (a Action) resolvePolicy(params any) (ActionPolicy, error) {
+	if a.PolicyFor == nil {
+		return a.Policy, nil
+	}
+	policy, err := a.PolicyFor(params)
+	if err != nil {
+		return ActionPolicy{}, fmt.Errorf("%w: 动作 %s: %v", ErrParamsInvalid, a.Name, err)
+	}
+	if err := validatePolicy(a.Name, policy); err != nil {
+		return ActionPolicy{}, err
+	}
+	return policy, nil
+}
+
+// ResolvePolicy 是 resolvePolicy 的对外形式（供测试与其他调用点使用）。
+func (a Action) ResolvePolicy(params any) (ActionPolicy, error) { return a.resolvePolicy(params) }
+
+// validatePolicy 校验策略自洽：要求短语就必须有合法的首词，不要求就不能有。
+func validatePolicy(name string, policy ActionPolicy) error {
+	if policy.RequiresPhrase && !phraseVerbPattern.MatchString(policy.PhraseVerb) {
+		return fmt.Errorf("%w: 动作 %s 要求确认短语，但 PhraseVerb %q 不合法（应为 2—16 位大写字母或数字）",
+			ErrNilHandler, name, policy.PhraseVerb)
+	}
+	if !policy.RequiresPhrase && policy.PhraseVerb != "" {
+		return fmt.Errorf("%w: 动作 %s 不要求确认短语，却登记了 PhraseVerb %q",
+			ErrNilHandler, name, policy.PhraseVerb)
+	}
+	return nil
 }
 
 // ExecuteInput 是执行器的输入。
@@ -289,6 +333,11 @@ func RegisterProductionQueries(reg *Registry, deps ProductionDeps) error {
 			return fmt.Errorf("代理登记 services.unit 失败: %w", err)
 		}
 	}
+	if deps.Processes != nil {
+		if err := reg.RegisterQuery(newProcessesListQuery(deps.Processes)); err != nil {
+			return fmt.Errorf("代理登记 processes.list 失败: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -302,6 +351,11 @@ func RegisterProductionActions(reg *Registry, deps ProductionDeps) error {
 			return fmt.Errorf("代理登记 service.control 失败: %w", err)
 		}
 	}
+	if deps.Processes != nil {
+		if err := reg.RegisterAction(newProcessSignalAction(deps.Processes)); err != nil {
+			return fmt.Errorf("代理登记 process.signal 失败: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -313,13 +367,15 @@ func (r *Registry) RegisterAction(a Action) error {
 	if a.Decode == nil {
 		return fmt.Errorf("%w: 动作 %s", ErrNilHandler, a.Name)
 	}
-	if a.Policy.RequiresPhrase && !phraseVerbPattern.MatchString(a.Policy.PhraseVerb) {
-		return fmt.Errorf("%w: 动作 %s 要求确认短语，但 PhraseVerb %q 不合法（应为 2—16 位大写字母或数字）",
-			ErrNilHandler, a.Name, a.Policy.PhraseVerb)
-	}
-	if !a.Policy.RequiresPhrase && a.Policy.PhraseVerb != "" {
-		return fmt.Errorf("%w: 动作 %s 不要求确认短语，却登记了 PhraseVerb %q",
-			ErrNilHandler, a.Name, a.Policy.PhraseVerb)
+	if a.PolicyFor == nil {
+		if err := validatePolicy(a.Name, a.Policy); err != nil {
+			return err
+		}
+	} else if a.Policy != (ActionPolicy{}) {
+		// 两处都能声明策略时，“生效的是哪一份”只能靠约定，
+		// 而约定会在下一个调用点被忘掉。这里直接不允许。
+		return fmt.Errorf("%w: 动作 %s 同时登记了静态 Policy 与 PolicyFor，只能二选一",
+			ErrNilHandler, a.Name)
 	}
 	if _, ok := r.actions[a.Name]; ok {
 		return fmt.Errorf("%w: 动作 %s", ErrDuplicateName, a.Name)

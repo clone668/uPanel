@@ -18,7 +18,8 @@
 #      且与内核认的分区一一对应（多一条、少一条都算失败）
 #   5. 身份：identity_confidence 与可读性一致（读不到 WWN/序列号就不能报 high），
 #      指纹在同一次运行内稳定，不同盘不撞车
-#   6. 诚实性：P04.2 没有 SMART，所以 health.status 一律 unknown、温度为 null；
+#   6. 诚实性：P04.2 没有 SMART，所以 physical disk 的 health.status 在未检查时是 unknown、
+#      温度为 null（P04.3 起分区/回环/逻辑设备报 unsupported，判定见第 6 节）；
 #      capabilities 一律空数组（不提供任何页面动作入口）
 #   7. 系统盘保护：从 /proc/self/mountinfo 独立算出承载 / 的设备，必须被标为系统盘；
 #      保护沿边递归向上（子设备受保护 ⇒ 父设备也受保护）；理由非空且可读
@@ -61,6 +62,12 @@ ORIGIN="$BASE"
 WEB_USER=upanel-web
 PASSWORD='vm-correct-horse-9'
 VIEWER_PASSWORD='vm-viewer-horse-42'
+
+# capabilities 的完整闭集。生产代理只要依赖齐备就会登记全部查询与动作，
+# 所以这里断言**完全等于**当前应有的集合：少报是隐藏能力，多报是编造能力，两种都算失败。
+# 新增查询/动作时同步改这两行（P05.1 加 service.control，P05.2 加 processes.list / process.signal）。
+EXPECTED_QUERIES="['processes.list', 'services.list', 'services.unit', 'storage.topology', 'system.summary']"
+EXPECTED_ACTIONS="['process.signal', 'service.control']"
 
 AGENT_LOG=$WORK/logs/agent.log
 WEB_LOG=$WORK/logs/web.log
@@ -403,9 +410,9 @@ if [ -n "$READY" ]; then pass "代理在 10 秒内开始应答（capabilities 20
 
 call web GET /internal/v1/capabilities
 expect_eq "capabilities 200" "200" "$CODE"
-expect_eq "capabilities 报告 storage.topology" "['storage.topology', 'system.summary']" \
+expect_eq "capabilities 报告 storage.topology" "$EXPECTED_QUERIES" \
   "$(jget "$RESP" 'd["data"]["supported_queries"]')"
-expect_eq "capabilities 仍不报告任何写动作" "[]" "$(jget "$RESP" 'd["data"]["supported_actions"]')"
+expect_eq "capabilities 报告的写动作集合与已登记动作一致" "$EXPECTED_ACTIONS" "$(jget "$RESP" 'd["data"]["supported_actions"]')"
 
 echo
 echo "== 2. 拉一份拓扑快照 =="
@@ -545,8 +552,16 @@ print(all(p.get(n["id"]) == n["identity_fingerprint"] for n in d["data"]["nodes"
 
 echo
 echo "== 6. 诚实性：没有 SMART 就不许说健康，没有动作就不许给按钮 =="
-expect_eq "P04.2 的 health.status 一律 unknown" "True" \
-  "$(jget "$WORK/topo-1.json" 'all(n["health"]["status"] == "unknown" for n in d["data"]["nodes"])')"
+# P04.3 起分区、回环设备和逻辑设备会如实报 unsupported（“不直接提供 SMART”），
+# 所以 P04.2 当时写的“health.status 一律 unknown”已经不成立。这里换成更严格的不变量：
+# 状态必须在闭集内；非物理盘必须是 unsupported；物理盘没真的检查过就必须是 unknown。
+# 换成这三条不是为了变绿，而是“没检查过就不许说健康”这条诚实性要求在新状态机下仍然被断言。
+expect_eq "health.status 在闭集内" "True" \
+  "$(jget "$WORK/topo-1.json" 'all(n["health"]["status"] in ("ok","warning","critical","unknown","unsupported") for n in d["data"]["nodes"])')"
+expect_eq "非物理盘的健康一律 unsupported" "True" \
+  "$(jget "$WORK/topo-1.json" 'all(n["kind"] == "disk" or n["health"]["status"] == "unsupported" for n in d["data"]["nodes"])')"
+expect_eq "没检查过的物理盘一律 unknown（不许凭猜说健康）" "True" \
+  "$(jget "$WORK/topo-1.json" 'all(n["kind"] != "disk" or n["health"]["checked_at"] is not None or n["health"]["status"] == "unknown" for n in d["data"]["nodes"])')"
 expect_eq "未采集温度时 temperature_celsius 是 null（不是 0）" "True" \
   "$(jget "$WORK/topo-1.json" 'all(n["health"]["temperature_celsius"] is None for n in d["data"]["nodes"])')"
 expect_eq "health.checked_at 是 null（没有检查过）" "True" \

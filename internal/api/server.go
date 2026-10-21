@@ -69,6 +69,9 @@ type Options struct {
 	// Services 是服务只读视图读取端（P05.1）。允许为 nil（不连代理）：
 	// 那时 /services* 明确回 503 AGENT_UNAVAILABLE，而不是给一份空服务列表。
 	Services ServicesReader
+	// Processes 是进程只读视图读取端（P05.2）。允许为 nil（不连代理）：
+	// 那时 /processes 明确回 503 AGENT_UNAVAILABLE，而不是给一份空进程列表。
+	Processes ProcessesReader
 }
 
 // Server 是 Web HTTP 服务。

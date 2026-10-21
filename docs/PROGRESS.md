@@ -116,7 +116,7 @@ NVMe 上是真实 `healthy` 且温度 > 0，并与机器自己的 `smartctl -j` 
 
 ## 1. 当前任务
 
-- 当前阶段：P05（服务、进程与日志）—— **in_progress**：**P05.1（服务列表、详情、保护名单；通过预检与任务执行允许的启停/重启/开机启动）已 passed**，P05.2、P05.3 未开始。
+- 当前阶段：P05（服务、进程与日志）—— **in_progress**：**P05.1（服务列表、详情、保护名单；通过预检与任务执行允许的启停/重启/开机启动）已 passed**，**P05.2（进程列表、PID + starttime 身份、TERM/KILL 分开的流程、禁止终止关键进程）已 passed**，P05.3 未开始。
 - 已完成子任务：P00.1—P00.3、**P01.1**—**P01.4**、**P02.1**（首个管理员、密码哈希、登录、
   退出、会话轮换、CSRF、Origin、限速；无默认密码）、**P02.2**（admin/viewer、账号管理、
   最后管理员保护、再认证、脱敏 DTO、审计事件起步）、**P02.3**（代理 Unix socket + SO_PEERCRED
@@ -167,9 +167,23 @@ NVMe 上是真实 `healthy` 且温度 > 0，并与机器自己的 `smartctl -j` 
   审计补上 `job_id` 落库。VM 上 **PASS=140 / FAIL=0 / NOT RUN=3**、载荷校验 **22369/0**，
   前端新增真实载荷回放 22 例，宿主 `check.sh` PASS 13/0/0。**本轮抓到并修掉两个只有真机才能发现的缺陷**：
   模板名让 `systemctl show` 整条中断（282 个单元的机器只显示 7 行）、别名单元让整次采集失败
-  （详见 §5 与 CONTRACTS §10.1））。
-- 下一子任务：**P05.2**（进程列表、PID + starttime 身份、TERM/KILL 分开的流程、禁止终止关键进程）。
-  P05.1 已经把“预检 → 任务 → 读回验证 → 审计”这条链路在真实 systemd 上跑通，P05.2 直接复用，不新开执行路径。
+  （详见 §5 与 CONTRACTS §10.1））、
+  **P05.2**（进程列表与控制：`internal/processes` 纯 `/proc` 采集（`pid` + `start_time_ticks` 身份、
+  10 个状态与 7 类保护的闭集、命令摘要脱敏、5 秒 2000 条快照）、代理侧生产动作 `process.signal`
+  （**TERM 与 KILL 是两次独立操作**，KILL 要 5 分钟内再认证 + 一次性短语 `KILL XXXXXX`，
+  `allowed=false` 时**照样**按信号给出策略、真正拦它的是 409 `DEPENDENCY_BLOCKED`）、
+  执行前现场重读 `/proc` 核对身份/保护/是否已退出后再发信号，发完每 100 ms 读回
+  （TERM 10 秒 / KILL 5 秒），只有进程确实不在了才 `succeeded`；受保护进程（PID 1、内核线程、
+  面板与代理自身、SSH、systemd 核心、网络基础、其他模块）`capabilities` 恒为空；PID 重用由
+  `ns_last_pid` 在真机上造出来验证（旧预检 409 `DEVICE_IDENTITY_CHANGED`，新进程毫发无伤）。
+  VM 上 **PASS=128 / FAIL=0 / NOT RUN=0**、载荷校验 **9250/0（1 SKIP）**，前端新增真实载荷回放
+  31 例、全量 295 例，宿主 `check.sh` PASS 13/0/0。**本轮改对了两条写错的断言**（被拒的 KILL 仍带短语、
+  viewer 读进程列表是 403），并把 harness 从“睡固定秒数”改成“等快照里出现再断言”——
+  详见 §5 与 DECISIONS Q112—Q117）。
+- 下一子任务：**P05.3**（journal 结构化查询、筛选、游标和实时流，日志权限、截断和资源回收；
+  STAGES §7 里“结束日志订阅不会残留无限 journalctl 子进程”这一条也归它）。
+  P05.1/P05.2 已经把“预检 → 任务 → 幂等 → 锁 → 读回验证 → 审计”这条链路在真实 systemd 与真实
+  `/proc` 上跑通，P05.3 直接复用，不新开执行路径。
 - 下游是否可继续：**是**；但任何系统写操作必须走 P03 建成的链路（预检 → 任务 → 幂等 → 对账），
   不允许绕过。P04.1 的 `system.summary` 是**查询**，不产生任务，也不落写审计。
 - 当前版本：未发布。
@@ -201,6 +215,11 @@ NVMe 上是真实 `healthy` 且温度 > 0，并与机器自己的 `smartctl -j` 
   形态与以往几次一致，发生在一次 P05.1 验收运行期间；该次运行作废，重启 VM、重传二进制与脚本后
   重跑才得到最终结果（`docs/evidence/P05/2026-10-21-p05.1/env.txt` 记了这一条，不逐个累计次数）。
   处理方式与前几轮相同：`/tmp` 会被清空、必要时删掉被截断的 `/etc/upanel/upanel.json`。
+- 环境事实（P05.2 期间）：`upanel-2404` 至本轮累计 7 次 `Kernel panic - not syncing: Attempted to
+  kill init! exitcode=0x0000008b`（`CPU: 1 PID: 1 Comm: systemd`，`segfault … error 44/46 in libc.so.6`），
+  本轮验收期间又发生一次；已排除镜像共享与宿主内存不足（同期宿主可用 32.4 GB）。最终读数取自
+  第七次 panic 之后重启的新启动（QEMU 26908，宿主 10:21:37 启动），时间线、7 份 console 日志与
+  两次被排除的假设记在 `docs/evidence/P05/2026-10-21-p05.2/env.txt`。
 
 ## 2. 状态定义
 
@@ -220,7 +239,7 @@ NVMe 上是真实 `healthy` 且温度 > 0，并与机器自己的 `smartctl -j` 
 | P02 | 认证、权限、审计、代理 | **passed** | P02.1 **passed**：users/sessions 表、Argon2id、登录/退出/会话轮换/CSRF/Origin/限速、`upanelctl init-admin`（无默认密码），证据 `docs/evidence/P02/2026-10-20-p02.1/`（宿主 38 项 + 两台 VM 各 58 项断言）。P02.2 **passed**：admin/viewer 边界、账号增删改查（脱敏 DTO + 分页 + 乐观并发）、最后管理员保护、5 分钟再认证、追加式审计表，证据 `docs/evidence/P02/2026-10-20-p02.2/`（宿主 81 项 + 两台 VM 各 99 项断言，P02.1 回归各 58 项）。P02.3 **passed**：代理 socket 与 SO_PEERCRED UID 边界、固定登记表（生产为空）、结构化只读查询、命令执行器超时/输出上限、systemd 真实托管，证据 `docs/evidence/P02/2026-10-20-p02.3/`（两台 VM 各 84 项断言 + VM 内核原生 28 + 9 个用例，P02.2 回归各 99 项）。P02.4 **passed**：审计跟随业务事务（被拒绝请求独立记 failure 行）、日志脱敏做进记录器、代理独立 root-only 库（`/var/lib/upanel-agent/agent.db`，目录 0700 / 文件 0600，启动自校验）、AES-256-GCM 秘密存储（独立 nonce、AAD 绑引用与用途、`/etc/upanel/agent.key` 0600 且 `-init-key` 不覆盖）、临时秘密 10 分钟销毁与墓碑行、无明文读取路由，证据 `docs/evidence/P02/2026-10-20-p02.4/`（两台 VM 各 87 项断言 + VM 内核原生 agentstore 32 / agent 45 个用例，P02.1/P02.2/P02.3 回归各 58 / 103 / 84 项）。**阶段结论：P02 全部子任务完成** |
 | P03 | 预检、任务、幂等、对账 | **passed** | P03.1 **passed**：预检由代理生成（规范化参数、目标身份指纹、状态版本、影响、阻塞项、锁、再认证与短语策略），Web 只保存绑定并返回公开 DTO；有效期 120 秒且两端同一时间戳；用户/会话/动作/`params_hash`/`state_version` 双侧一致；短语只回一次明文、代理库只存哈希；未登记动作 400、缺规划器 501、`GET` 405。证据 `docs/evidence/P03/2026-10-20-p03.1/`（两台 VM 各 93 项断言 + VM 内核原生 5 个测试二进制，P02.1—P02.4 回归各 58/103/84/87 项）。P03.2 **passed**：持久 jobs、幂等链、`operation_id` 去重、代理执行记录与事件、资源锁与 30 秒排队、取消规则、先落库再提交、按 `operation_id` 对账；证据 `docs/evidence/P03/2026-10-20-p03.2/`（两台 VM 各 101 项断言 + VM 内核原生 169 用例 0 FAIL + p01-1/p01-2/p01-4/p02-1—p02-4/p03-1 回归各 29/34/114/58/103/85/87/93；宿主 check.sh PASS 12/0/NOT RUN 0）。验收期间抓到并修掉两个真缺陷：`CONFIRMATION_MISMATCH` 应为 400（DECISIONS Q64）、SQLite WAL DEFERRED 事务升级不调 busy handler → `_txlock=immediate`（DECISIONS Q65）。P03.3 **passed**：SSE 事件流（`id:`/`event:`/`data:`、`: connected`、15 秒 keepalive、`Last-Event-ID` 续传、日志环被裁后先发 `event: gap`）、代理事件镜像（先事件后状态）、日志分页与每任务 1000 行上限、任务中心与错误详情、最小登录页与路由守卫；证据 `docs/evidence/P03/2026-10-20-p03.3/`（两台 VM 各 73 项断言 + 原生 346 用例 0 FAIL + P03 前序回归）。验收期间抓到并修掉代理侧“阶段与事件分两笔写”的原子性缺陷（DECISIONS Q67）。P03.4 **passed**：Web 启动立刻 + 每 30 秒的对账循环（只查不跑，`grep CreateOperation` 在 `reconcile.go` 无调用点）、提交在途不判定、`NOT_FOUND` 按 `needs_sync` 分流（`failed`/`unconfirmed` vs `interrupted`/`unknown_result`）、幂等记录到期清理、验收注册表约束变成断言；证据 `docs/evidence/P03/2026-10-20-p03.4/`（两台 VM 各 78 项断言 + 原生 360 用例 0 FAIL + 全量 11 脚本 0 失败）。**阶段结论：P03 全部子任务完成，生产登记表仍为空（无真实写动作）** |
 | P04 | 首页和存储只读 | **passed** | P04.1 **passed**：`internal/monitoring` 纯文件读取采集（`/proc/stat`、`meminfo`、`loadavg`、`net/dev`、`os-release`、`uptime`、`cpuinfo` + `uname`），代理侧 5 秒轮询缓存（`collected_at`/`interval_ms`/`stale`/`degraded` + 分节 `status`），速率只由相邻样本差分给出、算不出来为 `null`，`boot_id` 变化让 CPU 窗口失效；查询登记表新增唯一查询 `system.summary`（`DecodeParams` 拒绝任何字段），Web 侧 `GET /api/v1/system/summary`（权限 V）只透传、不做第二层缓存，代理不可用 503 `AGENT_UNAVAILABLE` 且不影响登录；能力只上报真实存在的东西。证据 `docs/evidence/P04/2026-10-20-p04.1/`（两台 VM 各 **72** 项断言 + VM 内核原生 **401** 用例 0 FAIL + 12 脚本全量回归 930/0；宿主 check.sh PASS 12/0/NOT RUN 0，redocly valid 9 warnings）。**生产登记表仍为空，本轮没有新增任何写动作**。P04.2 **passed**：`internal/storage` 只读块设备拓扑（`/sys/block` + `/sys/class/block`，整盘/分区/lvm/raid/crypt/loop/rom/other）、边 `partition_of`/`depends_on`（from=子→to=父）、设备身份 `sha256:` 指纹 + 诚实的 `identity_confidence`、系统盘保护从 mountinfo/swaps 出发沿边递归向上、分区表读盘头部只补类型与 free_regions（内核结果优先）、容量 30 秒缓存取 `f_bavail`、`snapshot_version` 只由内容决定；代理查询 `storage.topology`、Web `GET /api/v1/storage/{topology,devices,devices/:id}`（V 权限、只透传）；`health.status` 一律 `unknown`、`capabilities` 一律 `[]`。证据 `docs/evidence/P04/2026-10-20-p04.2/`（两台 VM 各 **108** 项断言 + VM 内核原生 **473** 用例 0 FAIL + 13 脚本全量回归 1038/0；宿主 check.sh PASS 12/0/NOT RUN 0）。本轮修掉 Q89（块设备被当普通文件读 → 代理 OOM）、Q90（快照版本依赖时间）、Q91（by-id 链接缺已知设备约束）、Q96（一个测试抖动）。P04.3 **passed**（SMART/NVMe 健康与 diskstats：15 分钟采集节奏、睡眠盘不唤醒）——`internal/storage` 新增 `smart.go`/`diskstats.go`/`capacity*.go`：smartctl `-j -H -A -i` 按**退出状态位掩码**判读（失效/预失效 → `critical`，历史位/日志位 → `warning`，命令失败/打开失败 → `unknown`），先读 sysfs 电源状态、非 NVMe 再加 `-n standby`，**不为读健康唤醒休眠盘**；`/proc/diskstats` 每台设备只取自己那一行、计数转十进制字符串，速率由相邻两次采样差分（归零/回绕/窗口异常 → `null`），平均延迟只在完成次数 > 0 时给，扇区固定 512 字节；网络文件系统容量在代理自己的 `--statfs-helper` 子进程里查（并发 2、默认 10 秒超时、失败后隔离 5 分钟不再重试），拓扑新增 `network_mounts`（无块设备的网络挂载单独成表）、`Device.io`、`Mount.capacity_error`，`io` 不进 `snapshot_version`。证据 `docs/evidence/P04/2026-10-21-p04.3/`：24.04.5 与 22.04.5 各 **77** 项通过、`upanel-smart`（QEMU NVMe）**62** 项通过，0 失败（未执行项各 1/1/2，均写明原因）；**statfs 挂在内核里时登录仍 332 ms / 271 ms 返回 200**；原生 `storage.test` 三台 VM **103/0**；22.04 VM 内 `go test -race ./...` 19 包 ok、**0 条 DATA RACE**。P04.3 补强（第二轮）：QEMU USB 盘的两个真实反例（“桥不认识”“`-d sat` 打不开”）+ 真实 `mount --bind` 多挂载点用例 + `smartctl` 原话透进 `health.details`（Q104），三台 VM 重跑 77/77/**63**、0 失败，原生 `storage.test` **106/0**、`-race` 19 包 ok / 0 DATA RACE。P04.4 **passed**（首页、磁盘列表、拓扑/分区详情、健康与容量卡片；**写操作能力此时不启用**）：前端 DTO 与 `api/openapi.yaml` 同源，页面把 `null` 一律显示 `—`、容量与百分比照实、`unsupported/unknown` 不挂告警、`capabilities` 为空就明说没有动作；Playwright 冒烟 31/0/5 + dist 预览 10/10，前端 **192** 用例；VM 上四份真实响应载荷校验 **856/0**、脚本 **31/0 NOT RUN 0**；证据 `docs/evidence/P04/2026-10-21-p04.4/`。**P04 到此全部 passed** |
-| P05 | 服务、进程、日志 | **in_progress** | P05.1 **passed**：服务列表/详情/保护名单 + 预检→任务→读回的执行链路（`internal/services`、`internal/api/services.go`、`internal/agent/service*`、前端列表与详情页）；VM 上 **PASS=140 / FAIL=0 / NOT RUN=3**、载荷校验 **22369/0**，前端真实载荷回放 22 例、全量 252 例，宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P05/2026-10-21-p05.1/`。P05.2（进程）、P05.3（journal）未开始 |
+| P05 | 服务、进程、日志 | **in_progress** | P05.1 **passed**：服务列表/详情/保护名单 + 预检→任务→读回的执行链路（`internal/services`、`internal/api/services.go`、`internal/agent/service*`、前端列表与详情页）；VM 上 **PASS=140 / FAIL=0 / NOT RUN=3**、载荷校验 **22369/0**，前端真实载荷回放 22 例、全量 252 例，宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P05/2026-10-21-p05.1/`。P05.2 **passed**：进程列表与信号（`internal/processes` 纯 `/proc` 采集、`pid`+`start_time_ticks` 身份、5 秒 2000 条快照、10 状态 7 类保护闭集、命令摘要脱敏；`process.signal` 生产动作走同一条预检→任务→锁→读回链路，TERM 与 KILL 两次独立操作、KILL 再认证 + 一次性短语、受保护进程零能力、执行前现场重读 `/proc` 核对身份与保护）；VM 上 **PASS=128 / FAIL=0 / NOT RUN=0**、载荷校验 **9250/0（1 SKIP）**，PID 重用由 `ns_last_pid` 真机造出并验证旧预检被拒、新进程安然无恙；前端真实载荷回放 31 例、全量 295 例，宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P05/2026-10-21-p05.2/`。P05.3（journal）未开始 |
 | P06 | 文件和受限终端 | not_started | — |
 | P07 | 分区、格式化、挂载 | not_started | 需独立 VM 数据盘 |
 | P08 | SMB 与卷依赖 | not_started | 需真实客户端 |
@@ -2215,6 +2234,97 @@ console 存为 `console.panic-6-2026-10-21.log`），该次运行作废，重启
 `p05-1-acceptance-2404.txt`、`payloads/`（65 份响应）、`vm-logs-2404/`、`go-gates.txt`、`go-test.txt`、
 `web-gates.txt`、`check.txt`。
 
+### P05.2（2026-10-21）— 进程列表、PID+starttime 身份、TERM/KILL 分开的流程、禁止终止关键进程
+
+**范围**：`STAGES.md` §7 P05.2。这一阶段把“改变系统状态”的第二个入口接进同一条链路，
+并且第一次引入**身份**这个概念：只凭 PID 杀进程会被内核的 PID 重用咬到，所以身份是
+`pid` + `start_time_ticks`（`/proc/<pid>/stat` 第 22 字段），指纹
+`sha256("process/v1|<pid>|<start>")`，状态版本 `sha256("process-state/v1|<pid>|<start>")`
+（刻意不含 CPU/内存/state）。
+
+| 文件 | 改动 |
+|---|---|
+| `internal/processes/`（新包，18 文件 2631 行含测试） | `procfs.go` 逐字段读 `/proc/<pid>/{stat,status,cmdline,cgroup}`（不调 `ps`）；`collector.go` 5 秒快照、`MaxProcesses=2000`、PID 升序、采集失败保留上一份；`protection.go` 7 类固定保护（init / kernel_thread / self / ssh / systemd_core / network / other_module）；`sanitize.go` 命令摘要脱敏；`signal.go` 预检结论 + 执行 + 读回；`kill_unix.go`/`kill_other.go` 只保留 `kill(2)`，不拼 shell |
+| `internal/processes/testdata/`（30 个真机字节） | PID 1、内核线程、sshd、sleep、带秘密参数命令的 `stat`/`status`/`cmdline`/`cgroup`，另加 `passwd.txt` |
+| `internal/agent/{processesquery,processaction}.go`、`registry.go`、`preflight.go`、`systemquery.go`、`cmd/upanel-agent/main.go` | 查询 `processes.list`、生产动作 `process.signal`；登记仍按“依赖非 nil 才登记”，验收表只有 `acceptance.*` |
+| `internal/api/processes.go`（新）、`router.go`、`server.go`、`cmd/upanel-web/main.go` | `GET /api/v1/processes`，**admin**（viewer 403 `FORBIDDEN`），只透传代理快照 |
+| `web/src/api/processes.ts`（278 行）、`processes.test.ts`（12 例） | openapi 同源 DTO、闭集中文标签、`isExited`/`signalNeedsPhrase`/`signalParams`/`sameProcess`/`filterProcesses`/`summarizeProcesses`/`formatCPUPercent`；判决只读服务端 `capabilities` |
+| `web/src/views/ProcessesView.vue`（596 行）、`components/ProcessSignalConfirm.vue`（217 行） | 列表（摘要 + 筛选 + 加载/空/错误/无权限，渲染上限 200）、确认卡（TERM 一套门槛、KILL 另一套；受保护、已被拒、过期三种形态；写明“不会自动升级”） |
+| `web/src/fixtures/p05-2-vm/`（22 份 VM 真实响应）、`components/realdata-processes.test.ts`（31 例） | 与证据目录 `payloads/` 逐字节相同（`cmp` 核过），SSR 回放覆盖快照契约、规模、保护、筛选、预检与任务、错误信封、确认卡四种形态 |
+| `tests/integration/p05-2-processes-acceptance.sh`（995 行，12 节）、`p05-2-payload-validate.py`（578 行）、`run-all.sh` | 真机验收与载荷校验；`run-all.sh` 把 p05-2 加进 root 脚本清单 |
+| `api/openapi.yaml`、`docs/CONTRACTS.md` §10.2、`docs/DECISIONS.md` Q112—Q117 | 版本 `0.0.0-p05.2`、`stage: P05.2`、`GET /api/v1/processes`；契约写清身份、状态闭集、cpu/memory 的 null 语义、保护类别、阻塞项与告警项、TERM/KILL 门槛、不自动升级 |
+| `.gitignore` | 加 `/.build/`（交叉编译与 `go test -c` 产物落在那里） |
+
+**这一阶段刻意不做的事**：不接受按名字/正则/属主/前缀选目标，不做批量，不在列表接口上直接终止，
+不提供任何“万能命令”入口；TERM 超时**不自动升级**为 KILL（那等于把普通动作偷偷变成强制动作，
+还绕过 KILL 的再认证与短语）；受保护进程与 `zombie`/`dead` 的 `capabilities` 恒为空数组，
+前端只按它渲染，不自己推“这个应该能杀”；命令摘要只用于识别，不做审计全文。
+
+**本轮验收**
+
+| 检查 | 结果 | 证据 |
+|---|---|---|
+| VM 验收脚本自身断言（12 节） | **PASS=128 / FAIL=0 / NOT RUN=0** | `docs/evidence/P05/2026-10-21-p05.2/p05-2-acceptance-2404.txt` |
+| VM 载荷校验（字段、闭集、null 语义、与 `/proc` 对照） | **PASS=9250 / FAIL=0 / SKIP=1** | 同文件 §11（SKIP 是“高 CPU 进程校验时已被清理”，写明原因） |
+| 宿主 `sh scripts/check.sh` | **PASS 13 / FAIL 0 / NOT RUN 0** | `.../check.txt` |
+| `go build` / `go vet` / `go test ./... -count=1` | 退出码 0 / 0 / **22 包全部 ok** | `.../go-gates.txt`、`.../go-test.txt` |
+| 前端 `vue-tsc --noEmit` / `eslint .` | 0 error / 0 problem | `.../web-gates.txt` |
+| 前端 `vitest run` | **295 passed（22 文件）**，其中进程真实载荷回放 31 例 | `.../web-gates.txt` |
+| 前端 `vite build` | 成功（522 ms） | `.../web-gates.txt` |
+| 契约 lint（redocly） | valid，9 warning（历史遗留） | `.../check.txt` |
+| **跨阶段定向回归**（p01-1、p02-3、p03-1、p03-2、p04-1、p04-2、p04-3、p05-1） | 全部 0 失败：30/87/93/102/72/110/77（+3 NOT RUN）/140 | `.../regression-p05-2.txt` |
+
+VM 上的关键断言：监听 19450 的是 `upanel-web`（uid 999）、代理是 root、`agent.sock` 为
+`root:upanel-web` 且非 0666；第一份快照 137 个进程（sleeping 66 + idle 71）、111 个受保护、
+26 个可操作，`interval_ms=5000` 且相邻两份相隔 5000 ms；僵尸（pid 4936）与内核线程的
+`memory_bytes` 为 `null`，`yes`（pid 5041）`cpu_percent=100`，新出现的进程第一份快照里 `cpu_percent`
+是 `null` 而不是 `0`；TERM 不要再认证、不要短语、锁是 `process:<pid>:<starttime>`，任务 `succeeded`
+且进程真的消失；KILL 要求 5 分钟内再认证加一次性短语，没再认证（403）与短语错（400）时
+**pid 5276 没有被碰过**，预检没被消费，重复提交 409 `PREFLIGHT_STALE`；PID 1 的 TERM、
+内核线程、代理自身、SSH 的预检全部 `allowed=false`，被拒的 KILL 预检**仍带**再认证与短语，
+提交 409 `DEPENDENCY_BLOCKED` 且预检未消费，四个进程都还活着；PID 重用用
+`/proc/sys/kernel/ns_last_pid` 强制造出（pid 5463，starttime 30039 → 30049），拿旧预检提交 409
+`DEVICE_IDENTITY_CHANGED`，**被重用的 PID 上的新进程毫发无伤**，按新身份重新预检才允许；
+viewer 读列表与预检都是 403；审计里有对应的 `operation.preflight` 与 `job.submit`（`job_id` 非空）。
+
+**本轮发现并修掉的问题**
+
+1. **验收读数错位**（8 条脚本断言 + 3 条载荷断言，第一轮）：列表是 5 秒缓存快照，脚本起进程后
+   立刻断言“在列表里”、杀掉后立刻断言“不在”，落在两次采集之间。改成 `wait_in_snapshot`
+   （每 0.5 秒取一次，直到目标出现且 `cpu_percent` 有基线，上限 30 秒）；僵尸的父进程存活从 8 秒
+   提到 20 秒；忙进程 CPU 允许目标已被清理时记 **SKIP** 并写明原因（记 PASS 就是编证据）。见 Q117。
+2. **两条断言本身写错了**（同轮改对，不是放宽语义）：被拒的 KILL 预检**仍然**带再认证与短语
+   （Q114）；viewer 读进程列表是 **403** 而不是 200（Q115）。
+3. **五处跨阶段陈旧断言**（定向回归发现）：P05.1/P05.2 登记了新查询与新动作，`p01-1`、`p02-3`、
+   `p04-1`、`p04-2`、`p04-3` 里“写动作为空”“查询只有两项”的断言失效。按 Q86 改成断言**完整闭集**
+   `['processes.list','services.list','services.unit','storage.topology','system.summary']` /
+   `['process.signal','service.control']`，并做成脚本顶部的常量，下一阶段加登记项时改一行即可。
+   没有删除、没有放宽。`p04-2` 另有一处 `health.status 一律 unknown` 在 P04.3 引入 `unsupported` 后
+   不成立，改成三条更严格的不变量（闭集、非物理盘必须 `unsupported`、没检查过的物理盘必须 `unknown`）。
+4. **VM 上传布局（不是产品缺陷）**：`p02-3` 按 `DEPLOY_DIR="$ROOT/deploy"` 找模板而 `deploy/` 被放在
+   `/tmp/deploy`；`agent.test` 缺 `tests/fixtures/`。补齐后 p02-3 的 45 条失败清零（32→87 通过）。
+
+**NOT RUN（未验证，含原因）**
+
+- **浏览器渲染**：VM 上没有浏览器。页面级证据在宿主用**同一批载荷**做 SSR 回放
+  （`realdata-processes.test.ts`，31 例），夹具与 `payloads/` 逐字节相同。
+- **TERM 超时（进程忽略 SIGTERM）与 KILL 后仍存在（D 状态）**：正常内核上造不出可控的
+  “忽略 TERM 且不退出”与“停在不可中断睡眠”的进程，这两条只由 `internal/processes/signal_test.go`
+  的 fake 覆盖。
+- **结束日志订阅不残留 journalctl 子进程**：属 P05.3。
+- **多机/异构内核**：本轮只有 `upanel-2404` 一台，PID 重用、保护名单、竞态都在这台上验证。
+
+**环境事故（不记作产品缺陷）**：`upanel-2404` 至今 7 次 `Kernel panic - not syncing: Attempted to
+kill init! exitcode=0x0000008b`（`CPU: 1 PID: 1 Comm: systemd`），本轮之前最近一次发生在 P05.2
+验收途中；已排除镜像共享与宿主内存（同期宿主有 32.4 GB 可用）。最终读数取自第七次 panic 之后
+重启的新启动，`env.txt` 记了完整时间线，`console.panic-*.log` 可查。
+
+**交付去向**：随本次提交入库（`internal/processes` 新包、代理查询与动作、API、前端页面与 DTO、
+30 份真机 `/proc` 夹具与 22 份真实响应、验收脚本与校验程序、openapi 补登与 CONTRACTS §10.2、
+Q112—Q117、五个旧脚本的断言收紧）。证据目录 `docs/evidence/P05/2026-10-21-p05.2/`：
+`result.md`、`commands.log`、`env.txt`、`p05-2-acceptance-2404.txt`、`payloads/`（31 份响应）、
+`vm-logs-2404/`、`go-gates.txt`、`go-test.txt`、`web-gates.txt`、`check.txt`、`regression-p05-2.txt`。
+
 
 ## 6. 未决问题与范围变更
 
@@ -2478,6 +2588,13 @@ Q103（`cmd/upanel-web` 的用例会读机器上的 `/etc/upanel/upanel.json`，
 | P05.1-VM | P05 | **已执行通过（Ubuntu 24.04.5 / 6.8.0-147 / systemd 255.4-1ubuntu8.18，root 起代理、非 root 起 Web）**：`p05-1-services-acceptance.sh` **PASS=140 / FAIL=0 / NOT RUN=3**，载荷校验 `p05-1-payload-validate.py` **PASS=22369 / FAIL=0**。含 uid 999 的 Web 进程、`agent.sock` 为 `root:upanel-web` 且非 0666、列表快照 10 秒、239 个单元与枚举逐项对照、模板/别名排除与两种 404、14 个抽样单元状态与 `systemctl` 相同、五步真实启停与读回、四种重复/冲突操作被预检挡住、`ExecStart` 失败 → 任务 `failed` 且 `result={}`、viewer 只读、审计含 `job.submit` 且 `job_id` 非空。 | docs/evidence/P05/2026-10-21-p05.1/{p05-1-acceptance-2404.txt,payloads/,vm-logs-2404/,env.txt} |
 | P05.1-DATA | P05 | 已产出：65 份 VM 真实响应逐字节存入证据目录，其中 15 份同时放进 `web/src/fixtures/p05-1-vm/` 作前端回归夹具（`services.json` 239 个单元、`snapshot_version: sha256:700d9c14…`）；`internal/services/testdata/` 另存 7 份 systemd 255 的真实输出（含模板被拒的 stderr 与别名单元的 `Names=`）。 | docs/evidence/P05/2026-10-21-p05.1/payloads/ 与 web/src/fixtures/p05-1-vm/、internal/services/testdata/ |
 | P05.1-RESULT | P05 | 已产出：范围与逐文件改动、实际执行的检查表、**与 STAGES §7 P05.1 验收条目逐条对应表**、四个缺陷（模板名中断 `systemctl show` 导致列表只剩 7 行；别名单元让整次采集失败；失败任务 `result` 语义漂移；审计 `job_id` 从未落库）与修法、NOT RUN 清单、已知限制、环境事故与复核命令。 | docs/evidence/P05/2026-10-21-p05.1/{result.md,commands.log} |
+| P05.2-UNIT | P05 | 已执行通过：`go build ./...`、`go vet ./...` 退出码 0；`go test ./... -count=1` **22 个包全部 ok**（`internal/processes` 新包含 `/proc` 字节解析、保护判定、脱敏、信号与读回的回归）。 | docs/evidence/P05/2026-10-21-p05.2/{go-gates.txt,go-test.txt} |
+| P05.2-FRONT | P05 | 已执行通过：`vue-tsc --noEmit` 0 error、`eslint .` 0 problem、`vitest run` **22 文件 / 295 用例全 passed**（新增 `realdata-processes.test.ts` 31 个真实载荷 SSR 用例）、`vite build` 成功。 | docs/evidence/P05/2026-10-21-p05.2/web-gates.txt |
+| P05.2-CHECK | P05 | 已执行通过：`sh scripts/check.sh` → **PASS 13 / FAIL 0 / NOT RUN 0**；`redocly lint` valid + 9 warnings（同类同量）。必须在 `.nvmrc` 的 Node v22.23.3 下跑。 | docs/evidence/P05/2026-10-21-p05.2/check.txt |
+| P05.2-VM | P05 | **已执行通过（Ubuntu 24.04.5 / 6.8.0-147 / systemd 255.4-1ubuntu8.18，root 起代理、非 root 起 Web）**：`p05-2-processes-acceptance.sh` **PASS=128 / FAIL=0 / NOT RUN=0**，载荷校验 `p05-2-payload-validate.py` **PASS=9250 / FAIL=0 / SKIP=1**。含 uid 999 的 Web、5 秒快照与 5000 ms 间隔、`cpu_percent` 的 null 语义、TERM/KILL 两套门槛与真实退出、四类保护拒绝且进程未动、**`ns_last_pid` 强制造出的 PID 重用（旧预检 409 `DEVICE_IDENTITY_CHANGED`，新进程毫发无伤）**、viewer 403、审计链。 | docs/evidence/P05/2026-10-21-p05.2/{p05-2-acceptance-2404.txt,payloads/,vm-logs-2404/,env.txt} |
+| P05.2-DATA | P05 | 已产出：31 份 VM 真实响应逐字节存入证据目录，其中 22 份同时放进 `web/src/fixtures/p05-2-vm/` 作前端回归夹具（`processes-cpu.json` 139 条、`processes-zombie.json` 138 条、`processes-first.json` 137 条，另有预检/任务/403 信封）；`internal/processes/testdata/` 另存 30 份真机 `/proc` 字节。 | docs/evidence/P05/2026-10-21-p05.2/payloads/ 与 web/src/fixtures/p05-2-vm/、internal/processes/testdata/ |
+| P05.2-REGRESSION | P05 | 已执行通过（同机定向回归）：p01-1 30/0、p02-3 87/0、p03-1 93/0、p03-2 102/0、p04-1 72/0、p04-2 110/0、p04-3 77/0（3 NOT RUN：USB、NVMe、隔离到期自愈）、p05-1 PASS=140/0、p05-2 PASS=128/0。第一轮的失败（p04-1 两条陈旧断言、p02-3 上传布局）与修法都在这份文件里。 | docs/evidence/P05/2026-10-21-p05.2/regression-p05-2.txt |
+| P05.2-RESULT | P05 | 已产出：范围与逐文件改动、**与 STAGES §7 验收条目逐条对应表**、实际执行的检查表、关键断言原文、本轮修掉的问题（验收读数错位、两条写错的断言、五处跨阶段陈旧断言、VM 上传布局）、NOT RUN 清单、七次 panic 的环境事故与复核命令。 | docs/evidence/P05/2026-10-21-p05.2/{result.md,commands.log} |
 | P00-VM-C（LVM 根） | P00/P04 | **NOT RUN**（未创建） | 需在 P04 前补齐 |
 | P00-VM-D（SMB 客户端） | P00/P08 | **NOT RUN**（未创建） | 需在 P08 前补齐 |
 
@@ -2699,3 +2816,24 @@ Q103（`cmd/upanel-web` 的用例会读机器上的 `/etc/upanel/upanel.json`，
   这是 CONTRACTS §10.1 的显式取舍：宁可多保护，也不按名字去猜哪些 `systemd-*` 安全。
 - 别名单元不在列表里、请求它一律 404（要求用规范名）：这是契约决定的，但意味着管理员从
   `systemctl` 输出里看到一个别名时，面板不会替他翻译。
+- P05.2 的进程列表同样是**5 秒快照**，预检、提交复核与执行前复核全部现场读 `/proc`：列表与预检
+  可能短暂对不上（列表里还在的进程，点开预检已经 `PROCESS_NOT_FOUND`）。这是 Q112 的设计取舍，
+  但界面**没有**做“列表已经旧了”的提示，只保证每个动作前重新预检。
+- 列表上限 2000 条的 `truncated=true` 路径**只有单测**：真机最多见到 139 个进程。超限时界面写
+  “共 N 个、只显示前 2000 个”，但没有服务端分页、没有按 PID 区间翻页。
+- 进程页面的浏览器证据是 **SSR 回放**（`realdata-processes.test.ts` 拿 22 份真实响应渲染 31 例），
+  **没有**在真实浏览器里输入确认短语、点过 KILL、观察过任务轮询与读回阶段；
+  Playwright 冒烟仍只覆盖未登录守卫与导航。
+- **TERM 超时（进程忽略 SIGTERM）与 KILL 后仍存在（D 状态）没有真机样本**：正常内核上造不出
+  可控的“忽略 TERM 且不退出”与“停在不可中断睡眠”的进程，这两条只有 `internal/processes`
+  的 fake 覆盖。VM 上的读回窗口（TERM 10 秒 / KILL 5 秒）因此只被“进程会退出”这一侧验证过。
+- PID 重用的证据是一台 VM 上用 `/proc/sys/kernel/ns_last_pid` **强制**造出的（pid 5463，
+  starttime 30039 → 30049）。自然发生的重用（尤其是高频 fork 的机器上 windows 内连号）没有样本，
+  “旧预检 + 新进程”在**同一秒**内发生的竞态只有单测覆盖。
+- 保护名单是代码里的固定表，只按进程的 cgroup/单元归属与 PID 判定：**没有被保护的自建服务进程**
+  （例如管理员自己 `nohup` 起的东西）可以照常 TERM/KILL，这是预期行为，但界面除了保护类别之外
+  不会额外提示“这可能是某人的业务进程”。
+- 命令摘要做了脱敏（疑似秘密的参数值替换成 `***`），但脱敏是**模式匹配**：写在 `--opt=value` 里、
+  且不像秘密的参数仍会原样显示；通过 `execve` 改掉 argv 的进程显示的是改写后的内容。
+- 进程列表与 `process.signal` 都只对 admin 开放（Q115）：viewer 连只读的进程列表都看不到。
+  这是有意的边界（列表含属主与命令行），但意味着排障时 viewer 账号无法自助看“谁占着 CPU”。

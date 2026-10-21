@@ -65,6 +65,12 @@ WEB_USER=upanel-web
 PASSWORD='vm-correct-horse-9'
 VIEWER_PASSWORD='vm-viewer-horse-42'
 
+# capabilities 的完整闭集。生产代理只要依赖齐备就会登记全部查询与动作，
+# 所以这里断言**完全等于**当前应有的集合：少报是隐藏能力，多报是编造能力，两种都算失败。
+# 新增查询/动作时同步改这两行（P05.1 加 service.control，P05.2 加 processes.list / process.signal）。
+EXPECTED_QUERIES="['processes.list', 'services.list', 'services.unit', 'storage.topology', 'system.summary']"
+EXPECTED_ACTIONS="['process.signal', 'service.control']"
+
 AGENT_LOG=$WORK/logs/agent.log
 WEB_LOG=$WORK/logs/web.log
 
@@ -504,7 +510,8 @@ if [ -n "$READY" ]; then pass "代理在 10 秒内开始应答（capabilities 20
 
 call web GET /internal/v1/capabilities
 expect_eq "capabilities 200" "200" "$CODE"
-expect_eq "仍不报告任何写动作" "[]" "$(jget "$RESP" 'd["data"]["supported_actions"]')"
+expect_eq "capabilities 报告全部已登记查询" "$EXPECTED_QUERIES" "$(jget "$RESP" 'd["data"]["supported_queries"]')"
+expect_eq "capabilities 报告的写动作集合与已登记动作一致" "$EXPECTED_ACTIONS" "$(jget "$RESP" 'd["data"]["supported_actions"]')"
 
 echo
 echo "== 3. health：闭集、来源、不支持与温度 =="

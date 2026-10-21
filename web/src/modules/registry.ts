@@ -44,7 +44,8 @@ export const MODULES: readonly ModuleDef[] = [
     label: '服务与进程',
     path: '/services',
     implementedIn: 'P05.1',
-    summary: 'systemd 服务单元：状态、保护名单、启停/重启与开机启动（经预检与任务）。',
+    summary:
+      'systemd 服务单元与进程列表：状态、保护名单、启停/重启、开机启动与终止（经预检与任务）。',
   },
   { key: 'files', label: '文件', path: '/files', implementedIn: null, summary: '文件浏览与受控下载' },
   { key: 'terminal', label: '终端', path: '/terminal', implementedIn: null, summary: '受限 Web 终端' },
