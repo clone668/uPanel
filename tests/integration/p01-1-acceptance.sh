@@ -213,7 +213,7 @@ CAPS=$($AS_WEB curl -s --max-time 5 --unix-socket "$SOCKET" http://localhost/int
 # P05.1 起 supported_actions 不再为空。断言**完全等于**当前应有的集合——
 # 少报是隐藏能力，多报是编造能力，两种都算失败（DECISIONS Q86/Q115）。
 # 新增查询/动作时必须同步更新这两行。
-EXPECTED_QUERIES="['processes.list', 'services.list', 'services.unit', 'storage.topology', 'system.summary']"
+EXPECTED_QUERIES="['logs.query', 'processes.list', 'services.list', 'services.unit', 'storage.topology', 'system.summary']"
 EXPECTED_ACTIONS="['process.signal', 'service.control']"
 CAPS_QUERIES=$(printf '%s' "$CAPS" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["supported_queries"])')
 CAPS_ACTIONS=$(printf '%s' "$CAPS" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["supported_actions"])')
@@ -227,8 +227,12 @@ ROOT_CODE=$($SUDO curl -s -o /dev/null -w '%{http_code}' --max-time 5 --unix-soc
 expect_eq "agent-root-forbidden" "$ROOT_CODE" "403"
 
 UNKNOWN_CODE=$($AS_WEB curl -s -o /dev/null -w '%{http_code}' --max-time 5 --unix-socket "$SOCKET" \
-  http://localhost/internal/v1/streams)
+  http://localhost/internal/v1/no-such-endpoint)
 expect_eq "agent-unknown-path-404" "$UNKNOWN_CODE" "404"
+
+# /internal/v1/streams 在 P05.3 已实现：GET 它是 405，不是“未知路径”。
+STREAMS_GET=$($AS_WEB curl -s -o /dev/null -w '%{http_code}' --max-time 5 --unix-socket "$SOCKET"   http://localhost/internal/v1/streams)
+expect_eq "agent-streams-get-405" "$STREAMS_GET" "405"
 
 $SUDO pkill -TERM -f "$AGENT" 2>/dev/null
 sleep 2

@@ -68,8 +68,15 @@ func (s *Server) handleQueries(w http.ResponseWriter, r *http.Request) {
 
 	result, err := q.Run(r.Context(), params)
 	if err != nil {
-		// P02.3 还没有生产查询，这里的映射在第一个真实查询落地（P04）时再细化；
-		// 当前如实记录失败并返回内部错误，不把失败伪装成成功。
+		// 参数类错误（时间窗口、游标）是调用方的问题，必须是 400：
+		// 否则 Web 侧只能把它当成“代理不可用”，把用户的参数错误报成 503。
+		// 查询实现用 ErrParamsInvalid 表达这一点（见 logsquery.go）。
+		if errors.Is(err, ErrParamsInvalid) {
+			s.opts.Logger.Warn("查询参数不合法", "query", req.Query, "error", err,
+				"request_id", httpx.RequestID(r))
+			httpx.WriteError(w, r, http.StatusBadRequest, httpx.CodeValidationError, err.Error())
+			return
+		}
 		s.opts.Logger.Error("查询执行失败", "query", req.Query, "error", err, "request_id", httpx.RequestID(r))
 		httpx.WriteError(w, r, http.StatusInternalServerError, httpx.CodeInternalError, "查询执行失败")
 		return

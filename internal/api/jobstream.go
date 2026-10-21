@@ -311,16 +311,28 @@ type sseWriter struct {
 	rc *http.ResponseController
 }
 
-// event 写一条命名事件；失败（写超时、对端关闭）返回 false，调用方据此退出。
+// event 写一条命名事件，id 为递增序号；失败（写超时、对端关闭）返回 false，
+// 调用方据此退出。
 func (sw *sseWriter) event(seq int64, kind string, payload any) bool {
+	if seq <= 0 {
+		return sw.eventWithID("", kind, payload)
+	}
+	return sw.eventWithID(strconv.FormatInt(seq, 10), kind, payload)
+}
+
+// eventWithID 写一条命名事件，id 由调用方给出。
+//
+// P05.3 的日志流用 journal 游标当 id：重连时 EventSource 会把它原样放进
+// Last-Event-ID，续传于是变成“从这一条之后接着发”，而不是“从头再来”。
+func (sw *sseWriter) eventWithID(id, kind string, payload any) bool {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return false
 	}
 	var b strings.Builder
-	if seq > 0 {
+	if id != "" {
 		b.WriteString("id: ")
-		b.WriteString(strconv.FormatInt(seq, 10))
+		b.WriteString(id)
 		b.WriteString("\n")
 	}
 	b.WriteString("event: ")

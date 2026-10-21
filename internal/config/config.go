@@ -100,6 +100,17 @@ type Agent struct {
 	Storage Storage `json:"storage"`
 	// Services 是服务模块的配置（P05.1）。
 	Services Services `json:"services"`
+	// Logs 是日志模块的配置（P05.3）。
+	Logs Logs `json:"logs"`
+}
+
+// Logs 是日志模块配置（P05.3）。
+//
+// 只暴露“用哪个 journalctl”。限额（单页 1000 行 / 1 MiB、时间范围 24 小时、
+// 单条消息 8 KiB）是产品行为，不通过配置放宽——PLAN.md 第 14 节要求它们始终生效。
+type Logs struct {
+	// JournalctlPath 是 journalctl 的绝对路径；留空时在 /usr/bin、/bin 里查找。
+	JournalctlPath string `json:"journalctl_path"`
 }
 
 // Services 是服务模块配置（P05.1）。
@@ -343,7 +354,25 @@ func (a Agent) Validate() error {
 	if err := a.Storage.Validate(); err != nil {
 		return err
 	}
+	if err := a.Logs.Validate(); err != nil {
+		return err
+	}
 	return a.Services.Validate()
+}
+
+// Validate 校验日志模块配置。与 Services 同理：只校验路径，
+// 不给“放宽限额”这类配置留入口。
+func (l Logs) Validate() error {
+	if l.JournalctlPath == "" {
+		return nil
+	}
+	if !path.IsAbs(l.JournalctlPath) {
+		return fmt.Errorf("agent.logs.journalctl_path 必须是 POSIX 绝对路径，当前为 %q", l.JournalctlPath)
+	}
+	if strings.ContainsAny(l.JournalctlPath, "?#") {
+		return fmt.Errorf("agent.logs.journalctl_path 不能包含 '?' 或 '#'，当前为 %q", l.JournalctlPath)
+	}
+	return nil
 }
 
 // Validate 校验服务模块配置。

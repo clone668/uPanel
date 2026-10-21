@@ -1,0 +1,8 @@
+== go version
+go version go1.27.3 windows/amd64
+
+== go build ./...
+rc=0
+
+== go vet ./...
+rc=0

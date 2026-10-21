@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -63,6 +64,18 @@ func runHelper(mode string) {
 	case "sleep":
 		time.Sleep(30 * time.Second)
 		os.Exit(0)
+	case "stream-lines":
+		// P05.3 的流式测试用：先吐三行（每行之后都可见，不缓冲），
+		// 然后像 journalctl -f 一样安静地挂着，直到被父进程杀掉。
+		for i := 0; i < 3; i++ {
+			os.Stdout.WriteString("line " + strconv.Itoa(i) + "\n")
+			time.Sleep(10 * time.Millisecond)
+		}
+		time.Sleep(30 * time.Second)
+		os.Exit(0)
+	case "die-with-stderr":
+		os.Stderr.WriteString(strings.Repeat("E", 4096))
+		os.Exit(9)
 	}
 	os.Stderr.WriteString("unknown helper mode: " + mode + "\n")
 	os.Exit(2)

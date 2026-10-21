@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: uPanel API
-  version: 0.0.0-p05.2
+  version: 0.0.0-p05.3
   summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
   description: |
     uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。
@@ -23,7 +23,7 @@ info:
     name: Proprietary
     identifier: LicenseRef-Proprietary
 x-upanel-contract-status:
-  stage: P05.2
+  stage: P05.3
   implemented_paths:
     - get /api/v1/health/live
     - head /api/v1/health/live
@@ -50,6 +50,8 @@ x-upanel-contract-status:
     - get /api/v1/services
     - get /api/v1/services/{unit}
     - get /api/v1/processes
+    - get /api/v1/logs
+    - get /api/v1/logs/stream
   note: 只列出已实现并通过验收的接口；未实现模块不出现在 paths 中。
 servers:
   - url: https://127.0.0.1:9443/api/v1
@@ -69,6 +71,8 @@ tags:
     description: 设备、分区、卷
   - name: services
     description: systemd 服务单元
+  - name: logs
+    description: 结构化日志查询与实时流（仅 admin）
   - name: shares
     description: SMB / NFS 共享
   - name: apps
@@ -936,6 +940,220 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/v1/logs:
+    get:
+      operationId: queryLogs
+      summary: 结构化日志查询（仅 admin）
+      description: |
+        CONTRACTS.md 第 10 节（P05.3 起），权限 admin。经代理的 logs.query 读取 journald；
+        Web 不直接读 /var/log，也不执行任何命令。
+
+        **只有管理员。** 原始日志里可能有口令形态的字符串、内网地址与别人的命令行。
+        PLAN.md 第 14 节写明：秘密过滤是**尽力**措施，不能作为向 viewer 开放日志的依据。
+        所以 viewer 在这里得到 403，而不是“脱敏后的日志”。
+
+        过滤：source 是闭集 journal|kernel；unit 只在 source=journal 时允许，且必须是完整
+        单元名（不接受通配符与路径——journalctl 的 -u 会展开通配符，而“让调用方决定匹配
+        模式”正是这里要避免的自由度）；level 是 syslog 级别**下限**（该级别及更严重）。
+        level=unknown 不是合法入参：unknown 只出现在**结果**里，表示该条目没有可识别的
+        PRIORITY。把读不出来的级别当成 info，会让“只看 error”这类过滤看起来生效了。
+
+        时间：from、to 为 RFC 3339（含端点），必须 from < to，跨度 ≤ 24 小时；都不给时
+        回看 1 小时，只给 to 时同样回看 1 小时。to 明显超过当前时间（容差 2 分钟）返回
+        400——未来窗口永远为空，与其让人以为“这段时间没有日志”，不如直说参数写错了。
+
+        分页是**降序键集**：结果按时间从新到旧，next_cursor 是本页最后一条的游标，带回来
+        即“从这里（含）继续向更早翻”；边界条目被重复返回时客户端按 cursor 去重。游标不
+        透明，不要手工构造；被拒绝的游标返回 400，重试同一个游标不会变好。翻到尽头时
+        next_cursor 为 null。
+
+        限额由服务端强制，前端传什么都放宽不了：最多 1000 行、单页消息累计 1 MiB、
+        单条消息保留 8 KiB。触到上限时 truncated=true，truncated_reason 说明是哪一条限额
+        先到——这不是“只有这些日志”。
+
+        message 已经过尽力脱敏；redacted=true 只表示“这条里至少有一处被抹过”，
+        不代表“这条是安全的”。
+      tags: [logs]
+      parameters:
+        - $ref: '#/components/parameters/LogSource'
+        - $ref: '#/components/parameters/LogUnit'
+        - $ref: '#/components/parameters/LogLevel'
+        - $ref: '#/components/parameters/LogFrom'
+        - $ref: '#/components/parameters/LogTo'
+        - $ref: '#/components/parameters/LogLimit'
+        - name: cursor
+          in: query
+          required: false
+          description: 上一页返回的 next_cursor，语义是“从这里（含）向更早翻”。
+          schema:
+            type: string
+            maxLength: 512
+            pattern: '^[A-Za-z0-9=;:._+\-/]+$'
+      responses:
+        '200':
+          description: 日志页（按时间从新到旧）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/LogPage'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          description: |
+            参数不合法（VALIDATION_ERROR）：时间格式、时间先后、跨度超过 24 小时、
+            to 在未来、level/source 不在闭集内、unit 形状不合法、limit 越界，或游标被拒。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: 权限不足（FORBIDDEN）。日志只对 admin 开放，viewer 拿不到“脱敏版”。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 代理不可用（AGENT_UNAVAILABLE）：未配置 socket、连接失败或本机无 journald。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/logs/stream:
+    get:
+      operationId: streamLogs
+      summary: 实时日志流（SSE，仅 admin）
+      description: |
+        CONTRACTS.md 第 10 节（P05.3 起）。这是 GET，靠会话 Cookie + 同源 Origin 校验，
+        不要求 X-CSRF-Token（EventSource 无法自定义请求头）。参数与 GET /logs 相同，
+        但 **cursor 语义是“续传”**：`cursor` 或 `Last-Event-ID` 给定时，从该游标**之后**
+        开始发送（不含该条本身），缺省则从窗口末尾开始跟随。
+
+        帧格式：`id: <journal 游标>`、`event: entry|end|error`、`data: <JSON>`。
+        - `entry`：一条日志，data 与 LogEntry 同形。
+        - `end`：本次流正常结束，data 为 `{"reason": "..."}`；reason 是闭集：
+          `duration_limit`（到达单条流的最长时长）、`idle_timeout`（窗口内一直没有新条目）、
+          `entry_limit`（到达单条流的条数上限）、`byte_limit`（到达字节上限）、
+          `journal_exit`（journalctl 自己退出了，不是我们收掉的）、
+          `client_closed`（调用方不再接收）。客户端自己断开时不会再收到这一帧——
+          连接已经没了；其余情况客户端收到 end 后不应立刻自动重连。
+        - `error`：流异常中断，data 为 `{"code":"STREAM_FAILED","message":"..."}`。
+        每 15 秒发送一行注释心跳（`: keepalive`），避免中间设备掐掉空闲连接。
+
+        断线重连由浏览器 EventSource 负责：它把最后一个 `id`（journal 游标）作为
+        `Last-Event-ID` 带回，服务端从该游标**之后**续发，因此重连既不会重复也不需要
+        客户端自己记位置。日志流**没有**任务事件流那样的 `gap` 帧：续传点是 journal
+        自己的游标，历史不会被本服务裁剪，游标失效时直接以 400 结束而不是假装续上了。
+
+        **资源回收**：客户端断开、代理返回错误或心跳写入失败时，请求 ctx 结束，代理侧
+        对 journalctl 的跟随进程随之被杀掉。STAGES.md 第 7 阶段的验收条款“结束日志订阅
+        不会残留无限 journalctl 子进程”验的就是这条链路。
+
+        每个账号同时最多 4 条流（与任务事件流共用额度）；超出返回 429。慢客户端会被写
+        超时断开，随后按 Last-Event-ID 重连。
+      tags: [logs]
+      parameters:
+        - $ref: '#/components/parameters/LogSource'
+        - $ref: '#/components/parameters/LogUnit'
+        - $ref: '#/components/parameters/LogLevel'
+        - $ref: '#/components/parameters/LogFrom'
+        - $ref: '#/components/parameters/LogTo'
+        - $ref: '#/components/parameters/LogLimit'
+        - name: cursor
+          in: query
+          required: false
+          description: 从该游标**之后**开始发送（续传，不含该条本身）。
+          schema:
+            type: string
+            maxLength: 512
+            pattern: '^[A-Za-z0-9=;:._+\-/]+$'
+        - name: Last-Event-ID
+          in: header
+          required: false
+          description: EventSource 自动带回的最后一个 entry 的 id（journal 游标）。
+          schema:
+            type: string
+            maxLength: 512
+      responses:
+        '200':
+          description: |
+            text/event-stream。首帧是 `: connected` 注释，随后推送 entry 帧，直至 end 或 error。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum: ['no-store']
+            X-Accel-Buffering:
+              schema:
+                type: string
+                enum: ['no']
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              example: |
+                : connected
+
+                id: s=8f2c1a4d5e6b7c8d9e0f1a2b3c4d5e6f;i=1a2b;b=c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8;m=1f2e3d4;t=5f6a7b8c9d0e;x=9a8b7c6d5e4f3a2b
+                event: entry
+                data: {"cursor":"s=8f2c…","timestamp":"2026-10-21T09:14:02.418000Z","level":"info","message":"Started OpenBSD Secure Shell server.","truncated":false,"redacted":false,"binary":false,"unit":"ssh.service","identifier":"systemd","comm":"systemd","pid":812}
+
+                event: end
+                data: {"reason":"duration_limit"}
+
+        '400':
+          description: |
+            参数不合法（VALIDATION_ERROR）。**在写响应头之前**完成校验，所以客户端拿到的是
+            JSON 错误，而不是一条 200 的空流。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          description: 同一账号同时打开的流过多（VALIDATION_ERROR，HTTP 429）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 代理不可用（AGENT_UNAVAILABLE）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/operations/preflight:
     post:
       operationId: postOperationsPreflight
@@ -1506,6 +1724,62 @@ components:
       schema:
         type: string
         pattern: '^job_[0-9a-f]{32}$'
+
+    LogSource:
+      name: source
+      in: query
+      required: false
+      description: 数据源，缺省 journal。kernel 读取内核环形缓冲（journalctl -k）。
+      schema:
+        type: string
+        enum: [journal, kernel]
+        default: journal
+    LogUnit:
+      name: unit
+      in: query
+      required: false
+      description: |
+        完整 systemd 单元名，需要 URL 编码。只作为标识使用，不会被拼成路径或命令片段；
+        不接受 glob、空格与路径。source=kernel 时不允许。
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 256
+        pattern: '^[A-Za-z0-9][A-Za-z0-9:_.@\-]{0,200}\.(service|socket|timer|mount|automount|swap|target|path|slice|scope|device)$'
+    LogLevel:
+      name: level
+      in: query
+      required: false
+      description: syslog 级别下限，包含该级别与更严重者。不接受 unknown（它只出现在结果里）。
+      schema:
+        type: string
+        enum: [emergency, alert, critical, error, warning, notice, info, debug]
+    LogFrom:
+      name: from
+      in: query
+      required: false
+      description: 时间范围起点（含），RFC 3339 UTC。与 to 相距不得超过 24 小时。
+      schema:
+        type: string
+        format: date-time
+    LogTo:
+      name: to
+      in: query
+      required: false
+      description: 时间范围终点（含），RFC 3339 UTC。不得明显超过当前时间。
+      schema:
+        type: string
+        format: date-time
+    LogLimit:
+      name: limit
+      in: query
+      required: false
+      description: 本次最多返回的条数。缺省 100，上限 1000。
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
+        default: 100
 
   headers:
     RequestId:
@@ -3192,6 +3466,122 @@ components:
           description: 人类可读理由，去重且顺序固定；未保护时为空数组。
           items:
             type: string
+
+    LogEntry:
+      type: object
+      additionalProperties: false
+      description: |
+        一条日志（CONTRACTS.md 第 10 节）。字段刻意少：只给定位、分级与可显示文本。
+        原始 journal 字段（_AUDIT_LOGINUID、_BOOT_ID、_MACHINE_ID 等）一律不下发——
+        它们对排查有用，但会把整机指纹一起带出去，而本阶段的需求是“按 unit/时间/级别
+        查日志”，不是 journal 字段浏览器。message 已尽力脱敏，见 redacted 的说明。
+      required: [cursor, timestamp, level, message, truncated, redacted, binary, pid]
+      properties:
+        cursor:
+          type: string
+          maxLength: 512
+          description: |
+            journald 的 __CURSOR。翻页、去重与断线续传都靠它，**不透明**：
+            只允许原样带回，不要解析、比较或构造。
+        timestamp:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        level:
+          type: string
+          enum: [emergency, alert, critical, error, warning, notice, info, debug, unknown]
+          description: |
+            syslog 级别。unknown 表示该条目没有可识别的 PRIORITY，**不是** info 的别名：
+            把读不出来的级别写成 info 会让“只看 error”的过滤看起来生效了，实际却混进了
+            未知级别的条目。
+        message:
+          type: string
+          maxLength: 8192
+          description: |
+            脱敏并截断后的消息文本。binary=true 时为空串——此时“没有文本”是事实，
+            不要渲染成“空日志行”。单条超过 8 KiB 的部分被丢弃并置 truncated=true。
+        truncated:
+          type: boolean
+          description: 消息超过单条上限被截断。截断必须显式标记，不能让读者以为原文就这么长。
+        redacted:
+          type: boolean
+          description: |
+            这条消息里至少有一处被秘密过滤规则抹掉了。它是“抹过”的事实，**不是**
+            “已经干净”的保证（PLAN.md 第 14 节：过滤是尽力措施）。
+        binary:
+          type: boolean
+          description: |
+            journald 没有给出可显示的文本（MESSAGE 为 null 或字节数组）。实测 systemd 255
+            对超长单条消息就是这样处理的：内容存在，但不是字符串。
+        unit:
+          type: string
+          maxLength: 256
+          description: |
+            _SYSTEMD_UNIT。内核日志与套接字写入的条目可能没有，此时字段不出现
+            （不是空串）。
+        identifier:
+          type: string
+          maxLength: 128
+          description: SYSLOG_IDENTIFIER（程序自报的名字）。没有时字段不出现。
+        comm:
+          type: string
+          maxLength: 64
+          description: _COMM（内核记录的可执行名）。没有时字段不出现。
+        pid:
+          type: [integer, 'null']
+          minimum: 1
+          description: _PID；字段缺失时为 null，而不是 0（0 是合法 PID 的邻居，容易被误读）。
+
+    LogPage:
+      type: object
+      additionalProperties: false
+      description: |
+        一页日志（CONTRACTS.md 第 10 节）。entries 按时间**倒序**（最新在前）；
+        翻页靠 next_cursor 往更早走。from/to 是本次**实际生效**的窗口（默认值已补齐），
+        用来让页面说清“查的是哪一段”，而不是让用户猜。
+      required: [source, from, to, entries, next_cursor, truncated, scanned, duration_ms]
+      properties:
+        source:
+          type: string
+          enum: [journal, kernel]
+        unit:
+          type: string
+          description: 生效的 unit 过滤；未过滤时不出现。
+        level:
+          type: string
+          enum: [emergency, alert, critical, error, warning, notice, info, debug]
+          description: 生效的级别下限过滤；未过滤时不出现。
+        from:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        to:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        entries:
+          type: array
+          description: 本页条目，时间倒序。没有条目时是空数组，不是 null。
+          items:
+            $ref: '#/components/schemas/LogEntry'
+        next_cursor:
+          type: [string, 'null']
+          maxLength: 512
+          description: |
+            继续向更早翻的游标；null 表示已经到窗口起点，没有更早的条目了。
+            它不是“下一页可能重复”的提示，而是唯一的翻页凭据：丢掉它就只能重查。
+        truncated:
+          type: boolean
+          description: 本页不是“查询结果的全部”，而是被条数或字节上限截断的。
+        truncated_reason:
+          type: string
+          enum: [page_bytes, output_limit]
+          description: |
+            截断原因：page_bytes 表示单页消息累计先撞到 1 MiB；output_limit 表示
+            journalctl 的输出被单次读取上限截断（最后一行可能不完整，已被丢弃）。
+            因条数上限截断时该字段不出现——条数上限是调用方自己给的 limit，无需解释。
+        scanned:
+          type: integer
+          minimum: 0
+          description: 实际解析过的条数（含被丢弃的重复游标条目），用于诊断“是不是扫太多了”。
+        duration_ms:
+          type: integer
+          minimum: 0
+          description: 本次查询耗时（毫秒）。
 
     NullableRfc3339Utc:
       type: [string, 'null']

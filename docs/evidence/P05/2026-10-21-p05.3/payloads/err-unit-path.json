@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"journal: 查询参数不合法: unit \"/etc/passwd\" 不是合法的单元名（需要形如 ssh.service，不接受通配符与路径）"},"request_id":"66eee50319a0d88c49e3788a2caf8349"}

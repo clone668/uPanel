@@ -58,6 +58,12 @@ export const appRoutes: readonly RouteRecordRaw[] = [
     meta: { moduleKey: 'services' },
   },
   {
+    path: '/logs',
+    name: 'logs',
+    component: () => import('@/views/LogsView.vue'),
+    meta: { moduleKey: 'logs' },
+  },
+  {
     path: '/jobs',
     name: 'jobs',
     component: () => import('@/views/JobsView.vue'),

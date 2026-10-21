@@ -19,6 +19,7 @@ import (
 	"upanel/internal/agent"
 	"upanel/internal/agentstore"
 	"upanel/internal/config"
+	"upanel/internal/journal"
 	"upanel/internal/logging"
 	"upanel/internal/monitoring"
 	"upanel/internal/platform"
@@ -258,6 +259,32 @@ func run(args []string, stdout, stderr io.Writer) int {
 		"max_processes", processes.MaxProcesses,
 		"self_pid", os.Getpid())
 
+	// 日志读取（P05.3）：journal 查询与实时跟随都只调用 journalctl，参数由
+	// internal/journal 构造（unit 形状、级别闭集、RFC3339 时间、游标字符集都校验过）。
+	// 找不到 journalctl 时不登记 logs.query、也不接受日志流许可——capabilities
+	// 因此不会报告一个调用就失败的查询。
+	var logsQuerier agent.LogsSource
+	if path, ok := journal.FindJournalctl(cfg.Agent.Logs.JournalctlPath); ok {
+		q, err := journal.NewQuerier(path, journal.SyscmdRunner(), journal.SyscmdStreamer(), nil)
+		if err != nil {
+			logger.Error("初始化 journal 读取器失败", "error", err, "path", path)
+			return 1
+		}
+		logsQuerier = q
+		logger.Info("已启用日志读取",
+			"journalctl", path,
+			"max_limit", journal.MaxLimit,
+			"max_span", journal.MaxSpan.String(),
+			"max_page_bytes", journal.MaxPageBytes,
+			"max_message_bytes", journal.MaxMessageBytes,
+			"stream_duration", journal.DefaultStreamDuration.String(),
+			"stream_idle", journal.DefaultStreamIdle.String())
+	} else {
+		logger.Warn("未找到 journalctl，日志查询与日志流将不可用",
+			"hint", "本机需要 systemd；或在 agent.logs.journalctl_path 指定绝对路径",
+			"configured", cfg.Agent.Logs.JournalctlPath)
+	}
+
 	// 动作登记表：生产表自 P05.1 起有 service.control，P05.2 起有 process.signal（受保护名单与读回验证见 internal/services）。
 	// 验收表只能靠显式参数启用，且动作全部以 acceptance. 开头、不读写任何系统资源。
 	registry := agent.NewRegistry()
@@ -272,6 +299,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Storage:   storageCollector,
 		Services:  servicesCollector,
 		Processes: processesCollector,
+		Logs:      logsQuerier,
 	}
 	if err := agent.RegisterProductionQueries(registry, deps); err != nil {
 		logger.Error("登记生产查询失败", "error", err)
@@ -317,6 +345,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Secrets:         secrets,
 		Plans:           plans,
 		Operations:      operations,
+		Logs:            logsQuerier,
 	})
 	if err != nil {
 		logger.Error("初始化代理失败", "error", err)

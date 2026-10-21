@@ -49,7 +49,14 @@ export const MODULES: readonly ModuleDef[] = [
   },
   { key: 'files', label: '文件', path: '/files', implementedIn: null, summary: '文件浏览与受控下载' },
   { key: 'terminal', label: '终端', path: '/terminal', implementedIn: null, summary: '受限 Web 终端' },
-  { key: 'logs', label: '日志', path: '/logs', implementedIn: null, summary: '系统与服务日志' },
+  {
+    key: 'logs',
+    label: '日志',
+    path: '/logs',
+    implementedIn: 'P05.3',
+    summary:
+      '按数据源、单元、级别与时间窗口查询 journald（单页 ≤1000 行 / 1 MiB，窗口 ≤24 小时），并实时订阅；原始日志仅管理员可读。',
+  },
   { key: 'backup', label: '备份', path: '/backup', implementedIn: null, summary: 'restic 备份与恢复' },
   {
     key: 'schedules',

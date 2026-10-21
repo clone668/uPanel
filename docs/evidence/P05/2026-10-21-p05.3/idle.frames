@@ -1,0 +1,13 @@
+: connected
+
+: keepalive
+
+: keepalive
+
+: keepalive
+
+: keepalive
+
+event: end
+data: {"reason":"idle_timeout"}
+

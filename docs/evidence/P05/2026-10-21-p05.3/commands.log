@@ -1,0 +1,91 @@
+# P05.3 实际执行的命令（按时间顺序）
+
+宿主为 Windows + Git Bash；Go 为 `C:\Program Files\Go\bin\go`（go1.27.3 windows/amd64），
+前端固定在 `.nvmrc` 的 Node v22.23.3。VM 为 `upanel-2404`（`ssh -p 2222`）。
+
+## 1. 交叉编译与上传
+
+```
+export PATH="/c/Program Files/Go/bin:$PATH"; export GOOS=linux GOARCH=amd64 CGO_ENABLED=0
+cd .build/linux-amd64
+go build -o upanel-agent ../../cmd/upanel-agent
+go build -o upanel-web   ../../cmd/upanel-web
+go build -o upanelctl    ../../cmd/upanelctl
+for pkg in agentstore agent agentclient operations syscmd store api monitoring storage journal logs; do
+  go test -c -o tests/$pkg.test ../../internal/$pkg
+done
+scp upanel-agent upanel-web upanelctl upanel@127.0.0.1:/tmp/upanel-bin/
+scp tests/*.test upanel@127.0.0.1:/tmp/upanel-bin/tests/
+# chmod 0755 逐个显式给出：glob 'upanel-*' 不匹配 upanelctl（P05.2 踩过一次）
+```
+
+## 2. VM 真机验收（P05.3）
+
+```
+sudo BIN_DIR=/tmp/upanel-bin WAIT_IDLE=1 sh /tmp/upanel-bin/tests/integration/p05-3-logs-acceptance.sh
+# → PASS=132 FAIL=0 NOT RUN=1；载荷校验 PASS=6466 FAIL=0 SKIP=0；exit=0
+```
+
+## 3. 内核 panic 后的重建（第 9 次 panic，2026-10-21T12:54 宿主时间）
+
+```
+# 宿主：归档 panic 现场 → kill QEMU → 重新 launch-vm.ps1
+cp H:/Code/vms/upanel-2404/console.log H:/Code/vms/upanel-2404/console.panic-9-2026-10-21.log
+Stop-Process -Id <qemu.pid> -Force
+powershell -NoProfile -File H:\Codems\launch-vm.ps1 -Name upanel-2404 -SshPort 2222 -SeedPort 8899 -MemoryMB 4096
+# 冷启动清空了 /tmp，harness 整套重传（二进制按同一份源码重编，gofmt 之后）
+export PATH="/c/Program Files/Go/bin:$PATH"; export GOOS=linux GOARCH=amd64 CGO_ENABLED=0
+cd .build/linux-amd64 && go build -o upanel-agent ../../cmd/upanel-agent   && go build -o upanel-web ../../cmd/upanel-web && go build -o upanelctl ../../cmd/upanelctl
+for pkg in agentstore agent agentclient operations syscmd store api monitoring storage journal logs; do
+  go test -c -o tests/$pkg.test ../../internal/$pkg
+done
+scp upanel-agent upanel-web upanelctl upanel@127.0.0.1:/tmp/upanel-bin/
+scp tests/*.test upanel@127.0.0.1:/tmp/upanel-bin/tests/
+tar czf - tests/integration tests/fixtures deploy | ssh … 'cd /tmp/upanel-bin && tar xzf -'
+scp scripts/run-native-tests.sh upanel@127.0.0.1:/tmp/upanel-bin/
+ssh … 'chmod 0755 upanel-agent upanel-web upanelctl tests/*.test run-native-tests.sh tests/integration/*.sh'
+```
+
+## 4. VM 原生测试（Linux 上跑同一份 Go 代码）
+
+```
+sudo BIN_DIR=/tmp/upanel-bin sh /tmp/upanel-bin/run-native-tests.sh
+# → TOTAL PASS=749 FAIL=0（agentstore 72 / agent 171 / agentclient 39 / operations 57 /
+#    syscmd 13 / store 11 / api 135 / monitoring 30 / storage 159 / journal 40 / logs 22）
+```
+
+## 5. 全量回归（17 个验收脚本）
+
+```
+sudo -n sh /tmp/run-regression-p05-3.sh      # 包一层：记 uptime / 时间戳 / exit code
+# 内部等价于：
+sudo BIN_DIR=/tmp/upanel-bin WAIT_QUARANTINE=0 sh /tmp/upanel-bin/tests/integration/run-all.sh
+# → run A：运行脚本数 17 / 失败脚本数 2（p01-2、p01-4，均为 /etc/upanel/upanel.json 0 字节残留）
+# → 恢复/清理现场后 run B：
+sudo BIN_DIR=/tmp/upanel-bin WAIT_QUARANTINE=0 sh /tmp/upanel-bin/tests/integration/run-all.sh   p01-2-acceptance p01-4-acceptance
+# → run B：PASS 34 / FAIL 0 与 通过 114 / 失败 0 / 未执行 0，退出码 0
+# → 守卫自检：临时截成 0 字节再调用，run-all 的前置警告如期出现，随后恢复原文件
+```
+
+`WAIT_QUARANTINE=0` 的原因：p04-3 的“隔离到期后容量自愈”要等 5 分钟隔离期，本机内核有随机
+panic 病史，如实记 NOT RUN，其余断言照跑（该项由 P04.3 自己的证据覆盖）。
+
+## 6. 宿主检查
+
+```
+go build ./... && go vet ./... && go test ./... -count=1
+gofmt -l .            # 本轮修掉 8 个未格式化文件；改完 run-all.sh 后复跑 gofmt 仍为空
+sh scripts/check.sh   # PASS 13 / FAIL 0 / NOT RUN 0（Node v22.23.3 + redocly），
+                      # 回归跑完、run-all.sh 加 0 字节守卫之后又复跑一次，结果相同
+cd web && npm run typecheck && npm run lint && npm test && npm run build
+```
+
+## 7. 夹具落地
+
+```
+ssh … 'sudo tar -c -C /var/tmp/upanel-accept-p05-3 payloads live.frames resume.frames idle.frames' \
+  | tar -x -C docs/evidence/P05/2026-10-21-p05.3
+cp docs/evidence/P05/2026-10-21-p05.3/payloads/*.json web/src/fixtures/p05-3-vm/
+cp docs/evidence/P05/2026-10-21-p05.3/*.frames    web/src/fixtures/p05-3-vm/*.frames.txt
+npx vitest run src/components/realdata-logs.test.ts   # 24 用例
+```

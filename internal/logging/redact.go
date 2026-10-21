@@ -136,6 +136,20 @@ func isSecretKey(key string) bool {
 	return false
 }
 
+// Redact 抹掉任意文本里的秘密形态，并报告是否真的抹掉过东西。
+//
+// 给日志包以外的读取路径用（P05.3 的 journal 消息）：它们读到的是别人的文本，
+// 不经过 logger，但同样可能带着口令与令牌。第二个返回值让调用方能在 DTO 里标
+// “这条被过滤过”——过滤是尽力措施，把是否过滤过说出来才是诚实的做法
+// （PLAN.md 第 14 节：过滤秘密不能作为向 viewer 开放日志的依据）。
+func Redact(s string) (string, bool) {
+	if s == "" {
+		return s, false
+	}
+	out := redactText(s)
+	return out, out != s
+}
+
 // redactText 抹掉文本里的秘密形态。
 func redactText(s string) string {
 	if s == "" {

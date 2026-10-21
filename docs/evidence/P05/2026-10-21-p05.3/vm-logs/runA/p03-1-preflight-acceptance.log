@@ -1,0 +1,118 @@
+== 0. 环境
+PASS  验收脚本以 root 运行
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  python3 可用于查库
+PASS  Web 账号 upanel-web 存在
+
+== 1. 启动代理（验收动作表） ==
+PASS  socket 目录属主 root
+PASS  socket 目录权限 755
+PASS  -init-key 生成代理密钥
+PASS  密钥文件属主 root
+PASS  密钥文件权限 600
+PASS  代理库目录权限 700
+PASS  代理以 root 启动并创建 socket
+PASS  socket 属组
+PASS  socket 权限 660
+PASS  代理进程 uid=0
+PASS  代理已启用验收动作表
+PASS  代理日志记录预检 TTL
+PASS  capabilities 含 acceptance.probe
+PASS  capabilities 含 acceptance.ping
+
+== 2. 管理员与 Web 启动（非 root） ==
+PASS  init-admin 退出码
+PASS  管理员 user_id=1
+PASS  Web 以 upanel-web 身份在 http://127.0.0.1:19443 启动
+PASS  Web 进程 uid=999（upanel-web，非 root）
+PASS  没有以 root 运行的 Web 进程
+PASS  Web 库属主是 upanel-web
+PASS  管理员登录 200
+PASS  登录返回 CSRF 令牌
+
+== 3. 预检主流程（acceptance.probe） ==
+PASS  预检返回 200
+PASS  action 回显
+PASS  allowed 为 true
+PASS  requires_reauth 为 true
+PASS  cancellable 为 false
+PASS  blockers 是空数组
+PASS  locks 只有 acceptance:probe
+PASS  warnings 标记验收专用
+PASS  impacts 说明不改动系统
+PASS  target 有展示名
+PASS  target 有身份指纹
+PASS  preflight_id 形态为 pf_<hex>
+PASS  确认短语形态为 PROBE + 6 位无歧义码
+PASS  响应不含代理侧计划引用
+PASS  响应不含 state_version
+
+== 4. 期限 120 秒与两端绑定 ==
+PASS  expires_at 距今 118s（120 秒有效期）
+PASS  Web 库记录了代理侧计划引用
+PASS  Web 库 expires_at 与响应一致
+PASS  代理库期限恰为 120000ms
+PASS  代理库 expires_at 与响应一致
+PASS  Web 库 user_id 是登录账号
+PASS  代理库 user_id 与 Web 库一致
+PASS  两端 session_hash 一致
+PASS  session_hash 为 64 位十六进制
+PASS  params_hash 为 64 位十六进制
+PASS  代理库记录状态版本
+PASS  Web 库记录状态版本
+PASS  预检未被消费（consumed_job_id 为空）
+PASS  代理库计划未被使用（used_at=0）
+
+== 5. 参数规范化与哈希绑定 ==
+PASS  带空白的同参数预检返回 200
+PASS  只有空白差异得到同一 params_hash
+PASS  不同参数预检返回 200
+PASS  不同参数得到不同 params_hash
+
+== 6. 策略由登记表决定（acceptance.ping 对照） ==
+PASS  ping 预检返回 200
+PASS  ping 不要求再认证
+PASS  ping 不需要短语（字段为 null）
+PASS  ping 允许取消
+PASS  ping 不需要短语时字段仍存在
+
+== 7. 短语只出现一次：库里只有哈希 ==
+PASS  代理库只存 64 位短语哈希
+PASS  代理库不存短语明文
+PASS  代理数据库文件中搜不到短语
+PASS  Web 库只有 requires_phrase，没有短语内容列
+PASS  代理日志没有短语明文
+PASS  Web 日志没有短语明文
+PASS  代理日志记录了预检事件
+PASS  Web 日志记录了预检登记
+
+== 8. 权限：未登录 / viewer / 缺 CSRF ==
+PASS  未登录预检返回 401
+PASS  创建 viewer 返回 201
+PASS  viewer 登录 200
+PASS  viewer 预检返回 403
+PASS  viewer 被拒的错误码
+PASS  缺 CSRF 预检返回 403
+PASS  缺 CSRF 的错误码
+PASS  被拒绝的请求没有落库
+
+== 9. 请求形状与未登记动作 ==
+PASS  夹带计划外字段返回 400
+PASS  夹带字段的错误码
+PASS  未登记动作返回 400
+PASS  未登记动作的错误码
+PASS  未登记动作的错误信息可读
+PASS  非法动作名返回 400
+PASS  被拒绝的请求在代理库也没有记录
+PASS  代理库恰好保存 4 条成功预检（probe、带空白 probe、beta、ping）
+
+== 10. 代理不可用 ==
+PASS  代理停止后返回 503
+PASS  代理不可用的错误码
+PASS  代理不可用时没有落库
+
+== 11. 汇总 ==
+通过 93 项，失败 0 项
+P03.1 验收全部通过

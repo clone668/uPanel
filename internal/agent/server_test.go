@@ -140,9 +140,12 @@ func TestCapabilitiesRejectsPost(t *testing.T) {
 
 func TestUnknownAgentPathIs404(t *testing.T) {
 	srv := newTestServer(t)
-	// 只列出根路径、不存在的接口与尚未实现的接口（streams 属后续阶段）；
+	// 只列出根路径、不存在的接口与尚未实现的接口（终端与文件属后续阶段）；
 	// 它们必须 404 而不是 200——未实现的代理接口不得以任何成功状态回话。
-	for _, path := range []string{"/", "/internal/v1/jobs", "/internal/v1/streams", "/internal/v1/operations/not-an-id"} {
+	//
+	// P05.3 起 /internal/v1/streams 是已实现的路由（GET 建许可不合法，回 405），
+	// 所以它从这里移出，改由 streams_test.go 覆盖；这条测试的语义不变。
+	for _, path := range []string{"/", "/internal/v1/jobs", "/internal/v1/terminal", "/internal/v1/files", "/internal/v1/operations/not-an-id"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := serveAs(srv, req, testWebUID)
 		if rec.Code != http.StatusNotFound {

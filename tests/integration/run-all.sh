@@ -39,7 +39,7 @@ if [ -n "$DEPLOY_DIR" ] && [ ! -d "$DEPLOY_DIR/systemd" ]; then
 fi
 
 NONROOT_SCRIPTS="p01-1-acceptance p01-2-acceptance p01-4-acceptance p02-1-acceptance p02-2-acceptance"
-ROOT_SCRIPTS="p02-3-agent-acceptance p02-4-agent-secrets-acceptance p03-1-preflight-acceptance p03-2-jobs-acceptance p03-3-events-acceptance p03-4-reconcile-acceptance p04-1-system-acceptance p04-2-storage-acceptance p04-3-storage-health-acceptance p05-1-services-acceptance p05-2-processes-acceptance"
+ROOT_SCRIPTS="p02-3-agent-acceptance p02-4-agent-secrets-acceptance p03-1-preflight-acceptance p03-2-jobs-acceptance p03-3-events-acceptance p03-4-reconcile-acceptance p04-1-system-acceptance p04-2-storage-acceptance p04-3-storage-health-acceptance p05-1-services-acceptance p05-2-processes-acceptance p05-3-logs-acceptance"
 
 if [ $# -gt 0 ]; then
     SELECTED="$*"
@@ -109,6 +109,17 @@ $SUDO mkdir -p "$LOG_DIR" 2>/dev/null
 $SUDO chmod 0777 "$LOG_DIR" 2>/dev/null
 # 旧版本用的 /tmp 固定文件名留着只会误导人（里面是上一次的结果）。
 $SUDO rm -f /tmp/upanel-accept-*.log 2>/dev/null
+
+# 默认配置路径的残留会被“默认路径”类断言读到：p01-2 的 `migrate --db` 与 p01-4 的 mock 段
+# 都不传 --config，于是读 /etc/upanel/upanel.json。文件不存在时走内置默认值（正常）；
+# 存在但是 0 字节就是“配置错误: 解析配置文件失败 /etc/upanel/upanel.json: EOF”。
+# 2026-10-21 被打断的那次回归正好把 p01-4 装的这份配置截成 0 字节，下一轮 3 条断言因此
+# 变成失败，看着像产品坏了。这里只如实报告，不替人删现场：/etc/upanel 是真实安装位置。
+if [ -e /etc/upanel/upanel.json ] && [ ! -s /etc/upanel/upanel.json ]; then
+    echo "警告: /etc/upanel/upanel.json 存在但为 0 字节（多半是上一次安装或被中断的残留）。" >&2
+    echo "      默认配置路径的断言会报“解析配置文件失败 /etc/upanel/upanel.json: EOF”；" >&2
+    echo "      确认是脏现场后再删除它，别把它记成产品缺陷。" >&2
+fi
 
 for name in $SELECTED; do
     script="$SRC_DIR/$name.sh"

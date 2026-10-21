@@ -30,6 +30,10 @@ const maxResponseBytes = 8 << 20
 type Client struct {
 	socketPath string
 	http       *http.Client
+	// stream 与 http 共用同一个 Transport，但**没有整体超时**：
+	// 受限流（P05.3）的寿命由服务端的时长/空闲上限决定，客户端不该替它设一个
+	// “10 秒后必然断开”的闹钟。见 streams.go。
+	stream *http.Client
 }
 
 // Option 是客户端选项。
@@ -79,7 +83,27 @@ func New(socketPath string, opts ...Option) (*Client, error) {
 	for _, opt := range opts {
 		opt(c)
 	}
+	// 流客户端在选项都生效之后构造：WithDialer 会替换 Transport，
+	// 两个客户端必须用同一个，否则流会绕过测试注入的拨号器。
+	// 但流不能继承 “等待响应头超时”：一条安静的长流可能在头一次写之前就
+	// 等上几十秒（心跳在 Web→浏览器那一层，代理→Web 之间没有），
+	// 那个 10 秒的计时器会把一条完全正常的流掐死。拨号器仍然共用。
+	c.stream = &http.Client{Transport: streamTransport(c.http.Transport)}
 	return c, nil
+}
+
+// streamTransport 复制一份底层 Transport，去掉“等待响应头”的超时。
+//
+// 复制而不是共用：ResponseHeaderTimeout 是 Transport 级别的字段，共用就只能二选一
+// （普通调用需要它，流不需要）。复制后仍然用同一个 DialContext，socket 路径不变。
+func streamTransport(base http.RoundTripper) http.RoundTripper {
+	t, ok := base.(*http.Transport)
+	if !ok {
+		return base
+	}
+	clone := t.Clone()
+	clone.ResponseHeaderTimeout = 0
+	return clone
 }
 
 // SocketPath 返回客户端使用的 socket 路径。

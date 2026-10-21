@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"journal: 查询参数不合法: from 必须是 RFC3339 时间（例如 2026-10-21T03:00:00Z），当前为 \"2026-10-21\""},"request_id":"d94407afc259f4931a00f2267048e45f"}

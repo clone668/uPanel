@@ -1,0 +1,92 @@
+== 0. 环境
+PASS  验收脚本以 root 运行
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  python3 可用于解析响应
+PASS  Web 账号 upanel-web 存在
+
+== 1. 启动代理（生产登记表，不带验收动作） ==
+PASS  代理密钥文件已存在（沿用上一轮）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  capabilities 200
+PASS  capabilities 报告 system.summary
+PASS  capabilities 报告的写动作集合与已登记动作一致
+
+== 2. 采集结果与本机 /proc 一致 ==
+PASS  system.summary 200
+PASS  内存总量按字节与 /proc/meminfo 一致
+PASS  内存可用量与 /proc/meminfo 同量级（±64 MiB）
+PASS  内存段 status=ok
+PASS  已用内存 = Total - Available
+PASS  逻辑核数量与 nproc 一致
+PASS  CPU 段 status=ok
+PASS  boot_id 与内核一致
+PASS  发行版 ID 与 /etc/os-release 一致
+PASS  内核版本与 uname -r 一致
+PASS  主机名非空
+PASS  开机时长落在 /proc/uptime 的合理区间内
+PASS  负载 1 分钟值与 /proc/loadavg 可比
+PASS  负载段 status=ok
+PASS  网卡列表包含 loopback
+PASS  网卡段 status=ok
+PASS  每个网卡的速率都要么是 null 要么非负
+
+== 3. 采集时间戳与轮询缓存 ==
+PASS  interval_ms=5000（PLAN §8：基础资源每 5 秒）
+PASS  健康机器上 degraded=false
+PASS  collected_at 不早于 10 秒前（是最近一份快照）
+PASS  stale=false（采集循环在跑）
+NOTE  等 6 秒，跨过一个采集间隔再查
+PASS  第二次查询 200
+PASS  VM 上存在 ens4 网卡（可以比对计数器）
+PASS  ens4 rx_bytes 落在采集前后的 /proc/net/dev 区间内
+PASS  ens4 计数器在快照之间只增不减
+PASS  collected_at 在一个间隔之后前进了
+
+== 4. 使用率与速率来自相邻两次样本 ==
+PASS  usage_percent 非 null 且在 0—100 之间
+PASS  sample_window_ms 是一个采集间隔量级
+PASS  按核使用率数量与逻辑核一致
+PASS  至少一块网卡给出了非 null 速率（已有前一次样本）
+
+== 5. 查询边界：没有万能入口 ==
+PASS  system.summary 不接受参数 400
+PASS  未知参数字段 400
+PASS  未登记查询 400
+PASS  未登记查询说明原因
+PASS  查询接口只接受 POST
+
+== 6. Web 端透传（权限 V、数值来自代理） ==
+PASS  init-admin 退出码
+PASS  Web 以 upanel-web 身份在 http://127.0.0.1:19445 启动
+PASS  Web 进程以 upanel-web 运行
+PASS  未登录读系统信息 401
+PASS  未登录错误码
+PASS  管理员登录 200
+PASS  GET /api/v1/system/summary 200
+PASS  Web 返回的内存总量与 /proc/meminfo 一致
+PASS  Web 返回的 collected_at 是最近 10 秒内的快照
+PASS  Web 与代理返回同一个 interval_ms
+PASS  Web 没有自己编网卡列表
+PASS  创建 viewer 201
+PASS  viewer 登录 200
+PASS  viewer 读系统信息 200
+
+== 7. 采集不可用不阻塞登录 ==
+PASS  代理已停止（socket 不存在）
+PASS  代理停机时登录仍然 200（采集失败不卡住登录）
+PASS  代理停机时 /system/summary 503
+PASS  代理停机时错误码
+PASS  代理停机时不返回任何数值
+PASS  代理恢复启动
+PASS  代理恢复后 /system/summary 200
+PASS  恢复后数值仍然是 /proc 的真实值
+
+== 8. 日志卫生 ==
+PASS  代理日志里没有 shell 命令行痕迹
+PASS  代理日志里没有私钥泄漏
+PASS  Web 日志里没有 panic
+
+通过 72 项，失败 0 项

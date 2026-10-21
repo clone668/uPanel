@@ -338,6 +338,11 @@ func RegisterProductionQueries(reg *Registry, deps ProductionDeps) error {
 			return fmt.Errorf("代理登记 processes.list 失败: %w", err)
 		}
 	}
+	if deps.Logs != nil {
+		if err := reg.RegisterQuery(newLogsQuery(deps.Logs)); err != nil {
+			return fmt.Errorf("代理登记 logs.query 失败: %w", err)
+		}
+	}
 	return nil
 }
 

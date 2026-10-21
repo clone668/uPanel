@@ -26,6 +26,8 @@ type ProductionDeps struct {
 	// Processes 是进程采集器（P05.2）。为 nil 时不登记 processes.list，
 	// 也不登记 process.signal 动作。
 	Processes *processes.Collector
+	// Logs 是日志读取端（P05.3）。为 nil 时不登记 logs.query，也不接受日志流许可。
+	Logs LogsSource
 }
 
 // newSystemSummaryQuery 登记 system.summary：无参数，返回采集器最近一次快照。

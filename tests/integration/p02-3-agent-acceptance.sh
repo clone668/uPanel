@@ -54,7 +54,7 @@ OUTSIDER_USER=nobody
 # capabilities 的完整闭集。生产代理只要依赖齐备就会登记全部查询与动作，
 # 断言**完全等于**当前应有的集合：少报是隐藏能力，多报是编造能力，两种都算失败。
 # 新增查询/动作时同步改这两行（P05.1 加 service.control，P05.2 加 processes.list / process.signal）。
-EXPECTED_QUERIES="['processes.list', 'services.list', 'services.unit', 'storage.topology', 'system.summary']"
+EXPECTED_QUERIES="['logs.query', 'processes.list', 'services.list', 'services.unit', 'storage.topology', 'system.summary']"
 EXPECTED_ACTIONS="['process.signal', 'service.control']"
 
 PASSED=0
@@ -335,8 +335,11 @@ call root GET /internal/v1/operations
 expect_eq "unknown-path-403-for-root" "403" "$CODE"
 call other GET /internal/v1/queries
 expect_eq "same-group-other-uid-403-on-queries" "403" "$CODE"
-call web GET /internal/v1/streams
+# 未知路径用一个真的不存在的端点；/internal/v1/streams 已实现，GET 它是 405。
+call web GET /internal/v1/no-such-endpoint
 expect_eq "unknown-path-404-for-web" "404" "$CODE"
+call web GET /internal/v1/streams
+expect_eq "streams-requires-post-405" "405" "$CODE"
 # /internal/v1/operations 已在 P03.2 实现：夹带未定义字段必须被拒绝，不能靠“未实现”挡。
 call web POST /internal/v1/operations '{"action":"system.power"}'
 expect_eq "operations-rejects-unknown-fields-400" "400" "$CODE"

@@ -1,0 +1,154 @@
+# P05.3 跨阶段全量回归（VM upanel-2404）
+# 开始时间：2026-10-21T04:57:45Z
+# 主机：Ubuntu 24.04.5 LTS / 内核 6.8.0-147-generic
+# uptime：04:57:45 up 2 min,  1 user,  load average: 1.29, 0.68, 0.27
+# 方式：sudo BIN_DIR=/tmp/upanel-bin WAIT_QUARANTINE=0 sh tests/integration/run-all.sh
+
+== p01-1-acceptance（非 root）
+
+== 汇总 ==
+PASS 31 / FAIL 0
+
+== p01-2-acceptance（非 root）
+== 汇总 ==
+PASS 32 / FAIL 2
+失败项: migrate-text-uptodate migrate-reports-failure
+
+== p01-4-acceptance（非 root）
+
+通过: 113  失败: 1  未执行: 0
+失败项: mock-refuses-wildcard-message
+
+== p02-1-acceptance（非 root）
+
+结果: PASS=58 FAIL=0
+工作目录: /var/tmp/upanel-accept-p02-1
+
+== p02-2-acceptance（非 root）
+
+结果: PASS=103 FAIL=0
+工作目录: /var/tmp/upanel-accept-p02-2
+
+== p02-3-agent-acceptance（root）
+
+==================================================
+PASS 88 / FAIL 0
+
+== p02-4-agent-secrets-acceptance（root）
+PASS  socket-removed-after-stop
+
+结果: PASS=87 FAIL=0
+
+== p03-1-preflight-acceptance（root）
+== 11. 汇总 ==
+通过 93 项，失败 0 项
+P03.1 验收全部通过
+
+== p03-2-jobs-acceptance（root）
+== 12. 汇总 ==
+通过 102 项，失败 0 项
+P03.2 验收全部通过
+
+== p03-3-events-acceptance（root）
+
+通过 73 项，失败 0 项
+P03.3 验收全部通过
+
+== p03-4-reconcile-acceptance（root）
+PASS  代理日志不含登录口令
+
+通过 78 项，失败 0 项
+
+== p04-1-system-acceptance（root）
+PASS  Web 日志里没有 panic
+
+通过 72 项，失败 0 项
+
+== p04-2-storage-acceptance（root）
+PASS  Web 日志里没有 panic
+
+通过 110 项，失败 0 项，未执行 0 项
+
+== p04-3-storage-health-acceptance（root）
+
+通过 77 项，失败 0 项，未执行 3 项
+未执行项：USB 盘在拓扑里可见 | NVMe 真实 healthy | 隔离到期后容量自愈
+
+== p05-1-services-acceptance（root）
+
+结果: PASS=140 FAIL=0 NOT RUN=3
+载荷目录（可拷回宿主做前端真实数据回归）: /var/tmp/upanel-accept-p05-1/payloads
+
+== p05-2-processes-acceptance（root）
+== 12. 汇总 ==
+PASS=128 FAIL=0 NOT RUN=0
+NOT RUN 不等于通过；每一条都在脚本头部写明了原因。
+
+== p05-3-logs-acceptance（root）
+== 17. 汇总 ==
+PASS=132 FAIL=0 NOT RUN=1
+NOT RUN 不等于通过；每一条都在脚本头部写明了原因。
+
+== 汇总 ==
+运行脚本数: 17
+失败脚本数: 2
+日志目录: /var/tmp/upanel-logs
+
+  p01-2-acceptance: exit=1（日志 /var/tmp/upanel-logs/p01-2-acceptance.log）
+  p01-4-acceptance: exit=1（日志 /var/tmp/upanel-logs/p01-4-acceptance.log）
+
+# 退出码：1
+# 结束时间：2026-10-21T05:04:10Z
+# uptime：05:04:10 up 9 min,  2 users,  load average: 0.37, 0.57, 0.36
+
+## run B（删掉 0 字节残留后重跑 run A 里失败的两个脚本）
+# 开始时间：2026-10-21T05:04:28Z / uptime：05:04:28 up 9 min,  2 users,  load average: 0.26, 0.54, 0.36
+# /etc/upanel/upanel.json 现在是 669 字节（run A 里 p02-3—p05-3 各自写的合法配置）
+== p01-2-acceptance（非 root）
+
+== 汇总 ==
+PASS 34 / FAIL 0
+
+== p01-4-acceptance（非 root）
+PASS    systemd-unit-removed-after-test
+
+通过: 114  失败: 0  未执行: 0
+
+== 汇总 ==
+运行脚本数: 2
+失败脚本数: 0
+日志目录: /var/tmp/upanel-logs
+# run B 退出码：0 / 结束：2026-10-21T05:04:34Z
+
+## 守卫自检（新加的 0 字节检查是否真的会说话；用不存在的脚本名，不跑任何验收）
+警告: /etc/upanel/upanel.json 存在但为 0 字节（多半是上一次安装或被中断的残留）。
+      默认配置路径的断言会报“解析配置文件失败 /etc/upanel/upanel.json: EOF”；
+      确认是脏现场后再删除它，别把它记成产品缺陷。
+缺少脚本: /tmp/upanel-bin/tests/integration/p99-nonexistent.sh
+== 汇总 ==
+运行脚本数: 0
+失败脚本数: 1
+日志目录: /var/tmp/upanel-logs
+
+  p99-nonexistent: 缺失
+# 守卫自检退出码：1（预期 1：脚本不存在）
+# 已恢复 /etc/upanel/upanel.json：314 字节
+
+## run B 补记：守卫自检重建了 LOG_DIR，把 run B 的逐脚本日志覆盖掉了。
+## 用独立 LOG_DIR 重跑同样两个脚本，只为留逐脚本日志（LOG_DIR=/var/tmp/upanel-logs-runB）。
+# 开始：2026-10-21T05:05:05Z
+== p01-2-acceptance（非 root）
+
+== 汇总 ==
+PASS 34 / FAIL 0
+
+== p01-4-acceptance（非 root）
+PASS    systemd-unit-removed-after-test
+
+通过: 114  失败: 0  未执行: 0
+
+== 汇总 ==
+运行脚本数: 2
+失败脚本数: 0
+日志目录: /var/tmp/upanel-logs-runB
+# run B 补记退出码：0

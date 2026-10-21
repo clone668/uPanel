@@ -148,3 +148,47 @@ func TestOutputStaysValidJSON(t *testing.T) {
 		t.Fatalf("带空格的口令泄漏：%s", buf.String())
 	}
 }
+
+// TestRedactReportsWhetherItMasked 锁住 Redact 的第二个返回值（P05.3）。
+//
+// journal 的 DTO 用它在条目上标 redacted。返回值必须诚实：
+// 没抹到东西时不能报 true（那会让每条日志都挂着“已过滤”的标记，
+// 用户就再也看不出哪几条真的被过滤过），抹到了也不能报 false。
+func TestRedactReportsWhetherItMasked(t *testing.T) {
+	cases := []struct {
+		name       string
+		in         string
+		wantMasked bool
+		wantGone   []string
+		wantKept   []string
+	}{
+		{"空串", "", false, nil, nil},
+		{"普通文本", "sshd: 接受来自 10.0.0.5 的连接", false, nil, []string{"10.0.0.5", "sshd"}},
+		{"查询串里的口令", "login?user=alice&password=hunter2", true,
+			[]string{"hunter2"}, []string{"alice", "login"}},
+		{"Authorization 头", "请求带 Authorization: Bearer abc.def.ghi", true,
+			[]string{"abc.def.ghi"}, []string{"Authorization"}},
+		{"argon2 哈希", "$argon2id$v=19$m=131072,t=3,p=2$c2FsdA$aGFzaA", true,
+			[]string{"c2FsdA", "aGFzaA"}, nil},
+		{"token 键值形态", "token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcd", true,
+			[]string{"eyJhbGciOiJIUzI1NiJ9"}, []string{"token="}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, masked := Redact(tc.in)
+			if masked != tc.wantMasked {
+				t.Fatalf("masked = %v，期望 %v（输出 %q）", masked, tc.wantMasked, out)
+			}
+			for _, secret := range tc.wantGone {
+				if strings.Contains(out, secret) {
+					t.Fatalf("应抹掉 %q，实际输出 %q", secret, out)
+				}
+			}
+			for _, kept := range tc.wantKept {
+				if !strings.Contains(out, kept) {
+					t.Fatalf("应保留 %q，实际输出 %q", kept, out)
+				}
+			}
+		})
+	}
+}

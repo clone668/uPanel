@@ -1,0 +1,27 @@
+ok  	upanel/cmd/upanel-agent	1.809s
+ok  	upanel/cmd/upanel-web	4.534s
+ok  	upanel/cmd/upanelctl	2.924s
+ok  	upanel/internal/agent	13.141s
+ok  	upanel/internal/agentclient	1.941s
+ok  	upanel/internal/agentstore	4.797s
+ok  	upanel/internal/api	52.309s
+ok  	upanel/internal/audit	2.139s
+ok  	upanel/internal/auth	32.173s
+ok  	upanel/internal/config	1.075s
+ok  	upanel/internal/httpx	1.002s
+ok  	upanel/internal/journal	1.596s
+ok  	upanel/internal/logging	0.916s
+ok  	upanel/internal/logs	1.810s
+ok  	upanel/internal/monitoring	0.929s
+ok  	upanel/internal/operations	5.514s
+ok  	upanel/internal/platform	0.861s
+ok  	upanel/internal/processes	0.938s
+ok  	upanel/internal/services	1.533s
+ok  	upanel/internal/storage	3.837s
+ok  	upanel/internal/store	1.563s
+ok  	upanel/internal/syscmd	11.296s
+?   	upanel/internal/testsupport	[no test files]
+ok  	upanel/internal/version	0.591s
+ok  	upanel/internal/webui	0.999s
+?   	upanel/migrations	[no test files]
+?   	upanel/migrations/agentdb	[no test files]

@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"journal: 查询参数不合法: level \"bogus\" 不在闭集内（可选 [emergency alert critical error warning notice info debug]）"},"request_id":"d743726fb09cdb55740c3589592eb6ab"}

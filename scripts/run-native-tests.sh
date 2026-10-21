@@ -50,7 +50,9 @@ export UPANEL_FIXTURES="$FIXTURES"
 total_pass=0
 total_fail=0
 
-for name in agentstore agent agentclient operations syscmd store api monitoring storage; do
+# journal / logs 也在这里跑：它们的用例全是合成输入（fake runner / 假代理），
+# 不需要 journald，但跑在目标平台上能顺带证明“同一份代码在 Linux 上行为一致”。
+for name in agentstore agent agentclient operations syscmd store api monitoring storage journal logs; do
     bin="$TESTS/$name.test"
     if [ ! -x "$bin" ]; then
         echo "缺少测试二进制: $bin" >&2

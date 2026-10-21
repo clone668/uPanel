@@ -361,7 +361,7 @@ domain 为一个不带协议/路径/端口的有效域名；初期不允许通�
 |---|---|
 | GET /services、GET /services/:unit | V；状态与能力，unit 需要 URL 编码 |
 | GET /processes | admin；pid、start_time_ticks、owner、cpu_percent、memory_bytes、脱敏命令摘要 |
-| GET /logs?source=&unit=&from=&to=&cursor=&limit= | admin；最多 1000 行/1 MiB，时间范围最多 24 小时 |
+| GET /logs?source=&unit=&level=&from=&to=&cursor=&limit= | admin；最多 1000 行/1 MiB，时间范围最多 24 小时 |
 | GET /logs/stream | admin；SSE，固定数据源白名单 |
 | GET /terminal/sessions | admin；仅当前用户 |
 | POST /terminal/sessions/:id/connection-grants | admin+CSRF；仅会话创建者，生成 30 秒单次连接许可；允许 60 秒宽限内重连 |
@@ -441,6 +441,44 @@ TERM 与 KILL 是**两次独立操作**，门槛不同：TERM 不需要再认证
 执行顺序：现场复核（重新读 /proc 比对 starttime、保护名单与退出状态，任一不符就一个信号都不发）→ 发送信号 → 轮询读回（间隔 100 毫秒；TERM 最多 10 秒，KILL 最多 5 秒）。**发送成功不算成功**：只有读回确认进程消失、变成僵尸，或那个 PID 已经被另一个 starttime 的进程占用，才算 `outcome=verified`。读回超时必须让任务失败：TERM 说明进程未退出，KILL 说明它可能停在不可中断的内核等待（D 状态），提示到主机上确认。发送时内核回 `ESRCH`（检查与发送之间进程自己退出了）说明意图已达成，但结果里 `delivered=false` 并附一句“信号未送出”——不把没发生的事说成发生了。
 
 不支持批量、不支持向“同名进程”发信号、不支持在列表接口上直接终止：任何写操作都必须走 `process.signal` 的预检与任务。
+
+### 10.3 日志查询与实时流（P05.3 起）
+
+`GET /logs` 与 `GET /logs/stream` 都是权限 **admin**。数据经代理的 `logs.query` 与 `logs.stream` 取自 journald；Web 不读 `/var/log`，也不执行任何命令。
+
+**为什么不给 viewer。** PLAN 第 14 节写明：秘密过滤是尽力措施，不能作为向 viewer 开放日志的依据。因此 viewer 得到 403 `FORBIDDEN`，而不是“脱敏后的日志”。一份看起来干净的日志会让人以为它可以随便贴出去，而那正是这一条要避免的误判。
+
+**本表上面那行的 `level=` 是 P05.3 补的。** PLAN 第 14 节要求按级别筛选，而原表漏了它。补参数而不是“前端自己过滤”的理由：级别过滤发生在 journalctl 的 `--priority`，服务端过滤后返回的 `scanned`、条数与 `next_cursor` 才是真的；前端过滤会让“这页只有 3 条”与“这段时间只有 3 条 error”混成一件看不清的事。语义是**下限**（`level=error` 表示 error 及更严重），与 journalctl 一致。
+
+参数闭集：`source`（`journal` | `kernel`，缺省 journal）、`unit`（完整单元名，长度 1—256，`^[A-Za-z0-9][A-Za-z0-9:_.@-]*\.(service|socket|timer|mount|automount|swap|target|path|slice|scope|device)$`，不接受 glob/空格/路径，`source=kernel` 时不允许）、`level`（`emergency`/`alert`/`critical`/`error`/`warning`/`notice`/`info`/`debug` 之一）、`from`/`to`（RFC 3339，含端点）、`cursor`（上一页的 `next_cursor`，不透明，≤512 字节）、`limit`（1—1000，缺省 100）。`from` 必须早于 `to`，跨度 ≤24 小时；只给一端或都不给时回看 1 小时（`DefaultWindow`）；`to` 超过当前时间 2 分钟以上返回 400——未来窗口永远为空，与其让人以为“这段时间没有日志”，不如直说参数写错了。时间格式在**进入读取端之前**就校验：`from=2026-10-21` 这种手写日期若被当成“没给时间”，页面显示的就不是用户以为的那段时间。
+
+`level=unknown` **不是合法入参**。`unknown` 只出现在结果里，表示该条目没有可识别的 PRIORITY；把它当成 `info` 会让“只看 error”的过滤看起来生效了，实际却混进了未知级别。同理，读不出来的级别不会在结果里被写成 `info`。
+
+**分页是降序键集**：`entries` 按时间从新到旧（最新在前），`next_cursor` 是本页最后一条的游标，带回来即“从这里（含）继续向更早翻”。游标是 journald 的 `__CURSOR`，翻页与断线续传都靠它，**不透明**：只允许原样带回，不要解析、比较或构造。被拒绝的游标返回 400（重试同一个游标不会变好，要重新查第一页）；翻到窗口起点时 `next_cursor` 为 `null`。实现用的是 `--cursor=X -n N --reverse`（journald 实测 **含** X 这一条），因此边界条目会重复一次，由读取端按游标全等去重——按时间比较不行，同一微秒里的多条日志用时间根本分不开。
+
+带游标时**命令行里不能同时出现 `--since/--until`**（systemd 255 实测：`Please specify only one of --since=, --cursor=, and --after-cursor=.`，退出码 1）。所以游标翻页时时间窗口由读取端在解析之后过滤：窗口外的条目不会出现在页里，但 `next_cursor` 依然往前走（整页都落在窗口外时它指向这一页扫到的最老一条）。这条不是实现细节而是契约的一部分——否则“翻页 + 时间窗口”这个组合要么报错，要么拿着同一个游标原地打转，客户端只能看到重复的第一页。`scanned` 仍是实际解析过的条数（含被窗口过滤掉的），页面据此能看出“扫了多少、给了多少”。
+
+查询串必须是合法 URL 编码：`cursor` 里带 `;`，未转义时 Go 的 `url.ParseQuery` 会把整对参数丢掉，读端于是把它当成“没给游标”而退回第一页——**静默忽略比报错更难查**，所以这种请求现在是 400，而不是悄悄换一个查询。
+
+`limit=0` 也是 400：契约里 `limit` 的下界是 1，显式给 0 不是“用默认值”，默认值只在参数缺省时生效。
+
+限额由服务端强制，前端传什么都放宽不了：单页最多 1000 行、单页消息累计 1 MiB、单条消息保留 8 KiB。触到上限时 `truncated=true`，`truncated_reason` 说明是哪条限额先到（`page_bytes` 字节上限、`output_limit` 表示 journalctl 输出被单次读取上限截断、字段缺省表示撞到调用方给的 `limit`）。`truncated=true` 表示“不是只有这些”，不是完整结果。
+
+`unit` 是 journald 原始 `_SYSTEMD_UNIT`，因此有例外要说清：systemd 自己写的 `Starting <unit>` / `Finished <unit>` 两条生命周期消息，`_SYSTEMD_UNIT` 是 `init.scope`（它记的是“systemd 在说这个单元”），而 `journalctl -u <unit>` 仍把它们算进该单元。API 如实回传原字段，不替 journald 猜测归属。
+
+`LogPage` 字段：`source`、`unit`（生效的过滤，未过滤时不出现）、`level`（同上）、`from`/`to`（本次**实际生效**的窗口，默认值已补齐，用来让页面说清“查的是哪一段”）、`entries`（没有条目时是空数组，不是 `null`）、`next_cursor`、`truncated`、`truncated_reason`、`scanned`（实际解析过的条数，含被去重丢掉的条目，用于诊断“是不是扫太多了”）、`duration_ms`。
+
+`LogEntry` 字段：`cursor`、`timestamp`（`__REALTIME_TIMESTAMP`，UTC）、`level`（含 `unknown`）、`message`（脱敏并截断后的文本）、`truncated`、`redacted`、`binary`、`unit`/`identifier`/`comm`（没有时字段不出现，不是空串）、`pid`（缺失时为 `null`，不是 `0`；0 是合法 PID 的邻居，容易被误读）。原始 journal 字段（`_AUDIT_LOGINUID`、`_BOOT_ID`、`_MACHINE_ID` 等）一律不下发：它们对排查有用，但会把整机指纹一起带出去，而本阶段的需求是按 unit/时间/级别查日志，不是 journal 字段浏览器。
+
+`redacted=true` 是“这条里至少有一处被抹掉了”的事实，**不是**“这条已经干净”的保证。`binary=true` 表示 journald 没有给出可显示的文本（`MESSAGE` 为 `null` 或字节数组；systemd 255 对超过约 8 KiB 的单条消息就是这样处理的），此时 `message` 是空串，前端必须渲染成“没有文本”而不是一条空白日志行。
+
+`GET /logs/stream` 是 SSE：`id` 是 journal 游标，命名事件三种——`entry`（data 与 `LogEntry` 同形，帧类型由事件名承担，data 里不再重复一个 `type` 字段）、`end`（`{"reason": ...}`）、`error`（`{"code":"STREAM_FAILED","message": ...}`）。`end` 的 `reason` 是闭集：`duration_limit`（单条流最长 10 分钟）、`idle_timeout`（60 秒没有新条目）、`entry_limit`（5000 条）、`byte_limit`（8 MiB）、`journal_exit`（journalctl 自己退出）、`client_closed`（调用方不再接收——此时客户端不会收到这一帧，连接已经没了）。每 15 秒一行注释心跳（`: keepalive`）。续传靠浏览器带回的 `Last-Event-ID`（就是最后一个 entry 的 `id`），语义是“从该游标**之后**发送”，因此重连不重复也不需要客户端记位置；日志流**没有**任务事件流那样的 `gap` 帧——续传点是 journal 自己的游标，历史不由本服务裁剪。
+
+**响应头立刻发出。** 流的响应头在开流时立即 flush，而不是等第一条日志：安静的系统上第一条可能要等几十秒，而调用方（Web 的代理客户端）有“等待响应头”的计时器——不 flush 的话它先把连接掐掉，服务端的空闲/时长上限根本没机会生效（真实 VM 上表现为 `timeout awaiting response headers`）。代理→Web 这层的客户端对**流**请求不设 `ResponseHeaderTimeout`，普通请求仍然是 10 秒。
+
+**资源回收。** 客户端断开、心跳写入失败或代理返回错误时，请求 ctx 结束，该 ctx 一路传到代理的 http 请求；代理看见连接断开即杀掉 journalctl 所在的进程组（`internal/syscmd`，进程组 kill + 2 秒 `WaitDelay`）。STAGES 第 7 阶段的验收条目“结束日志订阅不会残留无限 journalctl 子进程”验的就是这条链路，两半各有测试：代理侧 `syscmd.TestStreamContextCancelKills`、`journal.TestStreamClientClosedStops`，Web 侧 `api.TestLogsStreamReleasesOnDisconnect`。每个账号同时最多 4 条流（与任务事件流共用额度），超出返回 429。
+
+错误映射：参数问题（时间格式/先后/跨度、`level`/`source` 不在闭集、`unit` 形状、`limit` 越界、游标被拒）一律 400 `VALIDATION_ERROR`；代理不可用（未配置 socket、连接失败、本机没有 journald）503 `AGENT_UNAVAILABLE`。代理回的 400 原样转成 Web 的 400，代理回的 5xx 转成 503——只有代理能判的条件（例如 `to` 在未来）不能变成 Web 的 500。
 
 ## 11. 文件契约
 
@@ -564,7 +602,9 @@ GET /alerts/events：V；POST /alerts/events/:id/ack：admin；GET/POST /notific
 | POST /internal/v1/streams | 创建受限日志/文件上传下载/终端流许可，绑定用途和参数 |
 | GET/PUT /internal/v1/streams/:id | 单次受限流；再次核验 socket 凭据、路径/UID/大小限制 |
 
-query 枚举按模块登记，例如 system.summary、storage.topology、services.list、files.list；禁止 query=command。terminal 的字节通道只能连接已降权 PTY，不能进入代理的命令解释器。P14 增加 /internal/v1/totp/enroll、/confirm、/verify、/disable 四个专用接口，操作绑定用户与用途，种子不进入普通 query/secret 读取通道。
+query 枚举按模块登记，例如 system.summary、storage.topology、services.list、files.list、logs.query；禁止 query=command。terminal 的字节通道只能连接已降权 PTY，不能进入代理的命令解释器。P14 增加 /internal/v1/totp/enroll、/confirm、/verify、/disable 四个专用接口，操作绑定用户与用途，种子不进入普通 query/secret 读取通道。
+
+`/internal/v1/streams` 自 P05.3 起已实现，但目前只登记一种用途 **logs.stream**：`POST` 建许可（绑定用途与查询参数、单次使用、30 秒过期且到期即回收），`GET /streams/:id` 打开流式响应（`application/x-ndjson`，每行一帧 `{"type":"entry|end|error", ...}`；`entry` 帧的 `entry` 是日志条目本身，`end` 帧带 `reason`，`error` 帧带 `code`/`message`）。未登记的用途回 501，不回一条空流——多报一个用途等于把能力清单变成谎话。许可只用一次：第二次 `GET` 回 404，被放进地址栏或日志里的 URL 因此最多只能被用一次。流式消费端的「帧类型来自事件名」与外层 SSE 不同，是因为 NDJSON 是单条无名字的字节流，类型必须写在帧里。
 
 内置定时任务只可执行已登记且启用的 backup.run、certificate.renew 和 script.run。systemd 调用 root 所有的固定 upanelctl schedule-trigger 命令，代理只在专用 trigger 路由接受 UID=0；普通路由仍只接受 upanel-web。系统身份来自 root 持有的任务配置与本地凭据，不允许公开 /jobs 请求自称 scheduler 来跳过再认证。定时触发须重新预检资源与锁，创建稳定触发 ID 并审计；交互确认由管理员保存计划时的显式授权替代，不能扩展到格式化或网络变更。代理产生的定时 operation 会被 Web 对账导入任务表，不能只存在于 journal。
 

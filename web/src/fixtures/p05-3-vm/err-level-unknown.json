@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"journal: 查询参数不合法: level \"unknown\" 不在闭集内（可选 [emergency alert critical error warning notice info debug]）"},"request_id":"471ac76c051d81eab8c671a0e8f89eb8"}

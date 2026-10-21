@@ -13,6 +13,7 @@
 // P03.1 增加 POST /internal/v1/preflights：动作的预检器生成规范化参数、目标身份指纹、
 // 状态版本、影响/阻塞项与确认短语，计划落进代理库并在 120 秒后失效；预检本身不写系统。
 // 生产登记表仍然为空：第一个真实动作属于 P04，验收用的动作在独立的验收登记表里。
+// P05.3 增加 POST/GET /internal/v1/streams：一次性流许可 + 单次受限流（日志实时跟随）。
 package agent
 
 import (
@@ -57,6 +58,9 @@ type Options struct {
 	// Operations 是执行记录存储（P03.2）。必须非空：接受一次操作必须先落库，
 	// 否则“重启后仍能按 operation_id 查到”就是空话。
 	Operations OperationStore
+	// Logs 是日志读取端（P05.3）。为 nil 时不提供 logs.query 与日志流：
+	// capabilities 与实际可用能力始终一致，不会报告一个调用就 501 的查询。
+	Logs LogsSource
 }
 
 // Server 是代理服务。
@@ -65,7 +69,10 @@ type Server struct {
 	startedAt time.Time
 	registry  *Registry
 	runner    *runner
-	http      *http.Server
+	// streams 是一次性流许可表（P05.3）。只存在内存里：许可寿命 30 秒，
+	// 跨重启保留一个“别人可能已经拿到”的凭据只会让“一次性”变成空话。
+	streams *streamStore
+	http    *http.Server
 }
 
 // capabilities 是 GET /internal/v1/capabilities 的响应体。
@@ -131,7 +138,7 @@ func New(opts Options) (*Server, error) {
 		registry = production
 	}
 
-	s := &Server{opts: opts, startedAt: time.Now().UTC(), registry: registry}
+	s := &Server{opts: opts, startedAt: time.Now().UTC(), registry: registry, streams: newStreamStore()}
 	s.runner = newRunner(s)
 
 	mux := http.NewServeMux()
@@ -141,6 +148,9 @@ func New(opts Options) (*Server, error) {
 	mux.HandleFunc("/internal/v1/operations", s.handleOperations)
 	mux.HandleFunc("/internal/v1/operations/", s.handleOperationByID)
 	mux.HandleFunc("/internal/v1/secrets", s.handleSecrets)
+	// 受限流（P05.3）：先建许可，再用许可开一条一次性的流。
+	mux.HandleFunc("/internal/v1/streams", s.handleStreams)
+	mux.HandleFunc("/internal/v1/streams/", s.handleStreamByID)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, http.StatusNotFound, httpx.CodeNotFound, "代理接口不存在")
 	})
@@ -151,10 +161,12 @@ func New(opts Options) (*Server, error) {
 		ConnContext:       connContext,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
-		IdleTimeout:       60 * time.Second,
-		MaxHeaderBytes:    64 << 10,
-		ErrorLog:          slog.NewLogLogger(opts.Logger.Handler(), slog.LevelWarn),
+		// WriteTimeout 对长连接是非法的默认值：日志流（P05.3）在每次写之前用
+		// http.ResponseController 把截止时间往后推，这里保留一个短值兜住普通请求。
+		WriteTimeout:   15 * time.Second,
+		IdleTimeout:    60 * time.Second,
+		MaxHeaderBytes: 64 << 10,
+		ErrorLog:       slog.NewLogLogger(opts.Logger.Handler(), slog.LevelWarn),
 	}
 	return s, nil
 }

@@ -23,6 +23,7 @@ import (
 	"upanel/internal/auth"
 	"upanel/internal/config"
 	"upanel/internal/logging"
+	"upanel/internal/logs"
 	"upanel/internal/monitoring"
 	"upanel/internal/operations"
 	"upanel/internal/platform"
@@ -269,6 +270,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	var servicesReader api.ServicesReader
 	// 进程只读视图读取端（P05.2）。演示模式下同样保持 nil。
 	var processesReader api.ProcessesReader
+	// 日志读取端（P05.3）。演示模式下同样保持 nil：那时 /logs 明确回 503。
+	var logsReader api.LogsReader
 	if mode == platform.ModeProduction {
 		client, err := agentclient.New(cfg.Agent.SocketPath)
 		if err != nil {
@@ -301,6 +304,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		processesReader = processesFetcher
+		logsFetcher, err := logs.NewFetcher(client, logger)
+		if err != nil {
+			logger.Error("初始化日志读取端失败，拒绝启动", "error", err)
+			return 1
+		}
+		logsReader = logsFetcher
 		logger.Info("代理客户端已配置", "socket", cfg.Agent.SocketPath)
 	} else {
 		// 明确说明原因：演示模式下预检与系统信息会返回 503，而不是给一份假的数据。
@@ -332,6 +341,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Storage:         storageReader,
 		Services:        servicesReader,
 		Processes:       processesReader,
+		Logs:            logsReader,
 		AllowedOrigins:  allowedOrigins,
 	})
 	if err != nil {

@@ -72,6 +72,10 @@ type Options struct {
 	// Processes 是进程只读视图读取端（P05.2）。允许为 nil（不连代理）：
 	// 那时 /processes 明确回 503 AGENT_UNAVAILABLE，而不是给一份空进程列表。
 	Processes ProcessesReader
+	// Logs 是日志读取端（P05.3）。允许为 nil（不连代理）：
+	// 那时 /logs 与 /logs/stream 明确回 503 AGENT_UNAVAILABLE，
+	// 而不是给一个“这段时间没有日志”的空结果。
+	Logs LogsReader
 }
 
 // Server 是 Web HTTP 服务。

@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"journal: 查询参数不合法: unit \"ssh*\" 不是合法的单元名（需要形如 ssh.service，不接受通配符与路径）"},"request_id":"f97b16919cc4f1d8dd8ac8cfaedc08b0"}

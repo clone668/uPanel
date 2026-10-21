@@ -1,0 +1,18 @@
+: connected
+
+id: s=d9796f3513e94d7ebee408c3d74c2a9d;i=30d7d;b=291a692cb1184614b6f131da01decdef;m=a4c12cd7;t=65e52183d9d15;x=59e1742c80b4ab9f
+event: entry
+data: {"cursor":"s=d9796f3513e94d7ebee408c3d74c2a9d;i=30d7d;b=291a692cb1184614b6f131da01decdef;m=a4c12cd7;t=65e52183d9d15;x=59e1742c80b4ab9f","timestamp":"2026-10-21T04:22:27.284245Z","level":"info","message":"Starting upanel-accept-stream-51205.service - /bin/sh -c \"logger -t upanel-accept \\\"stream-marker-1 实时到达\\\"\"...","truncated":false,"redacted":false,"binary":false,"unit":"init.scope","identifier":"systemd","comm":"systemd","pid":1}
+
+id: s=d9796f3513e94d7ebee408c3d74c2a9d;i=30d7e;b=291a692cb1184614b6f131da01decdef;m=a4c1318e;t=65e52183da1cb;x=5eebfc7eadbb07c6
+event: entry
+data: {"cursor":"s=d9796f3513e94d7ebee408c3d74c2a9d;i=30d7e;b=291a692cb1184614b6f131da01decdef;m=a4c1318e;t=65e52183da1cb;x=5eebfc7eadbb07c6","timestamp":"2026-10-21T04:22:27.285451Z","level":"notice","message":"stream-marker-1 实时到达","truncated":false,"redacted":false,"binary":false,"unit":"upanel-accept-stream-51205.service","identifier":"upanel-accept","comm":"logger","pid":52343}
+
+id: s=d9796f3513e94d7ebee408c3d74c2a9d;i=30d7f;b=291a692cb1184614b6f131da01decdef;m=a4c135c3;t=65e52183da601;x=4c54c8d6bc723773
+event: entry
+data: {"cursor":"s=d9796f3513e94d7ebee408c3d74c2a9d;i=30d7f;b=291a692cb1184614b6f131da01decdef;m=a4c135c3;t=65e52183da601;x=4c54c8d6bc723773","timestamp":"2026-10-21T04:22:27.286529Z","level":"info","message":"upanel-accept-stream-51205.service: Deactivated successfully.","truncated":false,"redacted":false,"binary":false,"unit":"init.scope","identifier":"systemd","comm":"systemd","pid":1}
+
+id: s=d9796f3513e94d7ebee408c3d74c2a9d;i=30d80;b=291a692cb1184614b6f131da01decdef;m=a4c136d8;t=65e52183da715;x=aadb5abbe5f4d302
+event: entry
+data: {"cursor":"s=d9796f3513e94d7ebee408c3d74c2a9d;i=30d80;b=291a692cb1184614b6f131da01decdef;m=a4c136d8;t=65e52183da715;x=aadb5abbe5f4d302","timestamp":"2026-10-21T04:22:27.286805Z","level":"info","message":"Finished upanel-accept-stream-51205.service - /bin/sh -c \"logger -t upanel-accept \\\"stream-marker-1 实时到达\\\"\".","truncated":false,"redacted":false,"binary":false,"unit":"init.scope","identifier":"systemd","comm":"systemd","pid":1}
+

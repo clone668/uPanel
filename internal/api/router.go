@@ -97,6 +97,17 @@ func (s *Server) routes() *gin.Engine {
 		pr.Use(s.requireSession(), s.requireAdmin())
 		pr.GET("", s.handleListProcesses)
 
+		// 日志（P05.3）：权限 admin（CONTRACTS.md 第 10 节）。原始日志里可能有
+		// 口令形态的字符串、内网地址、别人的命令行——脱敏是尽力措施，不能作为
+		// 向 viewer 开放日志的依据（PLAN.md 第 14 节），所以整组 requireAdmin。
+		//
+		// /logs/stream 与任务事件流一样是 GET + SSE：没有 requireCSRF
+		// （EventSource 无法自定义请求头），靠会话 Cookie + 同源守卫界定来源。
+		lg := v1.Group("/logs")
+		lg.Use(s.requireSession(), s.requireAdmin())
+		lg.GET("", s.handleLogs)
+		lg.GET("/stream", s.handleLogsStream)
+
 		// 系统写操作的统一入口（P03.1）：先预检，再由 POST /jobs 创建任务（P03.2）。
 		// 预检只读不写系统；再认证在**提交任务**时校验（按动作登记策略），不在预检阶段。
 		ops := v1.Group("/operations", s.auditRoute(audit.ActionOperationPreflight))

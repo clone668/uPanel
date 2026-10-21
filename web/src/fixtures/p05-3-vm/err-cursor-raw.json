@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"查询串格式不合法：特殊字符必须 percent-encode（游标里的 ';' 应写成 %3B）"},"request_id":"a2d5b3c3a7231fa67e03f2fdeab37775"}
