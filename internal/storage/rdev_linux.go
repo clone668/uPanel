@@ -38,6 +38,26 @@ func osMajorMinor(fdPath string) (string, error) {
 	return fmt.Sprintf("%d:%d", devMajor(rdev), devMinor(rdev)), nil
 }
 
+// osDeviceID 返回一个路径所在文件系统的设备号（st_dev）。
+//
+// 与 osMajorMinor 的区别：普通文件的 Rdev 是 0，但它的 Dev 是所在文件系统的设备号。
+// 一个挂载点目录的 Dev 与它上面任何文件的 Dev 相同，所以按 Dev 比对就能回答
+// “这个 fd 是不是落在那个已挂载的文件系统上”——那正是 umount 拦下 EBUSY 的理由。
+func osDeviceID(path string) (uint64, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			return 0, fmt.Errorf("%w: %v", errESRCH, err)
+		}
+		return 0, err
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, fmt.Errorf("storage: 取不到 %s 的设备号（Stat_t 类型不符）", path)
+	}
+	return uint64(st.Dev), nil
+}
+
 // devMajor / devMinor 按内核的 new_encode_dev 解码 dev_t。
 func devMajor(rdev uint64) uint32 {
 	return uint32((rdev>>8)&0xfff) | uint32((rdev>>32)&^uint64(0xfff))

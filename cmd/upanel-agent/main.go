@@ -204,6 +204,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		logger.Error("初始化执行记录存储失败，拒绝启动", "error", err)
 		return 1
 	}
+	// 受管理卷的权威登记表（P07.4，CONTRACTS.md 14.2 managed_resources）。
+	// 只有代理写它：卷“归谁管、UUID 是什么、上次是谁改的”必须以代理侧的记录为准，
+	// Web 侧的 volumes 表是按 operation_id 对账的镜像。
+	resourceStore, err := agentstore.NewResourceStore(agentDB)
+	if err != nil {
+		logger.Error("初始化受管资源存储失败，拒绝启动", "error", err)
+		return 1
+	}
 
 	// 系统基础资源采集（P04.1）：5 秒轮询一次 /proc、/sys，结果留在内存里的快照中，
 	// system.summary 查询只读这份快照。采集失败不阻止代理启动——它只会让对应段
@@ -229,6 +237,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Write: storage.WriteOptions{
 			Runner:      storage.SyscmdRunner(),
 			Superblocks: storage.SystemSuperblockProber(),
+			// P07.4：卷管理。登记表是代理数据库里的 managed_resources；
+			// fstab 的写入、候选校验（findmnt --verify）、备份与原子替换都在
+			// storage.FstabStore 里，路径是代码里的常量（不来自配置和 HTTP）。
+			Store: resourceStore,
+			Fstab: storage.FstabStore{
+				Path:      storage.DefaultFstabPath,
+				BackupDir: storage.DefaultFstabBackupDir,
+			},
 		},
 	}
 	if cfg.Agent.Storage.SmartEnabled {
@@ -253,6 +269,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 			"udevadm", storage.DefaultUdevadmPath,
 			"mkfs_ext4", storage.DefaultMkfsExt4Path,
 			"mkfs_xfs", storage.DefaultMkfsXFS)
+	}
+	if err := storage.CheckVolumeDependencies(); err != nil {
+		// 缺 mount/umount/findmnt/systemctl 同样不阻止启动：预检与拓扑仍然可用，
+		// 卷动作会以 503 明确拒绝，而不是“看起来能做、点了才报错”。
+		logger.Warn("卷管理的依赖不完整，卷动作将被拒绝", "reason", err)
+	} else {
+		logger.Info("受管理卷已接线",
+			"fstab", storage.DefaultFstabPath,
+			"backup_dir", storage.DefaultFstabBackupDir,
+			"volume_root", storage.DefaultVolumeRoot,
+			"mount", storage.DefaultMountPath,
+			"umount", storage.DefaultUmountPath,
+			"systemctl", storage.DefaultSystemctlPath)
 	}
 	storageCollector := storage.NewCollector(storageOpts)
 

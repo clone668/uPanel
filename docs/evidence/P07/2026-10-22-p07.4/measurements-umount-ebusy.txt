@@ -1,0 +1,20 @@
+探针 probe-umount-ebusy.sh 在验收 VM 上的记录输出（2026-10-22）
+================================================================
+用途：在写验收脚本 §7 第二层之前，先证明“冻住产品自己 fork 的 umount 之后，
+执行端的 EBUSY 分支真的可达”。跑法是独立起代理 + Web，登录 admin，找到挂载着的
+卷，最多试 3 次抓住 umount 的窗口。第 1 次就抓住了（Q201）。
+
+VALUE VOLUME_ID vol_0e80d5a5b2cd2e5bdd550c1f4135c141
+VALUE MOUNT_PATH /srv/upanel/volumes/data
+VALUE ALLOWED_ATTEMPT1 True
+VALUE SUBMIT_ATTEMPT1 202
+VALUE FROZEN_ATTEMPT1 27445
+VALUE FROZEN_COMM1 umount
+VALUE JOB_STATE1 failed
+VALUE JOB_CODE1 COMMAND_FAILED
+VALUE JOB_MESSAGE1 umount /srv/upanel/volumes/data 退出码 32：umount: /srv/upanel/volumes/data: target is busy.。 当前占用：挂载点仍然存在：/srv/upanel/volumes/data；有 1 个进程正打开着 /srv/upanel/volumes/data：27450/sleep。先停掉它们，或把应用改成从挂载点访问
+VALUE STILL_MOUNTED1 yes
+
+读法：提交被**受理**（202）、umount 在受理之后才被冻住（pid 27445），冻住的
+那一刻往挂载点里开了文件（27450/sleep），解冻后 umount 自己吃 rc=32，执行器把
+占用者重扫一遍写进错误消息——这就是 CONTRACTS §6.5 最后一段的直接证据。

@@ -45,11 +45,14 @@ func (f *fakeSignatures) Probe(_ context.Context, devID string, _ uint64) (Signa
 	return Signature{Kind: SignatureBlank}, nil
 }
 
-// fakeBusy 是一张“谁打开着哪台设备”的表。
+// fakeBusy 是一张“谁打开着哪台设备 / 谁打开着哪个挂载点上的文件”的表。
 type fakeBusy struct {
-	procs map[string][]BusyProcess
-	errs  map[string]error
-	calls int
+	procs      map[string][]BusyProcess
+	errs       map[string]error
+	mountProcs map[string][]BusyProcess
+	mountErrs  map[string]error
+	calls      int
+	mountCalls int
 }
 
 func (f *fakeBusy) Scan(_ context.Context, devID string) ([]BusyProcess, error) {
@@ -60,6 +63,16 @@ func (f *fakeBusy) Scan(_ context.Context, devID string) ([]BusyProcess, error) 
 		}
 	}
 	return f.procs[devID], nil
+}
+
+func (f *fakeBusy) ScanMount(_ context.Context, mountPoint string) ([]BusyProcess, error) {
+	f.mountCalls++
+	if f.mountErrs != nil {
+		if err, ok := f.mountErrs[mountPoint]; ok {
+			return nil, err
+		}
+	}
+	return f.mountProcs[mountPoint], nil
 }
 
 // testEnv 造一套“盘是空的、没人占用”的正常探针。

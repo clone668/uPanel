@@ -1,0 +1,50 @@
+== A. 重启后的现场（还没有启动任何 upanel 进程） ==
+      第一段记录的：卷 vol_ac1ceea48853ce6d068878632d603a14，UUID 74bcce13-3169-4dfb-9286-5f43b4e695d7，挂载点 /srv/upanel/volumes/data，另一个卷 /srv/upanel/volumes/logs
+PASS  重启后没有遗留的代理 socket（/run 已被清空）
+      systemd 单元 srv-upanel-volumes-data.mount 的 ActiveEnterTimestamp：Thu 2026-10-22 07:55:50 UTC
+      本次开机时间：2026-10-22 07:55:24
+PASS  重启后卷挂在面板的挂载点上
+PASS  重启后挂载点的 UUID 与登记一致
+PASS  重启后挂载点在内核 mountinfo 里
+PASS  systemd 单元重启后是 active
+PASS  该单元有启动时间戳（是开机时挂的，不是后来手工挂的）
+PASS  没开自动挂载的第二个卷重启后没有挂上
+PASS  重启后标记文件内容一致
+PASS  重启没有改动 /etc/fstab
+PASS  重启后这个 UUID 的条目仍然只有一条
+
+== B. 启动代理与 Web，确认面板看到的是同一个事实 ==
+PASS  Web 账号能执行 BIN_DIR 里的二进制
+PASS  代理启动
+PASS  Web 启动
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+PASS  面板详情可读
+PASS  面板详情：observed_state 是 mounted
+PASS  面板详情：desired_state 是 mounted
+PASS  面板详情：capacity 不是 null
+PASS  占用信息可读
+PASS  占用接口：挂着但没人用
+
+== C. 收尾：卸载 + 退出管理（fstab 回到干净状态） ==
+PASS  卸载预检允许
+PASS  卸载要求再认证
+PASS  卸载任务终态
+PASS  卸载结果是 verified
+PASS  卸载带 verified_at
+PASS  卸载：内核视图里没有挂载点了
+PASS  退出管理预检允许
+PASS  退出管理要求再认证
+PASS  退出管理任务终态
+PASS  退出管理结果是 verified
+PASS  退出管理带 verified_at
+PASS  退出管理之后托管块里没有这条 UUID
+PASS  退出管理没有删掉托管块的标记
+PASS  退出管理留下了备份
+PASS  卷详情现在是 404
+PASS  卷列表里没有它了
+PASS  另一个卷还在（退出管理只减一行）
+
+== 汇总（post-boot） ==
+PASS=38 FAIL=0 NOT RUN=0
+EXIT=0

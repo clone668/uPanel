@@ -19,6 +19,11 @@ import (
 type StorageReader interface {
 	Topology(ctx context.Context) (storage.Topology, error)
 	Device(ctx context.Context, id string) (storage.Device, storage.Topology, bool, error)
+	// 受管理卷（P07.4）。observed_state 与 capacity 由代理现场算出，
+	// Web 侧只透传——它没有 /dev，也没有超级块读取器。
+	Volumes(ctx context.Context) ([]storage.Volume, error)
+	Volume(ctx context.Context, id string) (storage.Volume, bool, error)
+	VolumeBlockers(ctx context.Context, id string) (storage.VolumeBlockers, error)
 }
 
 // deviceListResponse 是 GET /storage/devices 的响应体。
@@ -163,6 +168,102 @@ func (s *Server) writeStorageError(c *gin.Context, err error, what string) {
 			"代理不可用，暂时读不到存储信息")
 		return
 	}
+	// 代理的明确拒绝（4xx）原样带出：卷不存在该是 404，不能压成 500 ——
+	// 那会让页面把“这条记录没了”显示成“面板出故障了”。
+	var rejected *storage.RemoteError
+	if errors.As(err, &rejected) {
+		status := rejected.Status
+		if status < 400 || status >= 500 {
+			status = http.StatusBadGateway
+		}
+		code := rejected.Code
+		if code == "" {
+			code = httpx.CodeCommandFailed
+		}
+		writeError(c, status, code, rejected.Message)
+		return
+	}
 	s.opts.Logger.Error(what, "error", err, "request_id", httpx.RequestID(c.Request))
 	writeError(c, http.StatusInternalServerError, httpx.CodeCommandFailed, "存储信息读取失败")
+}
+
+// volumeListResponse 是 GET /storage/volumes 的响应体。
+//
+// 用对象包一层而不是裸数组：以后要加 snapshot_version 之类附注时不必改响应外形。
+type volumeListResponse struct {
+	Volumes []storage.Volume `json:"volumes"`
+}
+
+// handleListVolumes 返回受管理卷列表（权限 V）。
+//
+// 列表里的 observed_state 是代理读取超级块与挂载表之后算出来的现场状态，
+// 不是把 desired_state 抄一遍——两者不一致恰恰是页面要提醒的事。
+func (s *Server) handleListVolumes(c *gin.Context) {
+	reader := s.opts.Storage
+	if reader == nil {
+		writeError(c, http.StatusServiceUnavailable, httpx.CodeAgentUnavailable,
+			"卷列表不可用：未配置代理连接")
+		return
+	}
+	volumes, err := reader.Volumes(c.Request.Context())
+	if err != nil {
+		s.writeStorageError(c, err, "读取卷列表失败")
+		return
+	}
+	if volumes == nil {
+		volumes = []storage.Volume{}
+	}
+	httpx.WriteData(c.Writer, c.Request, http.StatusOK, volumeListResponse{Volumes: volumes})
+}
+
+// handleGetVolume 返回单个卷（权限 V）。不存在是 404，不是空对象。
+func (s *Server) handleGetVolume(c *gin.Context) {
+	reader := s.opts.Storage
+	if reader == nil {
+		writeError(c, http.StatusServiceUnavailable, httpx.CodeAgentUnavailable,
+			"卷详情不可用：未配置代理连接")
+		return
+	}
+	id := c.Param("id")
+	// 形状先在本层挡住：卷标识会进日志与审计，不能把任意字符串透传给代理。
+	if !storage.ValidVolumeID(id) {
+		writeError(c, http.StatusBadRequest, httpx.CodeValidationError,
+			"卷标识必须是 vol_ 加 32 位小写十六进制")
+		return
+	}
+	vol, found, err := reader.Volume(c.Request.Context(), id)
+	if err != nil {
+		s.writeStorageError(c, err, "读取卷详情失败")
+		return
+	}
+	if !found {
+		writeError(c, http.StatusNotFound, httpx.CodeNotFound, "卷不存在："+id)
+		return
+	}
+	httpx.WriteData(c.Writer, c.Request, http.StatusOK, vol)
+}
+
+// handleVolumeBlockers 返回“为什么现在卸载不了”（权限 admin）。
+//
+// 这是页面上“设备忙”背后的全部事实：哪个挂载点、哪些进程、有没有 dm/md 消费者、
+// 是不是活动交换区。它比卷详情更细（进程命令行、PID），因此整条路由要求 admin。
+func (s *Server) handleVolumeBlockers(c *gin.Context) {
+	reader := s.opts.Storage
+	if reader == nil {
+		writeError(c, http.StatusServiceUnavailable, httpx.CodeAgentUnavailable,
+			"卷占用信息不可用：未配置代理连接")
+		return
+	}
+	id := c.Param("id")
+	if !storage.ValidVolumeID(id) {
+		writeError(c, http.StatusBadRequest, httpx.CodeValidationError,
+			"卷标识必须是 vol_ 加 32 位小写十六进制")
+		return
+	}
+	blockers, err := reader.VolumeBlockers(c.Request.Context(), id)
+	if err != nil {
+		s.writeStorageError(c, err, "读取卷占用失败")
+		return
+	}
+	httpx.WriteData(c.Writer, c.Request, http.StatusOK, blockers)
 }

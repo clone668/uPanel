@@ -351,6 +351,18 @@ func RegisterProductionQueries(reg *Registry, deps ProductionDeps) error {
 		if err := reg.RegisterQuery(newStorageTopologyQuery(deps.Storage)); err != nil {
 			return fmt.Errorf("代理登记 storage.topology 失败: %w", err)
 		}
+		// 卷列表与占用查询（P07.4）：只在登记表与 fstab 读写器真的接上时登记。
+		// 没接的话这两条查询必然报错，把它们列进 supported_queries 就是能力撒谎。
+		if deps.Storage.VolumeCapable() {
+			for _, q := range []Query{
+				newStorageVolumesQuery(deps.Storage),
+				newStorageVolumeBlockersQuery(deps.Storage),
+			} {
+				if err := reg.RegisterQuery(q); err != nil {
+					return fmt.Errorf("代理登记 %s 失败: %w", q.Name, err)
+				}
+			}
+		}
 	}
 	if deps.Services != nil {
 		if err := reg.RegisterQuery(newServicesListQuery(deps.Services)); err != nil {
@@ -426,6 +438,14 @@ func RegisterProductionActions(reg *Registry, deps ProductionDeps) error {
 		// capabilities.supported_actions 里——见 ExecutableActionNames。
 		if err := RegisterStorageActions(reg, deps.Storage); err != nil {
 			return err
+		}
+		// 五个卷动作（P07.4）：只在登记表、fstab 读写器与超级块读取器都接上时登记。
+		// 少一样都会让动作在提交后 501/DEPENDENCY_MISSING——那时“有能力”这句话已经
+		// 被前端当真了。capabilities 因此与实际装配一致。
+		if deps.Storage.VolumeCapable() {
+			if err := RegisterVolumeActions(reg, deps.Storage); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

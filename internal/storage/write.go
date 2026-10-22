@@ -163,6 +163,35 @@ type WriteOptions struct {
 	SettleTimeout time.Duration
 	KernelWait    time.Duration
 	Logger        *slog.Logger
+
+	// —— P07.4：受管理卷 ——
+	//
+	// 卷动作与盘写动作共用这一个执行器（同一条复核流程、同一个资源锁范围），因此它们的
+	// 依赖也挂在这里。任何一项为 nil 都让卷动作明确拒绝（DEPENDENCY_MISSING），
+	// 而不是降级成“只写了一部分”。
+	//
+	// Store 是受管理卷的登记表（代理侧的权威副本）。
+	Store VolumeStore
+	// Fstab 是 /etc/fstab 的读写器。零值时 Path 与 BackupDir 走默认值；
+	// Runner 为空时沿用本结构的 Runner（候选文件必须经 findmnt 校验才能上盘）。
+	Fstab FstabStore
+	// Mount / Umount / Systemctl / Findmnt 是固定程序路径；空时用默认值。
+	Mount     string
+	Umount    string
+	Systemctl string
+	Findmnt   string
+	// VolumeRoot 是受管理挂载点的父目录；空时用 DefaultVolumeRoot。
+	VolumeRoot string
+	// Lstat / ReadDir / Now 是卷判决的接缝（挂载点安全检查、目录内容、时间）。
+	Lstat   func(path string) (os.FileInfo, error)
+	ReadDir func(path string) ([]os.DirEntry, error)
+	Now     func() time.Time
+	// MkdirAll / Chmod 是建挂载点目录的接缝。
+	//
+	// 它们存在的理由与 Lstat 一样：卷动作要在挂载点父目录上建目录、必要时把权限收回到
+	// 0755，而单元测试不该真的往宿主机上建 /srv/upanel/volumes。生产装配留空，走 os。
+	MkdirAll func(path string, perm os.FileMode) error
+	Chmod    func(path string, mode os.FileMode) error
 }
 
 // writer 是写原语的实现体。
@@ -181,6 +210,20 @@ type writer struct {
 	wait        time.Duration
 	poll        time.Duration
 	logger      *slog.Logger
+
+	// —— P07.4：受管理卷 ——
+	store      VolumeStore
+	fstab      FstabStore
+	mount      string
+	umount     string
+	systemctl  string
+	findmnt    string
+	volumeRoot string
+	lstat      func(path string) (os.FileInfo, error)
+	readDir    func(path string) ([]os.DirEntry, error)
+	now        func() time.Time
+	mkdirAll   func(path string, perm os.FileMode) error
+	chmod      func(path string, mode os.FileMode) error
 }
 
 func newWriter(opts WriteOptions) *writer {
@@ -201,6 +244,19 @@ func newWriter(opts WriteOptions) *writer {
 	if nodes == nil {
 		nodes = OSNodeChecker{Dev: dev}
 	}
+	// 卷管理：fstab 的写与校验必须共用这一个命令执行器，否则“候选文件过了 findmnt”
+	// 这句话就没有人能兑现。
+	fst := opts.Fstab
+	if fst.Runner == nil {
+		fst.Runner = opts.Runner
+	}
+	if strings.TrimSpace(fst.Findmnt) == "" {
+		fst.Findmnt = pick(opts.Findmnt, DefaultFindmntPath)
+	}
+	root := strings.TrimSpace(opts.VolumeRoot)
+	if root == "" {
+		root = DefaultVolumeRoot
+	}
 	return &writer{
 		scanner:     opts.Scanner,
 		env:         opts.Env,
@@ -216,6 +272,19 @@ func newWriter(opts WriteOptions) *writer {
 		wait:        positive(opts.KernelWait, DefaultKernelWait),
 		poll:        defaultKernelPoll,
 		logger:      opts.Logger,
+
+		store:      opts.Store,
+		fstab:      fst,
+		mount:      pick(opts.Mount, DefaultMountPath),
+		umount:     pick(opts.Umount, DefaultUmountPath),
+		systemctl:  pick(opts.Systemctl, DefaultSystemctlPath),
+		findmnt:    pick(opts.Findmnt, DefaultFindmntPath),
+		volumeRoot: root,
+		lstat:      opts.Lstat,
+		mkdirAll:   opts.MkdirAll,
+		chmod:      opts.Chmod,
+		readDir:    opts.ReadDir,
+		now:        opts.Now,
 	}
 }
 
@@ -228,6 +297,8 @@ type WriteRequest struct {
 	// ExpectedIdentity / ExpectedStateVersion 是预检绑定的目标身份与状态版本。
 	ExpectedIdentity     string
 	ExpectedStateVersion string
+	// OperationID 是这次操作标识（卷登记记录会把它写成 last_operation_id）。
+	OperationID string
 	// Progress 回报一个步骤（可空）。
 	Progress func(step string, fields map[string]any)
 }
@@ -306,6 +377,11 @@ func prepareWrite(action string, params any) (preparedWrite, error) {
 // 要人工核实）。把“复核阶段上下文就结束了”报成 SIGNATURE_UNREADABLE 之类的
 // 业务拒绝，会让人以为盘上什么都没发生。
 func (w *writer) execute(ctx context.Context, req WriteRequest) (WriteReport, error) {
+	// 卷动作走自己的全过程（fstab/挂载/登记表），但入口、中断归类与错误码与盘写动作
+	// 完全一致：调用方（代理执行器）不需要知道这两族的差别。
+	if IsVolumeAction(req.Action) {
+		return w.executeVolume(ctx, req)
+	}
 	report, err := w.performWrite(ctx, req)
 	if err == nil {
 		return report, nil

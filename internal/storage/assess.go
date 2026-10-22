@@ -922,8 +922,19 @@ func regionInsideFree(free []FreeRegion, start, size uint64) bool {
 }
 
 // block 记一条阻塞项。
-func (a *Assessment) block(code, message string) {
-	a.appendBlocker(Blocker{Code: code, Message: message})
+//
+// message 是格式串，可带参数（`a.block(Code, "%s 不在拓扑里", id)`）。没有参数时
+// 原文照用：已有几十处两参调用，它们的文本里可能带 %，不能被当成格式串再解释一遍。
+func (a *Assessment) block(code, message string, args ...any) {
+	a.appendBlocker(Blocker{Code: code, Message: formatBlockerMessage(message, args)})
+}
+
+// formatBlockerMessage 只在真的有参数时才格式化。
+func formatBlockerMessage(message string, args []any) string {
+	if len(args) == 0 {
+		return message
+	}
+	return fmt.Sprintf(message, args...)
 }
 
 func (a *Assessment) appendBlocker(b Blocker) {
@@ -935,13 +946,14 @@ func (a *Assessment) appendBlocker(b Blocker) {
 	a.Blockers = append(a.Blockers, b)
 }
 
-func (a *Assessment) warn(code, message string) {
+func (a *Assessment) warn(code, message string, args ...any) {
+	msg := formatBlockerMessage(message, args)
 	for _, cur := range a.Warnings {
-		if cur.Code == code && cur.Message == message {
+		if cur.Code == code && cur.Message == msg {
 			return
 		}
 	}
-	a.Warnings = append(a.Warnings, Blocker{Code: code, Message: message})
+	a.Warnings = append(a.Warnings, Blocker{Code: code, Message: msg})
 }
 
 func (a *Assessment) impact(kind, description string) {

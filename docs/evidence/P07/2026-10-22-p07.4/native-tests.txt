@@ -1,0 +1,42 @@
+== go test ./... -count=1 ==
+ok  	upanel/cmd/upanel-agent	1.164s
+ok  	upanel/cmd/upanel-web	2.902s
+ok  	upanel/cmd/upanelctl	2.139s
+ok  	upanel/internal/agent	18.953s
+ok  	upanel/internal/agentclient	1.275s
+ok  	upanel/internal/agentstore	3.080s
+ok  	upanel/internal/api	72.560s
+ok  	upanel/internal/audit	1.226s
+ok  	upanel/internal/auth	29.865s
+ok  	upanel/internal/config	0.462s
+ok  	upanel/internal/files	0.348s
+ok  	upanel/internal/httpx	0.779s
+ok  	upanel/internal/journal	0.665s
+ok  	upanel/internal/logging	0.318s
+ok  	upanel/internal/logs	1.277s
+ok  	upanel/internal/monitoring	0.427s
+ok  	upanel/internal/operations	3.303s
+ok  	upanel/internal/platform	0.239s
+ok  	upanel/internal/processes	0.818s
+ok  	upanel/internal/services	1.414s
+ok  	upanel/internal/storage	9.173s
+ok  	upanel/internal/store	1.136s
+ok  	upanel/internal/syscmd	11.172s
+ok  	upanel/internal/terminal	0.825s
+?   	upanel/internal/testsupport	[no test files]
+ok  	upanel/internal/version	0.532s
+ok  	upanel/internal/webui	0.470s
+?   	upanel/migrations	[no test files]
+?   	upanel/migrations/agentdb	[no test files]
+
+== go vet ./... ==
+(空 = 干净)
+
+== gofmt -l cmd internal ==
+(空 = 干净)
+
+== 单测条目数（-v 的顶层+子测试 PASS 行）==
+508 ./internal/storage
+278 ./internal/agent
+211 ./internal/api
+90 ./internal/agentstore

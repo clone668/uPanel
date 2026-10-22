@@ -33,9 +33,19 @@ type BusyProcess struct {
 	Comm string `json:"comm"`
 }
 
-// BusyScanner 列出打开着某台设备的进程。
+// BusyScanner 列出打开着某台设备或某个挂载点的进程。
+//
+// 两个方法问的是两个不同的问题，而且**都要问**：
+//   - Scan（设备号）看得见 dd、mkfs、lvm 这类直接开着块设备的进程；
+//   - ScanMount（挂载点的 st_dev）看得见 nginx 打开着 /srv/.../index.log 这类进程。
+//
+// umount 撞上的 EBUSY 几乎总是后者：内核拦的是“这个文件系统上还有打开的文件”，
+// 而不是“这块设备被打开着”。只实现前者，页面就会在肯定卸不掉的时候说“没人用”。
 type BusyScanner interface {
 	Scan(ctx context.Context, devID string) ([]BusyProcess, error)
+	// ScanMount 返回打开着 mountPoint 这个挂载点上任何文件（含目录、被删但仍有
+	// fd 的文件）的进程。mountPoint 本身不是一个挂载点时不报错，返回空列表。
+	ScanMount(ctx context.Context, mountPoint string) ([]BusyProcess, error)
 }
 
 // maxFDInspect 是一次占用检查最多看多少个 fd。
@@ -56,6 +66,12 @@ type ProcBusyScanner struct {
 	// MajorMinor 给出一个 fd 路径对应的块设备号（"8:17"）；普通文件返回空串。
 	// nil 时用操作系统的 stat 实现（见 osMajorMinor）。
 	MajorMinor func(fdPath string) (string, error)
+	// DeviceID 给出一个路径**所在文件系统**的设备号（st_dev）。
+	// nil 时用操作系统的 stat 实现（见 osDeviceID）。
+	//
+	// 它和 MajorMinor 是两件事：MajorMinor 认的是“这个 fd 是不是那块块设备”，
+	// DeviceID 认的是“这个 fd 落不落在那块已挂载的文件系统上”。后者才是 umount 的判据。
+	DeviceID func(path string) (uint64, error)
 	// ReadDir 列出一个目录的条目；nil 时用 os.ReadDir。
 	//
 	// 它和 MajorMinor 一样是**可注入的平台接缝**，而且理由更硬：这里最要紧的性质是
@@ -82,7 +98,55 @@ func (s ProcBusyScanner) Scan(ctx context.Context, devID string) ([]BusyProcess,
 	if err != nil {
 		return nil, err
 	}
+	return s.walkProc(ctx, func(fdPath string) (bool, error) {
+		num, err := s.majorMinor(fdPath)
+		if err != nil {
+			return false, err
+		}
+		// 普通文件、socket、管道没有块设备号：它们不构成“打开着这块设备”。
+		return num != "" && num == target, nil
+	})
+}
 
+// ScanMount 返回打开着 mountPoint 这个挂载点上任何文件的进程。
+//
+// 判据是 st_dev：一个挂载点目录的 st_dev 就是那个文件系统的设备号，而该文件系统上
+// 任何文件（包括已被删除但还有 fd 的）的 st_dev 都相同。umount 拦的正是这些 fd。
+//
+// mountPoint 不是挂载点时（例如卷已经卸掉了）返回空列表，不报错：调用方问的是
+// “现在还有谁在用”，答案就是没有。
+func (s ProcBusyScanner) ScanMount(ctx context.Context, mountPoint string) ([]BusyProcess, error) {
+	if mountPoint == "" {
+		return nil, errors.New("storage: 挂载点为空")
+	}
+	if s.Proc == "" {
+		return nil, errors.New("storage: 没有配置 procfs 根")
+	}
+	target, err := s.deviceID(mountPoint)
+	if err != nil {
+		if isVanished(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("storage: 取 %s 所在文件系统的设备号失败: %w", mountPoint, err)
+	}
+	if target == 0 {
+		// stat 成功但 dev 是 0：这个路径不在任何真实文件系统上（不该发生）。
+		return nil, fmt.Errorf("storage: %s 所在文件系统的设备号是 0，无法判断占用", mountPoint)
+	}
+	return s.walkProc(ctx, func(fdPath string) (bool, error) {
+		dev, err := s.deviceID(fdPath)
+		if err != nil {
+			return false, err
+		}
+		return dev != 0 && dev == target, nil
+	})
+}
+
+// walkProc 遍历 /proc/<pid>/fd，返回 match 判定为真的进程。
+//
+// 两个 Scan 共用这一段：读不到就必须报错（“看不见”不能被当成“没人用”），
+// 只有“进程/fd 在扫描期间消失”才算可以跳过的正常情形。
+func (s ProcBusyScanner) walkProc(ctx context.Context, match func(fdPath string) (bool, error)) ([]BusyProcess, error) {
 	entries, err := s.readDir(s.Proc)
 	if err != nil {
 		return nil, fmt.Errorf("storage: 读 %s 失败: %w", s.Proc, err)
@@ -114,7 +178,7 @@ func (s ProcBusyScanner) Scan(ctx context.Context, devID string) ([]BusyProcess,
 			if inspected > maxFDInspect {
 				return nil, fmt.Errorf("storage: 检查了 %d 个 fd 仍未结束，占用检查不可信", maxFDInspect)
 			}
-			num, err := s.majorMinor(joinPath(fdDir, fd.Name()))
+			hit, err := match(joinPath(fdDir, fd.Name()))
 			if err != nil {
 				if isVanished(err) {
 					continue // fd 在扫描期间关闭了
@@ -122,7 +186,7 @@ func (s ProcBusyScanner) Scan(ctx context.Context, devID string) ([]BusyProcess,
 				return nil, fmt.Errorf("storage: 取 %s 的设备号失败（无法确认占用情况）: %w",
 					joinPath(fdDir, fd.Name()), err)
 			}
-			if num == "" || num != target {
+			if !hit {
 				continue
 			}
 			if _, ok := hits[pid]; ok {
@@ -166,6 +230,13 @@ func (s ProcBusyScanner) majorMinor(path string) (string, error) {
 		return s.MajorMinor(path)
 	}
 	return osMajorMinor(path)
+}
+
+func (s ProcBusyScanner) deviceID(path string) (uint64, error) {
+	if s.DeviceID != nil {
+		return s.DeviceID(path)
+	}
+	return osDeviceID(path)
 }
 
 func (s ProcBusyScanner) readDir(path string) ([]os.DirEntry, error) {

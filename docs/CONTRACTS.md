@@ -398,6 +398,75 @@ result.data（这次到底做了什么）：
   “签名被换了”；后者由写动作动手前的设备直读承担，并如实上报 `previous_kind`/`previous_uuid`。
   对 `format` 来说签名变化本来也不构成拒绝理由：它的工作就是覆盖掉那个签名。
 
+### 6.5 受管理卷（P07.4 起）
+
+P07.4 新增五个写动作与三个读接口。**卷动作都不要确认短语**：短语留给“一旦写下去就找不回来”的
+动作（初始化分区表、格式化、删分区）；导入只是登记 + 写一行 fstab，卸载随时能挂回去，
+配置与退出管理都有备份可回滚，用短语只会训练人闭眼确认。
+
+| 动作 | 参数 | 再认证 | 锁 | 结果核验来源（`checked_via`） |
+|---|---|---|---|---|
+| `storage.volume.import` | `device_id`（分区）、`slug`、`display_name` | 否 | `disk:<整盘>`、`fstab` | `["fstab_reread","systemctl_show"]` |
+| `storage.volume.mount` | `volume_id`、`version` | 否 | `volume:<id>`、`disk:<整盘>` | `["findmnt","topology_scan"]` |
+| `storage.volume.unmount` | `volume_id`、`version` | 是 | `volume:<id>`、`disk:<整盘>` | `["findmnt","topology_scan"]` |
+| `storage.volume.configure` | `volume_id`、`version`、`automount`/`read_only`/`nodev`/`nosuid`（都可空） | 是 | `volume:<id>`、`fstab` | `["fstab_reread","systemctl_show"]` |
+| `storage.volume.forget` | `volume_id`、`version` | 是 | `volume:<id>`、`fstab` | `["fstab_reread"]` |
+
+五个动作全部 `cancellable=false`。挂载点由 `slug` 派生（`/srv/upanel/volumes/<slug>`），不接受
+调用方指定路径；`slug` 只允许小写字母、数字与中划线。`version` 是登记记录的乐观并发令牌，
+与页面看到的那份不一致时判 `VOLUME_VERSION_MISMATCH` 而不是“按请求里的版本执行”。
+
+五个动作**放行的预检都必须绑定两样东西**：目标身份指纹（`target.identity_fingerprint`）与状态版本。
+执行端动手前用它们复核“要动的还是预检时那个、现场没变过”。缺任何一样都是实现错误（面板侧 500），
+不是“可以放宽的检查”——P07.4 的 configure 就这么漏过一格（Q199）。被拒绝的预检没有目标可绑，
+指纹可以为空（Q190）。
+
+fstab 受管块（只有一块，块外内容逐字保留）：
+
+```
+# BEGIN upanel managed volumes
+# 以下条目由 uPanel 维护（同一块内的手工修改会在下次变更时被覆盖）
+UUID=<uuid> <mount_path> <fstype> rw|ro,nodev,nosuid,nofail,x-systemd.device-timeout=30[,noauto] 0 2|0
+# END upanel managed volumes
+```
+
+- 选项顺序固定；`nofail` 总是有（一块数据盘不在，不该让机器起不来）；`automount=false` 时追加
+  `noauto`。第六列 ext4 是 `2`、XFS 是 `0`（`fsck.xfs` 只会回一句 nothing to do，甚至挂住开机）。
+- 写路径固定：读 → 比哈希（变了就是 `PREFLIGHT_STALE`）→ 渲染候选 → 写临时文件 → fsync →
+  `findmnt --verify --tab <候选>` → 备份 → `rename` → fsync 目录。**候选不合格时目标文件一个字节
+  都没动**（`COMMAND_FAILED`，消息带“候选 fstab 未通过校验”）；渲染结果与原文件相同则直接返回，
+  既不写也不留备份。
+- 备份目录 `/var/lib/upanel-agent/fstab-backups/`，文件名 `<UTC 时间戳>-<短哈希>.fstab`，0600。
+- 明确禁止 `mount -a`：一条写坏的条目会顺手把别的东西挂到不该挂的地方。
+
+`GET /storage/volumes`（对象包一层 `{"volumes":[…]}`，空列表是 `[]`）、`GET /storage/volumes/:id`、
+`GET /storage/volumes/:id/blockers`（admin）。卷标识形状不对是 400 `VALIDATION_ERROR`
+（不透传任意字符串给代理），不存在是 404 `NOT_FOUND`。
+
+VolumeBlockers 字段与语义：
+
+| 字段 | 语义 |
+|---|---|
+| `mounted` / `mounts` | 这块设备现在挂在哪儿。挂载状态**只**在这里表达 |
+| `processes` | 打开着这块设备**或**这个挂载点上任何文件的进程，`[{pid, comm}]`，按 pid 升序去重 |
+| `holders` / `swap_active` | dm/md 消费者、活动交换区 |
+| `apps` / `shares` / `backups` | 面板侧依赖；P07.4 时三个模块尚未实现，恒为 `[]` |
+| `busy` | 结论：**现在卸载会被谁挡住**。只有真的有人开着文件、有 dm/md 消费者、是交换区或有面板侧依赖时为真；**挂着但空闲不算忙** |
+| `checked_at` | 这次检查的时间（占用是某一瞬间的快照，必须带时间） |
+
+- 两种占用都要查，理由不同：`umount` 撞的 `EBUSY` 来自“这个文件系统上还有打开的文件”，
+  而 `dd`/`mkfs` 这类直接开块设备的进程反过来不会让 `umount` 失败。只查其一，页面就会在
+  肯定卸不掉的时候说“没人用”。
+- 查不到就报“查不到”：读不到 `/proc`、扫描出错、或本机没配占用检查器，一律判为忙
+  （`DEVICE_BUSY`，消息说明“无法确认没人在用”），绝不返回空列表冒充“没人用”。
+- 两道门的时间差是真实的：预检时无人占用（`allowed=true`）→ 执行前占用者出现 → `umount` 返回
+  `target is busy`，任务失败并把当时的占用者重新列一遍（`当前占用：…`），登记记录与
+  `desired_state` 不动。
+
+`observed_state` 沿用 §6 的闭集，不新增取值：“文件系统挂着但不在面板的挂载点上”仍是 `mounted`，
+区别放在内部布尔 `MountedElsewhere` 上，判决据此拒绝（`VOLUME_MOUNTED_ELSEWHERE`）。`capacity`
+只在真的挂着且读到时存在。
+
 ## 7. 共享契约
 
 GET /shares、GET /shares/:id、GET /shares/:id/connections、GET /share-accounts：admin。viewer 只在首页看到共享数量和健康摘要。

@@ -152,6 +152,14 @@ func (m *memoEnv) Scan(_ context.Context, devID string) ([]BusyProcess, error) {
 	return procs, err
 }
 
+// ScanMount 实现 BusyScanner。
+//
+// 能力计算只用得到设备的“被打开”状态，但接口必须完整：留一个返回错误的方法比
+// 让能力表悄悄少掉一种占用要安全。
+func (m *memoEnv) ScanMount(_ context.Context, mountPoint string) ([]BusyProcess, error) {
+	return m.env.Busy.ScanMount(m.ctx, mountPoint)
+}
+
 // asEnv 把记忆层包成判决用的 Env。
 func (m *memoEnv) asEnv() Env {
 	return Env{Signatures: m, Busy: m}

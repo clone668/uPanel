@@ -1,0 +1,58 @@
+== A. 重启后的现场（还没有启动任何 upanel 进程） ==
+      第一段记录的：卷 vol_1f089fe8da73f518a23a3523379be45b，UUID 4a181046-e74d-4ea3-b195-d711bf8711d0，挂载点 /srv/upanel/volumes/data，另一个卷 /srv/upanel/volumes/logs
+PASS  重启后没有遗留的代理 socket（/run 已被清空）
+      systemd 单元 srv-upanel-volumes-data.mount 的 ActiveEnterTimestamp：Thu 2026-10-22 07:44:22 UTC
+      本次开机时间：2026-10-22 07:44:00
+PASS  重启后卷挂在面板的挂载点上
+PASS  重启后挂载点的 UUID 与登记一致
+PASS  重启后挂载点在内核 mountinfo 里
+PASS  systemd 单元重启后是 active
+PASS  该单元有启动时间戳（是开机时挂的，不是后来手工挂的）
+PASS  没开自动挂载的第二个卷重启后没有挂上
+PASS  重启后标记文件内容一致
+PASS  重启没有改动 /etc/fstab
+PASS  重启后这个 UUID 的条目仍然只有一条
+
+== B. 启动代理与 Web，确认面板看到的是同一个事实 ==
+FAIL  代理启动: {"time":"2026-10-22T07:45:22.683357014Z","level":"INFO","msg":"已启用受限终端","program":"upanel-agent","account":"upanel-shell","account_uid":995,"account_gid":986,"home":"/var/lib/upanel-shell","shell":"/bin/bash","idle_timeout":"15m0s","max_duration":"1h0m0s","disconnect_grace":"1m0s","max_per_user":1,"max_sessions":"[redacted]"}
+{"time":"2026-10-22T07:45:22.691883549Z","level":"INFO","msg":"启动","program":"upanel-agent","version":"0.0.0-dev","commit":"unknown","go_version":"go1.27.3","os":"linux","arch":"amd64","config_source":"/etc/upanel/upanel.json","socket":"/run/upanel/agent.sock","allowed_web_user":"upanel-web","allowed_web_uid":999,"socket_group":"upanel-web","agent_database":"/var/lib/upanel-agent/agent.db","agent_schema_version":4,"key_path":"/etc/upanel/agent.key","key_version":1,"key_fingerprint":"63dfc115004da671"}
+{"time":"2026-10-22T07:45:22.70823133Z","level":"ERROR","msg":"代理退出","program":"upanel-agent","error":"socket 目录不可用 /run/upanel: stat /run/upanel: no such file or directory（应由安装脚本以 root 创建）"}
+{"time":"2026-10-22T07:45:22.713135455Z","level":"WARN","msg":"存储拓扑扫描失败，保留上一次快照","program":"upanel-agent","error":"context canceled","collected_at":"0001-01-01T00:00:00Z"}
+{"time":"2026-10-22T07:45:22.731428183Z","level":"WARN","msg":"服务采集失败，保留上一次成功快照","program":"upanel-agent","error":"services: 枚举服务单元失败: syscmd: 命令被取消（/usr/bin/systemctl）: context canceled（采集尝试于 2026-10-22T07:45:22Z）"}
+FAIL  Web 启动: 
+Session terminated, killing shell...{"time":"2026-10-22T07:42:40.610692632Z","level":"INFO","msg":"收到停止信号，开始优雅停止","program":"upanel-web","timeout":"10s"}
+{"time":"2026-10-22T07:42:40.61586927Z","level":"INFO","msg":"Web 服务已停止","program":"upanel-web"}
+ ...killed.
+runuser: failed to execute /home/upanel/p07-4-bin/upanel-web: Permission denied
+FAIL  管理员登录: 期望 '200'，实际 '000'
+PASS  拿到 CSRF 令牌
+FAIL  面板详情可读: 期望 '200'，实际 '000'
+FAIL  面板详情：observed_state 是 mounted: 期望 'mounted'，实际 'ERR:KeyError:'observed_state''
+FAIL  面板详情：desired_state 是 mounted: 期望 'mounted'，实际 'ERR:KeyError:'desired_state''
+FAIL  面板详情：capacity 不是 null: 期望 'True'，实际 'False'
+FAIL  占用信息可读: 期望 '200'，实际 '000'
+FAIL  占用接口：挂着但没人用: 期望 'False'，实际 'ERR:KeyError:'busy''
+
+== C. 收尾：卸载 + 退出管理（fstab 回到干净状态） ==
+FAIL  卸载预检允许: 期望 'True'，实际 'ERR:KeyError:'allowed''
+FAIL  卸载要求再认证: 期望 'True'，实际 'False'
+FAIL  卸载任务终态: 期望 'succeeded'，实际 'submit:000'
+PASS  卸载结果是 verified
+PASS  卸载带 verified_at
+FAIL  卸载：内核视图里没有挂载点了: 期望 'False'，实际 'True'
+FAIL  退出管理预检允许: 期望 'True'，实际 'ERR:KeyError:'allowed''
+FAIL  退出管理要求再认证: 期望 'True'，实际 'False'
+FAIL  退出管理任务终态: 期望 'succeeded'，实际 'submit:000'
+PASS  退出管理结果是 verified
+PASS  退出管理带 verified_at
+FAIL  退出管理之后托管块里没有这条 UUID: 期望 '0'，实际 '1'
+PASS  退出管理没有删掉托管块的标记
+PASS  退出管理留下了备份
+FAIL  卷详情现在是 404: 期望 '404'，实际 '000'
+FAIL  卷列表里没有它了: 期望 'False'，实际 'True'
+PASS  另一个卷还在（退出管理只减一行）
+
+== 汇总（post-boot） ==
+PASS=18 FAIL=19 NOT RUN=0
+FAILED: | 代理启动 | Web 启动 | 管理员登录 | 面板详情可读 | 面板详情：observed_state 是 mounted | 面板详情：desired_state 是 mounted | 面板详情：capacity 不是 null | 占用信息可读 | 占用接口：挂着但没人用 | 卸载预检允许 | 卸载要求再认证 | 卸载任务终态 | 卸载：内核视图里没有挂载点了 | 退出管理预检允许 | 退出管理要求再认证 | 退出管理任务终态 | 退出管理之后托管块里没有这条 UUID | 卷详情现在是 404 | 卷列表里没有它了
+EXIT=1

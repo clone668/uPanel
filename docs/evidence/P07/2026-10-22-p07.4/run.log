@@ -1,0 +1,324 @@
+== 0. 环境与安全守卫 ==
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  依赖命令可用 python3
+PASS  依赖命令可用 curl
+PASS  依赖命令可用 runuser
+PASS  依赖命令可用 blockdev
+PASS  依赖命令可用 sha256sum
+PASS  依赖命令可用 findmnt
+PASS  依赖命令可用 lsblk
+PASS  依赖命令可用 sgdisk
+PASS  依赖命令可用 blkid
+PASS  依赖命令可用 wipefs
+PASS  依赖命令可用 udevadm
+PASS  依赖命令可用 dd
+PASS  依赖命令可用 ss
+PASS  依赖命令可用 stat
+PASS  依赖命令可用 systemctl
+PASS  依赖命令可用 tr
+PASS  依赖命令可用 awk
+PASS  依赖命令可用 diff
+PASS  卷动作依赖存在且可执行 /usr/bin/mount
+PASS  卷动作依赖存在且可执行 /usr/bin/umount
+PASS  卷动作依赖存在且可执行 /usr/bin/findmnt
+PASS  卷动作依赖存在且可执行 /usr/bin/systemctl
+      findmnt: findmnt from util-linux 2.39.3
+      整机 fstab（验收开始时）：
+        LABEL=cloudimg-rootfs	/	 ext4	discard,commit=30,errors=remount-ro	0 1
+        LABEL=BOOT	/boot	ext4	defaults	0 2
+        LABEL=UEFI	/boot/efi	vfat	umask=0077	0 1
+PASS  Web 账号 upanel-web 存在
+PASS  Web 组 upanel-web 存在
+PASS  承载 / 的设备是 /dev/sda1（整盘 sda）
+      根设备链路： sda1 └─sda  sda1  
+PASS  一次性盘 /dev/sdb 存在
+      /dev/sdb：8589934592 字节，无挂载、无 swap
+PASS  一次性盘 /dev/sdc 存在
+      /dev/sdc：4294967296 字节，无挂载、无 swap
+PASS  两块一次性盘清成空白
+      清掉验收之前遗留的 fstab 备份（5 份）
+
+== 1. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  代理日志声明受管理卷已接线
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19474 启动
+PASS  监听 19474 的 Web 进程不是 root（pid=3417 uid=999）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+
+== 2. 能力与只读接口：五个卷动作可执行，卷视图可用 ==
+PASS  capabilities 里有 storage.volume.import
+PASS  capabilities 里有 storage.volume.mount
+PASS  capabilities 里有 storage.volume.unmount
+PASS  capabilities 里有 storage.volume.configure
+PASS  capabilities 里有 storage.volume.forget
+      代理登记的动作数：20
+PASS  卷列表可读
+PASS  空列表序列化成 []（不是 null）
+PASS  不存在的卷详情是 404
+PASS  不存在的卷详情错误码
+PASS  形状不对的卷标识是 400
+PASS  形状不对的错误码
+PASS  不存在的卷的占用信息是 404
+PASS  占用信息错误码
+
+== 3. 夹具：两块盘走产品的 GPT → 分区 → ext4 ==
+PASS  初始化 GPT（sdb）任务终态
+PASS  初始化 GPT（sdb）结果是 verified
+PASS  初始化 GPT（sdb）带 verified_at
+PASS  盘上确实有 GPT（blkid 独立读取）
+PASS  初始化 GPT（sdc）任务终态
+PASS  初始化 GPT（sdc）结果是 verified
+PASS  初始化 GPT（sdc）带 verified_at
+PASS  盘上确实有 GPT（blkid 独立读取，sdc）
+PASS  快照反映了操作之后的状态（sdb）
+PASS  快照反映了操作之后的状态（sdc）
+PASS  建分区（sdb）任务终态
+PASS  建分区（sdb）结果是 verified
+PASS  建分区（sdb）带 verified_at
+PASS  建分区（sdc）任务终态
+PASS  建分区（sdc）结果是 verified
+PASS  建分区（sdc）带 verified_at
+PASS  夹具分区 /dev/sdb1 存在
+PASS  夹具分区 /dev/sdc1 存在
+PASS  夹具：sdb1 的内核大小
+PASS  夹具：sdc1 的内核大小
+PASS  快照反映了操作之后的状态（sdb）
+PASS  快照反映了操作之后的状态（sdc）
+PASS  格式化（sdb1）任务终态
+PASS  格式化（sdb1）结果是 verified
+PASS  格式化（sdb1）带 verified_at
+PASS  格式化（sdc1）任务终态
+PASS  格式化（sdc1）结果是 verified
+PASS  格式化（sdc1）带 verified_at
+PASS  独立工具读到 ext4（sdb1）
+PASS  独立工具读到标签（sdb1）
+PASS  两个文件系统的 UUID 不同（74bcce13-3169-4dfb-9286-5f43b4e695d7 / 505eef5c-8479-4ad9-9cf4-c27876e48433）
+PASS  快照反映了操作之后的状态（sdb）
+PASS  快照反映了操作之后的状态（sdc）
+
+== 4. 导入卷：fstab 最小修改、备份、原子替换 ==
+PASS  导入预检状态码
+PASS  导入预检允许
+PASS  导入的锁有整盘
+PASS  导入的锁有 fstab
+PASS  导入不需要再认证（只登记，不改开机行为）
+PASS  导入没有确认短语
+PASS  导入的影响里有 config_change
+      目标：sdb1（2.0 GiB，sdb 上的分区）
+PASS  导入任务终态
+PASS  导入结果是 verified
+PASS  导入带 verified_at
+PASS  核验来源：fstab 读回 + systemd 单元
+PASS  写进 fstab 的 UUID 与盘上一致（独立 blkid）
+PASS  结果里的条目行与 fstab 实际内容一致
+PASS  systemd 里的挂载单元名
+PASS  卷标识是 vol_ 形状
+PASS  fstab 里这个 UUID 只有一条条目
+PASS  fstab 条目与期望逐字一致
+PASS  托管块标记 BEGIN 恰好一个
+PASS  托管块标记 END 恰好一个
+PASS  托管块里只有这一条条目
+PASS  没有遗留候选临时文件
+PASS  fstab 权限与属主没被顺手改掉
+PASS  托管块之外的内容逐字未变
+PASS  fstab 非空行只多出托管块的四行
+PASS  备份目录里多了一份
+PASS  备份的内容就是写之前的 fstab
+PASS  备份路径出现在结果里
+PASS  systemd 认得这个挂载单元
+PASS  挂载点目录已创建
+PASS  导入没把卷挂上（不改运行状态）
+PASS  卷列表：一个卷
+PASS  卷列表：slug
+PASS  卷列表：UUID 与 blkid 一致
+PASS  卷列表：observed_state 是 unmounted
+PASS  卷列表：desired_state 是 unmounted
+PASS  卷列表：capacity 是 null（没挂载）
+PASS  卷详情可读
+PASS  卷详情：mount_path
+PASS  卷详情：automount（导入默认关）
+PASS  卷详情：nodev/nosuid 默认开
+PASS  卷详情：没有 observed_error
+PASS  占用信息可读
+PASS  占用信息：没挂载
+PASS  占用信息：不忙
+PASS  占用信息：空列表是 []
+PASS  占用信息：带检查时间
+PASS  重复导入同一 UUID 的预检不允许
+PASS  重复导入的阻塞码
+PASS  重复导入的提交被拒
+PASS  重复导入没有改动 fstab
+PASS  第二个卷导入任务终态
+PASS  第二个卷导入结果是 verified
+PASS  第二个卷导入带 verified_at
+PASS  第二个卷的 fstab 条目
+PASS  托管块里现在两条条目
+PASS  条目按挂载点排序（data 在 logs 之前）
+PASS  第一个卷的条目没有被第二个卷改动
+
+== 5. 挂载：UUID 两源核验 + 真的能写文件 ==
+PASS  挂载预检允许
+PASS  挂载不需要再认证
+PASS  挂载没有确认短语
+PASS  挂载的锁有 volume
+PASS  挂载的锁有整盘
+PASS  挂载任务终态
+PASS  挂载结果是 verified
+PASS  挂载带 verified_at
+PASS  核验来源：findmnt + 拓扑重扫
+PASS  结果里的 UUID 与盘上一致
+PASS  结果里的挂载点
+PASS  内核视图：挂载点上就是这个 UUID
+PASS  内核视图：源是这块分区
+PASS  内核视图：nosuid 生效
+PASS  内核视图：nodev 生效
+PASS  内核视图：可读写（rw）
+PASS  内核 mountinfo 里有这个挂载点
+PASS  写进去的文件属于这个挂载点（findmnt -T）
+PASS  写进去的文件属于这个挂载点（stat %m）
+PASS  快照反映了操作之后的状态（sdb1）
+PASS  面板详情：observed_state 是 mounted
+PASS  面板详情：capacity 不是 null
+PASS  面板详情：容量总数 > 0
+PASS  面板详情：desired_state 变成 mounted
+PASS  占用信息：挂着但没人用
+PASS  占用信息：挂载点列表里有它
+
+== 6. 卸载 → 重挂载：文件一致 ==
+PASS  卸载预检允许
+PASS  卸载要求再认证
+PASS  卸载任务终态
+PASS  卸载结果是 verified
+PASS  卸载带 verified_at
+PASS  内核视图：挂载点没了
+PASS  卸载之后 fstab 条目还在（卸载不改开机配置）
+PASS  快照反映了操作之后的状态（sdb1）
+PASS  面板详情：observed_state 回到 unmounted
+PASS  面板详情：capacity 回到 null
+PASS  重复卸载的预检不允许
+PASS  重复卸载的阻塞码
+PASS  重挂载任务终态
+PASS  重挂载结果是 verified
+PASS  重挂载带 verified_at
+PASS  重挂载之后文件内容一致
+
+== 7. 繁忙占用列表：说得出是谁占着 ==
+PASS  占用信息可读
+PASS  占用信息：报告忙
+PASS  占用信息：挂了
+PASS  占用信息列出了进程（pid=5962，共 1 个）
+PASS  面板点名的 pid 真的握着这个卷（到 /proc/pid/fd 独立核对）
+      占用者的进程名：sleep
+PASS  有进程占用时卸载预检不允许
+PASS  占用阻塞码
+PASS  阻塞消息里点名了占用的 pid
+PASS  有占用时提交被拒
+PASS  预检拒绝之后卷还挂着（内核视图）
+PASS  占用者退出后占用信息回到不忙
+PASS  （竞态用例的准备）预检放行
+PASS  受理时发现变忙：提交被拒
+PASS  拒绝码是 VALIDATION_ERROR
+PASS  拒绝原因说到当前状态不允许（带阻塞码）
+PASS  受理被拒之后卷还挂着（内核视图）
+PASS  受理被拒之后 desired_state 仍是 mounted
+PASS  被受理拒绝的那次留下 failed/rejected 的任务
+      冻住了产品的 umount（pid=6103，comm=umount）
+PASS  执行时撞上占用 → 任务失败（不是虚假成功）
+PASS  失败的错误码
+PASS  失败原因里带上了 umount 的原文
+PASS  失败原因里点名了占用的 pid
+PASS  失败原因里还有一句可读的占用说明
+      失败消息：umount /srv/upanel/volumes/data 退出码 32：umount: /srv/upanel/volumes/data: target is busy.。 当前占用：挂载点仍然存在：/srv/upanel/volumes/data；有 1 个进程正打开着 /srv/upanel/volumes/data：6108/sleep。先停掉它们，或把应用改成从挂载点访问
+PASS  失败之后卷还挂着（内核视图）
+PASS  失败之后 desired_state 仍是 mounted
+PASS  执行端占用者也退出后占用信息回到不忙
+PASS  占用者退出后卸载任务终态
+PASS  占用者退出后卸载结果是 verified
+PASS  占用者退出后卸载带 verified_at
+PASS  卸载之后内核视图里没了
+PASS  快照反映了操作之后的状态（sdb1）
+
+== 8. 开机自动挂载：fstab 里那一行的选项 ==
+PASS  改配置预检允许
+PASS  改配置要求再认证
+PASS  改配置的锁有 fstab
+PASS  改配置任务终态
+PASS  改配置结果是 verified
+PASS  改配置带 verified_at
+PASS  fstab 条目去掉了 noauto
+PASS  条目里没有 noauto
+PASS  条目里保留 nofail（盘不在也不该卡住开机）
+PASS  条目里有固定设备等待时间
+PASS  改配置留的备份就是改之前那份 fstab
+PASS  托管块里仍然只有两条条目
+PASS  findmnt --verify 接受当前的 /etc/fstab
+PASS  面板详情：automount 已打开
+PASS  准备重启前的挂载任务终态
+PASS  准备重启前的挂载结果是 verified
+PASS  准备重启前的挂载带 verified_at
+PASS  标记文件在卷里
+PASS  快照反映了操作之后的状态（sdb1）
+
+== 9. 外部编辑 fstab：旧预检不能覆盖它 ==
+PASS  （为下一步准备的预检）允许
+PASS  （为下一步准备的预检）要求再认证
+PASS  外部编辑确实改了文件
+PASS  外部编辑后提交旧预检被拒
+PASS  拒绝码是 PREFLIGHT_STALE
+PASS  外部编辑的内容还在（旧任务没有覆盖它）
+PASS  外部编辑之后这个 UUID 的条目仍只有一条
+PASS  手工编辑已还原
+
+== 10. 候选校验失败：原文件一个字节都不动 ==
+PASS  关闭自动挂载（为坏候选用例准备）任务终态
+PASS  关闭自动挂载（为坏候选用例准备）结果是 verified
+PASS  关闭自动挂载（为坏候选用例准备）带 verified_at
+PASS  条目重新带上 noauto
+PASS  坏行存在时改配置失败
+PASS  失败的错误码
+PASS  失败原因指向候选文件校验
+PASS  失败之后 /etc/fstab 与塞坏行之后逐字节相同
+PASS  失败之后没有多出备份（校验在换文件之前）
+PASS  失败之后没有遗留候选临时文件
+PASS  移除坏行后文件回到原样
+PASS  清除坏行之后同样的改动任务终态
+PASS  清除坏行之后同样的改动结果是 verified
+PASS  清除坏行之后同样的改动带 verified_at
+PASS  自动挂载又打开了
+PASS  最后的条目里没有 noauto
+PASS  标记文件仍在
+
+== 11. 回归：第二块盘上的卷不受影响 ==
+PASS  卷列表里两个卷
+PASS  卷列表按挂载点排序
+PASS  第二个卷仍是 unmounted
+PASS  第二个卷的 fstab 条目没被改动
+PASS  第一个卷现在还挂着
+      状态已写入 /var/tmp/upanel-accept-p07-4/state.env
+
+== 12. 收尾（第一段） ==
+PASS  代理已停止、socket 已清理
+PASS  停止面板之后卷还挂着（不是面板在维持它）
+      现在的 /etc/fstab：
+        LABEL=cloudimg-rootfs	/	 ext4	discard,commit=30,errors=remount-ro	0 1
+        LABEL=BOOT	/boot	ext4	defaults	0 2
+        LABEL=UEFI	/boot/efi	vfat	umask=0077	0 1
+        # BEGIN upanel managed volumes
+        # 以下条目由 uPanel 维护（同一块内的手工修改会在下次变更时被覆盖）
+        UUID=74bcce13-3169-4dfb-9286-5f43b4e695d7 /srv/upanel/volumes/data ext4 rw,nodev,nosuid,nofail,x-systemd.device-timeout=30 0 2
+        UUID=505eef5c-8479-4ad9-9cf4-c27876e48433 /srv/upanel/volumes/logs ext4 rw,nodev,nosuid,nofail,x-systemd.device-timeout=30,noauto 0 2
+        # END upanel managed volumes
+
+== 汇总（第一段） ==
+PASS=267 FAIL=0 NOT RUN=0
+
+下一步：重启这台 VM，然后运行第二段：
+  sudo BIN_DIR=/var/tmp/upanel-bin PHASE=post-boot WORK=/var/tmp/upanel-accept-p07-4 sh /home/upanel/p07-4-storage-volume-acceptance.sh
+第二段会在**启动任何 upanel 进程之前**先看重启后的挂载与标记文件。
+EXIT=0

@@ -82,6 +82,15 @@ func (s *Server) routes() *gin.Engine {
 		st.GET("/devices", s.handleListDevices)
 		st.GET("/devices/:id", s.handleGetDevice)
 
+		// 受管理卷（P07.4）：列表与详情是 V，占用详情是 admin
+		// （CONTRACTS.md 第 6 节：占用里有进程命令行与 PID）。
+		// 这些路由**只读**：导入/挂载/卸载/改配置/退出管理都走统一的
+		// POST /operations/preflight + POST /jobs（action=storage.volume.*），
+		// 不在这里开一个“直接执行”的入口。
+		st.GET("/volumes", s.handleListVolumes)
+		st.GET("/volumes/:id", s.handleGetVolume)
+		st.GET("/volumes/:id/blockers", s.requireAdmin(), s.handleVolumeBlockers)
+
 		// 服务与进程（P05.1）：权限 V（CONTRACTS.md 第 10 节）。只读路由在这里，
 		// 启停/重启/开机启动是写操作，走统一的预检 → 任务链路（POST /operations/preflight
 		// + POST /jobs，action=service.control），不在这里开一个“直接执行”的入口。

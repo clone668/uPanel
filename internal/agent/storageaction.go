@@ -87,7 +87,10 @@ func storageExecutor(src storageWriter, action string) func(context.Context, Exe
 			Params:               in.Params,
 			ExpectedIdentity:     in.Target.IdentityFingerprint,
 			ExpectedStateVersion: in.Target.StateVersion,
-			Progress:             in.Progress,
+			// 卷动作把 operation_id 记成 last_operation_id（对账与审计用）。
+			// 设备动作不使用它，传过去没有副作用。
+			OperationID: in.OperationID,
+			Progress:    in.Progress,
 		})
 		if err != nil {
 			return Result{}, err

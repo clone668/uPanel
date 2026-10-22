@@ -1,0 +1,11 @@
+Disk /dev/sdb: 16777216 sectors, 8.0 GiB
+Model: QEMU HARDDISK   
+Sector size (logical/physical): 512/512 bytes
+Disk identifier (GUID): 3E5D8918-387E-4EA0-9E76-0060469DD82A
+Partition table holds up to 128 entries
+Main partition table begins at sector 2 and ends at sector 33
+First usable sector is 2048, last usable sector is 16777182
+Partitions will be aligned on 2048-sector boundaries
+Total free space is 16775135 sectors (8.0 GiB)
+
+Number  Start (sector)    End (sector)  Size       Code  Name

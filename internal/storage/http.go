@@ -40,6 +40,14 @@ func newHTTPError(status int, code httpx.Code, format string, args ...any) *HTTP
 	return &HTTPError{Status: status, Code: code, Message: fmt.Sprintf(format, args...)}
 }
 
+// NotFoundError 是“这东西不在”（404）。
+//
+// 它实现 statusCarrier，代理的查询层因此会把“卷不存在”直通成 404——把这件事说成
+// 500 或 503 会让调用方去查错地方（代理好好的，是那条记录没有）。
+func NotFoundError(format string, args ...any) *HTTPError {
+	return newHTTPError(http.StatusNotFound, httpx.CodeNotFound, format, args...)
+}
+
 // identityChanged 是"换盘了"。
 func identityChanged(displayName string) *HTTPError {
 	return newHTTPError(http.StatusConflict, httpx.CodeDeviceIdentityChanged,

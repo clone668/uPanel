@@ -23,6 +23,13 @@ type stubStorage struct {
 	err    error
 	calls  int
 	lastID string
+
+	// P07.4：卷视图。volErr / blockerErr 让“代理拒绝”的翻译能单独被测。
+	volumes    []storage.Volume
+	volErr     error
+	blockers   storage.VolumeBlockers
+	blockerErr error
+	lastVolID  string
 }
 
 func (s *stubStorage) Topology(ctx context.Context) (storage.Topology, error) {
@@ -42,6 +49,40 @@ func (s *stubStorage) Device(ctx context.Context, id string) (storage.Device, st
 		}
 	}
 	return storage.Device{}, s.topo, false, nil
+}
+
+// Volumes 返回预置的卷列表。
+func (s *stubStorage) Volumes(context.Context) ([]storage.Volume, error) {
+	s.calls++
+	if s.volErr != nil {
+		return nil, s.volErr
+	}
+	return s.volumes, nil
+}
+
+// Volume 按 id 挑一条；不存在的卷第二个返回值为 false（接口层按 404 处理）。
+func (s *stubStorage) Volume(_ context.Context, id string) (storage.Volume, bool, error) {
+	s.calls++
+	s.lastVolID = id
+	if s.volErr != nil {
+		return storage.Volume{}, false, s.volErr
+	}
+	for _, v := range s.volumes {
+		if v.ID == id {
+			return v, true, nil
+		}
+	}
+	return storage.Volume{}, false, nil
+}
+
+// VolumeBlockers 返回预置的占用信息。
+func (s *stubStorage) VolumeBlockers(_ context.Context, id string) (storage.VolumeBlockers, error) {
+	s.calls++
+	s.lastVolID = id
+	if s.blockerErr != nil {
+		return storage.VolumeBlockers{}, s.blockerErr
+	}
+	return s.blockers, nil
 }
 
 func storageFixture(t *testing.T, reader StorageReader) (*Server, *http.Cookie) {

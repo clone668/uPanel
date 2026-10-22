@@ -285,6 +285,36 @@ func (c *Collector) Assess(ctx context.Context, action string, params any) (Asse
 	return Assess(ctx, c.Topology(ctx), action, params, c.env)
 }
 
+// AssessVolume 是卷动作的判决（P07.4）。
+//
+// 用的快照与探针与 Assess 完全相同（同一个 Collector、同一份拓扑、同一组超级块/占用
+// 读取器），因此卷的 StateVersion 里的拓扑版本与设备动作是同一个版本号。
+func (c *Collector) AssessVolume(ctx context.Context, action string, params any) (Assessment, error) {
+	return AssessVolume(ctx, c.Topology(ctx), action, params, c.volumeEnv())
+}
+
+// volumeEnv 返回卷判决/查询用的环境。
+//
+// 它来自写原语持有的那几个依赖（登记表、fstab 读写器、探针），因此预检与执行看到的是
+// 同一套实现——两套实现会在“读到的 UUID 不一样”这种时刻互相打架。
+func (c *Collector) volumeEnv() VolumeEnv {
+	if c.write == nil {
+		return VolumeEnv{}
+	}
+	return c.write.volumeEnv()
+}
+
+// VolumeCapable 报告本机是否真的能做卷管理（P07.4）。
+//
+// 判据是“三样都在”：登记表（记住接管了谁）、fstab 读写器（能写且能用 findmnt 校验候选）、
+// 超级块读取器（能核对 UUID）。少任何一样，卷动作都会在执行阶段以 DEPENDENCY_MISSING 拒绝，
+// 因此它们**不该**出现在 capabilities.supported_actions 里——那是能力撒谎。
+// 预检与查询的登记同样以它为门。
+func (c *Collector) VolumeCapable() bool {
+	env := c.volumeEnv()
+	return env.Store != nil && env.Fstab.Runner != nil && env.Superblocks != nil
+}
+
 // attachIO 读取 /proc/diskstats 并给每台设备补上计数与速率。
 //
 // 速率来自**相邻两次扫描**的差。三个“算不出来就说算不出来”的情况在 ComputeRate 里处理：

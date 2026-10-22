@@ -15,6 +15,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -51,6 +52,101 @@ func fakeMajorMinor(procs fakeProcs) func(string) (string, error) {
 			return p.fds[fd], nil
 		}
 		return "", nil
+	}
+}
+
+// fakeDeviceID 用同一棵 /proc 夹具给路径配“所在文件系统的设备号”。
+//
+// fd 表里的值写成 "dev:<十进制>"；paths 是挂载点 → 设备号（挂载点目录的 st_dev）。
+// 别的路径（包括没有前缀的值）一律 0，表示“不在任何文件系统上”。
+func fakeDeviceID(procs fakeProcs, paths map[string]uint64) func(string) (uint64, error) {
+	return func(path string) (uint64, error) {
+		if v, ok := paths[path]; ok {
+			return v, nil
+		}
+		parts := strings.Split(filepath.ToSlash(path), "/")
+		if len(parts) < 3 {
+			return 0, nil
+		}
+		pid, fd := parts[len(parts)-3], parts[len(parts)-1]
+		p, ok := procs[pid]
+		if !ok {
+			return 0, nil
+		}
+		raw, ok := p.fds[fd]
+		if !ok || !strings.HasPrefix(raw, "dev:") {
+			return 0, nil
+		}
+		n, err := strconv.ParseUint(strings.TrimPrefix(raw, "dev:"), 10, 64)
+		if err != nil {
+			return 0, err
+		}
+		return n, nil
+	}
+}
+
+// TestProcBusyScannerScanMountFindsOpenFiles 校验“打开着挂载点上某个文件”的进程能被找到。
+//
+// 这是 umount 真正会撞上的那种占用：内核拦的是“这个文件系统上还有打开的文件”，
+// 而不是“这块块设备被打开着”。只按设备号查（Scan），nginx 打开着挂载点里的一个日志
+// 这种最常见的情形就完全看不见——页面会说“没人用”，然后 umount 报 target is busy。
+func TestProcBusyScannerScanMountFindsOpenFiles(t *testing.T) {
+	dir := t.TempDir()
+	const mp = "/srv/upanel/volumes/data"
+	procs := fakeProcs{
+		// nginx 打开着挂载点上的两个文件：只算一次。
+		"100": {"nginx", map[string]string{"3": "dev:66305", "4": "dev:66305"}},
+		// bash 打开着别的文件系统上的东西。
+		"200": {"bash", map[string]string{"0": "dev:17"}},
+		// socket / 管道：没有所在文件系统。
+		"300": {"talker", map[string]string{"5": "dev:0"}},
+	}
+	buildProc(t, dir, procs)
+
+	scanner := ProcBusyScanner{Proc: dir, DeviceID: fakeDeviceID(procs, map[string]uint64{mp: 66305})}
+	got, err := scanner.ScanMount(context.Background(), mp)
+	if err != nil {
+		t.Fatalf("扫描失败: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("占用进程 = %+v，期望只有 100（nginx）", got)
+	}
+	if got[0].PID != "100" || got[0].Comm != "nginx" {
+		t.Errorf("占用进程 = %+v，期望 100/nginx", got[0])
+	}
+}
+
+// TestProcBusyScannerScanMountMissingPoint 校验挂载点已经不在了时不报错：
+// 卷刚卸掉的时候页面还会问一次“还有谁在用”，答案是“没有”。
+func TestProcBusyScannerScanMountMissingPoint(t *testing.T) {
+	dir := t.TempDir()
+	buildProc(t, dir, fakeProcs{"100": {"nginx", map[string]string{"3": "dev:66305"}}})
+
+	scanner := ProcBusyScanner{Proc: dir, DeviceID: func(p string) (uint64, error) {
+		if p == "/srv/upanel/volumes/data" {
+			return 0, os.ErrNotExist
+		}
+		return 66305, nil
+	}}
+	got, err := scanner.ScanMount(context.Background(), "/srv/upanel/volumes/data")
+	if err != nil {
+		t.Fatalf("挂载点不存在却报错了: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("挂载点不存在却报出了占用者: %+v", got)
+	}
+}
+
+// TestProcBusyScannerScanMountUnreadableFailsClosed 读不到 /proc 时必须报错：
+// “看不见”不能被当成“没人用”。
+func TestProcBusyScannerScanMountUnreadableFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	scanner := ProcBusyScanner{
+		Proc:     filepath.Join(dir, "没有这个目录"),
+		DeviceID: func(string) (uint64, error) { return 66305, nil },
+	}
+	if _, err := scanner.ScanMount(context.Background(), "/srv/upanel/volumes/data"); err == nil {
+		t.Fatal("读不到 /proc 却返回了空结果")
 	}
 }
 

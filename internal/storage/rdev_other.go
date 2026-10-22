@@ -14,3 +14,5 @@ import "errors"
 var errPlatformUnsupported = errors.New("storage: 占用检查只在 Linux 上实现")
 
 func osMajorMinor(fdPath string) (string, error) { return "", errPlatformUnsupported }
+
+func osDeviceID(path string) (uint64, error) { return 0, errPlatformUnsupported }

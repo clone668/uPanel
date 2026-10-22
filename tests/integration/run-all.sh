@@ -15,6 +15,12 @@
 #     p07-3 更狠，会真的 mkfs（还要在 mkfs 运行期间冻住它、杀掉代理），跑完也自己擦回空白。
 #     三者必须按 p07-1 → p07-2 → p07-3 的顺序跑：后一个会把盘写脏，而前一个需要空白盘来验
 #     “该拒的都拒”。
+#     p07-4 用**两块**一次性盘（默认 sdb sdc）走完“导入 → 挂载 → 写文件 → 卸载 → 重挂载 →
+#     开机自动挂载”的整条链，跑完**故意不改回空白**：它最后一步要重启 VM 证明 fstab 真的
+#     生效，所以这里只跑第一段，第二段必须重启后手工跑：
+#       sudo BIN_DIR=/var/tmp/upanel-bin PHASE=post-boot sh tests/integration/p07-4-storage-volume-acceptance.sh
+#     BIN_DIR 必须扛得过重启（/tmp 重启后是空的）且对 upanel-web 可执行（Q203）。
+#     第二段结束时会把卷卸载并退出管理，fstab 回到只有托管块标记的状态。
 # 典型事故：用 `sudo sh p01-2-acceptance.sh` 跑 p01-2，root 绕过目录权限，
 # “数据库目录不可写即拒绝启动”那条永远等不到退出，脚本会一直挂着。
 #
@@ -45,7 +51,7 @@ if [ -n "$DEPLOY_DIR" ] && [ ! -d "$DEPLOY_DIR/systemd" ]; then
 fi
 
 NONROOT_SCRIPTS="p01-1-acceptance p01-2-acceptance p01-4-acceptance p02-1-acceptance p02-2-acceptance"
-ROOT_SCRIPTS="p02-3-agent-acceptance p02-4-agent-secrets-acceptance p03-1-preflight-acceptance p03-2-jobs-acceptance p03-3-events-acceptance p03-4-reconcile-acceptance p04-1-system-acceptance p04-2-storage-acceptance p04-3-storage-health-acceptance p05-1-services-acceptance p05-2-processes-acceptance p05-3-logs-acceptance p06-1-files-acceptance p06-2-files-write-acceptance p06-3-terminal-acceptance p07-1-storage-guard-acceptance p07-2-storage-write-acceptance p07-3-storage-format-acceptance"
+ROOT_SCRIPTS="p02-3-agent-acceptance p02-4-agent-secrets-acceptance p03-1-preflight-acceptance p03-2-jobs-acceptance p03-3-events-acceptance p03-4-reconcile-acceptance p04-1-system-acceptance p04-2-storage-acceptance p04-3-storage-health-acceptance p05-1-services-acceptance p05-2-processes-acceptance p05-3-logs-acceptance p06-1-files-acceptance p06-2-files-write-acceptance p06-3-terminal-acceptance p07-1-storage-guard-acceptance p07-2-storage-write-acceptance p07-3-storage-format-acceptance p07-4-storage-volume-acceptance"
 
 if [ $# -gt 0 ]; then
     SELECTED="$*"
