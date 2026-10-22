@@ -154,7 +154,8 @@ P07.1 先把“该拒的都拒”证完（判决层、可靠身份、整盘锁�
 
 - 当前阶段：**P08（SMB 与卷依赖）进行中**：**P08.1 passed**，下一个子任务 **P08.2**。
   **P08.1（Samba 能力检测、受管理账号、密码秘密通道、POSIX ACL、共享定义与配置版本）passed**：
-  `internal/shares`（12 个文件，~4100 行）+ `internal/agent/shareaction.go|sharequery.go` +
+  `internal/shares`（15 个文件：11 个生产文件 3681 行 + 4 个测试文件 2251 行）+
+  `internal/agent/shareaction.go|sharequery.go` +
   `internal/agentstore/sharestore.go` + `migrations/agentdb/0005_shares.sql` 把五个动作
   `share.apply|disable|delete`、`share.account.apply|delete` 接上“预检 → 任务 → 幂等 → 资源锁 → 读回 → 审计”。
   五项承诺逐条落地：能力探针只认**固定候选绝对路径**（不落 PATH、不可配置，缺哪个报哪个，`config_write`
