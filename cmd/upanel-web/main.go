@@ -19,6 +19,7 @@ import (
 
 	"upanel/internal/agentclient"
 	"upanel/internal/api"
+	"upanel/internal/apps"
 	"upanel/internal/audit"
 	"upanel/internal/auth"
 	"upanel/internal/config"
@@ -347,6 +348,21 @@ func run(args []string, stdout, stderr io.Writer) int {
 		logger.Warn("演示模式不连接特权代理，预检与系统信息接口将不可用",
 			"socket", cfg.Agent.SocketPath)
 	}
+	// 应用与分组元数据（P09.1）：纯数据库，不依赖代理。
+	// 依赖卷的存在性只在写入带依赖卷的应用时才需要问代理；storageReader 为 nil
+	//（演示模式）时那类写入会明确回 503，而不是存下一条未经验证的引用。
+	//
+	// 回环入口地址只在演示模式放开：那时浏览器和面板在同一台机器上，127.0.0.1 真的能打开。
+	appsService, err := apps.New(db, apps.Options{
+		Volumes: apps.NewVolumeChecker(storageReader),
+		Normalize: apps.NormalizeOptions{
+			AllowLoopbackPublicURL: mode == platform.ModeMock,
+		},
+	})
+	if err != nil {
+		logger.Error("初始化应用元数据服务失败，拒绝启动", "error", err)
+		return 1
+	}
 	opsService, err := operations.New(db, preflightAgent, logger, operations.Options{})
 	if err != nil {
 		logger.Error("初始化预检服务失败，拒绝启动", "error", err)
@@ -376,6 +392,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Files:           filesReader,
 		Terminal:        terminalReader,
 		Shares:          sharesReader,
+		Apps:            appsService,
 		AllowedOrigins:  allowedOrigins,
 	})
 	if err != nil {

@@ -57,6 +57,7 @@ func servicesFixture(t *testing.T, reader ServicesReader) (*Server, *http.Cookie
 		Auth:            authSvc,
 		Audit:           aud,
 		Operations:      newTestOperations(t, db, nil),
+		Apps:            newTestApps(t, db),
 		AllowedOrigins:  testOrigins(),
 		Services:        reader,
 	})

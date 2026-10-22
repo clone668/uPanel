@@ -87,6 +87,7 @@ func logsFixture(t *testing.T, reader LogsReader) (*Server, *http.Cookie) {
 		Auth:            authSvc,
 		Audit:           aud,
 		Operations:      newTestOperations(t, db, nil),
+		Apps:            newTestApps(t, db),
 		AllowedOrigins:  testOrigins(),
 		Logs:            reader,
 	})

@@ -943,6 +943,95 @@ health_check：enabled、target_id、scheme=http/https、port、path、expected_
 
 AppSummary 额外输出 runtime_state、http_state、last_checked_at、dependency_protection=managed/unmanaged/not_applicable、capabilities、version。public_url 必须是 http/https URL，禁止 javascript/data/file 等协议。
 
+### 8.1 P09.1 已实现范围：元数据、判别式绑定与入口/目标分离
+
+P09.1 只做**元数据**：应用、分组、收藏的增删改查，加上“这条元数据描述的是什么”的判别模型。
+没有任何探测、没有任何生命周期动作、没有任何容器或镜像读取——`/apps/discovery`、
+`/apps/:id/health`、`/apps/:id/logs`、`/containers*`、`/images`、`/container-networks`、
+`/container-volumes`、`/deployments*` **尚未实现**，openapi 里也没有它们（未实现的接口不出现在
+契约里，见 §16 与 DECISIONS Q21）。
+
+**（1）四张表，两处数据库边界。** 迁移 `0007_apps.sql` 建 `app_groups`、`apps`、
+`app_favorites`、`app_volume_dependencies`。应用标识是 `app_` + 32 位小写十六进制，分组是
+`grp_` + 32 位小写十六进制——与 `job_`/`pf_`/`shr_`/`sac_` 同一套形状（§1 的 UUID v4 只用于
+前端不解析的外部标识；面板内部标识统一用这种可读前缀，见 DECISIONS Q250）。
+
+`app_volume_dependencies` **没有**指向卷表的外键，因为卷是代理数据库里的对象，Web 侧没有
+`volumes` 表，也不该建一个影子副本：影子表迟早与代理的观测不一致，而不一致的副本比没有副本
+更危险。替代方案是写入时经 `VolumeChecker`（`GET /storage/volumes`）确认存在——
+**代理不可达返回 503 且一个字都不写**（“暂时无法确认”），卷确实不在列表里返回 422
+`DEPENDENCY_MISSING` 并带出 `volume_id`。两件事必须分开：前者等一会儿重试就好，后者要换卷。
+卷标识落库前用代理侧的 `storage.ValidVolumeID` 校验形状（`vol_` + 32 位十六进制）。
+
+**（2）binding 是判别式联合，落库为规范 JSON，唯一性建在数据库上。**
+`type` 决定 `binding` 的唯一合法形状：link → `{}`；systemd → 只允许 `unit`；docker → 只允许
+`container_id`；compose → 只允许 `deployment_id`。出现多余键一律 400，并说明是哪个键不属
+于这个类型——不猜、不忽略、不“就近匹配”。
+
+`binding_json` 存的是**按键排序、无空格**的规范形式（例如 `{"container_id":"3f4a…"}`），因为
+唯一性靠它：`CREATE UNIQUE INDEX uq_apps_binding ON apps (type, binding_json) WHERE type <> 'link'`。
+同一个容器/单元/部署不能属于两个应用，这条约束由数据库而不是“先查后写”保证——后者在并发下
+必然漏。link 没有绑定对象，因此被排除在唯一索引之外（可以有多条）。表上还有
+`CHECK (type <> 'link' OR binding_json = '{}')` 兜住“link 偷偷带绑定”。
+
+`container_id` 必须是**完整** 64 位十六进制（服务端归一化为小写）：容器名会随重建变化，
+拿它当绑定依据等于把一条记录系在一个会漂移的字符串上。
+
+**（3）公共入口与内部探测目标是两个字段，不能互相代替。** `public_url` 是给**浏览器**点的
+地址（可能是反代后的域名）；`health_check.target_id` 是给**面板自己**用的探测目标。把探测
+指向 public_url 会让面板从一个不可信的对外地址上请求自己；把入口写成 target_id 则没人能点。
+
+- `public_url`：只允许 http/https，禁止 `javascript:`/`data:`/`file:`，禁止含用户名密码；
+  生产模式下回环地址（`127.0.0.0/8`、`localhost`、`::1`）与通配地址（`0.0.0.0`、`::`）被拒——
+  那是“面板自己”而不是“用户能访问的入口”。演示模式（`ModeMock`）放宽回环限制，因为演示实例
+  本来就在本机（Q249）。link 类型必须填 `public_url`。
+- `health_check.target_id` **结构性**地只能是 `^(local|cntr)_[a-z0-9][a-z0-9_-]{0,47}$`：
+  主机名、IP、端口、完整 URL 在这个形状里根本表达不出来，所以“填一个 `169.254.169.254`
+  让面板去请求”这件事不是“会被校验拦下”，而是**没有地方填**。这一条是 SSRF 的正面约束，
+  不是事后过滤（§3 的同一原则：探测目标只能来自代理发现）。
+
+**（4）健康检查的默认值与语义。** `enabled=false` 时也要输出完整的 health_check 对象
+（字段集合固定，读回来不需要猜缺了哪个键），此时 `target_id` 为空、`port` 为 0。`enabled=true`
+时 `target_id` 与 `port` 必填；`scheme` 默认 `http`、`path` 默认 `/`、
+`interval_seconds` 默认 30（范围 30—300）、`timeout_seconds` 默认 3（范围 1—10）。
+`path` 只能以单个 `/` 开头且不得含 `://`。`expected_status_codes` 去重后升序、最多 8 个、
+范围 100—599；**空数组表示“默认 200—399”**，落库为空数组而不是 `null`（`null` 与空集合在
+JSON 里是两种意思，这里两者语义相同，存储不该因为写法差别而不同）。
+
+**（5）摘要是诚实的“不知道”。** P09.1 没有任何探测器，所以：
+
+| 字段 | link | systemd / docker / compose |
+|---|---|---|
+| `runtime_state` | `not_applicable` | `unknown` |
+| `http_state` | `not_applicable`（未启用健康检查时所有类型都是这个） | `unknown`（仅在 `enabled=true` 时） |
+| `last_checked_at` | `null` | `null` |
+| `dependency_protection` | `not_applicable` | 有依赖卷时 `unmanaged`，否则 `not_applicable` |
+
+绝不出现“没探测过所以填 `stopped`”：那会把人骗去点一个不必要的启动按钮，也会让“服务真挂了”
+与“还没看过”变成同一句话。`dependency_protection` 在 P09.1 里**只可能是** `unmanaged`——
+还没有任何接管动作，写 `managed` 就是撒谎。
+
+**（6）`capabilities` 说的是“此刻真的能做到的事”，不是“这个类型将来能做什么”。**
+`open = public_url 非空`；`start`/`stop`/`restart`/`logs` 在 P09.1 全部为 `false`，等
+P09.3/P09.4 真正接上预检 + 任务之后再逐个放开。这条机制存在的理由是：先渲染按钮再让点击
+全部失败，比不显示按钮更糟——前者教人不再相信这个页面。
+
+**（7）删除只删元数据。** `DELETE /apps/:id` 只删除入口与绑定记录：不卸载项目、不停止服务、
+不删容器、不删镜像、不碰依赖卷里的数据；收藏随应用级联删除。`DELETE /app-groups/:id` 在分组
+非空时返回 422 `DEPENDENCY_BLOCKED`，不会顺手把应用移出分组或一起删掉——一个“删分组”的动作
+不该改变别的记录。要删就先 `PATCH /apps/:id` 带 `group_id: null`。
+
+**（8）权限、CSRF、审计与版本。** 读 V；写 admin + CSRF。`PATCH`/`DELETE` 都必须带
+`version`，不符返回 409 `VERSION_CONFLICT`。`group_id` 在 `PATCH` 里用“显式 `null` = 移出
+分组”，与“没提供这个字段”是两件事；改 `type` 必须同时给 `binding`。
+
+审计动作：`app.create`、`app.update`、`app.delete`、`app_group.create`、`app_group.update`、
+`app_group.delete`，target 形如 `app:<id>` / `app_group:<id>`；元数据变更与审计**同事务**。
+
+`PUT /apps/:id/favorite` **不写审计**：收藏是当前用户自己的偏好，不是管理动作；每点一次星标
+就产生一条审计，真正的管理事件会被淹掉。它也**不需要** `version`（幂等）。
+
+
 DeploymentDefinition：name、image_reference、container_port、host_bind_address、host_port、environment（公开值或 secret_ref）、mounts、resource_limits、health_check、volume_dependencies。
 
 mounts 仅允许 source_root_id、relative_path、container_path、read_only；禁止 .. 和 /proc、/sys、/dev 等目标敏感路径。镜像引用允许 tag 或 digest，执行后记录实际 digest。资源限制初期必填 memory_limit_bytes、cpu_limit；端口 1—65535，冲突检测和锁必须同时存在。definition 不含原始 compose_yaml 字段。

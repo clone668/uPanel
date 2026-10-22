@@ -119,14 +119,22 @@ func (s *Server) handleListUsers(c *gin.Context) {
 
 // listLimit 解析 limit 查询参数；空值交给服务层取默认 50。
 func listLimit(c *gin.Context) (int, bool) {
+	return listLimitMax(c, auth.MaxUserListLimit)
+}
+
+// listLimitMax 是同名解析但上限由调用方提供。
+//
+// 各资源的上限在自己的包里定（apps.MaxListLimit 等），不共用一个常量：共用会让
+// 账号列表的上限悄悄变成应用列表的上限，改一个地方坏两处。
+func listLimitMax(c *gin.Context, max int) (int, bool) {
 	raw := strings.TrimSpace(c.Query("limit"))
 	if raw == "" {
 		return 0, true
 	}
 	n, err := strconv.Atoi(raw)
-	if err != nil || n < 1 || n > auth.MaxUserListLimit {
+	if err != nil || n < 1 || n > max {
 		writeError(c, http.StatusBadRequest, httpx.CodeValidationError,
-			fmt.Sprintf("limit 必须是 1 到 %d 之间的整数", auth.MaxUserListLimit))
+			fmt.Sprintf("limit 必须是 1 到 %d 之间的整数", max))
 		return 0, false
 	}
 	return n, true
@@ -584,7 +592,8 @@ func (s *Server) reject(c *gin.Context, stage string, code httpx.Code) {
 // 终端路由的 :id 就是会话 id，指向 session 才说得清“谁想连哪个会话”；写成固定的
 // "user" 会让一条 terminal.attach 的越权尝试看起来像在操作某个用户，事后无法追到
 // 具体会话。秘密上传没有 :id（用途在请求体里，中间件拒绝时还没解析），指向 "secret"
-// 比指向一个凭空的 "user" 准确。其余路由保持原有的 "user"（它们的 :id 是用户 id）。
+// 比指向一个凭空的 "user" 准确。应用与分组同理：路径里的 :id 才是被操作的对象。
+// 其余路由保持原有的 "user"（它们的 :id 是用户 id）。
 func denyTarget(c *gin.Context, action string) string {
 	switch action {
 	case audit.ActionTerminalAttach, audit.ActionTerminalClose:
@@ -593,6 +602,17 @@ func denyTarget(c *gin.Context, action string) string {
 		}
 	case audit.ActionSecretCreate:
 		return "secret"
+	case audit.ActionAppManage, audit.ActionAppCreate, audit.ActionAppUpdate, audit.ActionAppDelete:
+		if id := c.Param("id"); id != "" {
+			return "app:" + id
+		}
+		return "app"
+	case audit.ActionAppGroupManage, audit.ActionAppGroupCreate,
+		audit.ActionAppGroupUpdate, audit.ActionAppGroupDelete:
+		if id := c.Param("id"); id != "" {
+			return "app_group:" + id
+		}
+		return "app_group"
 	}
 	return "user"
 }

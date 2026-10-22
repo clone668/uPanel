@@ -32,6 +32,7 @@ func newTestServer(t *testing.T, mode platform.Mode, listen string) *Server {
 		Auth:            authSvc,
 		Audit:           aud,
 		Operations:      newTestOperations(t, db, nil),
+		Apps:            newTestApps(t, db),
 		AllowedOrigins:  testOrigins(),
 	})
 	if err != nil {
@@ -133,6 +134,7 @@ func TestUnknownPathReturnsJSON404(t *testing.T) {
 func TestMockModeMustBindLoopback18881(t *testing.T) {
 	authSvc, aud, db := newTestServicesWithDB(t)
 	preflights := newTestOperations(t, db, nil)
+	appSvc := newTestApps(t, db)
 	if _, err := New(Options{
 		ListenAddress:   config.ListenProduction,
 		Mode:            platform.ModeMock,
@@ -141,6 +143,7 @@ func TestMockModeMustBindLoopback18881(t *testing.T) {
 		Auth:            authSvc,
 		Audit:           aud,
 		Operations:      preflights,
+		Apps:            appSvc,
 		AllowedOrigins:  testOrigins(),
 	}); err == nil {
 		t.Fatal("mock 模式绑定 9443 必须被拒绝")
@@ -153,6 +156,7 @@ func TestMockModeMustBindLoopback18881(t *testing.T) {
 		Auth:            authSvc,
 		Audit:           aud,
 		Operations:      preflights,
+		Apps:            appSvc,
 		AllowedOrigins:  testOrigins(),
 	}); err == nil {
 		t.Fatal("mock 模式绑定 0.0.0.0 必须被拒绝")
@@ -165,6 +169,7 @@ func TestMockModeMustBindLoopback18881(t *testing.T) {
 		Auth:            authSvc,
 		Audit:           aud,
 		Operations:      preflights,
+		Apps:            appSvc,
 		AllowedOrigins:  testOrigins(),
 	}); err != nil {
 		t.Fatalf("mock 模式绑定 127.0.0.1:18881 应成功: %v", err)
@@ -181,6 +186,7 @@ func TestNewRejectsInvalidOptions(t *testing.T) {
 		Auth:            authSvc,
 		Audit:           aud,
 		Operations:      newTestOperations(t, db, nil),
+		Apps:            newTestApps(t, db),
 		AllowedOrigins:  testOrigins(),
 	}
 	if _, err := New(Options{ListenAddress: config.ListenProduction, Mode: base.Mode, ShutdownTimeout: time.Second}); err == nil {

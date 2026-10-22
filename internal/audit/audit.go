@@ -61,6 +61,23 @@ const (
 	// 明文从不进日志与审计，secret_ref 这个键也会被下面的秘密字段过滤替换。
 	// 它值得留痕，因为这是面板上唯一一条“把密码交给系统”的入口。
 	ActionSecretCreate = "secret.create"
+	// ActionAppCreate 是登记一个应用入口/绑定（P09.1）。
+	//
+	// 只写元数据，不动主机；但“谁把这个容器登记成了应用”是需要能回答的问题，
+	// 尤其是绑定了 docker/compose 的应用——它们是后续启停动作的前提。
+	ActionAppCreate = "app.create"
+	// ActionAppUpdate 是修改应用元数据（含解绑后重新绑定）。
+	ActionAppUpdate = "app.update"
+	// ActionAppDelete 是删除应用入口/绑定（不卸载项目本身）。
+	ActionAppDelete = "app.delete"
+	// ActionAppManage 用于应用请求被中间件拒绝（admin/CSRF）时记录的事件。
+	ActionAppManage = "app.manage"
+	// ActionAppGroupCreate / Update / Delete 是分组管理（P09.1）。
+	ActionAppGroupCreate = "app_group.create"
+	ActionAppGroupUpdate = "app_group.update"
+	ActionAppGroupDelete = "app_group.delete"
+	// ActionAppGroupManage 用于分组请求被中间件拒绝时记录的事件。
+	ActionAppGroupManage = "app_group.manage"
 )
 
 // 结果枚举，与迁移里的 CHECK 约束一致。

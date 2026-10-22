@@ -122,6 +122,32 @@ func (s *Server) routes() *gin.Engine {
 		sec.Use(s.requireSession(), s.requireAdmin())
 		sec.POST("", s.requireCSRF(), s.requireReauth(), s.handleCreateSecret)
 
+		// 应用与分组元数据（P09.1）：读 V、写 admin + CSRF（CONTRACTS.md 第 8 节）。
+		//
+		// 这一组只改元数据，**不碰主机**：不启动容器、不重启服务、不执行 Compose YAML。
+		// 因此它走的是“直接写库 + 审计”，而不是预检 → 任务链路；反过来，任何真正
+		// 影响运行中的动作（P09.3/P09.4 的启停、日志）仍然必须走 POST /operations/preflight
+		// + POST /jobs，这里不会出现“直接执行”的入口。
+		//
+		// 收藏是当前用户的偏好：PUT 幂等、不需要 version，viewer 也能改自己的星标。
+		ap := v1.Group("/apps", s.auditRoute(audit.ActionAppManage))
+		ap.Use(s.requireSession())
+		ap.GET("", s.handleListApps)
+		ap.GET("/:id", s.handleGetApp)
+		ap.POST("", s.requireAdmin(), s.requireCSRF(), s.handleCreateApp)
+		ap.PATCH("/:id", s.requireAdmin(), s.requireCSRF(), s.handleUpdateApp)
+		ap.DELETE("/:id", s.requireAdmin(), s.requireCSRF(), s.handleDeleteApp)
+		ap.PUT("/:id/favorite", s.requireCSRF(), s.handleSetAppFavorite)
+
+		// 应用分组（P09.1）：列表 V，写 admin + CSRF。删除时分组里还有应用会被拒绝
+		// （422 DEPENDENCY_BLOCKED），不会顺手把应用删掉或移组。
+		ag := v1.Group("/app-groups", s.auditRoute(audit.ActionAppGroupManage))
+		ag.Use(s.requireSession())
+		ag.GET("", s.handleListAppGroups)
+		ag.POST("", s.requireAdmin(), s.requireCSRF(), s.handleCreateAppGroup)
+		ag.PATCH("/:id", s.requireAdmin(), s.requireCSRF(), s.handleUpdateAppGroup)
+		ag.DELETE("/:id", s.requireAdmin(), s.requireCSRF(), s.handleDeleteAppGroup)
+
 		// 服务与进程（P05.1）：权限 V（CONTRACTS.md 第 10 节）。只读路由在这里，
 		// 启停/重启/开机启动是写操作，走统一的预检 → 任务链路（POST /operations/preflight
 		// + POST /jobs，action=service.control），不在这里开一个“直接执行”的入口。

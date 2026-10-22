@@ -119,6 +119,7 @@ func newPreflightFixture(t *testing.T, agent operations.Agent) *adminFixture {
 		Auth:            authSvc,
 		Audit:           aud,
 		Operations:      newTestOperations(t, db, agent),
+		Apps:            newTestApps(t, db),
 		AllowedOrigins:  testOrigins(),
 	})
 	if err != nil {

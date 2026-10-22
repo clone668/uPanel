@@ -37,6 +37,7 @@ func newServerWithFrontend(t *testing.T, frontend http.Handler) *Server {
 		Auth:            authSvc,
 		Audit:           aud,
 		Operations:      newTestOperations(t, db, nil),
+		Apps:            newTestApps(t, db),
 		AllowedOrigins:  testOrigins(),
 	})
 	if err != nil {

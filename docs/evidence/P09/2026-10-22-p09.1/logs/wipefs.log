@@ -1,0 +1,8 @@
+--- 第 0 轮
+/dev/sdd: 8 bytes were erased at offset 0x00000200 (gpt): 45 46 49 20 50 41 52 54
+/dev/sdd: 8 bytes were erased at offset 0xfffffe00 (gpt): 45 46 49 20 50 41 52 54
+/dev/sdd: 2 bytes were erased at offset 0x000001fe (PMBR): 55 aa
+/dev/sdd: calling ioctl to re-read partition table: Success
+Creating new GPT entries in memory.
+GPT data structures destroyed! You may now partition the disk using fdisk or
+other utilities.

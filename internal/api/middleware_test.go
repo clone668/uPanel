@@ -204,6 +204,7 @@ func TestRecoveryTurnsPanicInto500WithoutLeakingStack(t *testing.T) {
 		Auth:            authSvc,
 		Audit:           aud,
 		Operations:      newTestOperations(t, db, nil),
+		Apps:            newTestApps(t, db),
 		AllowedOrigins:  testOrigins(),
 	})
 	if err != nil {

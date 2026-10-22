@@ -183,6 +183,7 @@ func newTerminalFixture(t *testing.T, reader *stubTerminal) *terminalFixture {
 		Auth:            authSvc,
 		Audit:           aud,
 		Operations:      newTestOperations(t, db, nil),
+		Apps:            newTestApps(t, db),
 		AllowedOrigins:  testOrigins(),
 		Terminal:        injected,
 	})

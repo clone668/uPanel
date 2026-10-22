@@ -17,6 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"upanel/internal/apps"
 	"upanel/internal/audit"
 	"upanel/internal/auth"
 	"upanel/internal/config"
@@ -96,6 +97,10 @@ type Options struct {
 	// 那时 /shares*、/share-accounts 与 /secrets 明确回 503 AGENT_UNAVAILABLE，
 	// 而不是给一份空共享列表——空列表会被读成“这台机器上没有共享”。
 	Shares SharesReader
+	// Apps 是应用与分组元数据服务（P09.1）。必需依赖：它是纯数据库元数据，
+	// 不连代理也能工作；缺了它 /apps 与 /app-groups 就没有落脚点，
+	// 而“回 503 的空实现”会让人以为功能已经做好了。
+	Apps *apps.Service
 }
 
 // Server 是 Web HTTP 服务。
@@ -142,6 +147,9 @@ func New(opts Options) (*Server, error) {
 	}
 	if opts.Operations == nil {
 		return nil, errors.New("api: Operations 不能为空")
+	}
+	if opts.Apps == nil {
+		return nil, errors.New("api: Apps 不能为空")
 	}
 	origins, err := httpx.NewOriginSet(opts.AllowedOrigins)
 	if err != nil {

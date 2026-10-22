@@ -1,0 +1,239 @@
+== 0. 环境与安全守卫 ==
+      系统：Ubuntu 24.04.5 LTS
+PASS  以 root 运行
+      本机没有 docker 组（P09.1 不需要）
+PASS  Web 运行身份存在（upanel-web）
+PASS  Web 身份没有登录 shell
+PASS  python3 可用（解析 JSON 与读库）
+PASS  端口 19481 空闲
+
+== 1. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19481 启动
+PASS  监听 19481 的 Web 进程不是 root（pid=26902 uid=999）
+PASS  数据库迁移到第 7 版（0007_apps）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+
+== 2. 判别式绑定：type 决定 binding 的唯一合法形状 ==
+PASS  link 应用创建
+PASS  标识是 app_ 前缀
+PASS  标识是 app_ + 32 位十六进制
+PASS  link 的 binding 为空对象
+PASS  link 的 group_id 是 null
+PASS  link 的 runtime_state
+PASS  link 的 http_state
+PASS  link 的 last_checked_at 是 null
+PASS  link 的 capabilities.open 为真
+PASS  link 没有启停能力
+PASS  systemd 应用创建
+PASS  systemd 的 binding.unit
+PASS  systemd 的 public_url 是 null
+PASS  systemd 的 runtime_state 是 unknown（不是 stopped）
+PASS  systemd 的 dependency_protection
+PASS  docker 应用创建
+PASS  容器 ID 被归一化为小写
+PASS  compose 应用创建
+PASS  compose 的 binding.deployment_id
+PASS  systemd 多给 container_id 被拒
+PASS  systemd 多给 container_id 错误码
+PASS  systemd 多给 container_id 的错误说明
+PASS  docker 少给 container_id 被拒
+PASS  docker 少给 container_id 错误码
+PASS  docker 少给 container_id 的错误说明
+PASS  docker 用容器名当绑定 被拒
+PASS  docker 用容器名当绑定 错误码
+PASS  docker 用容器名当绑定 的错误说明
+PASS  compose 给了 unit 被拒
+PASS  compose 给了 unit 错误码
+PASS  compose 给了 unit 的错误说明
+PASS  link 带了绑定 被拒
+PASS  link 带了绑定 错误码
+PASS  link 带了绑定 的错误说明
+PASS  link 没有入口地址 被拒
+PASS  link 没有入口地址 错误码
+PASS  link 没有入口地址 的错误说明
+PASS  未知类型 被拒
+PASS  未知类型 错误码
+PASS  未知类型 的错误说明
+PASS  同一个容器给第二个应用是 422
+PASS  重复绑定的错误码
+PASS  另一个容器可以建
+PASS  两个 link 可以同时存在（link 没有绑定对象）
+PASS  独立证据：库里 binding_json 是规范化形式
+PASS  独立证据：唯一索引存在
+
+== 3. 公共入口与内部探测目标是两个字段 ==
+PASS  回环 IPv4 被拒
+PASS  回环 IPv4 的错误说明
+PASS  localhost 被拒
+PASS  localhost 的错误说明
+PASS  通配地址 被拒
+PASS  通配地址 的错误说明
+PASS  非 http 协议 被拒
+PASS  非 http 协议 的错误说明
+PASS  带账号密码 被拒
+PASS  带账号密码 的错误说明
+PASS  javascript 协议 被拒
+PASS  javascript 协议 的错误说明
+PASS  内网域名可用
+PASS  target_id=127.0.0.1 被拒
+PASS  target_id=169.254.169.254 被拒
+PASS  target_id=localhost:8080 被拒
+PASS  target_id=http://local_1 被拒
+PASS  target_id=host_1 被拒
+PASS  target_id=Local_1 被拒
+PASS  target_id=local_ 被拒
+PASS  target_id=10.0.0.5 被拒
+PASS  合法探测目标 local_1 通过
+PASS  健康检查默认 scheme
+PASS  健康检查默认 path
+PASS  健康检查默认间隔
+PASS  健康检查默认超时
+PASS  期望状态码是空数组而非 null
+PASS  启用但没探测时 http_state 是 unknown
+PASS  期望状态码去重排序
+
+== 4. 分组、收藏与“删分组不改变别的记录” ==
+PASS  建分组
+PASS  分组标识是 grp_ 前缀
+PASS  分组 sort_order 从 0 开始
+PASS  重名分组被拒
+PASS  第二个分组排到末尾
+PASS  分组列表可读
+PASS  分组列表条数
+PASS  应用挂到分组
+PASS  分组过滤只返回组内应用
+PASS  非空分组不能删
+PASS  非空分组的错误码
+PASS  独立证据：分组还在
+PASS  独立证据：应用还在原分组里
+PASS  显式 null 把应用移出分组
+PASS  移出之后空分组可以删
+PASS  空分组删掉了
+PASS  重复删分组是 404
+PASS  管理员收藏
+PASS  收藏幂等
+PASS  管理员看到自己收藏了
+
+== 5. 版本、权限、CSRF ==
+PASS  PATCH 缺 version
+PASS  PATCH 空补丁
+PASS  PATCH 未知字段
+PASS  只改类型不许（必须同时给绑定）
+PASS  只改类型的错误点明 binding
+PASS  正常改名
+PASS  改名后版本 +1
+PASS  改名不动绑定
+PASS  旧版本 PATCH 是 409
+PASS  409 的错误码
+PASS  改类型并同时给绑定
+PASS  绑定只剩 container_id
+PASS  改类型后记录里没有残留的 unit（独立证据）
+PASS  缺 CSRF 的创建是 403
+PASS  缺 CSRF 的错误码
+PASS  建 viewer 账号
+PASS  viewer 登录
+PASS  viewer 读应用列表
+PASS  viewer 读单个应用
+PASS  viewer 看不到别人的收藏
+PASS  viewer 读分组
+PASS  viewer 创建应用被拒
+PASS  viewer 改应用被拒
+PASS  viewer 删应用被拒
+PASS  viewer 建分组被拒
+PASS  viewer 可以设自己的收藏
+PASS  viewer 收藏后自己看得到
+PASS  管理员看到的仍是自己的（未被影响）
+PASS  viewer 取消收藏
+PASS  取消后 viewer 看到的是 false
+PASS  独立证据：收藏行只属于各自的用户
+
+== 6. 未实现的接口确实不存在 ==
+PASS  GET /api/v1/apps/discovery 不存在
+PASS  GET /api/v1/apps/app_11743f73b1dfad26d58ba31d3cbebfa1/health 不存在
+PASS  GET /api/v1/apps/app_11743f73b1dfad26d58ba31d3cbebfa1/logs 不存在
+PASS  GET /api/v1/containers 不存在
+PASS  GET /api/v1/images 不存在
+PASS  GET /api/v1/container-networks 不存在
+PASS  GET /api/v1/container-volumes 不存在
+PASS  GET /api/v1/deployments 不存在
+PASS  没有容器动作被登记
+
+== 7. 删除只删元数据 ==
+PASS  删除应用
+PASS  删除后读不到
+PASS  重复删除是 404
+PASS  版本不符是 409
+PASS  删除不产生任务
+PASS  独立证据：库里少了这一行
+PASS  独立证据：收藏随应用级联删除
+PASS  systemd 服务没被碰过（nginx 不因删除应用而消失）
+
+== 8. 依赖卷：经代理确认，且“确认不了”与“不存在”分开 ==
+PASS  代理已停止（模拟不可达）
+PASS  代理不可达时带依赖卷的写入是 503
+PASS  503 的错误码
+PASS  代理不可达时没有写库
+PASS  代理重新启动
+PASS  卷不存在是 422
+PASS  卷不存在的错误码
+PASS  错误里带出卷标识
+PASS  卷不存在时也没有写库
+PASS  一次性盘 /dev/sdd 确认为空白（首扇区全零、无子分区、无签名）
+PASS  代理快照跟上了真实磁盘（分区表 none、0 个分区）
+      清了上一轮夹具在 /etc/fstab 里残留的 /srv/upanel/volumes/p09data（原件备份在 logs/fstab.before）
+PASS  预检 storage.partition_table.initialize 生成
+PASS  预检 storage.partition_table.initialize 要求再认证，已重新验证密码
+PASS  提交 storage.partition_table.initialize 任务
+PASS  初始化分区表终态
+PASS  预检 storage.partition.create 生成
+PASS  预检 storage.partition.create 要求再认证，已重新验证密码
+PASS  提交 storage.partition.create 任务
+PASS  建分区终态
+PASS  代理快照里已经有新分区 sdd1
+PASS  预检 storage.filesystem.format 生成
+PASS  预检 storage.filesystem.format 要求再认证，已重新验证密码
+PASS  提交 storage.filesystem.format 任务
+PASS  格式化终态
+PASS  预检 storage.volume.import 生成
+PASS  提交 storage.volume.import 任务
+PASS  导入卷终态
+PASS  拿到受管理卷标识（vol_ 前缀）
+PASS  卷在 /storage/volumes 里
+PASS  依赖真实卷的写入通过
+PASS  依赖登记在响应里
+PASS  有依赖卷时 protection 是 unmanaged（不是 managed）
+PASS  独立证据：依赖落库
+PASS  依赖卷在应用详情里读回
+PASS  不带 volume_dependencies 的 PATCH 不清空依赖
+PASS  显式空数组才是清空
+PASS  清空后 protection 回到 not_applicable
+PASS  独立证据：依赖行删掉了
+
+== 9. 审计：管理动作留痕，收藏不留 ==
+PASS  app.create 有审计
+PASS  app.update 有审计
+PASS  app.delete 有审计
+PASS  app_group.create 有审计
+PASS  app_group.delete 有审计
+PASS  审计 target 形如 app:<id>
+PASS  审计 target 形如 app_group:<id>
+PASS  viewer 的越权尝试留下失败审计
+PASS  收藏不产生审计
+PASS  审计表是只追加的（UPDATE 被触发器拒绝）
+
+== 10. 收尾不变量 ==
+PASS  监听 19481 的 Web 进程到最后都不是 root（uid=999）
+PASS  代理进程仍是 root
+PASS  四张应用表都在
+PASS  没有残留的 app_ 审计被删（只增不减）
+PASS  日志里没有 panic/fatal
+
+=========================== 汇总 ===========================
+PASS 210 / FAIL 0 / NOT RUN 0
+NOT RUN 不等于通过。
+============================================================

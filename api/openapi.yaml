@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: uPanel API
-  version: 0.0.0-p08.4
+  version: 0.0.0-p09.1
   summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
   description: |
     uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。
@@ -23,7 +23,7 @@ info:
     name: Proprietary
     identifier: LicenseRef-Proprietary
 x-upanel-contract-status:
-  stage: P08.3
+  stage: P09.1
   implemented_paths:
     - get /api/v1/health/live
     - head /api/v1/health/live
@@ -72,6 +72,16 @@ x-upanel-contract-status:
     - get /api/v1/shares/{id}/connections
     - get /api/v1/share-accounts
     - post /api/v1/secrets
+    - get /api/v1/apps
+    - post /api/v1/apps
+    - get /api/v1/apps/{id}
+    - patch /api/v1/apps/{id}
+    - delete /api/v1/apps/{id}
+    - put /api/v1/apps/{id}/favorite
+    - get /api/v1/app-groups
+    - post /api/v1/app-groups
+    - patch /api/v1/app-groups/{id}
+    - delete /api/v1/app-groups/{id}
   note: 只列出已实现并通过验收的接口；未实现模块不出现在 paths 中。
 servers:
   - url: https://127.0.0.1:9443/api/v1
@@ -1589,6 +1599,498 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/apps:
+    get:
+      operationId: getApps
+      summary: 应用列表（登录可读）
+      description: |
+        CONTRACTS.md 第 8 节（P09.1 起）。返回应用元数据与摘要字段，按 name 升序稳定
+        排序；同名应用按 id 兜底，翻页不会重复也不会漏。
+
+        这一层只有元数据：`runtime_state`、`http_state`、`last_checked_at` 在没有探测器
+        的时候是 `unknown` / `null`，不是猜出来的 `running`。`capabilities` 说的是“此刻
+        真的能做到的事”，P09.1 里除 `open` 之外一律为 false——渲染成可点击的按钮再让它们
+        全部失败，比不显示按钮更糟。
+
+        `volume_dependencies` 没有依赖时是 `[]`；`group_id`、`public_url` 没有值时是 null。
+      tags: [apps]
+      security:
+        - upanelSession: []
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: group_id
+          in: query
+          required: false
+          description: 只返回该分组下的应用；形状不对按“没有这个分组”过滤，不报错。
+          schema:
+            type: string
+            pattern: '^grp_[0-9a-f]{32}$'
+      responses:
+        '200':
+          description: 当页应用。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AppListData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+    post:
+      operationId: postApp
+      summary: 新建应用（仅 admin）
+      description: |
+        创建一条应用元数据。type 决定 binding 的唯一合法形状，多余字段一律 400——不会
+        “猜你想要哪个”。
+
+        同一个容器 / 单元 / 部署只能属于一个应用：重复绑定返回 422，不是 500。link 类型
+        没有绑定对象，因此可以有多条。
+
+        带 `volume_dependencies` 时，每个卷标识都要经代理确认存在：代理不可达返回 503
+        （“暂时无法确认”，并且什么都不写），卷确实不存在返回 422 `DEPENDENCY_MISSING`。
+        这两件事必须分开——前者等一会儿重试就好，后者要换一个卷。
+      tags: [apps]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppDefinitionRequest'
+      responses:
+        '201':
+          description: 已创建。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/App'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          description: 业务条件不允许（绑定已被占用、分组不存在、依赖卷不存在、参数越界）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 代理不可用，依赖卷无法确认；本次没有任何写入。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/apps/{id}:
+    parameters:
+      - $ref: '#/components/parameters/AppID'
+    get:
+      operationId: getApp
+      summary: 单条应用（登录可读）
+      description: |
+        权限 V：DTO 里没有任何秘密（不含环境变量、不含 secret 引用值）。`favorite` 是
+        当前登录用户自己的收藏状态，不是应用的公共属性。
+      tags: [apps]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 应用元数据。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/App'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      operationId: patchApp
+      summary: 修改应用元数据（仅 admin）
+      description: |
+        局部更新：请求体里出现的字段才改。`version` 必填，与当前版本不符返回 409
+        VERSION_CONFLICT——两个人同时改一条记录时，后到的那个必须知道自己改的是旧值。
+
+        `group_id` 用“显式 null 表示移出分组”，与“没提供这个字段”是两件事。
+
+        改 `type` 必须同时给出 `binding`：只改类型会留下一条“类型说 docker、绑定是
+        systemd 单元名”的错位记录，页面上看起来正常、执行时全错。
+      tags: [apps]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppUpdateRequest'
+      responses:
+        '200':
+          description: 已更新；返回新版本。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/App'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          description: 业务条件不允许（绑定已被占用、分组不存在、依赖卷不存在、参数越界）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 代理不可用，依赖卷无法确认；本次没有任何写入。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      operationId: deleteApp
+      summary: 删除应用元数据（仅 admin）
+      description: |
+        **只删除入口与绑定记录**：不卸载项目、不停止服务、不删容器、不删镜像、不碰依赖卷
+        里的数据。删除之后再点一次是 404，不是“再次成功”。
+      tags: [apps]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      parameters:
+        - name: version
+          in: query
+          required: true
+          description: 期望版本（正整数）；不符返回 409。也可以用请求体里的 version 字段传。
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: 已删除；data 为空对象。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/EmptyData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/apps/{id}/favorite:
+    parameters:
+      - $ref: '#/components/parameters/AppID'
+    put:
+      operationId: putAppFavorite
+      summary: 设置/取消收藏（登录即可）
+      description: |
+        收藏是当前用户自己的偏好，不是管理动作：权限 V、幂等、不需要 version、**不写审计**
+        （否则每点一次星标就产生一条审计，真正的管理事件会被淹掉）。
+      tags: [apps]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [favorite]
+              properties:
+                favorite:
+                  type: boolean
+      responses:
+        '200':
+          description: 已设置。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: false
+                    required: [favorite]
+                    properties:
+                      favorite:
+                        type: boolean
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/app-groups:
+    get:
+      operationId: getAppGroups
+      summary: 应用分组列表（登录可读）
+      description: 按 sort_order、id 稳定排序；没有分组时 `items` 是 `[]`。
+      tags: [apps]
+      security:
+        - upanelSession: []
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: 当页分组。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AppGroupListData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+    post:
+      operationId: postAppGroup
+      summary: 新建分组（仅 admin）
+      description: 分组名 1—40 字符且唯一；重名返回 422。不指定 sort_order 时排到末尾。
+      tags: [apps]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppGroupCreateRequest'
+      responses:
+        '201':
+          description: 已创建。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AppGroup'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /api/v1/app-groups/{id}:
+    parameters:
+      - $ref: '#/components/parameters/AppGroupID'
+    patch:
+      operationId: patchAppGroup
+      summary: 修改分组（仅 admin）
+      description: name 与 sort_order 都可选；只改提供的字段。version 必填。
+      tags: [apps]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppGroupUpdateRequest'
+      responses:
+        '200':
+          description: 已更新。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AppGroup'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    delete:
+      operationId: deleteAppGroup
+      summary: 删除分组（仅 admin）
+      description: |
+        分组里还有应用时返回 422 `DEPENDENCY_BLOCKED`，不会顺手把应用移出分组或一起删掉：
+        一个“删分组”的动作不该改变别的记录。
+      tags: [apps]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      parameters:
+        - name: version
+          in: query
+          required: true
+          description: 期望版本（正整数）；不符返回 409。
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: 已删除；data 为空对象。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/EmptyData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          description: 分组非空（`DEPENDENCY_BLOCKED`）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /api/v1/operations/preflight:
     post:
@@ -3136,6 +3638,22 @@ components:
       schema:
         type: string
         pattern: '^[0-9a-f]{32}$'
+    AppID:
+      name: id
+      in: path
+      required: true
+      description: 应用标识，形如 app_ac1ceea48853ce6d068878632d603a14。
+      schema:
+        type: string
+        pattern: '^app_[0-9a-f]{32}$'
+    AppGroupID:
+      name: id
+      in: path
+      required: true
+      description: 应用分组标识，形如 grp_ac1ceea48853ce6d068878632d603a14。
+      schema:
+        type: string
+        pattern: '^grp_[0-9a-f]{32}$'
 
     FilesExpectedVersion:
       name: expected_version
@@ -6016,6 +6534,361 @@ components:
           type: boolean
           enum: [true]
           description: 恒为 true：会话现在已经不在运行（幂等关闭）。
+
+    AppType:
+      type: string
+      enum: [link, systemd, docker, compose]
+      description: |
+        应用类型，决定 binding 的唯一合法形状：
+        link 没有绑定（只是一个入口地址）；systemd 绑一个 `.service` 单元；
+        docker 绑一个容器的完整 64 位 ID（容器名会随重建变化，不能作为绑定依据）；
+        compose 绑一个面板内的部署标识。
+
+    AppBinding:
+      type: object
+      additionalProperties: false
+      description: |
+        运行绑定。三个字段最多只有一个出现，由 type 决定是哪一个；不允许一个对象同时
+        绑定多个类型，多余字段一律 400。
+      properties:
+        unit:
+          type: string
+          minLength: 1
+          maxLength: 200
+          pattern: '^[A-Za-z0-9][A-Za-z0-9:_.@\-]{0,199}\.service$'
+          description: systemd 单元名（必须以 .service 结尾；不允许模板实例之外的路径语法）。
+        container_id:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: 容器完整 ID（服务端会归一化为小写）。
+        deployment_id:
+          type: string
+          pattern: '^dep_[0-9a-f]{32}$'
+          description: 面板内的 compose 部署标识。
+
+    AppHealthCheck:
+      type: object
+      additionalProperties: false
+      description: |
+        健康检查定义（探测本身在 P09.2 之后才实现）。
+
+        `target_id` 只能来自代理发现的本机/容器目标，形状固定为 `local_…` / `cntr_…`：
+        主机名、IP、端口和完整 URL 在这里都表达不出来。这是结构性的 SSRF 约束——不是
+        “填了之后再校验”，而是根本没有地方填。
+      required:
+        - enabled
+        - target_id
+        - scheme
+        - port
+        - path
+        - expected_status_codes
+        - interval_seconds
+        - timeout_seconds
+      properties:
+        enabled:
+          type: boolean
+        target_id:
+          type: string
+          pattern: '^(local|cntr)_[a-z0-9][a-z0-9_-]{0,47}$'
+          description: 代理发现的探测目标标识；未启用时为空字符串。
+        scheme:
+          type: string
+          enum: [http, https]
+        port:
+          type: integer
+          minimum: 0
+          maximum: 65535
+        path:
+          type: string
+          maxLength: 256
+          description: 必须以单个 / 开头，不接受含 :// 的完整 URL。
+        expected_status_codes:
+          type: array
+          maxItems: 8
+          description: |
+            期望状态码，去重后升序。空数组表示“默认 200—399”；不会是 null。
+          items:
+            type: integer
+            minimum: 100
+            maximum: 599
+        interval_seconds:
+          type: integer
+          minimum: 30
+          maximum: 300
+        timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 10
+
+    AppCapabilities:
+      type: object
+      additionalProperties: false
+      description: |
+        此刻真的能做到的动作。除 `open` 之外，P09.1 全为 false：元数据层还没有任何
+        启停、重启或日志动作，前端据此隐藏按钮，而不是先渲染再让点击失败。
+      required: [open, start, stop, restart, logs]
+      properties:
+        open:
+          type: boolean
+          description: 有 public_url 时为真（浏览器能打开入口）。
+        start:
+          type: boolean
+        stop:
+          type: boolean
+        restart:
+          type: boolean
+        logs:
+          type: boolean
+
+    App:
+      type: object
+      additionalProperties: false
+      description: |
+        应用元数据与摘要（AppDefinition + AppSummary）。
+
+        `runtime_state` / `http_state` / `last_checked_at` 在还没有探测器时是
+        `unknown` / `null`：没探测过就说不知道，不猜一个 `running` 让首页好看。
+
+        `public_url` 是给浏览器用的入口地址；健康检查的 `target_id` 是给面板自己用的
+        探测目标。两者刻意分开：入口可能是反代后的域名，探测必须走本机或容器内部。
+      required:
+        - id
+        - name
+        - description
+        - icon_key
+        - group_id
+        - type
+        - binding
+        - public_url
+        - health_check
+        - volume_dependencies
+        - favorite
+        - version
+        - created_at
+        - updated_at
+        - runtime_state
+        - http_state
+        - last_checked_at
+        - dependency_protection
+        - capabilities
+      properties:
+        id:
+          type: string
+          pattern: '^app_[0-9a-f]{32}$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        description:
+          type: string
+          maxLength: 1000
+        icon_key:
+          type: string
+          description: 内置图标键（app、globe、database、docker、terminal、files、media、monitor、network、shield、tools）之一，或空字符串。
+        group_id:
+          type: [string, 'null']
+          pattern: '^grp_[0-9a-f]{32}$'
+        type:
+          $ref: '#/components/schemas/AppType'
+        binding:
+          $ref: '#/components/schemas/AppBinding'
+        public_url:
+          type: [string, 'null']
+          maxLength: 2048
+          description: 只允许 http/https，禁止 javascript/data/file 等协议，不含用户名密码；生产模式下回环地址被拒。
+        health_check:
+          $ref: '#/components/schemas/AppHealthCheck'
+        volume_dependencies:
+          type: array
+          maxItems: 32
+          items:
+            type: string
+            pattern: '^vol_[0-9a-f]{32}$'
+        favorite:
+          type: boolean
+          description: 当前登录用户是否收藏了它。
+        version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        runtime_state:
+          type: string
+          enum: [running, stopped, failed, unknown, not_applicable]
+          description: link 恒为 not_applicable；其余类型在 P09.1 恒为 unknown（没有探测器）。
+        http_state:
+          type: string
+          enum: [ok, error, unknown, not_applicable]
+          description: 未启用健康检查时为 not_applicable，启用但没探测过为 unknown。
+        last_checked_at:
+          type: [string, 'null']
+          format: date-time
+          description: 最后一次实际探测时间；从没探测过就是 null。
+        dependency_protection:
+          type: string
+          enum: [managed, unmanaged, not_applicable]
+          description: |
+            依赖卷的接管状态。link 或没有依赖卷时是 not_applicable；有依赖卷但还没有
+            任何接管动作时是 unmanaged——绝不能写成 managed。
+        capabilities:
+          $ref: '#/components/schemas/AppCapabilities'
+
+    AppDefinitionRequest:
+      type: object
+      additionalProperties: false
+      description: 新建应用的请求体（CONTRACTS.md 第 8 节 AppDefinition）。
+      required: [name, type]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        description:
+          type: string
+          maxLength: 1000
+        icon_key:
+          type: string
+        group_id:
+          type: [string, 'null']
+          pattern: '^grp_[0-9a-f]{32}$'
+        type:
+          $ref: '#/components/schemas/AppType'
+        binding:
+          $ref: '#/components/schemas/AppBinding'
+        public_url:
+          type: string
+          maxLength: 2048
+          description: link 类型必填；只允许 http/https。
+        health_check:
+          $ref: '#/components/schemas/AppHealthCheck'
+        volume_dependencies:
+          type: array
+          maxItems: 32
+          items:
+            type: string
+            pattern: '^vol_[0-9a-f]{32}$'
+
+    AppUpdateRequest:
+      type: object
+      additionalProperties: false
+      description: |
+        局部更新：出现的字段才改。`version` 必填。`group_id: null` 表示移出分组
+        （与不提供该字段不同）。改 `type` 必须同时给 `binding`。
+      required: [version]
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        description:
+          type: string
+          maxLength: 1000
+        icon_key:
+          type: string
+        group_id:
+          type: [string, 'null']
+          pattern: '^grp_[0-9a-f]{32}$'
+        type:
+          $ref: '#/components/schemas/AppType'
+        binding:
+          $ref: '#/components/schemas/AppBinding'
+        public_url:
+          type: string
+          maxLength: 2048
+        health_check:
+          $ref: '#/components/schemas/AppHealthCheck'
+        volume_dependencies:
+          type: array
+          maxItems: 32
+          items:
+            type: string
+            pattern: '^vol_[0-9a-f]{32}$'
+
+    AppListData:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/App'
+        next_cursor:
+          type: [string, 'null']
+
+    AppGroup:
+      type: object
+      additionalProperties: false
+      required: [id, name, sort_order, version, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          pattern: '^grp_[0-9a-f]{32}$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 40
+        sort_order:
+          type: integer
+          minimum: 0
+        version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    AppGroupCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 40
+        sort_order:
+          type: integer
+          minimum: 0
+          description: 不提供时排到末尾。
+
+    AppGroupUpdateRequest:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          minLength: 1
+          maxLength: 40
+        sort_order:
+          type: integer
+          minimum: 0
+
+    AppGroupListData:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AppGroup'
+        next_cursor:
+          type: [string, 'null']
 
 
   responses:

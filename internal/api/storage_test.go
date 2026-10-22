@@ -97,6 +97,7 @@ func storageFixture(t *testing.T, reader StorageReader) (*Server, *http.Cookie) 
 		Auth:            authSvc,
 		Audit:           aud,
 		Operations:      newTestOperations(t, db, nil),
+		Apps:            newTestApps(t, db),
 		AllowedOrigins:  testOrigins(),
 		Storage:         reader,
 	})

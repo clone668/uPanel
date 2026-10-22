@@ -5,9 +5,11 @@ import (
 	"path/filepath"
 	"testing"
 
+	"upanel/internal/apps"
 	"upanel/internal/audit"
 	"upanel/internal/auth"
 	"upanel/internal/operations"
+	"upanel/internal/storage"
 	"upanel/internal/store"
 	"upanel/migrations"
 )
@@ -54,6 +56,48 @@ func newTestOperations(t *testing.T, db *store.DB, agent operations.Agent) *oper
 	svc, err := operations.New(db, agent, quietLogger(), operations.Options{})
 	if err != nil {
 		t.Fatalf("构造预检服务失败: %v", err)
+	}
+	return svc
+}
+
+// newTestApps 构造应用元数据服务。
+//
+// 卷检查器默认是 nil：带依赖卷的写入会回 503（“无法确认依赖卷是否存在”）。
+// 需要验证依赖卷行为的用例调用 newTestAppsWithVolumes 给一份明确的卷列表。
+func newTestApps(t *testing.T, db *store.DB) *apps.Service {
+	t.Helper()
+	svc, err := apps.New(db, apps.Options{})
+	if err != nil {
+		t.Fatalf("构造应用元数据服务失败: %v", err)
+	}
+	return svc
+}
+
+// fakeVolumeLister 是一份固定的受管理卷列表，供依赖卷校验使用。
+type fakeVolumeLister struct {
+	volumes []storage.Volume
+	err     error
+}
+
+func (f fakeVolumeLister) Volumes(context.Context) ([]storage.Volume, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.volumes, nil
+}
+
+// newTestAppsWithVolumes 构造带卷列表的应用元数据服务。
+func newTestAppsWithVolumes(t *testing.T, db *store.DB, volumes ...string) *apps.Service {
+	t.Helper()
+	list := make([]storage.Volume, 0, len(volumes))
+	for _, id := range volumes {
+		list = append(list, storage.Volume{ID: id, DisplayName: id})
+	}
+	svc, err := apps.New(db, apps.Options{
+		Volumes: apps.NewVolumeChecker(fakeVolumeLister{volumes: list}),
+	})
+	if err != nil {
+		t.Fatalf("构造应用元数据服务失败: %v", err)
 	}
 	return svc
 }
