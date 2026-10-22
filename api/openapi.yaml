@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: uPanel API
-  version: 0.0.0-p07.5
+  version: 0.0.0-p08.1
   summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
   description: |
     uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。
@@ -23,7 +23,7 @@ info:
     name: Proprietary
     identifier: LicenseRef-Proprietary
 x-upanel-contract-status:
-  stage: P07.5
+  stage: P08.1
   implemented_paths:
     - get /api/v1/health/live
     - head /api/v1/health/live
@@ -67,6 +67,10 @@ x-upanel-contract-status:
     - post /api/v1/terminal/sessions/{id}/connection-grants
     - get /api/v1/terminal/sessions/{id}/connect
     - delete /api/v1/terminal/sessions/{id}
+    - get /api/v1/shares
+    - get /api/v1/shares/{id}
+    - get /api/v1/share-accounts
+    - post /api/v1/secrets
   note: 只列出已实现并通过验收的接口；未实现模块不出现在 paths 中。
 servers:
   - url: https://127.0.0.1:9443/api/v1
@@ -1328,6 +1332,208 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/shares:
+    get:
+      operationId: listShares
+      summary: 共享列表与 Samba 能力报告（仅 admin）
+      description: |
+        CONTRACTS.md 第 7 节（P08.1 起），权限 admin：共享定义里有路径、账号名单与来源
+        网段，合起来就是“谁能访问哪个目录”的完整答案。viewer 只在首页看数量与健康摘要。
+
+        **两个状态字段回答的是不同的问题，不能互相替代**：
+
+        - `definition.enabled` 是意图——这条共享的配置要不要生效；
+        - `config_applied` 是事实——这份配置有没有写进 Samba 并被重载。
+
+        P08.1 里 `config_applied` 恒为 `false`，且没有代码路径能把它置真（配置写入、
+        最小 include、testparm 与重载在 P08.2）。此时 `directory_prepared` 可以为真：
+        目录与 POSIX ACL 确实按定义准备好并核验过了，但共享**不对外提供任何访问**。
+
+        能力报告与列表一起返回，是因为把两者分成两次请求，中间就会出现一小段时间界面
+        显示“已启用、已生效”，而 Samba 那边还没有这一段。
+
+        列表按名字稳定排序；没有共享时 `shares` 是 `[]`，不是 null。
+      tags: [shares]
+      responses:
+        '200':
+          description: 共享列表与能力报告。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ShareListData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: 代理不可用（未配置 socket 或连接失败）；不是“没有共享”。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/shares/{id}:
+    get:
+      operationId: getShare
+      summary: 单条共享（仅 admin）
+      description: |
+        CONTRACTS.md 第 7 节（P08.1 起），权限 admin。
+
+        id 的形状是 `shr_` 加 32 位小写十六进制；形状不对在本层就返回 400，不透传任意
+        字符串给代理（它会进日志与审计）。不存在的共享是 404，不是空对象。
+
+        详情同样带能力报告：页面不该为“这条共享现在生效了吗”再发一次请求。
+      tags: [shares]
+      parameters:
+        - $ref: '#/components/parameters/ShareID'
+      responses:
+        '200':
+          description: 共享详情与能力报告。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ShareDetailData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/share-accounts:
+    get:
+      operationId: listShareAccounts
+      summary: 受管理共享账号列表（仅 admin）
+      description: |
+        CONTRACTS.md 第 7 节（P08.1 起），权限 admin。
+
+        返回的每一条都**没有**密码、没有哈希，也没有 `secret_ref`——DTO 上就没有那些
+        字段。`has_password` 只回答“这个账号在 Samba passdb 里设过密码没有”。
+
+        账号只可能是面板自己创建的（`managed` 恒为 true）：系统上已存在的同名账号会被
+        拒绝接管（ACCOUNT_NOT_MANAGED），而不是悄悄改它的密码。
+      tags: [shares]
+      responses:
+        '200':
+          description: 账号列表与能力报告；没有账号时 `accounts` 是 `[]`。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ShareAccountListData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/secrets:
+    post:
+      operationId: createSecret
+      summary: 上传一条秘密并拿回引用（仅 admin + CSRF + 再认证）
+      description: |
+        CONTRACTS.md 第 7、15 节（P08.1 起）。这是唯一一条“写”但不进任务链路的接口：
+        它不改变主机状态，只是把一段明文交给代理加密保存并拿回引用。
+
+        **只进不出**：协议里没有读取明文的路由，本接口也没有 GET 对应项。明文只出现在
+        本次请求体里，服务端不缓存、不写日志、不回显；响应与错误信息里都不会出现它。
+
+        `purpose` 是**闭集**，取值在代理侧登记：`smb_password`、`account_password`、
+        `proxy_basic_password`、`backup_repository_password`、`notification_password`、
+        `tls_private_key`、`sftp_private_key`、`app_env`。未登记的用途与内部用途
+        （`totp_seed`，由 enrollment 流程生成）一律 400。
+
+        未被任何配置引用的秘密 10 分钟后销毁；一旦被引用转为持久秘密。真正的系统变更
+        （设 Samba 密码、写共享配置）仍走预检 + 任务，参数里只有 `secret_ref`。
+      tags: [shares]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSecretRequest'
+      responses:
+        '201':
+          description: 已加密保存；只返回引用与生命周期。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SecretRefData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          description: |
+            用途不在闭集内、明文为空、超过该用途的长度上限，或请求体含未知字段
+            （VALIDATION_ERROR）。错误信息里不含明文。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: 需要 admin、需要 CSRF 令牌，或需要 5 分钟内的密码再认证。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /api/v1/operations/preflight:
     post:
@@ -2857,6 +3063,14 @@ components:
         type: string
         pattern: '^up_[0-9a-f]{32}$'
 
+    ShareID:
+      name: id
+      in: path
+      required: true
+      description: 共享标识，形如 shr_ac1ceea48853ce6d068878632d603a14。
+      schema:
+        type: string
+        pattern: '^shr_[0-9a-f]{32}$'
     TerminalSessionID:
       name: id
       in: path
@@ -4049,6 +4263,334 @@ components:
             - $ref: '#/components/schemas/StorageSwap'
             - type: 'null'
         collected_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
+    ShareCapability:
+      type: object
+      additionalProperties: false
+      description: |
+        Samba 能力报告（P08.1）。只读探针的结果：固定路径上有没有可执行文件、smb.conf
+        的前一小段能不能读、`smbd --version` 的版本号。探针不安装任何东西（PLAN.md
+        第 10 节：禁止静默安装）、不改配置、不启动服务。
+
+        status 只有两态：`available`（工具齐了、配置可读）与 `blocked`（缺东西，
+        reason 说明缺什么）。没有“本机不支持 SMB”这种第三态。
+      required: [status, samba_version, tools, config_path, config_readable,
+                 include_dir, include_ready, include_present, config_write, notices,
+                 collected_at]
+      properties:
+        status:
+          type: string
+          enum: [available, blocked]
+        reason:
+          type: string
+          maxLength: 400
+          description: status=blocked 时说明缺什么；available 时不出现。
+        samba_version:
+          type: string
+          maxLength: 200
+          description: 'smbd --version 的第一行；取不到时是空字符串，不影响判决。'
+        tools:
+          $ref: '#/components/schemas/ShareToolPaths'
+        config_path:
+          type: string
+          description: Samba 主配置的固定路径（/etc/samba/smb.conf），不可配置。
+        config_readable:
+          type: boolean
+          description: 读不到主配置就不能说“这台机器的 Samba 长什么样”，status 因此是 blocked。
+        include_dir:
+          type: string
+          description: 面板独占的托管 include 目录（/etc/samba/upanel.d），P08.2 在这里写。
+        include_ready:
+          type: boolean
+          description: 托管目录是否存在且可写。
+        include_present:
+          type: boolean
+          description: 主配置里是否已经有一行 include 指到托管目录。P08.1 通常为 false。
+        config_write:
+          type: string
+          enum: [unsupported, available]
+          description: |
+            配置写入能力。P08.1 恒为 `unsupported`：不写配置、不跑 testparm、不重载，
+            因此共享不对外提供访问。放在能力对象里，是因为“能不能写配置”与“共享能不能用”
+            是同一个问题，不该让页面去猜。
+        notices:
+          type: array
+          description: 人读的补充说明（缺 include 目录、缺 testparm 等），不改变 status。
+          items:
+            $ref: '#/components/schemas/PreflightNotice'
+        collected_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
+    ShareToolPaths:
+      type: object
+      additionalProperties: false
+      description: 探到的工具绝对路径；缺失的项不出现在这里。
+      properties:
+        smbd:
+          type: string
+        smbpasswd:
+          type: string
+        pdbedit:
+          type: string
+        testparm:
+          type: string
+        setfacl:
+          type: string
+        getfacl:
+          type: string
+
+    ShareDefinition:
+      type: object
+      additionalProperties: false
+      description: |
+        共享定义（CONTRACTS.md 第 7 节）。字段一个都不多：没有“强制”“跟随符号链接”
+        “guess ok”这类开关——有开关就有绕过“不跟随符号链接、不开 guest”那条约束的路。
+
+        P08.1 只实现 protocol=smb；nfs 在结构上认得出来，但判决层以 PROTOCOL_UNSUPPORTED
+        拒绝，而不是假装能导出。
+      required: [name, protocol, volume_id, relative_path, enabled, read_only,
+                 allowed_cidrs, smb_users]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[A-Za-z0-9]$|^[A-Za-z0-9][A-Za-z0-9_-]*[A-Za-z0-9]$'
+          description: 共享名。只允许字母、数字、下划线与连字符，首字符是字母或数字，末字符不能是连字符。
+        protocol:
+          type: string
+          enum: [smb, nfs]
+          description: P08 只实现 smb；nfs 会被判决层拒绝。
+        volume_id:
+          type: string
+          pattern: '^vol_[0-9a-f]{32}$'
+          description: 必须是受管理卷；卷没挂载或 UUID 不符时应用动作返回 DEPENDENCY_BLOCKED。
+        relative_path:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: 相对卷挂载点的路径，不能是绝对路径，不能含 `..` 或空段。
+        enabled:
+          type: boolean
+          description: 定义的启用意图；与 config_applied（事实）分开看。
+        read_only:
+          type: boolean
+          description: 为真时所有账号上限都是 r-x（更强的限制优先）。
+        allowed_cidrs:
+          type: array
+          minItems: 1
+          description: 允许访问的来源网段，形如 10.0.0.0/24；主机位必须为 0。
+          items:
+            type: string
+        smb_users:
+          type: array
+          minItems: 1
+          description: 访问名单。**不允许为空**：空名单会退化成 guest，一律硬拒。
+          items:
+            $ref: '#/components/schemas/ShareUser'
+        nfs_options:
+          oneOf:
+            - $ref: '#/components/schemas/ShareNfsOptions'
+            - type: 'null'
+
+    ShareUser:
+      type: object
+      additionalProperties: false
+      required: [account_id, access]
+      properties:
+        account_id:
+          type: string
+          pattern: '^sac_[0-9a-f]{32}$'
+          description: 受管理账号的标识；系统上非面板创建的账号不能出现在名单里。
+        access:
+          type: string
+          enum: [read, write]
+          description: read 渲染成 ACL 的 r-x，write 渲染成 rwx。
+
+    ShareNfsOptions:
+      type: object
+      additionalProperties: false
+      description: NFS 导出选项。P08 不实现 NFS，结构按契约保留（丢掉字段以后再加是破坏性变更）。
+      required: [root_squash, sync]
+      properties:
+        root_squash:
+          type: boolean
+        sync:
+          type: boolean
+
+    ShareRecord:
+      type: object
+      additionalProperties: false
+      description: |
+        登记表里的一条共享。三个状态字段回答三个不同的问题：
+
+        - `config_hash`：这份定义渲染出来的配置是哪一版（sha256 十六进制）；
+        - `directory_prepared`：目录与 POSIX ACL 是否已经按这份定义准备并核验过；
+        - `config_applied`：这份定义是否已经写进 Samba 配置并被重载。
+
+        P08.1 里 `config_applied` 恒为 false。把“定义准备好了”说成“共享可用”是这一
+        阶段最容易犯的谎，所以它固定在返回结构里。
+      required: [id, definition, config_hash, version, directory_prepared,
+                 config_applied, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          pattern: '^shr_[0-9a-f]{32}$'
+        definition:
+          $ref: '#/components/schemas/ShareDefinition'
+        config_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        version:
+          type: string
+          pattern: '^[0-9]{1,20}$'
+          description: 单调递增的十进制计数器，作为乐观并发令牌。
+        directory_prepared:
+          type: boolean
+          description: share.disable 会清回 false（禁用即撤销 ACL）。
+        config_applied:
+          type: boolean
+          description: P08.2 起才可能为真；P08.1 恒为 false。
+        last_operation_id:
+          type: string
+          description: 最近一次改动这条记录的操作标识；不出现表示没有。
+        created_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        updated_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
+    ShareListData:
+      type: object
+      additionalProperties: false
+      description: GET /api/v1/shares 的响应体。
+      required: [capability, shares]
+      properties:
+        capability:
+          $ref: '#/components/schemas/ShareCapability'
+        shares:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShareRecord'
+
+    ShareDetailData:
+      type: object
+      additionalProperties: false
+      description: GET /api/v1/shares/{id} 的响应体；包一层，能力与记录在同一份响应里。
+      required: [capability, share]
+      properties:
+        capability:
+          $ref: '#/components/schemas/ShareCapability'
+        share:
+          $ref: '#/components/schemas/ShareRecord'
+
+    ShareAccount:
+      type: object
+      additionalProperties: false
+      description: |
+        一条受管理共享账号（CONTRACTS.md 第 7 节的 AccountSummary）。它**没有**密码字段，
+        也没有密码哈希字段：明文只在秘密通道里流动一次，之后以密文存在代理秘密表里，
+        记录里只有引用，而引用不进任何响应。
+      required: [id, name, type, managed, disabled, has_password, uid, gid, shell, home,
+                 version, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          pattern: '^sac_[0-9a-f]{32}$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 32
+          description: Linux 账号名与 Samba 用户名是同一个字符串。
+        type:
+          type: string
+          enum: [share, regular]
+          description: P08.1 只创建 share 类型。
+        managed:
+          type: boolean
+          description: 恒为 true：登记表里的每一条都是面板创建的。
+        disabled:
+          type: boolean
+          description: 为真时 Samba 层带 D 标志（账号存在但禁止登录）。
+        has_password:
+          type: boolean
+          description: Samba passdb 里是否已经设过密码。只回答“设过没有”。
+        uid:
+          type: integer
+          minimum: 1
+          description: 系统账号 uid（<1000）。
+        gid:
+          type: integer
+          minimum: 1
+        shell:
+          type: string
+          description: 固定 /usr/sbin/nologin。
+        home:
+          type: string
+          description: 固定 /nonexistent（不创建 home）。
+        version:
+          type: string
+          pattern: '^[0-9]{1,20}$'
+        last_operation_id:
+          type: string
+        created_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        updated_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
+    ShareAccountListData:
+      type: object
+      additionalProperties: false
+      description: GET /api/v1/share-accounts 的响应体。
+      required: [capability, accounts]
+      properties:
+        capability:
+          $ref: '#/components/schemas/ShareCapability'
+        accounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShareAccount'
+
+    CreateSecretRequest:
+      type: object
+      additionalProperties: false
+      description: |
+        POST /api/v1/secrets 的请求体。只有用途、明文与可选引用：没有类型标签，也没有
+        任意键值对（多余字段一律 400）。
+      required: [purpose, value]
+      properties:
+        purpose:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          description: 用途，闭集见接口说明；未登记与内部用途一律 400。
+        value:
+          type: string
+          minLength: 1
+          maxLength: 16384
+          description: 明文。上限按用途在代理侧判定（口令类 4 KiB，密钥类 16 KiB）。
+        reference:
+          type: string
+          maxLength: 256
+          description: 引用这份秘密的配置标识；为空时是 10 分钟后销毁的临时秘密。
+
+    SecretRefData:
+      type: object
+      additionalProperties: false
+      description: |
+        秘密写入的结果：只有引用与生命周期，**没有明文**。secret_ref 不是密码，但它
+        指向一份可解密的密文，因此同样按秘密处理（日志与审计里不落原文）。
+      required: [secret_ref, purpose, state]
+      properties:
+        secret_ref:
+          type: string
+          pattern: '^sec_[0-9a-f]{32}$'
+        purpose:
+          type: string
+        state:
+          type: string
+          enum: [temporary, persistent]
+          description: 未被引用时是 temporary，到期即销毁；被引用后转为 persistent。
+        expires_at:
           $ref: '#/components/schemas/Rfc3339Utc'
 
     StorageVolume:

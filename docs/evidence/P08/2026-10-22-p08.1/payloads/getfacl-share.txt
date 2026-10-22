@@ -1,0 +1,7 @@
+user::rwx
+user:smbp08ro:r-x
+user:smbp08rw:rwx
+group::---
+mask::rwx
+other::---
+

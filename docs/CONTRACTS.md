@@ -483,7 +483,137 @@ AccountSummary：id、name、type=share/regular、managed、disabled、has_passw
 
 POST /secrets：admin+再认证，仅接受用途枚举和 value；代理加密保存，返回 secret_ref 与过期时间。未被配置引用的临时秘密 10 分钟后销毁；一旦被引用转为持久秘密。用途包括 smb_password、account_password、proxy_basic_password、tls_private_key、backup_repository_password、sftp_private_key、notification_password、app_env。禁止通用 GET 明文接口。TOTP 种子使用代理内部的 totp_seed 用途，由 enrollment 流程生成，不接受通用秘密上传替代。
 
+### 7.1 P08.1 已实现范围
+
+P08.1 落地的是“定义与准备”这一半：Samba 能力检测、受管理共享账号、密码秘密通道、目录与
+POSIX ACL 的准备与核验、共享定义与配置版本（渲染块的 sha256）。**配置写入这一半不在本阶段**：
+不创建 `/etc/samba/upanel.d`、不往 `smb.conf` 里加 include、不跑 testparm、不重载。因此本阶段
+的共享**不对外提供任何访问**，`capability.config_write` 恒为 `unsupported`。
+
+四个端点，权限全部是 admin（共享定义里有路径、账号名单与来源网段，合起来就是“谁能访问哪个
+目录”的完整答案；viewer 只在首页看数量与健康摘要）：
+
+| 端点 | 代理查询 | 说明 |
+|---|---|---|
+| `GET /shares` | `share.list` | 能力报告 + 共享列表，一次拿全 |
+| `GET /shares/:id` | `share.list` | 从同一份列表里挑一条；形状不对 400，不存在 404 |
+| `GET /share-accounts` | `share.accounts` | 能力报告 + 受管理账号列表 |
+| `POST /secrets` | `POST /internal/v1/secrets` | 秘密通道，admin + CSRF + 再认证，只进不出 |
+
+三条读的路由与三条查询一一对应，**详情不单独开一条查询**：共享数量是几十的量级，全量返回的
+代价远小于两个只差一个过滤条件的入口各自演化。能力报告与列表一起返回，是因为分成两次请求时
+中间会出现一小段时间界面显示“已启用、已生效”，而 Samba 那边还没有这一段。
+
+未实现（P08.2/P08.3）：`GET /shares/:id/connections`、配置写入与重载、连接状态、运行时脱盘撤销。
+
+五个动作的 P08.1 执行结果：
+
+| 动作 | 参数 | 再认证 | 锁 | outcome | 执行了什么、核验到什么 |
+|---|---|---|---|---|---|
+| `share.apply` | `share_id`（新建 null）、`version`（新建 null）、`definition` | 是 | `volume:<id>`、`share:<id>` | `accepted` | 卷内建目录（0700）、`setfacl --set` 写入并读回核验 mask、算 `config_hash`、登记记录 `directory_prepared=true`、`config_applied=false` |
+| `share.disable` | `share_id`、`version` | 否 | `share:<id>` | `accepted` | 读回 ACL 确认撤销、`definition.enabled=false`、`directory_prepared=false`；目录与文件一个都不删 |
+| `share.delete` | `share_id`、`version` | 是 | `share:<id>` | `accepted` | 撤销 ACL、删登记记录；**目录内容永远不删** |
+| `share.account.apply` | `account_id`（新建 null）、`name`、`secret_ref`、`disabled` | 是 | `accounts`、`samba` | `verified` | `useradd --system`（nologin、无 home）+ `smbpasswd -s -a`，用 `getent passwd`、`passwd -S`、`pdbedit -L -v` 读回核验 |
+| `share.account.delete` | `account_id` | 是 | `accounts`、`samba` | `verified` | 先 `smbpasswd -x` 再 `userdel`（反过来会留下一条指向已消失 UID 的 passdb 记录），两侧都读回确认已消失 |
+
+五个动作全部 `cancellable=false`、**都不要确认短语**：短语留给“一旦写下去就找不回来”的动作
+（初始化分区表、格式化、删分区）；共享动作用短语只会训练人闭眼确认。
+
+**放行的预检必须绑定两样东西**（与 §6 的存储动作同一条规则）：`target.identity_fingerprint` 与
+状态版本。新建对象的状态版本是 `absent:<名字>`——对一条还不存在的对象，可绑定的事实就是“此刻
+还没有它”（Q214）；账号类动作的指纹是账号名（改名在预检里就被拒，它在预检与执行之间不会变），
+删除也一样（Q220）。被拒绝的预检没有目标可绑，指纹可以为空（Q190）；缺绑定是**实现错误**
+（面板侧 500），不是“可以放宽的检查”。
+
+**为什么 `share.apply` 是 `accepted` 而不是 `verified`。** 它确实做出了东西并核验过（目录、ACL、
+哈希、记录），但“共享可用”这件事在本阶段不成立：没有配置写入就没有 Samba 侧的这一段。
+执行结果里因此写死两件事实：`observed.samba_config="not_written"`、`observed.served=false`，并且
+预检一律带一条 `SHARE_CONFIG_NOT_APPLIED` 告警。代理层的执行器**原样传递** outcome——如果它像
+存储执行器那样硬写 `verified`，任务中心就会显示“已核验”，而事实是配置还没写。
+
+配置版本与准备状态是三个字段，回答三个不同的问题，界面必须分开显示：
+
+- `config_hash`：这份定义渲染出来的配置是哪一版（sha256 十六进制）；
+- `directory_prepared`：目录与 POSIX ACL 是否已经按这份定义准备**并核验**过；
+- `config_applied`：这份定义是否已经写进 Samba 配置并被重载。P08.1 恒为 `false`，没有代码路径能把它置真。
+
+`smb_users` 为空是**硬拒绝**（`SHARE_NO_USERS`）：空名单在 Samba 里会退化成 guest，而 guest 在
+PLAN.md 第 10 节是明确禁止的。`read_only` 为真时每个账号的 ACL 上限都是 `r-x`（更强的限制优先）。
+
+能力报告的字段（`ShareCapability`）：`status`（`available`/`blocked`）、`reason`、`samba_version`、
+`tools`（探到的绝对路径，缺失项不出现）、`config_path`、`config_readable`、`include_dir`、
+`include_ready`、`include_present`、`config_write`、`notices`、`collected_at`。探针只做只读的事，
+**不安装任何东西**（PLAN.md 第 10 节：禁止静默安装）；工具路径是代码里的常量，不可配置——一旦
+可配置，配置就变成了任意命令执行的入口。
+
+阻塞码与告警码是闭集，测试按码断言：
+
+| 码 | 类别 | 含义 |
+|---|---|---|
+| `SHARE_NOT_FOUND` | 阻塞 | 登记表里没有这条共享 |
+| `SHARE_VERSION_MISMATCH` | 阻塞 | 手上的版本不是现在这一版（乐观并发） |
+| `SHARE_NAME_TAKEN` | 阻塞 | 同名共享已存在；禁止靠“名字相同”覆盖 |
+| `VOLUME_NOT_FOUND` | 阻塞 | `volume_id` 不在受管理卷里 |
+| `VOLUME_NOT_MOUNTED` | 阻塞 | 卷没挂载；共享路径会落到系统盘的空目录上 |
+| `VOLUME_UUID_MISMATCH` | 阻塞 | 卷挂着的不是登记的那个文件系统 |
+| `SHARE_PATH_INVALID` | 阻塞 | `relative_path` 形状不合法（绝对路径、`..`、空段） |
+| `SHARE_PATH_ESCAPES_VOLUME` | 阻塞 | 规范化后的真实路径不在卷挂载点里面 |
+| `SHARE_PATH_SYMLINK` | 阻塞 | 路径上有符号链接；初期一律拒绝跟随 |
+| `SHARE_PATH_NOT_DIRECTORY` | 阻塞 | 目标存在但不是目录 |
+| `SHARE_NO_USERS` | 阻塞 | `smb_users` 为空（会退化成 guest） |
+| `ACCOUNT_MISSING` | 阻塞 | 定义引用了不存在的账号 |
+| `ACCOUNT_NOT_MANAGED` | 阻塞 | 同名账号在系统上存在但不是面板创建的；拒绝静默接管 |
+| `ACCOUNT_DISABLED` | 阻塞 | 账号已被禁用（Samba 层 D 标志） |
+| `ACCOUNT_HAS_SHARES` | 阻塞 | 还有共享引用这个账号，不能删 |
+| `ACCOUNT_NAME_INVALID` | 阻塞 | 账号名不符合形状要求 |
+| `ACCOUNT_NAME_TAKEN` | 阻塞 | 这个账号名已经有一条受管理记录 |
+| `PROTOCOL_UNSUPPORTED` | 阻塞 | `protocol=nfs`（P08 只做 smb） |
+| `SMB_UNAVAILABLE` | 阻塞 | 本机 Samba 能力不可用（缺包或缺工具） |
+| `SECRET_INVALID` | 阻塞 | `secret_ref` 不是本机秘密存储里的引用，或用途不对 |
+| `ACL_TOOLS_MISSING` | 阻塞 | `setfacl`/`getfacl` 缺失，无法准备或核验权限 |
+| `CONFIG_NOT_READABLE` | 阻塞 | 读不到 `smb.conf`；读不到就不能说这台机器的 Samba 长什么样 |
+| `INCLUDE_DIR_MISSING` | 告警 | 托管 include 目录不存在（P08.2 才创建） |
+| `SHARE_CONFIG_NOT_APPLIED` | 告警 | 定义**还没有**写进 Samba 配置，共享此刻不提供访问 |
+| `SHARE_DIRECTORY_NOT_EMPTY` | 告警 | 目录里已经有文件，ACL 会覆盖既有权限 |
+| `ACCOUNT_PASSWORD_KEPT` | 告警 | 这次没有换密码，沿用上次设置的 |
+| `ACCOUNT_LOOKUP_TIMEOUT` | 告警 | 预检没能在预算内确认系统里是否已有同名账号（机器繁忙）；执行阶段会用更长的预算再复核，已存在的账号不会被接管 |
+| `SHARE_ACL_REPLACED` | 告警 | 目录原有的扩展 ACL 会被整份替换 |
+
+**秘密通道。** `POST /secrets` 只接受 `purpose`、`value`、`reference` 三个字段（多余字段 400）。
+用途是闭集，取值在代理侧登记（`smb_password`、`account_password`、`proxy_basic_password`、
+`backup_repository_password`、`notification_password`、`tls_private_key`、`sftp_private_key`、
+`app_env`）；未登记的用途与内部用途（`totp_seed`）一律 400。Web 层只挡 `purpose` 的形状，不复制
+枚举——复制只会得到两个各自漂移的事实来源。响应只有 `secret_ref`、`purpose`、`state`、
+`expires_at`；明文不缓存、不写日志、不回显，任何错误信息里都不含它。秘密引用同样按秘密处理：
+日志与审计里 `secret_ref` 的原文会被过滤成 `[redacted]`。
+
+**POSIX ACL。** 目录用 0700 创建，属主之外的访问全部由 ACL 给：每个 `smb_users` 条目一条
+`u:<account>:r-x|rwx`，`read_only` 时上限 `r-x`。写入用 `setfacl --set`（整份替换）而不是 `-m`
+（增量修改）——增量修改会让**上一次授权过的账号继续留在 ACL 上**，“撤销”就成了空话。写完必须
+读回 `getfacl` 并核对两件事：每个期望的条目在，并且 `mask` 覆盖每条期望的权限。`mask` 太窄时
+`getfacl` 看起来条目齐全，实际权限却被静默削弱，这是这一层唯一会“看起来成功”的失败方式。
+撤销（disable/delete）用 `setfacl -b`，读回时 `mask` 为 `""` 或 `---` 都算已撤销——仍然存在的
+mask 才是真正要拒绝的状态。
+
+**观察命令的预算按阶段分。** 预检跑在 Web 等着的链路上（`agentclient` 的一次调用有 10 秒总预算），
+所以它的观察命令上限是 3 秒；执行前复核跑在任务自己的预算里，没有人拿着 HTTP 连接等它，同一个
+观察命令给 20 秒。这两处**不是**同一个数，也不该被写成同一个数：写成 3 秒，机器忙时会把一次正确的
+操作判死；写成 20 秒，预检就会撞穿整条链路（真机数据与推理见 DECISIONS Q222、Q223）。
+预检里问不出结果时给 `ACCOUNT_LOOKUP_TIMEOUT` 告警而不是 500，因为“不接管既有账号”这条不变量
+由执行阶段兜底：`useradd` 对已存在的名字以退出码 9 失败，执行器据此回 409 `DEPENDENCY_BLOCKED`
+并点名 `ACCOUNT_NOT_MANAGED`，绝不继续设置 Samba 密码。
+
+**登记表在代理库。** `shares`（id、name UNIQUE、protocol、volume_id FK→`managed_resources`、
+relative_path、enabled、read_only、definition_json、config_hash、directory_prepared、config_applied、
+version、last_operation_id、时间戳）与 `managed_accounts`（id、name UNIQUE、type、managed、disabled、
+has_password、uid、gid、shell、home、secret_ref、version、时间戳）都在代理自己的数据库里，因为它们
+描述的是**这台主机**的状态；Web 侧的 SQLite 保存的是人、会话与任务。两张表**没有密码列、没有
+哈希列**，将来也不会加：明文只在秘密通道里流动一次，之后以密文存在代理秘密表里。`shares.volume_id`
+是外键，因此一个被共享引用的卷无法被删除（P08.3 会把它变成一句人话的阻塞项，而不是数据库错误）。
+
 ## 8. 应用、容器与部署契约
+
+
 
 | 方法与路径 | 行为 |
 |---|---|
@@ -851,8 +981,8 @@ GET /alerts/events：V；POST /alerts/events/:id/ack：admin；GET/POST /notific
 | job_events | job_id FK、seq、kind、redacted_payload、created_at；UNIQUE(job_id,seq) |
 | idempotency_keys | user_id、route、key、body_hash、job_id、expires_at；联合 UNIQUE |
 | volumes | id、filesystem_uuid UNIQUE、slug UNIQUE、device_identity、desired_config_json、observed_state、version |
-| shares | id、name UNIQUE、protocol、volume_id FK、definition_json、applied_config_hash、enabled |
-| managed_accounts | id、name UNIQUE、type、system_identity、managed、disabled；不保存密码 |
+| shares | 代理库：id、name UNIQUE、protocol、volume_id FK、relative_path、enabled、read_only、definition_json、config_hash、directory_prepared、config_applied、version |
+| managed_accounts | 代理库：id、name UNIQUE、type、system_identity、managed、disabled、has_password、secret_ref（只是引用）、version；不保存密码或哈希 |
 | app_groups | id、name UNIQUE、sort_order |
 | apps | id、name、type、binding_json、public_url、health_json、group_id FK、version |
 | app_favorites | user_id FK、app_id FK；联合 UNIQUE |

@@ -92,6 +92,10 @@ type Options struct {
 	// 那时 /terminal/* 明确回 503 AGENT_UNAVAILABLE，而不是给一个空会话列表——
 	// 空列表会被当成“现在没有终端在跑”。
 	Terminal TerminalReader
+	// Shares 是共享只读视图与秘密通道的调用端（P08.1）。允许为 nil（不连代理）：
+	// 那时 /shares*、/share-accounts 与 /secrets 明确回 503 AGENT_UNAVAILABLE，
+	// 而不是给一份空共享列表——空列表会被读成“这台机器上没有共享”。
+	Shares SharesReader
 }
 
 // Server 是 Web HTTP 服务。

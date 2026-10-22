@@ -1,0 +1,427 @@
+== 0. 环境与安全守卫 ==
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  依赖命令可用 python3
+PASS  依赖命令可用 curl
+PASS  依赖命令可用 runuser
+PASS  依赖命令可用 sha256sum
+PASS  依赖命令可用 findmnt
+PASS  依赖命令可用 lsblk
+PASS  依赖命令可用 sgdisk
+PASS  依赖命令可用 blkid
+PASS  依赖命令可用 wipefs
+PASS  依赖命令可用 udevadm
+PASS  依赖命令可用 blockdev
+PASS  依赖命令可用 stat
+PASS  依赖命令可用 awk
+PASS  依赖命令可用 diff
+PASS  依赖命令可用 grep
+PASS  依赖命令可用 shred
+PASS  夹具：/usr/sbin/smbd 存在
+PASS  夹具：/usr/bin/smbpasswd 存在
+PASS  夹具：/usr/bin/pdbedit 存在
+PASS  夹具：/usr/bin/testparm 存在
+PASS  夹具：/usr/bin/setfacl 存在
+PASS  夹具：/usr/bin/getfacl 存在
+PASS  夹具：/etc/samba/smb.conf 存在
+      smbd 版本（独立读取）：Version 4.19.5-Ubuntu
+PASS  Web 账号 upanel-web 存在
+      卸掉上一轮遗留的挂载 /srv/upanel/volumes/data
+      卸掉上一轮遗留的挂载 /srv/upanel/volumes/logs
+      清掉遗留的托管块（内容留档到 /var/tmp/upanel-accept-p08-1.fstab-before-reset.txt）
+PASS  承载 / 的设备是 /dev/sda1（整盘 sda）
+PASS  一次性盘 /dev/sdb 存在
+      /dev/sdb：8589934592 字节，无挂载
+PASS  一次性盘 /dev/sdc 存在
+      /dev/sdc：4294967296 字节，无挂载
+PASS  起点：smb.conf 的 sha256 已记录（8b519488b5592bfe20bef55634c208979c4d2d6cf47b37895dd15af17be42a39）
+PASS  两块一次性盘清成空白
+PASS  起点：受管理账号已清空
+
+== 1. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  代理日志声明共享模块已接线
+PASS  代理日志明说本阶段不写配置
+PASS  代理把 share.apply 登记成可执行动作
+PASS  代理把 share.disable 登记成可执行动作
+PASS  代理把 share.delete 登记成可执行动作
+PASS  代理把 share.account.apply 登记成可执行动作
+PASS  代理把 share.account.delete 登记成可执行动作
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19476 启动
+PASS  监听 19476 的 Web 进程不是 root（pid=50901 uid=999）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+PASS  未再认证时存秘密是 403
+PASS  拒绝码是 REAUTH_REQUIRED
+PASS  被拒之后代理的秘密表仍然是空的
+
+== 2. 能力检测：面板说的必须与系统上的事实一致 ==
+PASS  共享列表可读
+PASS  能力状态是 available
+PASS  available 时没有 reason
+PASS  另外两块能力也在同一份响应里
+PASS  共享列表此刻是空数组（不是 null）
+PASS  能力里的 samba_version 与 smbd --version 一致
+PASS  能力里报的每个工具路径都存在且可执行
+PASS  必需工具 smbd 在能力里（缺了就该 blocked）
+PASS  必需工具 smbpasswd 在能力里（缺了就该 blocked）
+PASS  必需工具 pdbedit 在能力里（缺了就该 blocked）
+PASS  必需工具 setfacl 在能力里（缺了就该 blocked）
+PASS  必需工具 getfacl 在能力里（缺了就该 blocked）
+PASS  config_path 是固定的绝对路径
+PASS  config_readable 与 test -r 一致
+PASS  include_ready 与 test -d 一致
+PASS  include_present 与 smb.conf 里那一行一致
+PASS  配置写入在本阶段是 unsupported
+PASS  能力里的 notices 都有 message
+PASS  include 目录不存在时给出 INCLUDE_DIR_MISSING
+PASS  能力采集时间是 RFC3339（不是零值）
+PASS  账号列表可读
+PASS  账号列表与共享列表带的是同一份能力
+PASS  账号列表此刻是空数组
+
+== 3. 夹具：一块空盘走产品的 GPT → 分区 → ext4 → 导入 → 挂载；另一块只导入 ==
+PASS  初始化分区表预检允许
+PASS  初始化分区表任务终态
+PASS  初始化分区表结果是 verified
+PASS  初始化分区表带 verified_at
+PASS  建分区任务终态
+PASS  建分区结果是 verified
+PASS  建分区带 verified_at
+PASS  独立证据：内核看到了 sdb1
+PASS  格式化预检允许
+PASS  格式化任务终态
+PASS  格式化结果是 verified
+PASS  格式化带 verified_at
+PASS  独立证据：blkid 读出的类型是 ext4
+PASS  独立证据：blkid 读出的卷标
+PASS  独立证据：UUID 非空
+PASS  导入预检允许
+PASS  导入任务终态
+PASS  导入结果是 verified
+PASS  导入带 verified_at
+PASS  挂载点由 slug 派生
+PASS  挂载任务终态
+PASS  挂载结果是 verified
+PASS  挂载带 verified_at
+PASS  内核视图：卷挂上了
+PASS  第二块盘初始化分区表任务终态
+PASS  第二块盘初始化分区表结果是 verified
+PASS  第二块盘初始化分区表带 verified_at
+PASS  第二块盘建分区任务终态
+PASS  第二块盘建分区结果是 verified
+PASS  第二块盘建分区带 verified_at
+PASS  第二块盘格式化任务终态
+PASS  第二块盘格式化结果是 verified
+PASS  第二块盘格式化带 verified_at
+PASS  第二个卷导入任务终态
+PASS  第二个卷导入结果是 verified
+PASS  第二个卷导入带 verified_at
+PASS  第二个卷确实没挂载（这是故意的）
+PASS  第二个卷的 observed_state 不是 mounted
+
+== 4. 秘密通道：只进不出，明文只经过一次 ==
+PASS  随机密码已生成（长度 32）
+PASS  创建 viewer 账号
+PASS  viewer 登录
+PASS  viewer 读共享列表是 403
+PASS  viewer 读账号列表是 403
+PASS  viewer 读共享详情是 403
+PASS  viewer 存秘密是 403
+PASS  未登录读共享列表是 401
+PASS  用途名不合形状是 400
+PASS  空内容是 400
+PASS  多一个字段是 400
+PASS  再认证
+      再认证有效期：True
+PASS  内部用途 totp_seed 被代理拒绝（400 透传）
+PASS  闭集外的用途被代理拒绝（400 透传）
+PASS  存 smb_password 成功
+PASS  secret_ref 是 sec_ 加 32 位小写十六进制
+PASS  用途回显是 smb_password
+PASS  临时秘密带 expires_at（10 分钟后自己消失）
+PASS  响应体里没有明文
+PASS  审计里有一条成功的 secret.create
+PASS  审计详情里记了用途
+PASS  审计详情里的 secret_ref 被替换成 [redacted]
+PASS  审计详情里没有引用原文
+PASS  审计详情里也没有明文
+
+== 5. 受管理账号：真的建出来，并用 getent / pdbedit 两条独立读回 ==
+PASS  managed_accounts 表里没有任何密码/哈希列
+PASS  建账号预检允许
+PASS  预检目标显示名就是账号名
+PASS  建账号要求再认证
+PASS  建账号没有确认短语
+PASS  建账号的影响里有 access_change
+PASS  锁是 account:<名字>
+PASS  建受管理账号任务终态
+PASS  建受管理账号结果是 verified
+PASS  建受管理账号带 verified_at
+PASS  账号标识是 sac_ 形状
+PASS  observed：samba_account 为真
+PASS  observed：password_set 为真
+PASS  observed：secret 已转成持久引用
+PASS  observed：shell 是 nologin
+PASS  observed：home 是 /nonexistent
+PASS  observed：uid 落在系统段（<1000）
+PASS  observed：Linux 密码是锁定的（L 或 NP）
+PASS  observed：Password last set 有值
+PASS  独立证据：getent passwd 里有 smbp08rw
+PASS  独立证据：uid 与产品报的一致
+PASS  独立证据：shell 是 nologin
+PASS  独立证据：home 是 /nonexistent
+PASS  独立证据：Linux 密码不是可用的（passwd -S 不是 P）
+PASS  独立证据：pdbedit -L 里有 smbp08rw
+PASS  独立证据：passdb 里有 Password last set
+PASS  独立证据：Account Flags 里没有 D（账号是启用的）
+PASS  Web 日志里没有明文
+PASS  代理日志里没有明文
+PASS  两个数据库（含 WAL）里没有明文
+PASS  任何进程的 argv/environ 里没有明文
+PASS  存第二个密码成功
+PASS  建第二个受管理账号任务终态
+PASS  建第二个受管理账号结果是 verified
+PASS  建第二个受管理账号带 verified_at
+PASS  独立证据：pdbedit -L 里有 smbp08ro
+PASS  账号列表可读
+PASS  账号列表里有两条
+PASS  账号记录里没有 secret_ref 字段
+PASS  账号记录里没有任何密码/哈希字段
+PASS  两个账号都报 has_password=true
+PASS  账号记录里没有明文
+PASS  share.account.apply 被拒
+PASS  share.account.apply 的阻塞码
+PASS  share.account.apply 的阻塞理由不是空的
+PASS  share.account.apply 被拒的预检提交不进任务
+PASS  share.account.apply 被拒
+PASS  share.account.apply 的阻塞码
+PASS  share.account.apply 的阻塞理由不是空的
+PASS  share.account.apply 被拒的预检提交不进任务
+PASS  share.account.apply 被拒
+PASS  share.account.apply 的阻塞码
+PASS  share.account.apply 的阻塞理由不是空的
+PASS  share.account.apply 被拒的预检提交不进任务
+PASS  share.account.apply 被拒
+PASS  share.account.apply 的阻塞码
+PASS  share.account.apply 的阻塞理由不是空的
+PASS  share.account.apply 被拒的预检提交不进任务
+PASS  secret_ref 里直接放明文是 400
+PASS  拒绝理由说明它要的是 sec_ 引用
+PASS  夹具：临时系统账号 p08sysprobe 已建（不是面板建的）
+PASS  share.account.apply 被拒
+PASS  share.account.apply 的阻塞码
+PASS  share.account.apply 的阻塞理由不是空的
+PASS  share.account.apply 被拒的预检提交不进任务
+PASS  夹具：临时系统账号已清掉
+PASS  改禁用状态要求再认证（改的是认证凭据）
+PASS  改禁用状态时提示密码沿用上次的
+PASS  禁用受管理账号任务终态
+PASS  禁用受管理账号结果是 verified
+PASS  禁用受管理账号带 verified_at
+PASS  observed：disabled 为真
+PASS  observed：这次没有换密码
+PASS  独立证据：Account Flags 里出现 D
+PASS  启用受管理账号任务终态
+PASS  启用受管理账号结果是 verified
+PASS  启用受管理账号带 verified_at
+PASS  独立证据：读得到 Account Flags
+PASS  独立证据：Account Flags 里的 D 没了
+
+== 6. 共享定义：目录与 POSIX ACL 真的做出来，但结果只能是 accepted ==
+PASS  共享预检允许
+PASS  预检目标显示名是共享名
+PASS  共享预检要求再认证
+PASS  共享预检没有确认短语（可逆）
+PASS  影响里有 config_change
+PASS  影响里有 access_change
+PASS  锁里有共享名
+PASS  锁里有卷
+PASS  预检带 SHARE_CONFIG_NOT_APPLIED 告警
+PASS  预检的阻塞列表是空的（告警不是阻塞）
+PASS  应用共享任务终态
+PASS  应用共享结果是 accepted（不是 verified）
+PASS  应用共享不带 verified_at
+PASS  应用共享给了 recovery_hint 说清还差什么
+PASS  共享标识是 shr_ 形状
+PASS  新建共享的版本是 1
+PASS  config_hash 是 64 位十六进制
+PASS  observed：samba_config = not_written
+PASS  observed：served = false
+PASS  observed：directory_prepared = true
+PASS  observed：acl_verified = true
+PASS  observed：directory 落在卷的挂载点里
+PASS  observed：mount_path 就是卷的挂载点
+PASS  recovery_hint 说清还差什么
+PASS  config_hash 就是 config_preview 的 sha256（独立算一遍）
+PASS  配置预览里有 [p08share]
+PASS  配置预览里有 path = /srv/upanel/volumes/data/team/docs
+PASS  配置预览里有 guest ok = no
+PASS  配置预览里有 read only = no
+PASS  配置预览里有 follow symlinks = no
+PASS  配置预览里有 wide links = no
+PASS  配置预览里有 valid users = 
+PASS  配置预览里有 write list = 
+PASS  配置预览里有 hosts allow = 192.168.56.0/24
+PASS  valid users 里有两个账号
+PASS  valid users 里也有只读账号
+PASS  write list 里只有读写账号（只读账号不在里面）
+PASS  独立证据：共享目录真的建出来了
+PASS  独立证据：目录在卷的文件系统上（不是系统盘）
+PASS  独立证据：目录对 world 没有任何权限
+      getfacl /srv/upanel/volumes/data/team/docs：
+        user::rwx
+        user:smbp08ro:r-x
+        user:smbp08rw:rwx
+        group::---
+        mask::rwx
+        other::---
+        
+PASS  独立证据：属主是 rwx
+PASS  独立证据：组是 ---（不靠同名组放行）
+PASS  独立证据：其他人是 ---
+PASS  独立证据：读写账号拿到 rwx
+PASS  独立证据：只读账号拿到 r-x
+PASS  独立证据：mask 覆盖了授权（rwx）
+PASS  产品报的 mask 与 getfacl 读回的一致
+PASS  ACL 里只有这两条具名条目（没有上一轮的残留）
+PASS  独立证据：smb.conf 的 sha256 逐字节未变
+PASS  独立证据：testparm 不认识这条共享（它确实没被提供）
+PASS  独立证据：smb.conf 里仍然没有托管 include 行
+
+== 7. 页面依赖的载荷：列表 / 详情 / config_applied 恒为 false ==
+PASS  共享列表可读
+PASS  列表里有一条共享
+PASS  共享名与定义一致
+PASS  directory_prepared 为真（目录与 ACL 已核验）
+PASS  config_applied 恒为 false（P08.2 才会变真）
+PASS  列表里每一条的 config_applied 都是 false
+PASS  config_hash 与任务结果一致
+PASS  定义里的 allowed_cidrs 原样带回
+PASS  定义里的两条授权都带回
+PASS  共享详情可读
+PASS  详情里的 id 与列表一致
+PASS  详情也带能力（页面不必发两次请求）
+PASS  详情的 config_applied 也是 false
+PASS  形状不对的共享标识是 400（连代理都不问）
+PASS  格式对但不存在的共享是 404
+PASS  404 的响应体里带着那个 id
+PASS  代理库里没有一条 config_applied=1 的共享
+PASS  代理库里这条共享的 config_hash 与接口一致
+PASS  代理库里 directory_prepared=1 且 config_applied=0
+
+== 8. 拒绝路径：该拒的拒，理由写给页面看 ==
+PASS  share.apply 被拒
+PASS  share.apply 的阻塞码
+PASS  share.apply 的阻塞理由不是空的
+PASS  share.apply 被拒的预检提交不进任务
+PASS  share.apply 被拒
+PASS  share.apply 的阻塞码
+PASS  share.apply 的阻塞理由不是空的
+PASS  share.apply 被拒的预检提交不进任务
+PASS  share.apply 被拒
+PASS  share.apply 的阻塞码
+PASS  share.apply 的阻塞理由不是空的
+PASS  share.apply 被拒的预检提交不进任务
+PASS  share.apply 被拒
+PASS  share.apply 的阻塞码
+PASS  share.apply 的阻塞理由不是空的
+PASS  share.apply 被拒的预检提交不进任务
+PASS  share.apply 被拒
+PASS  share.apply 的阻塞码
+PASS  share.apply 的阻塞理由不是空的
+PASS  share.apply 被拒的预检提交不进任务
+PASS  share.apply 被拒
+PASS  share.apply 的阻塞码
+PASS  share.apply 的阻塞理由不是空的
+PASS  share.apply 被拒的预检提交不进任务
+PASS  share.apply 被拒
+PASS  share.apply 的阻塞码
+PASS  share.apply 的阻塞理由不是空的
+PASS  share.apply 被拒的预检提交不进任务
+PASS  share.apply 被拒
+PASS  share.apply 的阻塞码
+PASS  share.apply 的阻塞理由不是空的
+PASS  share.apply 被拒的预检提交不进任务
+PASS  share.apply 被拒
+PASS  share.apply 的阻塞码
+PASS  share.apply 的阻塞理由不是空的
+PASS  share.apply 被拒的预检提交不进任务
+PASS  share.apply 被拒
+PASS  share.apply 的阻塞码
+PASS  share.apply 的阻塞理由不是空的
+PASS  share.apply 被拒的预检提交不进任务
+PASS  share.account.delete 被拒
+PASS  share.account.delete 的阻塞码
+PASS  share.account.delete 的阻塞理由不是空的
+PASS  share.account.delete 被拒的预检提交不进任务
+
+== 9. 禁用 / 改回 / 删除：ACL 撤销、目录保留、记录消失 ==
+PASS  前置：共享目录里能写文件（摘要是 64 位十六进制）
+PASS  禁用预检允许
+PASS  禁用不要求再认证
+PASS  禁用共享任务终态
+PASS  禁用共享结果是 accepted（不是 verified）
+PASS  禁用共享不带 verified_at
+PASS  禁用共享给了 recovery_hint 说清还差什么
+PASS  observed：ACL 已撤销
+PASS  observed：目录被保留
+PASS  独立证据：ACL 上没有具名账号了
+PASS  独立证据：其他人仍然是 ---
+PASS  独立证据：目录对 world 仍无权限
+PASS  独立证据：目录里的文件还在，内容没变
+PASS  载荷：directory_prepared 回到 false
+PASS  载荷：config_applied 仍然是 false
+PASS  载荷：定义里的 enabled 已经是 false
+PASS  改回启用的预检允许
+PASS  改回启用任务终态
+PASS  改回启用结果是 accepted（不是 verified）
+PASS  改回启用不带 verified_at
+PASS  改回启用给了 recovery_hint 说清还差什么
+PASS  版本自增了（1 → 3，两次成功变更）
+PASS  独立证据：ACL 又装回去了
+PASS  独立证据：只读账号仍然是 r-x
+PASS  同一份定义两次应用的 config_hash 相同（哈希只看配置内容）
+PASS  删除预检允许
+PASS  删除要求再认证
+PASS  删除共享任务终态
+PASS  删除共享结果是 accepted（不是 verified）
+PASS  删除共享不带 verified_at
+PASS  删除共享给了 recovery_hint 说清还差什么
+PASS  独立证据：ACL 已被撤销
+PASS  独立证据：目录没有被删（删共享不删数据）
+PASS  独立证据：目录里的文件还在
+PASS  载荷：共享列表回到空数组
+PASS  代理库：shares 表里没有这条记录了
+PASS  独立证据：smb.conf 仍然逐字节未变
+PASS  删除读写账号任务终态
+PASS  删除读写账号结果是 verified
+PASS  删除读写账号带 verified_at
+PASS  observed：passdb 条目已删
+PASS  observed：Linux 账号已删
+PASS  独立证据：getent passwd 里没有了
+PASS  独立证据：pdbedit -L 里也没有了
+PASS  删除只读账号任务终态
+PASS  删除只读账号结果是 verified
+PASS  删除只读账号带 verified_at
+PASS  独立证据：两个账号都没了
+PASS  载荷：账号列表回到空数组
+PASS  代理库：managed_accounts 表里没有记录了
+
+== 10. 收尾与不变量 ==
+PASS  代理已停止、socket 已清理
+PASS  整轮结束时 smb.conf 仍逐字节未变
+PASS  收尾扫描：所有日志与数据库里都没有明文
+NOT RUN  从另一台机器用 SMB 客户端连上来：P08.1 不写配置、不重载服务，共享此刻不对外提供访问；SMB 客户端 VM（P00-VM-D）尚未建立
+NOT RUN  写入配置 / testparm 校验 / 原子替换 / 重载 / 共享连接状态：属于 P08.2 与 P08.3；本脚本反过来证明这一阶段确实没写
+NOT RUN  浏览器里的真实渲染：本脚本验载荷；DOM 由 web 侧 SSR 回放覆盖，浏览器端到端由 smoke 覆盖
+NOT RUN  能力 blocked 分支（缺包环境）：本机装了 samba，走的是 available；blocked 由 internal/shares 的注入式单测覆盖
+
+== 汇总 ==
+PASS=382 FAIL=0 NOT RUN=4
+
+证据留在 /var/tmp/upanel-accept-p08-1（payloads/ 是页面与任务的原始响应，logs/ 是独立检查的输出）

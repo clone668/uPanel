@@ -400,6 +400,13 @@ func RegisterProductionQueries(reg *Registry, deps ProductionDeps) error {
 			return fmt.Errorf("代理登记 terminal.sessions 失败: %w", err)
 		}
 	}
+	if deps.Shares != nil {
+		// 三条查询一起登记：能力、共享列表、受管理账号。页面要同时看到“定义是什么”
+		// 与“现在有没有被提供”，少一条就只能猜。
+		if err := RegisterShareQueries(reg, deps.Shares); err != nil {
+			return fmt.Errorf("代理登记共享查询失败: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -446,6 +453,13 @@ func RegisterProductionActions(reg *Registry, deps ProductionDeps) error {
 			if err := RegisterVolumeActions(reg, deps.Storage); err != nil {
 				return err
 			}
+		}
+	}
+	if deps.Shares != nil {
+		// 五个共享动作与三条查询成对登记：没有 share.list 的 share.apply 会写出
+		// 一条界面看不见的共享，没有 share.capability 的动作则分不清“不支持”与“没装”。
+		if err := RegisterShareActions(reg, deps.Shares); err != nil {
+			return err
 		}
 	}
 	return nil

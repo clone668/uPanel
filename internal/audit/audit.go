@@ -55,6 +55,12 @@ const (
 	ActionTerminalAttach = "terminal.attach"
 	// ActionTerminalClose 是主动关闭自己终端会话（CONTRACTS.md 第 10 节要求审计）。
 	ActionTerminalClose = "terminal.close"
+	// ActionSecretCreate 是一次秘密上传（P08.1，POST /api/v1/secrets）。
+	//
+	// 这条事件记的是“谁在什么时候把一份什么用途的密文交进了代理”，不记内容：
+	// 明文从不进日志与审计，secret_ref 这个键也会被下面的秘密字段过滤替换。
+	// 它值得留痕，因为这是面板上唯一一条“把密码交给系统”的入口。
+	ActionSecretCreate = "secret.create"
 )
 
 // 结果枚举，与迁移里的 CHECK 约束一致。

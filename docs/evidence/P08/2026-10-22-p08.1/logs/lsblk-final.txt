@@ -1,0 +1,12 @@
+NAME     SIZE FSTYPE LABEL           UUID                                 MOUNTPOINTS
+fd0        4K                                                             
+sda       40G                                                             
+├─sda1    39G ext4   cloudimg-rootfs 59134bd0-a76f-4ea0-8e4a-770b2e1eafc2 /
+├─sda14    4M                                                             
+├─sda15  106M vfat   UEFI            0E9D-3FD8                            /boot/efi
+└─sda16  913M ext4   BOOT            b4f0deba-ce7d-45dc-9999-0427f2720320 /boot
+sdb        8G                                                             
+└─sdb1     2G ext4   p08vol          6938f768-6311-4add-b714-0414e2942deb /srv/upanel/volumes/data
+sdc        4G                                                             
+└─sdc1     1G ext4   p08logs         a459313b-44b6-4981-8a41-9973e0992845 
+sdd        4G                                                             

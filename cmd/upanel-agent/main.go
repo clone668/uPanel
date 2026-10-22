@@ -26,6 +26,7 @@ import (
 	"upanel/internal/platform"
 	"upanel/internal/processes"
 	"upanel/internal/services"
+	"upanel/internal/shares"
 	"upanel/internal/storage"
 	"upanel/internal/terminal"
 	"upanel/internal/version"
@@ -212,6 +213,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 		logger.Error("初始化受管资源存储失败，拒绝启动", "error", err)
 		return 1
 	}
+	// 共享定义与受管理账号的登记表（P08.1）。同样只有代理写它：共享目录落在哪、
+	// ACL 是不是按定义准备好了、配置版本是多少，都以代理侧的记录为准。
+	shareStore, err := agentstore.NewShareStore(agentDB)
+	if err != nil {
+		logger.Error("初始化共享存储失败，拒绝启动", "error", err)
+		return 1
+	}
 
 	// 系统基础资源采集（P04.1）：5 秒轮询一次 /proc、/sys，结果留在内存里的快照中，
 	// system.summary 查询只读这份快照。采集失败不阻止代理启动——它只会让对应段
@@ -284,6 +292,27 @@ func run(args []string, stdout, stderr io.Writer) int {
 			"systemctl", storage.DefaultSystemctlPath)
 	}
 	storageCollector := storage.NewCollector(storageOpts)
+
+	// 共享与受管理账号（P08.1）。能力探针每次调用读固定的工具路径与 smb.conf，
+	// 结果缓存 30 秒；执行器是 storage.SyscmdRunner（同一套绝对路径 + argv + 固定环境）。
+	// 秘密解析器就是上面那个 secrets：密码明文只经标准输入，用完立刻清零。
+	sharesEngine, err := shares.New(shares.Options{
+		Store:   shareStore,
+		Volumes: storageCollector,
+		Secrets: secrets,
+		Runner:  storage.SyscmdRunner(),
+		Prober:  shares.SystemProber(storage.SyscmdRunner()),
+	})
+	if err != nil {
+		logger.Error("初始化共享模块失败", "error", err)
+		return 1
+	}
+	logger.Info("共享模块已接线",
+		"include_dir", shares.DefaultIncludeDir,
+		"config_path", shares.DefaultConfigPath,
+		// 强调一句：P08.1 不写配置。日志里出现这句话，排查时就不会把
+		// “共享建好了客户端连不上”当成 bug。
+		"config_write", "unsupported（P08.1 只准备定义、目录与 ACL）")
 
 	// 服务单元采集（P05.1）：每 10 秒枚举一次 systemctl 状态，services.list 读这份快照；
 	// services.unit 与预检/执行现场读取。找不到 systemctl 时采集如实报依赖缺失，
@@ -432,6 +461,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Files:     filesManager,
 		// 写端与读端是同一个 Manager：根登记表、句柄级边界、错误判决都只有一份。
 		FileWrites: filesManager,
+		Shares:     sharesEngine,
 	}
 	// 只在真的有时才赋给接口：把一个 nil 的 *terminal.Manager 塞进接口会得到
 	// 一个非 nil 的接口值，登记表于是多出一个调用就 panic 的能力。

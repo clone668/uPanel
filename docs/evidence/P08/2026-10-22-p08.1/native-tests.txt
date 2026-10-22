@@ -1,0 +1,130 @@
+== P08.1 单元测试（宿主，go test ./... -count=1）
+运行时间：2026-10-22T12:17:26Z UTC
+Go：go version go1.27.3 windows/amd64
+
+ok  	upanel/cmd/upanel-agent	1.287s
+ok  	upanel/cmd/upanel-web	2.015s
+ok  	upanel/cmd/upanelctl	1.417s
+ok  	upanel/internal/agent	22.453s
+ok  	upanel/internal/agentclient	1.529s
+ok  	upanel/internal/agentstore	4.343s
+ok  	upanel/internal/api	81.769s
+ok  	upanel/internal/audit	1.039s
+ok  	upanel/internal/auth	30.419s
+ok  	upanel/internal/config	0.623s
+ok  	upanel/internal/files	0.495s
+ok  	upanel/internal/httpx	0.520s
+ok  	upanel/internal/journal	0.842s
+ok  	upanel/internal/logging	0.558s
+ok  	upanel/internal/logs	0.805s
+ok  	upanel/internal/monitoring	0.443s
+ok  	upanel/internal/operations	3.993s
+ok  	upanel/internal/platform	0.401s
+ok  	upanel/internal/processes	0.617s
+ok  	upanel/internal/services	1.116s
+ok  	upanel/internal/shares	0.833s
+ok  	upanel/internal/storage	10.934s
+ok  	upanel/internal/store	1.209s
+ok  	upanel/internal/syscmd	10.798s
+ok  	upanel/internal/terminal	0.868s
+?   	upanel/internal/testsupport	[no test files]
+ok  	upanel/internal/version	0.319s
+ok  	upanel/internal/webui	0.502s
+?   	upanel/migrations	[no test files]
+?   	upanel/migrations/agentdb	[no test files]
+
+== internal/shares 明细（P08.1 新增/修改的用例）
+--- PASS: TestDiffACLFlagsNamedGroups (0.00s)
+=== RUN   TestMaskCovers
+--- PASS: TestMaskCovers (0.00s)
+=== RUN   TestValidateName
+--- PASS: TestValidateName (0.00s)
+=== RUN   TestValidateRelativePath
+--- PASS: TestValidateRelativePath (0.00s)
+=== RUN   TestValidateDefinitionRejectsEmptyUsers
+--- PASS: TestValidateDefinitionRejectsEmptyUsers (0.00s)
+=== RUN   TestValidateDefinitionRejectsProtocolAndAccess
+--- PASS: TestValidateDefinitionRejectsProtocolAndAccess (0.00s)
+=== RUN   TestRenderBlockMatchesSambaShape
+--- PASS: TestRenderBlockMatchesSambaShape (0.00s)
+=== RUN   TestRenderBlockReadOnlyHasNoWriteList
+--- PASS: TestRenderBlockReadOnlyHasNoWriteList (0.00s)
+=== RUN   TestRenderBlockIsDeterministic
+--- PASS: TestRenderBlockIsDeterministic (0.00s)
+=== RUN   TestConfigHashChangesWithContent
+--- PASS: TestConfigHashChangesWithContent (0.00s)
+=== RUN   TestShareDirStaysInsideVolume
+--- PASS: TestShareDirStaysInsideVolume (0.00s)
+=== RUN   TestValidIDs
+--- PASS: TestValidIDs (0.00s)
+=== RUN   TestNewIDsUnique
+--- PASS: TestNewIDsUnique (0.00s)
+=== RUN   TestAssessShareApplyAllowedWithFullFacts
+--- PASS: TestAssessShareApplyAllowedWithFullFacts (0.00s)
+=== RUN   TestAssessShareApplyBlocksWhenVolumeUnmounted
+--- PASS: TestAssessShareApplyBlocksWhenVolumeUnmounted (0.00s)
+=== RUN   TestAssessShareApplyBlocksMissingAccountAndEmptyUsers
+--- PASS: TestAssessShareApplyBlocksMissingAccountAndEmptyUsers (0.00s)
+=== RUN   TestAssessShareApplyBlocksPathEscapeAndSymlink
+--- PASS: TestAssessShareApplyBlocksPathEscapeAndSymlink (0.00s)
+=== RUN   TestAssessShareApplyBlocksNameTakenAndStaleVersion
+--- PASS: TestAssessShareApplyBlocksNameTakenAndStaleVersion (0.00s)
+=== RUN   TestAssessAccountApplyMarksNotManaged
+--- PASS: TestAssessAccountApplyMarksNotManaged (0.00s)
+=== RUN   TestAssessAccountDeleteRefusedWhileReferenced
+--- PASS: TestAssessAccountDeleteRefusedWhileReferenced (0.00s)
+=== RUN   TestAssessAccountDeleteBindsTarget
+--- PASS: TestAssessAccountDeleteBindsTarget (0.00s)
+=== RUN   TestSystemUserExistsRetriesOnceOnTimeout
+--- PASS: TestSystemUserExistsRetriesOnceOnTimeout (0.00s)
+=== RUN   TestSystemUserExistsDoesNotRetryOnRealFailure
+=== RUN   TestSystemUserExistsDoesNotRetryOnRealFailure/退出码_1
+=== RUN   TestSystemUserExistsDoesNotRetryOnRealFailure/退出码_2
+--- PASS: TestSystemUserExistsDoesNotRetryOnRealFailure (0.00s)
+=== RUN   TestAssessAccountApplyInvalidNameSkipsSystemLookup
+--- PASS: TestAssessAccountApplyInvalidNameSkipsSystemLookup (0.00s)
+=== RUN   TestAssessAccountApplyLookupTimeoutIsWarning
+--- PASS: TestAssessAccountApplyLookupTimeoutIsWarning (0.00s)
+=== RUN   TestAccountApplyExecutionLooksUpWithItsOwnBudget
+--- PASS: TestAccountApplyExecutionLooksUpWithItsOwnBudget (0.00s)
+=== RUN   TestCreateAccountRefusesExistingUserOnExit9
+--- PASS: TestCreateAccountRefusesExistingUserOnExit9 (0.00s)
+=== RUN   TestAssessAccountApplyRejectsRename
+--- PASS: TestAssessAccountApplyRejectsRename (0.00s)
+=== RUN   TestExecuteShareApplyPreparesButDoesNotServe
+--- PASS: TestExecuteShareApplyPreparesButDoesNotServe (0.00s)
+=== RUN   TestExecuteShareApplyFailsOnACLReadbackMismatch
+--- PASS: TestExecuteShareApplyFailsOnACLReadbackMismatch (0.00s)
+=== RUN   TestExecuteShareApplyFailsOnMaskTooNarrow
+--- PASS: TestExecuteShareApplyFailsOnMaskTooNarrow (0.00s)
+=== RUN   TestExecuteRejectsStaleIdentityAndVersion
+--- PASS: TestExecuteRejectsStaleIdentityAndVersion (0.00s)
+=== RUN   TestExecuteShareDisableRevokesACL
+--- PASS: TestExecuteShareDisableRevokesACL (0.00s)
+=== RUN   TestExecuteShareDeleteKeepsDirectory
+--- PASS: TestExecuteShareDeleteKeepsDirectory (0.00s)
+=== RUN   TestAssessCreateBindsStateVersion
+--- PASS: TestAssessCreateBindsStateVersion (0.00s)
+=== RUN   TestAssessAbsentVersionChangesOnceObjectExists
+--- PASS: TestAssessAbsentVersionChangesOnceObjectExists (0.00s)
+=== RUN   TestExecuteAccountCreateVerifiesAndPersists
+--- PASS: TestExecuteAccountCreateVerifiesAndPersists (0.00s)
+=== RUN   TestExecuteAccountCreateRollsBackWhenPasswordMissing
+--- PASS: TestExecuteAccountCreateRollsBackWhenPasswordMissing (0.00s)
+=== RUN   TestExecuteAccountDeleteRemovesBothSides
+--- PASS: TestExecuteAccountDeleteRemovesBothSides (0.00s)
+ok  	upanel/internal/shares	0.582s
+
+== internal/shares 全量用例（PASS/FAIL/SKIP 计数）
+PASS 用例数: 54
+FAIL 用例数: 0
+SKIP 用例数: 0
+
+== P08.1 本轮新增/修改的用例（Q220/Q221/Q223）
+--- PASS: TestAssessAccountDeleteBindsTarget (0.00s)
+--- PASS: TestSystemUserExistsRetriesOnceOnTimeout (0.00s)
+--- PASS: TestSystemUserExistsDoesNotRetryOnRealFailure (0.00s)
+--- PASS: TestAssessAccountApplyInvalidNameSkipsSystemLookup (0.00s)
+--- PASS: TestAssessAccountApplyLookupTimeoutIsWarning (0.00s)
+--- PASS: TestAccountApplyExecutionLooksUpWithItsOwnBudget (0.00s)
+--- PASS: TestCreateAccountRefusesExistingUserOnExit9 (0.00s)

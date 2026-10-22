@@ -39,6 +39,9 @@ type ProductionDeps struct {
 	// （或不是 Linux）时，capabilities 就如实报告“没有终端”，
 	// 而不是留下一个点了报错的入口。
 	Terminal TerminalManager
+	// Shares 是共享与受管理账号的模块（P08.1）。为 nil 时不登记 share.* 动作与查询：
+	// 没有 Samba 判决与执行端的接线不该报告一个点开就报错的入口。
+	Shares sharesSource
 }
 
 // newSystemSummaryQuery 登记 system.summary：无参数，返回采集器最近一次快照。

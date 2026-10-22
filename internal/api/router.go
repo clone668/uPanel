@@ -91,6 +91,34 @@ func (s *Server) routes() *gin.Engine {
 		st.GET("/volumes/:id", s.handleGetVolume)
 		st.GET("/volumes/:id/blockers", s.requireAdmin(), s.handleVolumeBlockers)
 
+		// 共享（P08.1）：整组 admin（CONTRACTS.md 第 7 节）。共享定义里有路径、
+		// 账号名单与来源网段，合起来就是“谁能访问哪个目录”的完整答案，viewer
+		// 只在首页看数量与健康摘要。
+		//
+		// 三条路由都**只读**，而且都把能力报告一起返回：definition.enabled 是意图，
+		// config_applied 是事实，两者分开显示才不会被读成“已生效”。
+		// 应用/禁用/删除共享、建删账号都是系统写操作，走 POST /operations/preflight
+		// + POST /jobs（action=share.* 与 share.account.*），这里不开“直接执行”的入口。
+		sh := v1.Group("/shares")
+		sh.Use(s.requireSession(), s.requireAdmin())
+		sh.GET("", s.handleListShares)
+		sh.GET("/:id", s.handleGetShare)
+
+		// 受管理账号（P08.1）：admin。返回的每一条都没有密码、没有哈希，
+		// 也没有 secret_ref——DTO 上就没有那些字段。
+		sa := v1.Group("/share-accounts")
+		sa.Use(s.requireSession(), s.requireAdmin())
+		sa.GET("", s.handleListShareAccounts)
+
+		// 秘密通道（P08.1）：admin + CSRF + 5 分钟内再认证，只进不出。
+		//
+		// 这是唯一一条“写”但不进任务链路的接口：它不改主机状态，只是把明文交给代理
+		// 加密保存并拿回引用。真正的系统变更（设 Samba 密码、写共享配置）仍是预检 +
+		// 任务，参数里只有 secret_ref。协议里没有读取明文的路由，这里也没有。
+		sec := v1.Group("/secrets", s.auditRoute(audit.ActionSecretCreate))
+		sec.Use(s.requireSession(), s.requireAdmin())
+		sec.POST("", s.requireCSRF(), s.requireReauth(), s.handleCreateSecret)
+
 		// 服务与进程（P05.1）：权限 V（CONTRACTS.md 第 10 节）。只读路由在这里，
 		// 启停/重启/开机启动是写操作，走统一的预检 → 任务链路（POST /operations/preflight
 		// + POST /jobs，action=service.control），不在这里开一个“直接执行”的入口。

@@ -30,6 +30,7 @@ import (
 	"upanel/internal/platform"
 	"upanel/internal/processes"
 	"upanel/internal/services"
+	"upanel/internal/shares"
 	"upanel/internal/storage"
 	"upanel/internal/store"
 	"upanel/internal/terminal"
@@ -280,6 +281,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// 终端调用端（P06.3）。演示模式下同样保持 nil：那时 /terminal/* 明确回 503，
 	// 而不是给一个空会话列表——空列表会被当成“现在没有终端在跑”。
 	var terminalReader api.TerminalReader
+	// 共享只读视图与秘密通道（P08.1）。演示模式下同样保持 nil：那时 /shares*、
+	// /share-accounts 与 /secrets 明确回 503，而不是给一份空共享列表——
+	// 空列表会被读成“这台机器上没有共享”。
+	var sharesReader api.SharesReader
 	if mode == platform.ModeProduction {
 		client, err := agentclient.New(cfg.Agent.SocketPath)
 		if err != nil {
@@ -330,6 +335,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		terminalReader = terminalRemote
+		sharesFetcher, err := shares.NewFetcher(client, logger)
+		if err != nil {
+			logger.Error("初始化共享读取端失败，拒绝启动", "error", err)
+			return 1
+		}
+		sharesReader = sharesFetcher
 		logger.Info("代理客户端已配置", "socket", cfg.Agent.SocketPath)
 	} else {
 		// 明确说明原因：演示模式下预检与系统信息会返回 503，而不是给一份假的数据。
@@ -364,6 +375,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Logs:            logsReader,
 		Files:           filesReader,
 		Terminal:        terminalReader,
+		Shares:          sharesReader,
 		AllowedOrigins:  allowedOrigins,
 	})
 	if err != nil {

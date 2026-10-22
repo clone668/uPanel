@@ -152,7 +152,24 @@ P07.1 先把“该拒的都拒”证完（判决层、可靠身份、整盘锁�
 
 ## 1. 当前任务
 
-- 当前阶段：**P07（分区、格式化、挂载）passed（P07.1—P07.5 全部）**，下一个子任务 **P08.1**。P06.1—P06.3 全部 passed。P07.1（存储动作预检、可靠设备身份、整盘锁、系统设备/挂载/swap/holders/依赖保护；**只验证拒绝逻辑**）**passed**：四个存储动作只登记解码 + `Plan`、`Execute` 为 nil，提交必 501 `NOT_IMPLEMENTED`，本轮**没有任何一次写盘**；判决层对“读不出来”的一律阻塞（签名、`/proc/*/fd`、分区表、设备类型），保护沿 `partition_of`/`depends_on` 递归向上，能力投影由判决层算出并带 30 秒 TTL。VM 上 **PASS=189 / FAIL=0 / NOT RUN=1**（唯一 NOT RUN 是 `PREFLIGHT_STALE`：没有执行器时提交在复核之前就 501）；真机抓出并修掉 **2 个**产品缺陷（Q171 交换区魔数在 4096−10 而不是盘尾；Q172 `holders`/`slaves` 是符号链接目录、没有 `list` 文件，导致 dm/md 占用在真机上永远看不见）。宿主 `check.sh` PASS 13/0/0、前端 445 用例、openapi valid。
+- 当前阶段：**P08（SMB 与卷依赖）进行中**：**P08.1 passed**，下一个子任务 **P08.2**。
+  **P08.1（Samba 能力检测、受管理账号、密码秘密通道、POSIX ACL、共享定义与配置版本）passed**：
+  `internal/shares`（12 个文件，~4100 行）+ `internal/agent/shareaction.go|sharequery.go` +
+  `internal/agentstore/sharestore.go` + `migrations/agentdb/0005_shares.sql` 把五个动作
+  `share.apply|disable|delete`、`share.account.apply|delete` 接上“预检 → 任务 → 幂等 → 资源锁 → 读回 → 审计”。
+  五项承诺逐条落地：能力探针只认**固定候选绝对路径**（不落 PATH、不可配置，缺哪个报哪个，`config_write`
+  恒 `unsupported`）；密码明文**只经过一次、只走 `smbpasswd` 的标准输入**（日志、数据库、argv、environ、
+  响应体五处都扫过）；账号三条独立读回（`getent passwd` / `passwd -S` / `pdbedit -Lv`）；ACL 用
+  `setfacl --set` **整份替换**并用 `getfacl -cp` 读回核验 `mask` 覆盖；`share.apply` 的 outcome 是
+  `accepted` 而**不是** `verified`，`observed.samba_config="not_written"`、`served=false`、恒带
+  `SHARE_CONFIG_NOT_APPLIED` 告警——这一阶段真的没写 `smb.conf`（首末 `sha256` 逐字节相同）。
+  VM 上 **PASS=382 / FAIL=0 / NOT RUN=4**（五遍才走到这里）；真机抓出并修掉 **4 个**产品缺陷
+  （Q214 新建预检没有版本、Q220 删除预检没有指纹、Q221 观察超时变 500、Q223 预检与执行共用同一个观察预算），
+  钉死 **1 个** P05.1 的性能问题（Q222，隔离实验：代理停/跑/停 → 23—29 ms / 平均 106 ms 最长 2894 ms /
+  23—29 ms），记下 5 处验收脚本缺陷。宿主 `check.sh` PASS 13/0/0、`go test ./...` 全部 ok、
+  `internal/shares` 54 个用例 0 FAIL。证据 `docs/evidence/P08/2026-10-22-p08.1/`。
+  **下一个子任务 P08.2**：最小 include 接入、`testparm`、配置原子更新、重载、共享连接状态。
+- 上一阶段：**P07（分区、格式化、挂载）passed（P07.1—P07.5 全部）**。P06.1—P06.3 全部 passed。P07.1（存储动作预检、可靠设备身份、整盘锁、系统设备/挂载/swap/holders/依赖保护；**只验证拒绝逻辑**）**passed**：四个存储动作只登记解码 + `Plan`、`Execute` 为 nil，提交必 501 `NOT_IMPLEMENTED`，本轮**没有任何一次写盘**；判决层对“读不出来”的一律阻塞（签名、`/proc/*/fd`、分区表、设备类型），保护沿 `partition_of`/`depends_on` 递归向上，能力投影由判决层算出并带 30 秒 TTL。VM 上 **PASS=189 / FAIL=0 / NOT RUN=1**（唯一 NOT RUN 是 `PREFLIGHT_STALE`：没有执行器时提交在复核之前就 501）；真机抓出并修掉 **2 个**产品缺陷（Q171 交换区魔数在 4096−10 而不是盘尾；Q172 `holders`/`slaves` 是符号链接目录、没有 `list` 文件，导致 dm/md 占用在真机上永远看不见）。宿主 `check.sh` PASS 13/0/0、前端 445 用例、openapi valid。
   **P07.2（真的写盘：初始化 GPT、建分区、删未使用分区）passed**：`internal/storage/write.go`（943 行）
   只用代码里的**固定模板**，模板经 `syscmd` 新开的**有上限的 stdin 通道**（64 KiB，不得来自 HTTP 参数）
   交给 `sfdisk`——命令行里只有已校验的数字（换算成 512 字节扇区、必须 2048 的整数倍）与已校验的名字
@@ -377,7 +394,7 @@ P07.1 先把“该拒的都拒”证完（判决层、可靠身份、整盘锁�
 | P05 | 服务、进程、日志 | **passed** | P05.1 **passed**：服务列表/详情/保护名单 + 预检→任务→读回的执行链路（`internal/services`、`internal/api/services.go`、`internal/agent/service*`、前端列表与详情页）；VM 上 **PASS=140 / FAIL=0 / NOT RUN=3**、载荷校验 **22369/0**，前端真实载荷回放 22 例、全量 252 例，宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P05/2026-10-21-p05.1/`。P05.2 **passed**：进程列表与信号（`internal/processes` 纯 `/proc` 采集、`pid`+`start_time_ticks` 身份、5 秒 2000 条快照、10 状态 7 类保护闭集、命令摘要脱敏；`process.signal` 生产动作走同一条预检→任务→锁→读回链路，TERM 与 KILL 两次独立操作、KILL 再认证 + 一次性短语、受保护进程零能力、执行前现场重读 `/proc` 核对身份与保护）；VM 上 **PASS=128 / FAIL=0 / NOT RUN=0**、载荷校验 **9250/0（1 SKIP）**，PID 重用由 `ns_last_pid` 真机造出并验证旧预检被拒、新进程安然无恙；前端真实载荷回放 31 例、全量 295 例，宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P05/2026-10-21-p05.2/`。P05.3 **passed**：日志（`internal/journal` 真实 journalctl 结构化查询与跟随流、`internal/logs` Web 侧契约校验、`logs.query` 代理查询 + `/internal/v1/streams` 单次许可的 NDJSON 流、`GET /api/v1/logs` 与 `GET /api/v1/logs/stream` 两条 admin 接口，前端查询页/条目行/实时流）；VM 上 **PASS=132 / FAIL=0 / NOT RUN=1**、载荷校验 **6466/0/0**，9 个真实缺陷被真机抓出并修掉（游标与 `--since` 冲突、`--kernel`、未转义 `;` 被静默丢弃、参数错误 500→503、`limit=0`、流不 flush 头、错误消息三层前缀），**结束订阅不残留 journalctl 子进程**与空闲超时收流都在真机上验过；前端真实载荷回放 24 例、全量 347 例，宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P05/2026-10-21-p05.3/`。**P05 到此全部 passed** |
 | P06 | 文件和受限终端 | **passed** | P06.1 **passed**：受管理文件根 + 句柄级路径约束 + 列表/文本/下载（`internal/files` 双角色一套 DTO、`openat2` 单次解析 + 同句柄 `fstat`、根身份每次核对、配置拒绝 `/`；`files.roots\|list\|text` 三个查询 + `files.download` 单次许可流；`GET /api/v1/files/{roots,list,text,download}` 四条 admin 接口；前端文件页/条目行四态与“不跟随、不读取”说明）。VM 上 **PASS=115 / FAIL=0 / NOT RUN=0**、载荷校验 **6379/0**，前端真实载荷回放 27 例、全量 406 例，宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P06/2026-10-21-p06.1/`。P06.2 **passed**：流式暂存上传与受控写入（`internal/files/staging.go` 声明即预留/收满即归还、根内 `.upanel/staging`、TTL 24 h；`write.go` 编辑备份 10 份 + 500 MiB；`StatTree` 树统计与 `TREE_TOO_LARGE`/`TREE_UNSUPPORTED`；七个写动作 `file.mkdir\|write_text\|copy\|move\|delete\|chmod\|chown` + `commit_upload` 全部走预检→任务→幂等→资源锁→`renameat2` 原子换位→同句柄 `fstat` 读回→审计；上传三件套与四条 `/api/v1/files/uploads*` 接口，字节经代理单次许可通道、不进 job 表；前端上传/新建/重命名/复制/删除/编辑/改权限改所有者与确认短语弹窗）。VM 上 **PASS=228 / FAIL=0 / NOT RUN=0**、VM 内核原生 **909/0**、宿主 `check.sh` PASS 13/0/0、前端 428 例、openapi valid；真机抓出并修掉 4 类 6 个缺陷（Q155—Q158）；未验证项 8 条逐条写在 result.md §5；证据 `docs/evidence/P06/2026-10-21-p06.2/`。P06.3 **passed**：受限 Web 终端（`internal/terminal` 会话表 + 限额收紧 + Linux PTY 降权启动与身份读回 + 显式挂断；`internal/agent/terminalaction.go\|terminalstream.go` 动作 `terminal.create`、查询 `terminal.sessions`、WS 流；`internal/api/terminal*.go` 四条接口 + 一次性许可 + WS 中继；前端 `TerminalView.vue` 六态与“不是 root shell”边界提示）。浏览器→Web→代理两跳 WS，四道门（Origin/子协议/许可/代理附加）全在 upgrade 前，帧闭集 + 64 KiB 载荷 + 256 KiB/s 与 200 帧/s 上限 + 关闭码 1000/4001/4002，两状态 + 单连接 409 + 宽限重连同壳，审计只记元数据。VM 上 **PASS=282 / FAIL=0 / NOT RUN=0**、VM 内核原生 **962/0**、宿主 `check.sh` PASS 13/0/0、前端 445 例、openapi valid；真机抓出并修掉 6 类缺陷（Q165—Q169，其中 Q169“关 master 不会挂断”会话结束后 shell 残留）；NOT RUN 5 条见 result.md §6；证据 `docs/evidence/P06/2026-10-21-p06.3/`。**阶段结论：P06 三个子任务全部完成** |
 | P07 | 分区、格式化、挂载 | **passed** | P07.1 **passed**：存储写动作的**拒绝逻辑**（预检判决、可靠设备身份、整盘锁、系统设备/挂载/swap/holders/依赖保护）。四个动作 `storage.partition_table.initialize\|partition.create\|partition.delete\|filesystem.format` 只登记解码 + `Plan`，`Execute` 为 nil，提交必 501 `NOT_IMPLEMENTED`（Q170），因此**这一轮没有任何一次写盘**。判决层 `internal/storage/assess.go` 以“读不出来不等于可以写”为第一原则（签名读不到/`/proc/*/fd` 扫不动/分区表只有 sysfs/设备类型未知 → 一律阻塞），保护沿 `partition_of`/`depends_on` 递归向上，阻塞码是闭集；能力投影由判决层算出、30 秒 TTL；签名识别 ext/XFS/Btrfs/swap/LUKS/LVM2/md 固定魔数，占用按 `st_rdev` 比对。VM 上 **PASS=189 / FAIL=0 / NOT RUN=1**（`PREFLIGHT_STALE` 无法验证——提交在复核之前就 501）；真机抓出并修掉 **2 个**产品缺陷：交换区魔数在第一个页面的末 10 字节（4096−10）而不是盘尾、`holders/`/`slaves/` 是符号链接目录没有 `list` 属性（导致 dm/md 占用在真机上永远看不见），见 Q171/Q172。证据 `docs/evidence/P07/2026-10-21-p07.1/`。**P07.2 passed**：三个分区动作接上执行器并在 VM 的三块一次性空盘上**真的写盘**——固定模板（`label: gpt` / `--append --wipe-partitions never start=… size=… type=linux name="…"` / `--delete <dev> <n>`）、模板只经 `syscmd` 的有上限 stdin 通道、命令行里只有已校验的数字与名字；写前重算判决并比对身份指纹/状态版本，写后 `udevadm settle` + 等内核与 `/dev` 节点 + 读回盘上 GPT 头与条目表与期望形态逐条比对，两源都对上才 `verified`（退出码 0 不算）。契约新增 `partition_table.disk_guid`/`disk_entries`（CONTRACTS §6.3、openapi `StorageGPTEntry`、前端 DTO 与真机载荷回放）。VM 上 **PASS=177 / FAIL=0 / NOT RUN=1**，真机抓出并修掉 Q177（`disk_entries` 空数组与“没读到”撞车），记下 Q178—Q182；宿主 `check.sh` PASS 13/0/0、前端 450 用例。证据 `docs/evidence/P07/2026-10-22-p07.2/`。**P07.3 passed**：`storage.filesystem.format` 接上执行器（`internal/storage/format.go` 448 行 + `fsprobe.go`）——固定模板里只有已校验的文件系统名、设备路径与卷标（卷标另有第三道 `ErrUnsafeWrite` 闸），写完**直接读超级块**做两源核验（ext4 偏移 1024 的 `53 ef`/`s_uuid`/`s_volume_name`，XFS 偏移 0 的 `XFSB`/`sb_uuid`/`sb_fname`），退出码 0 不算验证。四条纪律落地：错短语 400 且**整份预检就此作废**；标签超限在预检之前就是 400（ext4 的 17 字节标签会 rc=0 并被静默截断，Q184）；mkfs 跑着时取消是 409 且任务不会被标成 canceled；代理被 SIGKILL 后操作落 `interrupted` + `OPERATION_INTERRUPTED` 且**不自动重跑**；执行前二次身份检查用两道门——版本比对（结构变了 → 409 `PREFLIGHT_STALE`）与设备直读（字节换了 → 409 `DEVICE_IDENTITY_CHANGED`）。VM 上 **PASS=204 / FAIL=0 / NOT RUN=1**（唯一 NOT RUN 是内核/盘上条目不一致的真实竞态，单测 `TestFormatRefusesPartitionThatMoved` 覆盖），真机抓出并修掉 **1 个**产品缺陷 Q190（对已经不存在的设备做预检回 500：拒绝路径没有目标可绑定，预检层却无条件要求绑定），记下 Q184—Q190；宿主 `check.sh` PASS 13/0/0、`go test ./... -count=1` 26 包 ok、storage 单测 PASS 328 / FAIL 0（P07.2 提交同口径 291，+37）。证据 `docs/evidence/P07/2026-10-22-p07.3/`。**P07.4 passed**：受管理卷——`internal/storage/fstab.go`（760 行）/`volume.go`/`volumeassess.go`（960）/`volumewrite.go`（878）/`volumeholders.go` 把“一块已有文件系统的分区”变成面板管理的卷，五个动作 `storage.volume.import\|mount\|unmount\|configure\|forget` 全部接上执行器（**都不要确认短语**：短语只留给“写下去就找不回来”的动作）。fstab 只做**最小修改**（块外逐字保留、选项顺序固定、`nofail` 恒在、`noauto` 随 automount、第六列 ext4=2/XFS=0），写路径“比哈希 → 渲染候选 → 临时文件 → fsync → `findmnt --verify` → 备份 → rename → fsync 目录”，候选不合格目标文件一个字节不动，渲染结果与原文相同则直接返回；**禁用 `mount -a`**。占用列表把 fd 的 `st_rdev` 与挂载点下文件的 `st_dev` 合流，“挂着但空闲”不算忙，读不到 `/proc` 一律 fail-closed。VM 上分两段（中间隔一次真重启）：第一段 **PASS=267 / FAIL=0 / NOT RUN=0**，第二段 **PASS=38 / FAIL=0 / NOT RUN=0**——开机 26 秒时 `srv-upanel-volumes-data.mount` 由 fstab 自己挂上（之后才启动面板）、UUID 一致、标记文件 sha 不变、`noauto` 的卷没有挂上。真机抓出并修掉 **1 个**产品缺陷 Q199（configure 预检漏绑定目标身份指纹 ⇒ 500），记下 Q191—Q203。证据 `docs/evidence/P07/2026-10-22-p07.4/`。**P07.5 passed**：磁盘页面完整交互 + 系统外部独立检查 + 存储恢复文档 + openapi 补齐 P07。前端五个新组件（`DeviceStorageActions`/`VolumeImportForm`/`VolumeCard`/`VolumeSection`/`StorageActionDialog`）+ `api/volumes.ts`、`utils/jobresult.ts` 把九种动作接上页面：判定只认载荷里的 `capabilities`（`available` 才可点、`blocked` 给服务端理由、`unsupported` 不出现、载荷无 `capabilities` 时一个动作都不画，Q205），`capacity` 只在真挂着时存在（没挂写「没有容量读数」而不是 `0 B`），每次动作走 `/operations/preflight` → `/jobs`（带幂等键），预检 120 秒过期要重新预检、要短语的必须原样敲、要再认证的提示重新输密码。`api/openapi.yaml` 补 `GET /storage/volumes`、`/storage/volumes/{id}`、`/storage/volumes/{id}/blockers` + 五个 schema，版本 `0.0.0-p07.5`，`capacity`/`observed_state`/`dependencies` 的空值语义写进 description。`scripts/storage-external-check.sh`（381 行）是**不经过面板的独立证人**（只读 `/etc/fstab`、`findmnt --mountpoint`、`/proc/self/mountinfo`、systemd 单元、备份权限，退出码 0=一致），真机上跑三遍真的 `/etc/fstab` + 五种坏副本；`docs/STORAGE_RECOVERY.md` 写清人怎么恢复（§2 第三步用 `--mountpoint`，Q204）。夹具从真机抓回 `web/src/fixtures/p07-5-vm/`（11 份载荷 + README），由 `realdata-p07-5.test.ts` 回放。VM 上 **PASS=205 / FAIL=0 / NOT RUN=3**（浏览器渲染 / 跨重启 / 九种动作逐一点击，逐条写原因与替代证据），真机抓出并修掉 **1 个**产品缺陷 Q208（把“未挂载所以读不到类型”当成“不合格”，于是纳入管理的候选在任何真机上都是空的——**夹具比现实干净，测试就变成了橡皮章**），记下 Q204/Q209 两个验收脚本缺陷与 Q205—Q207；宿主 `check.sh` PASS 13/0/0、web 35 文件 / 552 用例、openapi valid（7 warning）、`go test ./...` 26 包 ok（本轮没改 Go 代码，条目数与 P07.4 一致）。证据 `docs/evidence/P07/2026-10-22-p07.5/`。**阶段结论：P07 五个子任务全部完成** |
-| P08 | SMB 与卷依赖 | not_started | 需真实客户端 |
+| P08 | SMB 与卷依赖 | **进行中**（P08.1 passed）| P08.1 **passed**：Samba 能力检测、受管理账号、密码秘密通道、POSIX ACL、共享定义与配置版本。VM 上 **PASS=382 / FAIL=0 / NOT RUN=4**；`share.apply` 只到 `accepted`（不写 `smb.conf`、不重载，`sha256` 首末一致），密码明文只走 `smbpasswd` 的 stdin（五处扫描 0 命中），账号与 ACL 均用系统自己的命令读回核验。真机修掉 4 个产品缺陷（Q214/Q220/Q221/Q223），钉死 P05.1 采集器性能问题（Q222，未根治），记下 5 处验收脚本缺陷；证据 `docs/evidence/P08/2026-10-22-p08.1/`。**P08.2 起才写配置**；`P00-VM-D`（SMB 客户端 VM）仍未建立，从真实客户端连入的验收要等 P08.2+ |
 | P09 | 现有 Web 应用与 Docker | not_started | — |
 | P10 | 反向代理、HTTPS、0.1 发布 | not_started | — |
 | P11 | 软件更新与电源 | not_started | — |
@@ -3209,6 +3226,77 @@ Web 非 root）→ 配置与启动 → 页面依赖的载荷（动作判定闭�
 `busy` 的结论要跟着改；XFS 卷的完整生命周期；外部检查脚本是只读证人，不做修复（修复步骤在
 `docs/STORAGE_RECOVERY.md`）。
 
+### P08.1（2026-10-22）— Samba 能力检测、受管理账号、密码秘密通道、POSIX ACL、共享定义与配置版本
+
+**范围**：`docs/STAGES.md` §10 第 1 条全句。这一阶段的承诺很具体：面板要说真话（Samba 到底在不在）、
+密码只经过一次且只走标准输入、账号与目录权限要真的做出来并能用**不经过面板的命令**读回来，
+而共享**此刻还不对外提供访问**——最后这条是本阶段最容易撒谎的地方，所以它由“反过来证明没做”来验。
+
+| 文件 | 改动 |
+|---|---|
+| `internal/shares/types.go`（356 行） | DTO、动作名、阻塞/告警码闭集（本轮新增 `ACCOUNT_LOOKUP_TIMEOUT`）、`Assessment`/`Store` 接口 |
+| `internal/shares/capability.go`（271） | 能力探针：`smbd`/`smbpasswd`/`pdbedit`/`setfacl`/`getfacl` 逐个走**固定候选绝对路径**（不落 PATH、不可配置），30 秒 TTL；`config_write` 恒 `unsupported` |
+| `internal/shares/commands.go`（145） | 全部外部命令的 argv 模板；**密码只出现在一处**（`smbpasswd` 的 stdin）；预检 3 秒 / 执行 20 秒两套观察预算（Q223） |
+| `internal/shares/account.go`（249） | `getent passwd`、`passwd -S`、`pdbedit -Lv` 的解析与读回模型 |
+| `internal/shares/acl.go`（266） | `setfacl --set` 整份替换 + `getfacl -cp` 读回 + `mask` 覆盖判定 + `DiffACL` |
+| `internal/shares/definition.go`（314） | 确定性渲染（账号按名字排序、键序固定）、`config_hash = sha256(渲染结果)` |
+| `internal/shares/assess.go`（742） | 五个动作的判决：能力、卷与挂载、路径形状/越界/符号链接、名单非空、重名、被引用、系统里同名账号 |
+| `internal/shares/write.go`（825） | 五个动作的执行器：`useradd` → 三条读回 → `smbpasswd -s -a` → 读回 → 落库；ACL 写完读回；失败只回滚自己造的东西 |
+| `internal/shares/fetch.go`/`system.go`/`http.go` | 查询取数、系统读回接缝、带判决的错误（409 `DEPENDENCY_BLOCKED` / 400 `VALIDATION_ERROR`） |
+| `internal/agent/shareaction.go`（292）、`sharequery.go`（123） | 五个动作与三条查询登记进代理的固定登记表 |
+| `internal/agentstore/sharestore.go`（384） | `shares` 与 `managed_accounts` 两张表的读写，版本自增 |
+| `internal/api/shares.go`（270） | Web 侧账号/共享的读视图与 `POST /api/v1/secrets` |
+| `migrations/agentdb/0005_shares.sql`（82） | 两张表；**没有密码列、没有哈希列** |
+| `api/openapi.yaml`（改） | 账号、共享、秘密、能力四组接口与 schema；版本 `0.0.0-p08.1`、`stage: P08.1` |
+| `docs/CONTRACTS.md` §7.1（改） | 判据补齐：allowed 预检必须绑定目标身份指纹与状态版本、告警码 `ACCOUNT_LOOKUP_TIMEOUT`、观察预算按阶段分 |
+| `docs/DECISIONS.md`（Q214—Q223） | 能力探针不猜路径、秘密用途枚举只在代理、ACL 整份替换、渲染确定性、**Q214/Q220/Q221/Q223 四个产品缺陷**、Q222 采集器性能问题 |
+| `tests/integration/p08-1-share-acceptance.sh`（1442 行，POSIX sh，root 跑） | 本轮真机验收，11 节 |
+
+**真机验收覆盖（第五遍 382 条断言，全部通过，`FAIL=0 NOT RUN=4`）**：环境与安全守卫（一次性盘与根不同源、
+代理 root、Web uid 999）33 条；配置与启动 18 条；能力检测逐项与系统事实对照（版本号 vs `smbd --version`、
+路径真的存在、`config_write=unsupported` 且一个字节没写）23 条；夹具（产品自己的 GPT → 分区 → ext4 →
+导入 → 挂载）38 条；秘密通道 24 条；受管理账号 79 条；共享定义与 ACL 51 条；页面载荷 19 条；
+拒绝路径 44 条；禁用/改回/删除 50 条；收尾不变量 3 条。**第 10 节的 3 条是整轮的不变量**：
+代理停掉后 socket 已清理、`smb.conf` 首末 `sha256` 逐字节相同、日志与两个数据库（含 WAL）零明文命中。
+
+**本轮被真机抓出的产品缺陷（改产品，不改断言）**
+
+1. **新建受管理账号的预检永远 500**（Q214）：`assessAccountApply` 只在更新分支设 `StateVersion`，
+   新建分支没有任何东西可绑，`allowed=true` 却没有版本，被 `validatePlanResult` 判成实现错误。
+   修法是给新建绑定一个**可复现**的版本：`absent:<名字>`——它说的正是“此刻还没有它”，
+   执行端重新判决会得到同一串。新建共享同洞，一起修。
+2. **删除账号的预检永远 500**（Q220）：`assessAccountDelete` 设了 `TargetID`/`DisplayName`/`StateVersion`，
+   漏了 `IdentityFingerprint`。这是 Q214/Q190 的**第三次同类**：校验器要的东西，每条 allowed 的路径
+   都得给全。本轮因此把四个判决函数的 allowed 路径逐条查了一遍并写进 result.md §4.1。
+3. **一次观察超时把整条操作变成 500**（Q221）：`getent` 超时直接冒成错误；名字已经不合法时还去问系统。
+   修法两件：超时重试一次（预检总预算仍 3 秒，拆成两次 1.5 秒；退出码类失败不重试）、
+   名字不合法时**短路跳过这次观察**（不会改变判决的等待，一秒都不该付）。
+4. **两处观察用了同一个预算**（Q223，第四遍仍然倒在这里）：预检在 Web 等着的 10 秒链路上，执行前复核
+   在任务自己的预算里，两处的等待能力根本不同却写了同一个数。修法：预算按阶段分开（预检 3 秒、
+   执行 20 秒），并且**预检查不出结果不再当错误**——降级成 `ACCOUNT_LOOKUP_TIMEOUT` 告警，
+   因为“不接管既有账号”这条不变量由执行阶段兜底：长预算复核一次，`useradd` 对已存在的名字以退出码 9
+   失败，`createAccount` 据此回 409 `DEPENDENCY_BLOCKED` 并点名 `ACCOUNT_NOT_MANAGED`，
+   **绝不继续设置 Samba 密码**。三条回归测试把这三件事各钉一条。
+
+**已知问题（未根治，明确记录）**：Q222 —— P05.1 的服务采集器在 2 vCPU 机器上每 10 秒有一轮约
+6 秒墙钟 / 3 秒 CPU 的 `systemctl show` 突发（每个单元一次 D-Bus 往返，~21 ms，`systemctl` 侧没有便宜的
+批量打法），把 `getent` 挤到过 4.7/7.3/7.5 秒。本轮做了隔离实验（代理停/跑/停，23—29 ms → 平均 106 ms、
+最长 2894 ms → 23—29 ms）把因果钉死，但**没有改采集器**：降频要动 CONTRACTS 第 690 行的 10 秒契约，
+换采集方式要重做 P05.1 的 DTO 与验收。P08.1 侧已经不会因为它出错（见 Q223），它也不再挡 P08.2。
+
+**验收脚本自身的缺陷（记录，不掩盖）**：五条，都会让脚本骗自己——预检/提交失败后不清
+`job.json`（于是后面每条 job 断言读到的都是上一轮的作业）、请求体拼接丢闭合引号、`$( )` 吃掉渲染结果
+结尾换行后算 sha256、空串里“找不到 D”被当成通过、拿机器上现成的保留名 `upanel` 当“非面板建的账号”夹具。
+每条的改法见 result.md §5。
+
+**未验证（NOT RUN，逐条写原因）**：从另一台机器用 SMB 客户端连上来（P08.1 不写配置、共享不对外提供访问；
+`P00-VM-D` 尚未建立）、写配置/`testparm`/原子替换/重载/连接状态（P08.2/P08.3）、浏览器里的真实渲染
+（本脚本验载荷，DOM 由 SSR 回放与 smoke 覆盖）、能力 blocked 分支（本机装了 samba，blocked 由注入式单测覆盖）。
+
+证据：`docs/evidence/P08/2026-10-22-p08.1/`（`run.log` 与 `payloads/`、`logs/` 是真机原始产物，
+`check.txt` 是宿主 `check.sh`、`native-tests.txt` 是 `go test ./...` 与 `internal/shares` 的 54 个用例）。
+宿主 `sh scripts/check.sh` **PASS 13 / FAIL 0 / NOT RUN 0**；`go test ./... -count=1` 全部 ok。
+
 ## 6. 未决问题与范围变更
 
 未批准任何范围变更。DECISIONS.md 第 8 节记录 Q1—Q80；P03.3 新增六条：Q67（阶段与事件必须同事务，
@@ -3552,6 +3640,10 @@ Q103（`cmd/upanel-web` 的用例会读机器上的 `/etc/upanel/upanel.json`，
 | P07.5-UNIT | P07 | 已执行通过：`go test ./... -count=1` **26 包 ok**（本轮**没改 Go 代码**，storage 508 / agent 278 / api 211 与 P07.4 同口径，一致是预期的）、`go vet`/`gofmt` 干净、`GOOS=linux go build` exit 0 | docs/evidence/P07/2026-10-22-p07.5/native-tests.txt |
 | P07.5-CHECK | P07 | 已执行通过：宿主 `scripts/check.sh` **PASS 13 / FAIL 0 / NOT RUN 0**；`api/openapi.yaml` lint **valid，7 warning** | docs/evidence/P07/2026-10-22-p07.5/check.txt |
 | P07.5-RESULT | P07 | 已产出：逐文件改动、逐节断言数（27/9/10/39/28/18/9/29/13/22 + 收尾 1）、关键断言原文与读数（挂载容量 `2040373248` / 卸载后 `capacity: null`、外部检查 28 项全文、空托管块 `条目 0`）、**1 个产品缺陷（Q208）**、3 条验收脚本自身缺陷（Q204/Q209/CRLF）、3 条 NOT RUN 与替代证据、实际执行的检查表、已知限制、下一子任务 P08.1 | docs/evidence/P07/2026-10-22-p07.5/result.md |
+| P08.1-VM | P08 | **已执行并通过（24.04.5 一次性 VM，382 项断言，`FAIL=0`）** | docs/evidence/P08/2026-10-22-p08.1/{run.log,payloads/,logs/} |
+| P08.1-HOST | P08 | 已执行通过（`check.sh` PASS 13 / FAIL 0 / NOT RUN 0） | docs/evidence/P08/2026-10-22-p08.1/check.txt |
+| P08.1-UNIT | P08 | 已执行通过（`go test ./...` 全部 ok；`internal/shares` 54 用例 0 FAIL） | docs/evidence/P08/2026-10-22-p08.1/native-tests.txt |
+| P08.1-RESULT | P08 | 已执行（含 4 个产品缺陷、5 处脚本缺陷、Q222 隔离实验） | docs/evidence/P08/2026-10-22-p08.1/{result.md,env.txt} |
 | P00-VM-C（LVM 根） | P00/P04 | **NOT RUN**（未创建） | 需在 P04 前补齐 |
 | P00-VM-D（SMB 客户端） | P00/P08 | **NOT RUN**（未创建） | 需在 P08 前补齐 |
 
@@ -3861,3 +3953,17 @@ SHARE/APP/PROXY/PKG/BACKUP/TIMER/ALERT/NET/NFS/DEPLOY/RELEASE。**矩阵编号�
 - 并发只有“两个提交打同一块盘”这一种形态（验收 §10），且只跑过有限次数；更多并发、排队上限、
   多块盘同时写都没有压过。
 - 分区写动作的真机证据仍然只在 **24.04.5**（TCG 客机）上；22.04.5 没有任何 P07 证据。
+- **P08.1 的真机证据只在 24.04.5（TCG 客机）上**，22.04.5 没有任何 P08 证据。
+- **共享此刻不对外提供任何访问**：P08.1 的能力报告 `config_write` 恒为 `unsupported`，不建
+  `/etc/samba/upanel.d`、不往 `smb.conf` 加 include、不跑 `testparm`、不重载 `smbd`。这不是“还没测”，
+  是这一阶段的产品事实；写配置属 P08.2，连接状态属 P08.3。
+- `AllowedCIDRs` 在本轮只是一段渲染出来的文本（`hosts allow`），**没有任何 smbd 读过它**；
+  它在真实连接上的效果要等 P08.2 把配置真的接上以后才谈得上验证。
+- **观察命令在 2 vCPU 机器上会被 P05.1 的服务采集器挤到秒级**（Q222）：每 10 秒一轮 `systemctl show`
+  在这台 VM 上是 6 秒墙钟 / 3 秒 CPU。P08.1 用“预检 3 秒 / 执行 20 秒”两套预算 + 超时降级成告警
+  （Q223）让它不再变成 500 或误杀，但**采集器本身没有改**（降频要动 CONTRACTS 第 690 行的 10 秒契约，
+  换采集方式要重做 P05.1 的 DTO 与验收）。任何“在预检里调用外部命令”的新动作都要按同一条规则设计。
+- 并发两人同时应用同一共享只验到“锁名里有共享名与卷”，没有造真的并发；两个账号并发创建同理。
+- 秘密的**轮换与过期**没有验：本轮只验了“临时秘密 → 持久秘密”的一次转移，没有验过期删除的时间行为
+  （那一条由 P02.4 的单测与 `agentstore` 用例覆盖，不是真机）。
+- 共享定义的 `protocol` 目前只有 `smb`；`nfs` 在判决层就是 `PROTOCOL_UNSUPPORTED`，没有实现。
