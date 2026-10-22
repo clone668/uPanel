@@ -98,6 +98,7 @@ func (w *writer) volumeEnv() VolumeEnv {
 		Fstab:       fst,
 		Superblocks: w.superblocks,
 		Busy:        w.env.Busy,
+		Dependents:  w.env.Dependents,
 		Root:        w.volumeRoot,
 		Lstat:       w.lstat,
 		ReadDir:     w.readDir,

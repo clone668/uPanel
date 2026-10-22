@@ -79,7 +79,7 @@ func (f *fakeBusy) ScanMount(_ context.Context, mountPoint string) ([]BusyProces
 func testEnv() (Env, *fakeSignatures, *fakeBusy) {
 	sigs := &fakeSignatures{}
 	busy := &fakeBusy{}
-	return Env{Signatures: sigs, Busy: busy}, sigs, busy
+	return Env{Signatures: sigs, Busy: busy, Dependents: noDependents}, sigs, busy
 }
 
 // blankDisk 造一块没有分区表、没有分区的整盘（初始化 GPT 的合法目标）。

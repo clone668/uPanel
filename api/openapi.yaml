@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: uPanel API
-  version: 0.0.0-p08.2
+  version: 0.0.0-p08.3
   summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
   description: |
     uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。
@@ -23,7 +23,7 @@ info:
     name: Proprietary
     identifier: LicenseRef-Proprietary
 x-upanel-contract-status:
-  stage: P08.2
+  stage: P08.3
   implemented_paths:
     - get /api/v1/health/live
     - head /api/v1/health/live
@@ -4549,10 +4549,42 @@ components:
         last_operation_id:
           type: string
           description: 最近一次改动这条记录的操作标识；不出现表示没有。
+        runtime_revoked:
+          $ref: '#/components/schemas/ShareRuntimeRevocation'
         created_at:
           $ref: '#/components/schemas/Rfc3339Utc'
         updated_at:
           $ref: '#/components/schemas/Rfc3339Utc'
+
+    ShareRuntimeRevocation:
+      type: object
+      additionalProperties: false
+      description: |
+        这条共享在**运行时**因为卷离线被撤销的现场（P08.3）。不出现表示没有被撤销过。
+
+        撤销是单向的：卷回来之后不会自动写回配置。写配置是需要人点头的动作，自动写回
+        等于把一次外部故障变成一次静默变更。页面据此提示“重新应用一次”。
+
+        已经处于撤销状态的共享保留**第一次**撤销的时间与原因：第一次才是故障发生的时刻，
+        后面的对账只是在重复确认它还没回来。
+      required: [at, volume_id, volume_name, volume_state, reason]
+      properties:
+        at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        volume_id:
+          type: string
+          pattern: '^vol_[0-9a-f]{32}$'
+        volume_name:
+          type: string
+          description: 卷的显示名；卷记录读不到时是 volume_id，不是编造的名字。
+        volume_state:
+          type: string
+          description: |
+            撤销时的观测值，原样记录而不是归成一句“离线”：`unmounted`、`missing`、
+            `mismatch`、`error`、`unknown`，或 `not_managed`（卷已不在受管理卷里）。
+        reason:
+          type: string
+          description: 给人读的一句话，说明为什么撤。
 
     ShareListData:
       type: object
@@ -4898,6 +4930,8 @@ components:
             $ref: '#/components/schemas/StorageVolumeDependency'
         shares:
           type: array
+          description: |
+            绑在这个卷上的共享（P08.3 起真的会被填上）。按名字排序；`kind` 固定 `share`。
           items:
             $ref: '#/components/schemas/StorageVolumeDependency'
         backups:
@@ -4908,7 +4942,9 @@ components:
           type: boolean
           description: |
             现在卸载会被谁挡住。只有在真的有人开着文件、设备被 dm/md 消费、是活动交换区，
-            或面板侧有应用/共享/备份依赖时为真。查不到占用时也是 true（宁可拒绝）。
+            或面板侧有应用/共享/备份依赖时为真。查不到占用时也是 true（宁可拒绝）；
+            面板侧依赖**问不出来**时同样是 true——页面上的 busy 直接对应“卸载按钮能不能点”，
+            把它显示成空闲会把人引到一次注定被拒的操作上。
         checked_at:
           $ref: '#/components/schemas/Rfc3339Utc'
 

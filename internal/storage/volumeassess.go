@@ -62,6 +62,17 @@ const (
 	NoticeVolumeConfigInvalid = "VOLUME_CONFIG_INVALID"
 	// NoticeVolumeHasDependencies 表示还有面板对象依赖这个卷。
 	NoticeVolumeHasDependencies = "VOLUME_HAS_DEPENDENCIES"
+	// NoticeVolumeInUseByShare 表示有共享绑在这个卷上，卸载/格式化会被它挡住。
+	//
+	// 与 VOLUME_HAS_DEPENDENCIES 分开记：那条说的是“退出管理会丢绑定”（任何依赖都算），
+	// 这条说的是“这块卷正在对外提供文件访问”。两者的处理方式不同——卸载是“先停共享再卸”，
+	// 退出管理是“先删共享再退”——所以不能在报告里合成一条。
+	NoticeVolumeInUseByShare = "VOLUME_IN_USE_BY_SHARE"
+	// NoticeVolumeDependenciesUnknown 表示问不出面板侧依赖。
+	//
+	// 这是**阻塞**项，与“没有依赖”不是一回事：读不到登记表就证明不了没人依赖它，
+	// 而卸载/格式化是不可逆方向的破坏（格式化尤其）。宁可拒绝，也不能靠“大概没人用”动手。
+	NoticeVolumeDependenciesUnknown = "VOLUME_DEPENDENCIES_UNKNOWN"
 
 	// NoticeMountPointNotEmpty 是告警：挂载点目录里已经有文件，挂载后会被遮住。
 	NoticeMountPointNotEmpty = "MOUNT_POINT_NOT_EMPTY"
@@ -97,6 +108,10 @@ type VolumeEnv struct {
 	Superblocks SuperblockProber
 	// Busy 列出打开设备的进程（卸载前的繁忙检查）。
 	Busy BusyScanner
+	// Dependents 列出面板块依赖这个卷的共享（卸载/退出管理的依赖检查）。
+	//
+	// 卷这一侧按 VolumeID 问；为 nil 或返回错误时阻塞，理由同 Env.Dependents。
+	Dependents DependencyProber
 	// Root 是受管理挂载点的父目录；空时用 DefaultVolumeRoot。
 	Root string
 	// Lstat / ReadDir 是文件系统接缝（挂载点安全与“目录里有没有东西”）。
@@ -440,6 +455,14 @@ func assessVolumeUnmount(ctx context.Context, a *Assessment, topo Topology, inde
 			a.appendBlocker(b)
 		}
 	}
+	// 依赖检查在“没挂载”和“挂在别处”之外都要做：挂着的卷正是要卸的那个，
+	// 而挂在别处时共享同样绑在这个卷上，撤销共享的事归用户决定，不由卸载顺手带走。
+	//
+	// 口径只算**启用中**的共享：禁用中的共享此刻没有客户端，数据还在盘上，
+	// 卸载不会伤到它，也没必要逼用户先删配置。
+	for _, b := range dependencyBlockers(ctx, t.rec, PurposeUnmount, env) {
+		a.appendBlocker(b)
+	}
 	if t.obs.DeviceID != "" {
 		a.IdentityFingerprint = t.obs.IdentityFingerprint
 	}
@@ -514,10 +537,9 @@ func assessVolumeForget(ctx context.Context, a *Assessment, topo Topology, index
 	case VolumeStateMounted:
 		a.block(NoticeVolumeMounted, "卷 %s 还挂着，先卸载再退出管理（面板不会替你卸一个还有人在用的卷）", t.rec.Slug)
 	}
-	// 面板侧依赖：P07.4 时共享/应用/备份模块都还没实现，这里恒为空。
-	// 接口先留着，是为了让“以后忘掉这个检查”变成不可能。
-	if deps := volumeDependencies(ctx, t.rec, env); len(deps) > 0 {
-		a.block(NoticeVolumeHasDependencies, "卷 %s 还被这些对象依赖：%s", t.rec.Slug, describeDependencies(deps))
+	// 面板侧依赖：退出管理会删掉绑定关系，因此**任何**共享都算（禁用的也算）。
+	for _, b := range dependencyBlockers(ctx, t.rec, PurposeForget, env) {
+		a.appendBlocker(b)
 	}
 	if t.obs.DeviceID != "" {
 		a.IdentityFingerprint = t.obs.IdentityFingerprint
@@ -527,12 +549,47 @@ func assessVolumeForget(ctx context.Context, a *Assessment, topo Topology, index
 		env.Fstab.fstabPath(), t.rec.FilesystemUUID))
 }
 
-// volumeDependencies 返回面板侧依赖（共享/应用/备份）。
+// volumeDependencies 问面板侧依赖（共享/应用/备份）。
 //
-// P07.4 时这些模块尚未实现，因此恒为空。空数组在这里的意思是“没有依赖”，
-// 不是“没查”——等 P08 引入共享时，这个函数就要接上真实的查询。
-func volumeDependencies(ctx context.Context, rec VolumeRecord, env VolumeEnv) []VolumeDependency {
-	return nil
+// 三种结果必须分得开，混淆任何一种都会做出错误判决：
+//
+//   - 返回空数组、err 为 nil：问过了，确实没有依赖。
+//   - 返回错误：**没问成**。调用方必须阻塞——证明不了没人用，就不能卸、不能格式化。
+//   - env.Dependents 为 nil：装配层没接线，同样按“没问成”处理。
+//
+// P07.4 时共享模块还不存在，这里的空数组意思是“没有依赖”；从 P08.3 起它接的是
+// 真实的共享查询，空数组才真的意味着没人依赖。
+func volumeDependencies(ctx context.Context, rec VolumeRecord, purpose DependencyPurpose, env VolumeEnv) ([]VolumeDependency, error) {
+	if env.Dependents == nil {
+		return nil, errors.New("本机没有配置面板依赖查询")
+	}
+	return env.Dependents(ctx, DependencyQuery{VolumeID: rec.ID, Purpose: purpose})
+}
+
+// dependencyBlockers 把依赖查询结果翻成阻塞项。
+//
+// 查询失败不能静默放过：它和“查到了依赖”一样会挡住动作，只是原因不同。
+func dependencyBlockers(ctx context.Context, rec VolumeRecord, purpose DependencyPurpose, env VolumeEnv) []Blocker {
+	deps, err := volumeDependencies(ctx, rec, purpose, env)
+	if err != nil {
+		return []Blocker{{
+			Code: NoticeVolumeDependenciesUnknown,
+			Message: fmt.Sprintf("无法确认卷 %s 上还有没有面板对象依赖它（%v）。不能靠“大概没人用”动手",
+				rec.Slug, err),
+		}}
+	}
+	if len(deps) == 0 {
+		return nil
+	}
+	// 同一个查询在卸载和退出管理里的语义不同，报告里的编码也就不同：
+	// 卸载说的是“还有共享在对外服务”，退出管理说的是“会丢绑定关系”。
+	code := NoticeVolumeHasDependencies
+	msg := "卷 %s 还被这些对象依赖：%s"
+	if purpose == PurposeUnmount {
+		code = NoticeVolumeInUseByShare
+		msg = "卷 %s 上还有启用中的共享在对外提供访问（%s）。先停用或删除这些共享再卸载"
+	}
+	return []Blocker{{Code: code, Message: fmt.Sprintf(msg, rec.Slug, describeDependencies(deps))}}
 }
 
 // describeDependencies 把依赖列表压成一句话。

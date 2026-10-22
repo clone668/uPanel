@@ -139,6 +139,104 @@ func TestSaveShareRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSaveShareRoundTripsRuntimeRevocation(t *testing.T) {
+	ss, rs := newTestShares(t)
+	seedVolume(t, rs, testVolID, "data", testFsUUID)
+
+	rec := testShare(testShareID, "team-data", testVolID)
+	if err := ss.SaveShare(context.Background(), rec); err != nil {
+		t.Fatalf("保存共享失败: %v", err)
+	}
+	got, _, err := ss.GetShare(context.Background(), testShareID)
+	if err != nil {
+		t.Fatalf("读取共享失败: %v", err)
+	}
+	// 没被撤销过就是 nil。空结构体与 nil 在这里不是一回事：
+	// 页面靠“有没有这条记录”决定要不要解释“为什么它不见了”。
+	if got.RuntimeRevoked != nil {
+		t.Fatalf("没撤销过却读出了撤销现场: %+v", got.RuntimeRevoked)
+	}
+
+	// 撤销现场必须逐字段往返。这几行是 P08.3 在真机上暴露的缺陷的回归：
+	// 结构体里有这个字段，而表里没有这个列，于是 API 永远返回 null，
+	// 而且每轮对账都会把它当成“第一次撤销”重写一遍 updated_at。
+	at := time.Date(2026, 10, 22, 11, 42, 7, 0, time.UTC)
+	rec.RuntimeRevoked = &shares.RuntimeRevocation{
+		At:          at,
+		VolumeID:    testVolID,
+		VolumeName:  "data",
+		VolumeState: "unmounted",
+		Reason:      "卷已卸载，共享段已从托管配置撤销",
+	}
+	rec.Version = "2"
+	if err := ss.SaveShare(context.Background(), rec); err != nil {
+		t.Fatalf("保存带撤销现场的共享失败: %v", err)
+	}
+	got, _, err = ss.GetShare(context.Background(), testShareID)
+	if err != nil {
+		t.Fatalf("读取共享失败: %v", err)
+	}
+	rv := got.RuntimeRevoked
+	if rv == nil {
+		t.Fatal("撤销现场没落库：读回来是 nil（这正是真机上发现的那个缺陷）")
+	}
+	if !rv.At.Equal(at) {
+		t.Errorf("撤销时间没往返：%s，期望 %s", rv.At, at)
+	}
+	if rv.VolumeID != testVolID || rv.VolumeName != "data" {
+		t.Errorf("撤销现场指向的卷没往返: %+v", rv)
+	}
+	// 当时的观测值原样留着，不归一成一句“离线”。
+	if rv.VolumeState != "unmounted" {
+		t.Errorf("volume_state 是 %q，期望原样保留 unmounted", rv.VolumeState)
+	}
+	if rv.Reason != "卷已卸载，共享段已从托管配置撤销" {
+		t.Errorf("reason 没往返: %q", rv.Reason)
+	}
+
+	// 列表路径也要带上，否则页面在列表里看不到撤销标记。
+	all, err := ss.ListShares(context.Background())
+	if err != nil || len(all) != 1 {
+		t.Fatalf("列表里有 %d 条（err=%v）", len(all), err)
+	}
+	if all[0].RuntimeRevoked == nil || !all[0].RuntimeRevoked.At.Equal(at) {
+		t.Fatalf("列表没带出撤销现场: %+v", all[0].RuntimeRevoked)
+	}
+
+	// 重新应用成功的共享必须能把撤销现场清掉：upsert 写 nil 就是清。
+	rec.RuntimeRevoked = nil
+	rec.Version = "3"
+	if err := ss.SaveShare(context.Background(), rec); err != nil {
+		t.Fatalf("清撤销现场失败: %v", err)
+	}
+	got, _, err = ss.GetShare(context.Background(), testShareID)
+	if err != nil {
+		t.Fatalf("读取共享失败: %v", err)
+	}
+	if got.RuntimeRevoked != nil {
+		t.Fatalf("撤销现场没被清掉，仍读回 %+v", got.RuntimeRevoked)
+	}
+}
+
+func TestScanShareRejectsBadRuntimeRevocationJSON(t *testing.T) {
+	ss, rs := newTestShares(t)
+	seedVolume(t, rs, testVolID, "data", testFsUUID)
+	if err := ss.SaveShare(context.Background(), testShare(testShareID, "team-data", testVolID)); err != nil {
+		t.Fatalf("保存共享失败: %v", err)
+	}
+	// 模拟“这一行被本包之外的途径改过”：撤销现场写成了读不懂的东西。
+	// 读不懂就说读不懂，不能猜成空——猜空会让页面以为它从没被撤销过。
+	if _, err := ss.db.store().ExecContext(context.Background(),
+		`UPDATE shares SET runtime_revoked_json = '{not json' WHERE id = ?`, testShareID); err != nil {
+		t.Fatalf("改列失败: %v", err)
+	}
+	if _, _, err := ss.GetShare(context.Background(), testShareID); err == nil {
+		t.Fatal("撤销现场读不懂却读成功了")
+	} else if !strings.Contains(err.Error(), "撤销现场无法解析") {
+		t.Fatalf("报错没说清是撤销现场坏了：%v", err)
+	}
+}
+
 func TestSaveShareByNameAndUpdate(t *testing.T) {
 	ss, rs := newTestShares(t)
 	seedVolume(t, rs, testVolID, "data", testFsUUID)

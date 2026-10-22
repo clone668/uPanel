@@ -1,0 +1,5 @@
+  .                                   D        0  Thu Oct 22 15:20:07 2026
+  ..                                  D        0  Thu Oct 22 15:20:07 2026
+  probe.txt                           A       19  Thu Oct 22 15:20:07 2026
+
+		996780 blocks of size 1024. 927932 blocks available

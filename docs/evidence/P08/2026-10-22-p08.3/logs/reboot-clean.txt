@@ -1,0 +1,8 @@
+== P08.3 重启顺序验收：clean（收拾现场） ==
+PASS  代理启动
+PASS  Web 启动
+PASS  删掉共享
+PASS  卸载卷
+PASS  drop-in 已随最后一条共享一起收回
+
+PASS=5 FAIL=0

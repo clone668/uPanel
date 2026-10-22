@@ -434,7 +434,7 @@ func (e *Engine) assessShareApply(ctx context.Context, p ShareApplyParams) (Asse
 	// 或者同时改任何两份共享，都必须串行——托管配置文件是整份重写的，
 	// 并发写入会让后一个把前一个的段覆盖掉（它读到的“现状”里还没有前一个）。
 	// 用名字而不是 id：新建时还没有 id。
-	out.Locks = []string{"share:" + def.Name, "volume:" + def.VolumeID, configLockName}
+	out.Locks = []string{"share:" + def.Name, "volume:" + def.VolumeID, ConfigLockName}
 	sort.Strings(out.Locks)
 
 	out.Allowed = len(out.Blockers) == 0
@@ -517,7 +517,7 @@ func (e *Engine) assessShareRef(ctx context.Context, action string, p ShareRefPa
 				"但配置改动可能无法被 Samba 校验或重载",
 		})
 	}
-	out.Locks = []string{"share:" + rec.Definition.Name, "volume:" + rec.Definition.VolumeID, configLockName}
+	out.Locks = []string{"share:" + rec.Definition.Name, "volume:" + rec.Definition.VolumeID, ConfigLockName}
 	sort.Strings(out.Locks)
 
 	out.Allowed = len(out.Blockers) == 0

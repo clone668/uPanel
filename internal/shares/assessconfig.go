@@ -19,12 +19,12 @@ import (
 	"upanel/internal/syscmd"
 )
 
-// configLockName 是托管配置的全局资源锁。
+// ConfigLockName 是托管配置的全局资源锁。
 //
 // 托管配置文件是**整份重写**的：任何一次共享动作都会读一遍现状、再把全集写下去。
 // 两个人同时应用两份不同的共享时，后一个读到的“现状”里还没有前一个的段，写下去就把它
 // 抹掉了。所以除了 share:<名字> 与 volume:<id>，还要一把覆盖整个托管配置的锁。
-const configLockName = "samba:config"
+const ConfigLockName = "samba:config"
 
 // overrideProbeTimeout 是读一项全局设置有效值的预算。
 //

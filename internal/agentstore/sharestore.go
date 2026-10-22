@@ -37,9 +37,12 @@ var _ shares.Store = (*ShareStore)(nil)
 
 // sharesColumns 是两条查询共用的列序。列序在三个地方（SELECT、扫描、INSERT）必须一致，
 // 写成一个常量比写三遍靠眼力对齐可靠。
+//
+// 加字段时这四处（迁移、这个常量、scanShare、SaveShare）是同一件事的四个面：少一面不会
+// 编译失败，只会安静地少一个能力——`runtime_revoked_json` 就是这么漏过一轮的（Q240）。
 const sharesColumns = `id, name, protocol, volume_id, relative_path, enabled, read_only,
 	definition_json, config_hash, directory_prepared, config_applied, version,
-	last_operation_id, created_at, updated_at`
+	last_operation_id, created_at, updated_at, runtime_revoked_json`
 
 const accountsColumns = `id, name, type, managed, disabled, has_password, uid, gid,
 	shell, home, secret_ref, version, last_operation_id, created_at, updated_at`
@@ -106,12 +109,23 @@ func (s *ShareStore) SaveShare(ctx context.Context, rec shares.ShareRecord) erro
 	if err != nil {
 		return fmt.Errorf("agentstore: 序列化共享定义失败: %w", err)
 	}
+	// 撤销现场是可选字段：没有撤销过就写空串，而不是写一坨 "null"。
+	// 空串是“没有”，读回时据此得到 nil——两者必须一一对应，否则页面会把
+	// 一条从没被撤销过的共享显示成“撤销过，原因未知”。
+	revoked := ""
+	if rec.RuntimeRevoked != nil {
+		rv, err := json.Marshal(rec.RuntimeRevoked)
+		if err != nil {
+			return fmt.Errorf("agentstore: 序列化共享 %s 的撤销现场失败: %w", rec.ID, err)
+		}
+		revoked = string(rv)
+	}
 	_, err = s.db.store().ExecContext(ctx, `
 		INSERT INTO shares (
 			id, name, protocol, volume_id, relative_path, enabled, read_only,
 			definition_json, config_hash, directory_prepared, config_applied, version,
-			last_operation_id, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			last_operation_id, created_at, updated_at, runtime_revoked_json
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			name               = excluded.name,
 			protocol           = excluded.protocol,
@@ -125,11 +139,12 @@ func (s *ShareStore) SaveShare(ctx context.Context, rec shares.ShareRecord) erro
 			config_applied     = excluded.config_applied,
 			version            = excluded.version,
 			last_operation_id  = excluded.last_operation_id,
-			updated_at         = excluded.updated_at`,
+			updated_at         = excluded.updated_at,
+			runtime_revoked_json = excluded.runtime_revoked_json`,
 		rec.ID, rec.Definition.Name, rec.Definition.Protocol, rec.Definition.VolumeID,
 		rec.Definition.RelativePath, boolInt(rec.Definition.Enabled), boolInt(rec.Definition.ReadOnly),
 		string(def), rec.ConfigHash, boolInt(rec.DirectoryPrepared), boolInt(rec.ConfigApplied),
-		rec.Version, rec.LastOperationID, millis(rec.CreatedAt), millis(rec.UpdatedAt))
+		rec.Version, rec.LastOperationID, millis(rec.CreatedAt), millis(rec.UpdatedAt), revoked)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return fmt.Errorf("agentstore: 共享 %s（名字 %s）与已有记录冲突："+
@@ -258,10 +273,11 @@ func scanShare(r rowScanner) (shares.ShareRecord, error) {
 		defJSON                 string
 		prepared, configApplied int
 		createdAt, updatedAt    int64
+		revokedJSON             string
 	)
 	err := r.Scan(&rec.ID, &name, &protocol, &volumeID, &relativePath, &enabled, &readOnly,
 		&defJSON, &rec.ConfigHash, &prepared, &configApplied, &rec.Version,
-		&rec.LastOperationID, &createdAt, &updatedAt)
+		&rec.LastOperationID, &createdAt, &updatedAt, &revokedJSON)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return shares.ShareRecord{}, err
@@ -272,6 +288,16 @@ func scanShare(r rowScanner) (shares.ShareRecord, error) {
 	if err := json.Unmarshal([]byte(defJSON), &rec.Definition); err != nil {
 		return shares.ShareRecord{}, fmt.Errorf(
 			"agentstore: 共享 %s 的定义无法解析（%v）：%s", rec.ID, err, defJSON)
+	}
+	// 撤销现场同理：读不懂就说读不懂。这是页面用来解释“这条共享为什么不见了”的依据，
+	// 猜一个空记录会让它看起来像“没被撤销过”，于是用户找不到重新应用的理由。
+	if revokedJSON != "" {
+		var rv shares.RuntimeRevocation
+		if err := json.Unmarshal([]byte(revokedJSON), &rv); err != nil {
+			return shares.ShareRecord{}, fmt.Errorf(
+				"agentstore: 共享 %s 的撤销现场无法解析（%v）：%s", rec.ID, err, revokedJSON)
+		}
+		rec.RuntimeRevoked = &rv
 	}
 	// 标量列与 JSON 里的副本必须一致。它们由同一次写入产生，不一致说明这一行被
 	// 别的路径改过（或者写入中途失败过）——这时**不能**猜哪个是对的。

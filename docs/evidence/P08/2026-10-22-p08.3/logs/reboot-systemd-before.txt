@@ -1,0 +1,4 @@
+RequiresMountsFor: /srv/upanel/volumes/p08v3
+After: basic.target system.slice srv-upanel-volumes-p08v3.mount -.mount systemd-journald.socket sysinit.target network.target network-online.target nmbd.service winbind.service
+boot_id_before=8a3019d8-4bac-44ea-b251-9f8a4e3350a0
+uptime_before=754.82

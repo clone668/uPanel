@@ -1,0 +1,38 @@
+
+== 0. 准备临时状态目录（不碰 /var/lib/upanel-agent） ==
+探针目录: /var/tmp/upanel-mig-probe
+
+== 1. 用当前二进制建库（0001..0006 全部应用） ==
+schema_migrations:
+1|secrets
+2|preflight_plans
+3|operations
+4|managed_resources
+5|shares
+6|share_runtime_revoked
+shares 列数: 16
+runtime_revoked_json 在列里: 1
+
+== 2. 手工复原“升级前”的形状（DROP COLUMN + 删掉最高版本那条迁移记录） ==
+塞完数据之后 shares 行数: 1
+DROP COLUMN 之后 shares 行数: 1
+升级前的 shares 列数: 15
+升级前的最高迁移版本: 5
+升级前的列名（复原形状，不是历史原件）:
+id, name, protocol, volume_id, relative_path, enabled, read_only, definition_json, config_hash, directory_prepared, config_applied, version, last_operation_id, created_at, updated_at
+
+== 3. 再起一次代理：0006 应当就位 ==
+schema_migrations:
+1|secrets
+2|preflight_plans
+3|operations
+4|managed_resources
+5|shares
+6|share_runtime_revoked
+升级后 shares 列数: 16
+升级后 runtime_revoked_json 在列里: 1
+旧行在该列上的值: ''（期望 ''）
+升级后旧行还在: 1
+升级后的最高迁移版本: 6
+
+探针结果：通过（升级路径可用）

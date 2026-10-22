@@ -266,6 +266,7 @@ func newFormatHarness(t *testing.T) *formatHarness {
 	env := Env{
 		Signatures: DeviceSignatureProber{Dev: devDir, Timeout: time.Second},
 		Busy:       &fakeBusy{},
+		Dependents: noDependents,
 	}
 
 	w := newWriter(WriteOptions{

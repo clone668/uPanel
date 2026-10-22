@@ -1,0 +1,19 @@
+waited_until_uptime=108.17 smbd=active
+== P08.3 重启顺序验收：post（重启之后） ==
+      本次开机已运行 108.57s（boot_id=28f71f66-59f1-4dac-937d-ea269eb6187b）
+PASS  这是一次新的开机（运行时间 < 30 分钟）
+PASS  boot_id 与重启前不同（确实是新的一次开机）
+PASS  本次开机 drop-in 还在
+PASS  本次开机 systemd 仍然解析出 RequiresMountsFor
+PASS  After 里有挂载单元
+PASS  smbd 是 active
+PASS  挂载单元是 active
+PASS  独立证据：卷在本次开机里挂上了
+      挂载单元 ActiveEnterTimestampMonotonic = 32172243 (Thu 2026-10-22 15:39:13 UTC)
+      smbd      ActiveEnterTimestampMonotonic = 89382152 (Thu 2026-10-22 15:40:10 UTC)
+PASS  本次开机里挂载单元先进入 active，smbd 之后才起来（差 57209ms）
+PASS  重启之后客户端能列出共享里的文件
+PASS  smb.conf 与重启前逐字节相同
+      journal 与单元属性已存到 /var/tmp/upanel-accept-p08-3/logs/reboot-{journal,systemd-after}.txt
+
+PASS=11 FAIL=0

@@ -276,7 +276,7 @@ func (vw *volumeWriter) wire(t *testing.T) {
 		Umount:    "/usr/bin/umount",
 		Systemctl: "/usr/bin/systemctl",
 		Findmnt:   "/usr/bin/findmnt",
-		Env:       Env{Busy: &fakeBusy{}},
+		Env:       Env{Busy: &fakeBusy{}, Dependents: noDependents},
 		Now:       func() time.Time { return vw.now },
 	})
 }

@@ -1,0 +1,33 @@
+# 说明（不是脚本输出的一部分，见 result.md §4 Q244）
+# 这是修复 Q244 之前那一遍 `pre` 的输出，从当轮终端输出逐字重录：
+# 原文件 /tmp/p08-3-reboot-pre.log 被紧接着的修复后那一遍覆盖了（这是我在留证上的一个失误）。
+# 下面的每一个字都与当轮输出一致；为了可核对，失败的键与产品日志的对应关系写在 Q244 里
+# （Web 日志中那 60 秒的 `GET /api/v1/jobs/ERR:KeyError:'data'` 404 仍在 logs/web-reboot.log 里）。
+== P08.3 重启顺序验收：pre（布置现场） ==
+PASS  二进制存在 /var/tmp/upanel-bin/upanel-agent
+PASS  二进制存在 /var/tmp/upanel-bin/upanel-web
+PASS  夹具：smbd 在运行
+PASS  代理启动
+PASS  Web 启动
+PASS  管理员登录
+PASS  拿到 CSRF
+PASS  找到主验收脚本留下的卷登记
+FAIL  挂载卷任务终态: 期望 'succeeded'，实际 'timeout'
+FAIL  独立证据：卷挂着: 期望 'True'，实际 'False'
+PASS  找到受管理账号 smbp08b3
+FAIL  预检（reboot-apply）允许: allowed=False id=pf_47cbd07105d468bf75d5c0ff76039c44 VOLUME_NOT_MOUNTED
+FAIL  应用共享任务终态: 期望 'succeeded'，实际 'preflight'
+FAIL  共享已登记: 列表里没有 p08sh3
+FAIL  drop-in 存在: 期望 'True'，实际 'False'
+FAIL  systemd 解析出的 RequiresMountsFor: 期望 '/srv/upanel/volumes/p08v3'，实际 ''
+      fstab 里这一行：UUID=79e572c2-c5d7-40be-bbe1-6a13b6b4e82e /srv/upanel/volumes/p08v3 ext4 rw,nodev,nosuid,nofail,x-systemd.device-timeout=30,noauto 0 2
+PASS  fstab 条目带 noauto（开机不由 local-fs 拉起）
+PASS  fstab 条目带 nofail
+FAIL  重启之前客户端能列出共享里的文件: 期望包含 'probe.txt'，实际 'tree connect failed: NT_STATUS_BAD_NETWORK_NAME'
+
+      现场布置完成。现在重启这台虚拟机，然后跑 post：
+        sudo reboot
+        sudo sh /var/tmp/p08-3-reboot.sh post
+
+PASS=11 FAIL=8
+失败项： | 挂载卷任务终态 | 独立证据：卷挂着 | 预检（reboot-apply）允许 | 应用共享任务终态 | 共享已登记 | drop-in 存在 | systemd 解析出的 RequiresMountsFor | 重启之前客户端能列出共享里的文件

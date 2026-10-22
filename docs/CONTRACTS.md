@@ -726,6 +726,111 @@ smbstatus 缺失时列表为空但带一条 `CONNECTION_STATUS_UNAVAILABLE`，�
 `CONFIG_WRITE_FAILED`、`CONFIG_RELOAD_FAILED`、`CONFIG_READBACK_MISMATCH`、
 `CONNECTIONS_READ_FAILED`。
 
+### 7.3 P08.3 已实现范围：卷绑定、开机依赖与运行时脱盘
+
+P08.3 把“共享绑在一个卷上”这句话里隐含的三件事做完：**没挂就不写**、**开机先挂再起服务**、
+**运行中掉盘就撤**。它同时补上了存储侧的反向约束——有共享挂在卷上时，卸载与格式化会被
+明确挡住，而不是让人把正在对外服务的卷拔走。
+
+**暴露边界是“挂载”，不是“登记”。** 渲染托管配置时逐条重新问卷的现场状态，只有
+`observed_state=mounted` 的共享才写进配置；`unmounted`、`missing`、`mismatch`、`error`
+一律跳过；`unknown`（问不出来）**同样跳过**。理由是不对称的：少一份共享是可见、可重放、
+可修的；多一份指向系统盘空目录的共享是静默误导——客户端连上去看到的是“一个空文件夹”，
+而面板上一切正常。跳过的共享名进入 `observed.volume_offline`，并在 `notices` 里给出
+`SHARE_VOLUME_OFFLINE`（观测到没挂）或 `SHARE_VOLUME_STATE_UNKNOWN`（没观测成）。
+
+这条判断在**渲染层**而不只在判决层，因为托管文件是整份重写的：“应用 B”会顺带把 A 的段
+重写一遍，如果 A 的卷此刻没挂，重写就是一次回归。判决层也照旧拦“卷没挂时应用共享”
+（`VOLUME_NOT_MOUNTED`），但那拦不住“预检之后、执行之前掉线”。
+
+**`served` 的前提再加一条**：除了 §7.2 的四条（段在、include 在、合并 testparm 过、smbd
+active 且重载完成），执行结束时还会再问一次卷的挂载状态；卷不在挂载状态时 `served=false`、
+`outcome=accepted`。写下去的配置本身不回滚。
+
+**开机依赖（systemd drop-in）**。给 `smbd.service` 写一份面板独占的片段：
+
+- 路径 `/etc/systemd/system/smbd.service.d/upanel-shares.conf`，`0644`，目录 `0755`；
+- 托管配置 `/etc/samba/upanel.d/upanel.conf` 也是 `0644`，目录 `0755`；
+- 这两个权限**与进程 umask 无关**：生产的代理单元带 `UMask=0077`，靠 `OpenFile` 的 `perm`
+  只会落成 `0600`（Q243）。文件权限由代码里的常量决定，不由启动它的 shell 决定；
+- 内容是 `[Unit]` 段加若干行 `RequiresMountsFor=<挂载点> …`（去重、排序、每行最多 4 个）。
+  systemd 把它翻译成对相应 `.mount` 单元的 `Requires=` 与 `After=`：卷挂不上，smbd 不启动，
+  而不是启动了去服务一个空目录；
+- 写入与托管配置用同一套原语：先写 `*.upanel-new`，再 `rename`，然后 `fsync` 目录；
+- 内容与现有文件完全相同就**不写、不重载**；一组挂载点都没有时删掉文件并重载，让 systemd
+  忘掉旧要求；
+- 写文件之后必须 `systemctl daemon-reload`，否则 systemd 根本不看它。
+- **这个片段与托管配置同生同死**：运行时撤销摘掉某条共享的段时，它声明的挂载点也随之少一条；
+  最后一条被撤走时整份片段删掉（`startup_deps=removed`）并重载。留着没人用的挂载点等于让
+  一块坏掉的盘拖住 `smbd` 的启动。人重新应用共享时片段重新装回来（`written`）。
+- **开机拉起这个挂载的是它，不是 fstab**：面板写进 fstab 的条目带 `noauto`（导入卷
+  `automount=false`），`local-fs.target` 不会去挂它；真正把 `.mount` 单元拉起来的是
+  `RequiresMountsFor=` 生成的依赖。所以“重启后共享可用”= `smbd` 等挂载点 + 挂载点被带起来 +
+  `smbd` 启动时路径已经是卷。验收时 `smb.conf` 在重启前后必须逐字节相同：重启不是一次隐式配置变更。
+
+报告字段：`startup_deps` ∈ {`written`, `unchanged`, `removed`, `failed`, `skipped`}、
+`startup_paths`（这一次声明的挂载点）。开机依赖失败**不回滚**配置：配置本身是对的，缺的只是
+开机顺序这一层保护，用 `STARTUP_DEP_NOT_APPLIED` 告警说清楚。路径含空白/引号、非绝对路径或
+非规范形式时整份拒绝——`RequiresMountsFor=` 是按空白切分的列表，一个带空格的路径会静默变成
+两条，其中一条永远挂不上。
+
+**运行时脱盘（只撤不恢复）**。代理每 30 秒看一次启用中的共享（`DefaultShareWatchInterval`），
+发现某条共享绑定的卷不在挂载状态，就把它的段从托管配置里摘掉（同样的整份重写 + 重载流水线），
+并在登记表上记一笔 `runtime_revoked`：
+
+```json
+"runtime_revoked": {
+  "at": "2026-10-22T13:41:09Z",
+  "volume_id": "vol_…",
+  "volume_name": "数据卷",
+  "volume_state": "unmounted",
+  "reason": "卷 数据卷 当前不在挂载状态（observed_state=unmounted）"
+}
+```
+
+- **只撤不恢复**：卷回来时不自动写回配置。写配置是需要人点头的动作，自动写回等于把一次
+  外部故障变成一次静默变更。页面据此提示“重新应用一次”。
+- **幂等**：卷一直离线时，第二轮发现“配置里已经没有这几段、记录上也记过了”，于是不写文件、
+  不重载、不动 `updated_at`，并保留**第一次**撤销的时间与原因。
+- 撤销循环自己拿 `samba:config` 锁，拿不到就跳过这一轮（那时正有人在应用共享，而那次应用
+  本来就会按同一口径渲染一遍全量配置）。
+- 卷已经不在受管理卷里（登记表层面的丢失）同样撤销，`volume_state` 写 `not_managed`。
+
+**存储侧的反向约束**。共享是受管理卷的依赖，因此（闭集码见 §6.5）：
+
+| 动作 | 口径 | 阻塞码 |
+|---|---|---|
+| `storage.volume.unmount` | 只算**启用中**的共享 | `VOLUME_IN_USE_BY_SHARE` |
+| `storage.filesystem.format` | **任何**共享都算（含禁用中） | `VOLUME_IN_USE_BY_SHARE` |
+| `storage.volume.forget` | 任何共享都算 | `VOLUME_HAS_DEPENDENCIES` |
+| 任何一项问不出来 | 一律阻塞 | `VOLUME_DEPENDENCIES_UNKNOWN` |
+
+口径不同是刻意的：卸载只是把它停下来，配置与数据都还在，一条禁用的共享不构成卸载的理由；
+格式化之后共享指向的内容就没了，禁用与否一样。退出管理会删掉绑定关系，所以按最严的算。
+`VOLUME_DEPENDENCIES_UNKNOWN` 与“没有依赖”必须分开：读不到登记表就证明不了没人依赖它，
+而这两个动作一个不可逆、一个会让下次开机没人把它挂回来。
+
+`GET /storage/volumes/:id/blockers` 的 `shares[]` 现在会真的被填上（`{"kind":"share",
+"id":…, "name":…}`），并计入 `busy`；依赖查询失败时 `busy=true`——页面上的 busy 直接对应
+“卸载按钮能不能点”，把它显示成空闲会把人引到一次注定被拒的操作上。
+
+**P08.3 追加的闭集码**（与 §7.1、§7.2 的表同一个闭集）：
+
+| 码 | 类别 | 含义 |
+|---|---|---|
+| `SHARE_VOLUME_OFFLINE` | 告警 | 共享绑定的卷此刻没挂：这一次不渲染它的段 |
+| `SHARE_VOLUME_STATE_UNKNOWN` | 告警 | 问不出卷挂没挂：按没挂处理，同样不渲染 |
+| `STARTUP_DEP_NOT_APPLIED` | 告警 | 开机依赖没写成或没生效（配置本身仍然是对的） |
+| `SHARE_REVOKED_VOLUME_OFFLINE` | 告警 | 这些共享的段在运行时因为卷离线被撤销，需要重新应用 |
+| `VOLUME_IN_USE_BY_SHARE` | 阻塞 | 卷上还有共享：先停共享（卸载）或先删共享（格式化） |
+| `VOLUME_HAS_DEPENDENCIES` | 阻塞 | 卷上还有共享：退出管理会丢掉绑定关系 |
+| `VOLUME_DEPENDENCIES_UNKNOWN` | 阻塞 | 问不出面板侧依赖：证明不了没人用它 |
+
+**验证要求**：不能只用 `testparm` 通过当作共享可用（§16）。本阶段的验收必须在独立 Ubuntu
+虚拟机里用真实协议客户端验证：卷未挂载时客户端**看不到**那条共享；运行时 `umount` 之后一个
+监视周期内共享消失且可再访问性为否；`systemctl show smbd.service` 里能看到
+`RequiresMountsFor=`；有共享时卸载/格式化的预检被上面三条码之一挡下。
+
 ## 8. 应用、容器与部署契约
 
 

@@ -116,6 +116,26 @@ const (
 	// NoticeHostsAllowLoopback 是告警：allowed_cidrs 里没有 127.0.0.0/8，但 Samba 对
 	// 本机（127.0.0.1）永远放行，这份名单管不住本机连进来的访问。
 	NoticeHostsAllowLoopback = "SHARE_HOSTS_ALLOW_LOOPBACK"
+	// NoticeVolumeOffline 是告警：这条共享绑定的卷此刻没挂着，因此它**这一次不会**
+	// 被渲染进托管配置。
+	//
+	// 为什么是跳过而不是照写：卷没挂时挂载点只是系统盘上的一个空目录，把段留在
+	// 配置里等于把根分区的一块空目录共享出去（PLAN.md 第 10 节）。跳过是唯一安全的
+	// 方向——客户端看到“共享不存在”，而不是看到一个空目录以为数据没了。
+	NoticeVolumeOffline = "SHARE_VOLUME_OFFLINE"
+	// NoticeVolumeStateUnknown 是告警：问不出卷挂没挂。
+	//
+	// 与 NoticeVolumeOffline 的处理一致（同样跳过），因为“不知道挂着没有”不能当作
+	// “挂着”。区别只在说法：这条说的是观测失败，那条说的是观测到的结果。
+	NoticeVolumeStateUnknown = "SHARE_VOLUME_STATE_UNKNOWN"
+	// NoticeStartupDepFailed 是告警：systemd 开机依赖没写成功或没生效。
+	//
+	// 配置本身照样是对的，缺的只是“开机时 smbd 等挂载点就位再启动”这一层保护。
+	// 说成阻塞会让人以为共享不能用；说成通过会让人以为重启顺序已经被保证——两者都不对。
+	NoticeStartupDepFailed = "STARTUP_DEP_NOT_APPLIED"
+	// NoticeShareRevokedOffline 是告警：这条共享在运行时因为卷离线被撤销了段。
+	// 它不会自动恢复：卷回来之后需要重新应用一次（写配置是要人点头的动作）。
+	NoticeShareRevokedOffline = "SHARE_REVOKED_VOLUME_OFFLINE"
 	// NoticeShareNoUsers 表示 smb_users 为空。空名单会退化成 guest，必须硬拒。
 	NoticeShareNoUsers = "SHARE_NO_USERS"
 	// NoticeAccountMissing 表示定义引用了一个不存在的账号。
@@ -319,10 +339,32 @@ type ShareRecord struct {
 	// （禁用即撤销 ACL）。
 	DirectoryPrepared bool `json:"directory_prepared"`
 	// ConfigApplied 由 P08.2 起才会变真。P08.1 里它恒为 false，且没有代码路径能把它置真。
-	ConfigApplied   bool      `json:"config_applied"`
-	LastOperationID string    `json:"last_operation_id,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ConfigApplied bool `json:"config_applied"`
+	// RuntimeRevoked 是“运行时因为卷离线被撤销”的记录（P08.3）。
+	//
+	// 它只由代理的卷监视循环写：发现某条共享的卷掉线，就把它的段从托管配置里摘掉
+	// 并把这里记上。摘掉之后**不会自动恢复**——卷回来时要把共享重新应用一次，
+	// 因为“写配置”是需要人点头的动作，自动写回等于把一次外部故障变成一次静默变更。
+	// 为空表示这条共享没有被运行时撤销过。
+	RuntimeRevoked  *RuntimeRevocation `json:"runtime_revoked,omitempty"`
+	LastOperationID string             `json:"last_operation_id,omitempty"`
+	CreatedAt       time.Time          `json:"created_at"`
+	UpdatedAt       time.Time          `json:"updated_at"`
+}
+
+// RuntimeRevocation 是一次运行时撤销的现场。
+type RuntimeRevocation struct {
+	At time.Time `json:"at"`
+	// VolumeID / VolumeName 是被判定离线的卷。
+	VolumeID   string `json:"volume_id"`
+	VolumeName string `json:"volume_name"`
+	// VolumeState 是当时的观测值（unmounted / unknown / missing…）。
+	//
+	// 原样记录而不是归成一句“离线”：以后要回答“为什么那次被撤了”时，
+	// “当时它是 unmounted”与“当时读不出来”是两条完全不同的线索。
+	VolumeState string `json:"volume_state"`
+	// Reason 给人读的一句话。
+	Reason string `json:"reason"`
 }
 
 // AccountRecord 是登记表里的一条受管理账号。
@@ -461,6 +503,12 @@ type ManagedShare struct {
 	Name string `json:"name"`
 	// Dir 是共享目录的绝对路径。
 	Dir string `json:"dir"`
+	// MountPath 是这条共享所在卷的挂载点。
+	//
+	// 它不参与渲染（配置里写的是 Dir），但启动依赖要用它：`RequiresMountsFor=`
+	// 收的是“必须就位才能启动”的路径，卷的挂载点才是那个东西——写共享子目录也行，
+	// 但挂载点更直接，而且它是面板自己按 slug 生成的，不可能带空格。
+	MountPath string `json:"mount_path"`
 	// ValidUsers 是授权名单（已解析成系统用户名，按名字排序）。
 	ValidUsers []string `json:"valid_users"`
 	// Block 是渲染出来的配置段（首行是 [Name]）。
@@ -502,6 +550,17 @@ type ManagedConfigReport struct {
 	Overrides []ConfigOverride `json:"overrides"`
 	// Backups 是这次产生的备份文件路径（没有写就没有）。
 	Backups []string `json:"backups"`
+	// VolumeOffline 是这次**被跳过**的共享名（它们绑定的卷此刻没挂着）。
+	//
+	// 跳过是 P08.3 的暴露面保护：托管文件是整份重写的，所以“应用 B 的共享”
+	// 这件事本身会把 A 的段重新写一遍。如果 A 的卷此刻没挂，重新写就等于把
+	// 系统盘上的一个空目录又共享出去一次——那不是幂等，那是回归。
+	VolumeOffline []string `json:"volume_offline_shares"`
+	// StartupDeps 是开机依赖的写入结果：written / unchanged / removed / failed /
+	// skipped_no_service。
+	StartupDeps string `json:"startup_deps"`
+	// StartupPaths 是写进 smbd 单元的那些“必须先就位”的路径。
+	StartupPaths []string `json:"startup_paths"`
 	// Notes 是给人看的补充说明。
 	Notes []Blocker `json:"notes"`
 }

@@ -382,6 +382,35 @@ type VolumeDependency struct {
 	Name string `json:"name"`
 }
 
+// 依赖查询的用途。同一个“谁依赖它”的问题，在不同动作里的口径不同：
+//
+//   - PurposeUnmount：卸载是可逆的，只有**正在提供服务**的共享需要拦。一个禁用的共享
+//     留在卷上不构成卸载的理由——它此刻没有任何客户端，数据也还在盘上。
+//   - PurposeFormat：格式化会把内容抹掉，**任何**指向这块卷的共享都要拦，禁用的也一样。
+//   - PurposeForget：退出管理会丢掉绑定关系，同样按最严的口径处理。
+//   - PurposeView：只读展示（占用列表），不做取舍，把全部依赖列出来。
+type DependencyPurpose string
+
+const (
+	PurposeUnmount DependencyPurpose = "unmount"
+	PurposeFormat  DependencyPurpose = "format"
+	PurposeForget  DependencyPurpose = "forget"
+	PurposeView    DependencyPurpose = "view"
+)
+
+// DependencyQuery 是问“谁依赖这块卷/这台设备”。
+//
+// 卷动作按 VolumeID 问，设备动作（格式化/删分区）按 DeviceID 问：共享登记的是卷，
+// 而格式化面对的是分区，中间那层“这个卷挂在哪台设备上”由装配层解析。
+type DependencyQuery struct {
+	// VolumeID 是受管理卷的标识（卷动作填它）。
+	VolumeID string
+	// DeviceID 是设备标识（设备动作填它）。
+	DeviceID string
+	// Purpose 决定“禁用中的共享算不算”。
+	Purpose DependencyPurpose
+}
+
 // VolumeBlockers 是 GET /storage/volumes/:id/blockers 的内容：为什么现在卸载不了。
 //
 // 页面要能指着它说“是这两个进程在用”，而不是一句“设备忙”。

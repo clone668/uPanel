@@ -177,11 +177,11 @@ func (e *Engine) executeShareApply(ctx context.Context, p ShareApplyParams, req 
 	// **当前应有的全集**整份渲染出来写下去。顺序也是刻意的：目录与 ACL 在前
 	// （目录还不存在时把共享暴露出去没有意义），配置在后；配置写不成功时目录与 ACL
 	// 保持已准备状态，登记表不动——下一步重试会从同一个地方继续。
-	wantShares, err := e.desiredShares(ctx, def, p.ShareID)
+	wantShares, offline, err := e.desiredShares(ctx, def, p.ShareID)
 	if err != nil {
 		return WriteReport{}, err
 	}
-	cfg, err := e.applyManagedConfig(ctx, wantShares, req.Progress)
+	cfg, err := e.applyManagedConfig(ctx, wantShares, offline, req.Progress)
 	if err != nil {
 		return WriteReport{}, err
 	}
@@ -228,6 +228,16 @@ func (e *Engine) executeShareApply(ctx context.Context, p ShareApplyParams, req 
 	}
 
 	outcome := OutcomeAccepted
+	// served 再加一条：这条共享自己的卷此刻确实挂着。
+	//
+	// 判决层已经拦过“卷没挂”，这里是执行完之后再确认一次——预检到执行之间隔着一个任务
+	// 队列，卷完全可能在这段时间里被卸掉或掉线。不重新确认就报 verified，等于用几秒前
+	// 的观测担保现在的事实。
+	if gate, found, err := e.mountGateFor(ctx, def.VolumeID); err != nil {
+		return WriteReport{}, err
+	} else if !found || !gate.Mounted {
+		cfg.Report.Served = false
+	}
 	if cfg.Report.Served {
 		outcome = OutcomeVerified
 	}
@@ -267,6 +277,9 @@ func (e *Engine) executeShareApply(ctx context.Context, p ShareApplyParams, req 
 			"include":          cfg.Report.Include,
 			"reload":           cfg.Report.Reload,
 			"service":          cfg.Report.Service,
+			"startup_deps":     cfg.Report.StartupDeps,
+			"startup_paths":    cfg.Report.StartupPaths,
+			"volume_offline":   cfg.Report.VolumeOffline,
 		},
 		RecoveryHint: recoveryHint(cfg.Report, def),
 	}, nil
@@ -294,11 +307,11 @@ func (e *Engine) executeShareRef(ctx context.Context, action string, p ShareRefP
 	// 顺序与 apply 相反，理由是同一条：**先停止暴露，再收回权限**。反过来的话，
 	// 在“ACL 已收回、配置还没重载”的那几毫秒里，共享还在，只是谁都进不去——
 	// 客户端会看到“权限被拒”而不是“共享不存在”，排障时完全是两条线索。
-	remaining, err := e.sharesExcept(ctx, rec.ID)
+	remaining, offline, err := e.sharesExcept(ctx, rec.ID)
 	if err != nil {
 		return WriteReport{}, err
 	}
-	cfg, err := e.applyManagedConfig(ctx, remaining, req.Progress)
+	cfg, err := e.applyManagedConfig(ctx, remaining, offline, req.Progress)
 	if err != nil {
 		return WriteReport{}, err
 	}
@@ -965,10 +978,10 @@ func formatObservedTime(t time.Time) string {
 // 为什么是全集而不是“这一段”：托管文件由面板独占且整份重写，所以“这份定义该长什么样”
 // 与“这个文件该长什么样”是同一个问题。分两次写（先追加这一段、以后再整理）会让文件里
 // 出现半份状态，而半份状态正是“有些人能用、有些人不能用”这种故障的来源。
-func (e *Engine) desiredShares(ctx context.Context, newDef ShareDefinition, shareID *string) ([]ManagedShare, error) {
+func (e *Engine) desiredShares(ctx context.Context, newDef ShareDefinition, shareID *string) ([]ManagedShare, []string, error) {
 	records, err := e.opts.Store.ListShares(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	out := make([]ShareRecord, 0, len(records)+1)
 	replaced := false
@@ -986,10 +999,10 @@ func (e *Engine) desiredShares(ctx context.Context, newDef ShareDefinition, shar
 }
 
 // sharesExcept 算出“摘掉某条共享之后”的全集。
-func (e *Engine) sharesExcept(ctx context.Context, shareID string) ([]ManagedShare, error) {
+func (e *Engine) sharesExcept(ctx context.Context, shareID string) ([]ManagedShare, []string, error) {
 	records, err := e.opts.Store.ListShares(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	out := make([]ShareRecord, 0, len(records))
 	for _, rec := range records {
@@ -1016,6 +1029,15 @@ func baseConfigObserved(cfg configApplyResult) map[string]any {
 		"reload":          r.Reload,
 		"service":         r.Service,
 		"served":          r.Served,
+		// 开机依赖与“这一轮跳过了谁”是 P08.3 的两件事，都在这里摊开：
+		// 前者说重启之后会不会先服务一个空目录，后者说哪些共享这次从配置里消失了。
+		"startup_deps": r.StartupDeps,
+	}
+	if len(r.StartupPaths) > 0 {
+		out["startup_paths"] = r.StartupPaths
+	}
+	if len(r.VolumeOffline) > 0 {
+		out["volume_offline_shares"] = r.VolumeOffline
 	}
 	if len(r.Backups) > 0 {
 		out["config_backups"] = r.Backups
@@ -1046,7 +1068,7 @@ func recoveryHint(r ManagedConfigReport, def ShareDefinition) string {
 		return "配置已写入并通过 Samba 自身校验与重载，smbd 正在提供这份共享"
 	case r.Service == ServiceStateInactive:
 		return "配置已写好并通过校验，但 smbd 不在运行，这份共享此刻不对外提供访问；" +
-			"启动 Samba 服务与开机依赖属于 P08.3"
+			"把它启动起来（P11 的服务动作），配置不用重写"
 	case r.Reload == ReloadFailed:
 		return "配置已写好并通过校验，但重载没有成功：Samba 仍在使用旧配置，" +
 			"需要重启或由人工重新执行重载"

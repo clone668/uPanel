@@ -1,0 +1,7 @@
+After=network-online.target system.slice systemd-journald.socket -.mount winbind.service nmbd.service basic.target srv-upanel-volumes-p08v3.mount network.target sysinit.target
+RequiresMountsFor=/srv/upanel/volumes/p08v3
+DropInPaths=/etc/systemd/system/smbd.service.d/upanel-shares.conf
+ActiveEnterTimestamp=Thu 2026-10-22 15:40:10 UTC
+Where=/srv/upanel/volumes/p08v3
+WantedBy=
+ActiveEnterTimestamp=Thu 2026-10-22 15:39:13 UTC

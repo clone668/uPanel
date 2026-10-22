@@ -603,6 +603,9 @@ func newHarness(t *testing.T) *harness {
 		Managed:    filepath.Join(dir, "upanel.d", "upanel.conf"),
 		IncludeDir: filepath.Join(dir, "upanel.d"),
 		BackupDir:  filepath.Join(dir, "backups"),
+		// 开机依赖也落在这个临时目录里：/etc/systemd 是 root 的，而且
+		// “内容没变就不重载”“路径非法就不写”这些判断必须能在测试里反复跑。
+		StartupDep: filepath.Join(dir, "systemd", "smbd.service.d", "upanel-shares.conf"),
 	}
 	if err := os.WriteFile(h.cfg.Main, []byte("[global]\n   workgroup = WORKGROUP\n"), 0o644); err != nil {
 		t.Fatalf("准备 smb.conf 失败: %v", err)
@@ -732,7 +735,7 @@ func TestAssessShareApplyAllowedWithFullFacts(t *testing.T) {
 		t.Errorf("显示名是 %q", a.DisplayName)
 	}
 	// 锁必须覆盖共享名、卷与整份托管配置，且排序稳定（并发取锁时顺序不一致会死锁）。
-	wantLocks := []string{configLockName, "share:team-data", "volume:" + testVolID}
+	wantLocks := []string{ConfigLockName, "share:team-data", "volume:" + testVolID}
 	if len(a.Locks) != len(wantLocks) {
 		t.Fatalf("锁是 %v，期望 %v", a.Locks, wantLocks)
 	}

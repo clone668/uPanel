@@ -1,0 +1,49 @@
+# 主机侧 Go 测试（P08.3 最终代码，GOOS=windows 原生，-count=1 无缓存）
+# 时间(UTC): 2026-10-22T15:18:33Z
+# go: go version go1.27.3 windows/amd64
+
+## go test ./... -count=1
+ok  	upanel/cmd/upanel-agent	1.445s
+ok  	upanel/cmd/upanel-web	2.969s
+ok  	upanel/cmd/upanelctl	2.004s
+ok  	upanel/internal/agent	40.522s
+ok  	upanel/internal/agentclient	1.831s
+ok  	upanel/internal/agentstore	6.312s
+ok  	upanel/internal/api	124.541s
+ok  	upanel/internal/audit	1.069s
+ok  	upanel/internal/auth	46.307s
+ok  	upanel/internal/config	1.492s
+ok  	upanel/internal/files	0.480s
+ok  	upanel/internal/httpx	0.498s
+ok  	upanel/internal/journal	2.041s
+ok  	upanel/internal/logging	0.614s
+ok  	upanel/internal/logs	0.831s
+ok  	upanel/internal/monitoring	1.095s
+ok  	upanel/internal/operations	5.781s
+ok  	upanel/internal/platform	0.367s
+ok  	upanel/internal/processes	0.948s
+ok  	upanel/internal/services	1.733s
+ok  	upanel/internal/shares	2.923s
+ok  	upanel/internal/storage	19.878s
+ok  	upanel/internal/store	1.516s
+ok  	upanel/internal/syscmd	10.979s
+ok  	upanel/internal/terminal	0.567s
+?   	upanel/internal/testsupport	[no test files]
+ok  	upanel/internal/version	0.378s
+ok  	upanel/internal/webui	1.017s
+?   	upanel/migrations	[no test files]
+?   	upanel/migrations/agentdb	[no test files]
+
+## 本轮新增/改动的用例（-v）
+
+=== RUN   TestSaveShareRoundTripsRuntimeRevocation
+--- PASS: TestSaveShareRoundTripsRuntimeRevocation (0.03s)
+=== RUN   TestScanShareRejectsBadRuntimeRevocationJSON
+--- PASS: TestScanShareRejectsBadRuntimeRevocationJSON (0.03s)
+PASS
+ok  	upanel/internal/agentstore	1.054s
+=== RUN   TestWriteFileSyncEnforcesMode
+    configfs_test.go:20: Windows 上不存在 POSIX 权限位，跳过
+--- SKIP: TestWriteFileSyncEnforcesMode (0.00s)
+PASS
+ok  	upanel/internal/shares	0.577s

@@ -115,8 +115,13 @@ func (c *Collector) VolumeBlockers(ctx context.Context, id string) (VolumeBlocke
 			out.Processes = procs
 		}
 	}
-	// 面板侧依赖：P07.4 时共享/应用/备份模块尚未实现，因此恒为空。
-	for _, dep := range volumeDependencies(ctx, rec, env) {
+	// 面板侧依赖（共享/应用/备份）。查询失败时和 Busy 一样按“证明不了没人用”处理：
+	// 页面上的 Busy 不是装饰，它直接对应卸载按钮是否可用。
+	deps, depErr := volumeDependencies(ctx, rec, PurposeView, env)
+	if depErr != nil {
+		out.Busy = true
+	}
+	for _, dep := range deps {
 		switch dep.Kind {
 		case "app":
 			out.Apps = append(out.Apps, dep)
@@ -138,8 +143,12 @@ func (c *Collector) VolumeBlockers(ctx context.Context, id string) (VolumeBlocke
 }
 
 // volumeView 把记录 + 观察结果拼成对外视图。
+//
+// 依赖查询失败时 dependencies 是空数组而不是 null：这个字段是给页面看的，
+// 拼不出内容就如实留空；真正“不能动手”的判断在预检里（VOLUME_DEPENDENCIES_UNKNOWN），
+// 那里才有拒绝动作的位置。
 func volumeView(ctx context.Context, rec VolumeRecord, obs VolumeObservation, env VolumeEnv) Volume {
-	deps := volumeDependencies(ctx, rec, env)
+	deps, _ := volumeDependencies(ctx, rec, PurposeView, env)
 	if deps == nil {
 		deps = []VolumeDependency{}
 	}

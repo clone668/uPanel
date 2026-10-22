@@ -60,6 +60,11 @@ func noopRunner() CommandRunner {
 // 那正是 TestVolumeCapableNeedsAllThree 要验证的东西。
 func volumeCollector(t *testing.T, dir string, wo WriteOptions) *Collector {
 	t.Helper()
+	// 依赖查询与占用检查一样，是“必须接线才能放行”的输入。夹具不接线时不是
+	// 让它退化成空，而是显式写成“查过了，没有依赖”，免得把漏接线写进断言基准。
+	if wo.Env.Dependents == nil {
+		wo.Env.Dependents = noDependents
+	}
 	if wo.Fstab.Path == "" {
 		wo.Fstab.Path = filepath.Join(t.TempDir(), "fstab")
 	}

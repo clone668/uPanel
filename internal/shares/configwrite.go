@@ -30,7 +30,7 @@ import (
 	"upanel/internal/syscmd"
 )
 
-// ConfigPaths 是配置写入用到的四个路径。
+// ConfigPaths 是配置写入用到的五个路径。
 //
 // 生产接线不传它（用默认值）。它存在只为单元测试：真机上 /etc/samba 是 root 的，
 // 而单元测试要能在一小时后的某次改动里重复验证“候选不合格时正式文件不动”。
@@ -39,6 +39,11 @@ type ConfigPaths struct {
 	Managed    string
 	IncludeDir string
 	BackupDir  string
+	// StartupDep 是 smbd 的开机依赖 drop-in（P08.3）。零值时用 StartupDropinPath。
+	//
+	// 它在这里，理由与上面四个完全相同：/etc/systemd 也是 root 的，而
+	// “内容没变就不重载”“路径非法就不写”这些判断必须在单元测试里能反复跑。
+	StartupDep string
 }
 
 // DefaultConfigPaths 返回生产路径。
@@ -48,6 +53,7 @@ func DefaultConfigPaths() ConfigPaths {
 		Managed:    ManagedConfigPath,
 		IncludeDir: DefaultIncludeDir,
 		BackupDir:  DefaultConfigBackupDir,
+		StartupDep: StartupDropinPath,
 	}
 }
 
@@ -81,16 +87,23 @@ func SystemConfigFS() ConfigFS {
 	}
 }
 
-// writeFileSync 写文件并 fsync。
+// writeFileSync 写文件、把权限钉成 perm、然后 fsync。
 //
-// 权限只在创建时生效：已存在的临时文件不会被改权限，因此调用方总是用一个固定的临时
-// 名字之前先删掉它（见 writeCandidate）。
+// 为什么写完还要 Chmod：OpenFile 的 perm 只在**创建**时生效，而且会被进程 umask 掩掉。
+// 生产的代理单元照例带 UMask=0077（秘密与备份都该只有 root 能读），于是“0644 的托管配置”
+// 在真机上落成 0600，而且这个差别取决于**代理是怎么被启动的**，代码里看不出来。
+// 文件权限是产品决定的事，不能由启动它的 shell 决定——所以这里显式钉一遍。
+// 已经存在的旧文件（上一版留下的 0600）也会在这一步被纠正。
 func writeFileSync(name string, data []byte, perm os.FileMode) error {
 	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {
 		return err
 	}
 	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Chmod(perm); err != nil {
 		f.Close()
 		return err
 	}
@@ -136,6 +149,9 @@ func (e *Engine) paths() ConfigPaths {
 	}
 	if p.BackupDir == "" {
 		p.BackupDir = DefaultConfigBackupDir
+	}
+	if p.StartupDep == "" {
+		p.StartupDep = StartupDropinPath
 	}
 	return p
 }
@@ -201,12 +217,17 @@ func (e *Engine) serviceState(ctx context.Context) string {
 // 与“卷现在有没有挂”是两件事。“卷没挂的时候不该提供服务”由 P08.3 的判决层管，
 // 而不是靠这里渲染不出来。
 //
+// 卷没挂的时候**不渲染**（P08.3）：挂载点在那时候只是系统盘上的一个空目录，把段留在
+// 配置里等于共享那个空目录。这条判断放在渲染层而不是判决层，是因为托管文件是整份重写的：
+// “应用 B”会顺带把 A 的段重写一遍，如果 A 的卷此刻没挂，重新写就是一次回归。
+// 跳过的共享名会一起返回，报告里要点名（静默消失的共享比不能用的共享更难查）。
+//
 // 卷或账号已经不在登记表里时**不出声地跳过**是绝对不行的：那等于把一份共享从配置里
 // 悄悄摘掉，客户端会发现共享消失而面板上什么都没说。这里直接报错并点名。
-func (e *Engine) renderManagedShares(ctx context.Context, records []ShareRecord) ([]ManagedShare, error) {
+func (e *Engine) renderManagedShares(ctx context.Context, records []ShareRecord) ([]ManagedShare, []string, error) {
 	accountRecs, err := e.opts.Store.ListAccounts(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	names := make(map[string]string, len(accountRecs))
 	for _, a := range accountRecs {
@@ -214,16 +235,17 @@ func (e *Engine) renderManagedShares(ctx context.Context, records []ShareRecord)
 	}
 
 	out := make([]ManagedShare, 0, len(records))
+	var skipped []string
 	for _, rec := range records {
 		if !rec.Definition.Enabled {
 			continue
 		}
 		vol, found, err := e.volumeFor(ctx, rec.Definition.VolumeID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if !found {
-			return nil, dependencyBlocked(
+			return nil, nil, dependencyBlocked(
 				"共享 %s 引用的卷 %s 已不在受管理卷里：无法计算它的目录，托管配置拒绝只写一半（%s）",
 				rec.Definition.Name, rec.Definition.VolumeID, NoticeVolumeNotFound)
 		}
@@ -231,13 +253,22 @@ func (e *Engine) renderManagedShares(ctx context.Context, records []ShareRecord)
 		if mountPath == "" {
 			mountPath = storage.MountPathOf(vol.Slug)
 		}
+		// 闸门：只有真的观测到“挂着”才渲染。不知道挂没挂同样不渲染（见 mountgate.go）。
+		gate, _, err := e.mountGateFor(ctx, rec.Definition.VolumeID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !gate.Mounted {
+			skipped = append(skipped, rec.Definition.Name)
+			continue
+		}
 		dir, err := ShareDir(mountPath, rec.Definition.RelativePath)
 		if err != nil {
-			return nil, validationError("%s", err.Error())
+			return nil, nil, validationError("%s", err.Error())
 		}
 		block, err := rec.Definition.RenderBlock(mountPath, names)
 		if err != nil {
-			return nil, validationError("渲染共享 %s 的配置失败：%v", rec.Definition.Name, err)
+			return nil, nil, validationError("渲染共享 %s 的配置失败：%v", rec.Definition.Name, err)
 		}
 		users := make([]string, 0, len(rec.Definition.SMBUsers))
 		for _, u := range rec.Definition.SMBUsers {
@@ -246,12 +277,19 @@ func (e *Engine) renderManagedShares(ctx context.Context, records []ShareRecord)
 			}
 		}
 		sort.Strings(users)
-		out = append(out, ManagedShare{Name: rec.Definition.Name, Dir: dir, ValidUsers: users, Block: block})
+		out = append(out, ManagedShare{
+			Name:       rec.Definition.Name,
+			Dir:        dir,
+			MountPath:  mountPath,
+			ValidUsers: users,
+			Block:      block,
+		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
 	})
-	return out, nil
+	sort.Strings(skipped)
+	return out, skipped, nil
 }
 
 // configApplyResult 是写配置这一段的内部结果（与对外报告分开，便于回滚时保留现场）。
@@ -268,7 +306,7 @@ type configApplyResult struct {
 //
 // 调用方必须持有 `samba:config` 锁：这条流水线读的是全量配置、写的是全量文件，
 // 两个并发应用会让后一个把前一个的段覆盖掉（它读到的“现状”里没有前一个）。
-func (e *Engine) applyManagedConfig(ctx context.Context, desired []ManagedShare, report func(step string, fields map[string]any)) (configApplyResult, error) {
+func (e *Engine) applyManagedConfig(ctx context.Context, desired []ManagedShare, offline []string, report func(step string, fields map[string]any)) (configApplyResult, error) {
 	p := e.paths()
 	fs := e.fs()
 
@@ -287,8 +325,18 @@ func (e *Engine) applyManagedConfig(ctx context.Context, desired []ManagedShare,
 		Service:  st.Service,
 		Sections: sectionNamesOf(desired),
 		Testparm: "not-run",
+		// 这一轮被跳过（卷离线）的共享必须点名：它们是“从配置里消失”的那些，
+		// 静默消失比不能用更难查。
+		VolumeOffline: append([]string(nil), offline...),
 	}}
 	res.Report.Overrides = e.globalOverrides(ctx)
+	if len(offline) > 0 {
+		res.Report.Notes = append(res.Report.Notes, Blocker{
+			Code: NoticeVolumeOffline,
+			Message: "这些共享这次没有写进配置，因为它们绑定的卷此刻没挂载：" +
+				strings.Join(offline, "、") + "；卷回来之后要重新应用一次",
+		})
+	}
 
 	// ---- 1. 托管目录 ----
 	if _, err := fs.Stat(p.IncludeDir); err != nil {
@@ -451,7 +499,7 @@ func (e *Engine) applyManagedConfig(ctx context.Context, desired []ManagedShare,
 		res.Report.Notes = append(res.Report.Notes, Blocker{
 			Code: NoticeSMBServiceInactive,
 			Message: "smbd 不在运行：配置已经写好并通过校验，但重载无从谈起，" +
-				"这份共享此刻不对外提供访问（启动 Samba 与开机依赖属于 P08.3）",
+				"这份共享此刻不对外提供访问（开机依赖已单独处理，服务要有人启动）",
 		})
 	case ServiceStateUnknown:
 		res.Report.Notes = append(res.Report.Notes, Blocker{
@@ -502,6 +550,16 @@ func (e *Engine) applyManagedConfig(ctx context.Context, desired []ManagedShare,
 	if err := e.readbackShares(ctx, desired, &res.Report); err != nil {
 		return res, err
 	}
+
+	// ---- 7. 开机依赖：让 smbd 等这些挂载点就位 ----
+	//
+	// 放在读回之后：配置此刻能不能用（served）与开机顺序好不好是两件事，
+	// 前面每一步都成立之后再来照顾“重启之后会不会先服务一个空目录”。
+	// 这一步失败不回滚——配置是对的，缺的是额外的保护，报告里说清楚。
+	deps := e.applyStartupDeps(ctx, sharesMountPaths(desired))
+	res.Report.StartupDeps = deps.Status
+	res.Report.StartupPaths = deps.Paths
+	res.Report.Notes = append(res.Report.Notes, deps.Notes...)
 
 	// Served 是“这份配置此刻真的在被 Samba 提供”的结论，四个条件同时成立才算：
 	// 合并后的配置合格、include 已接入、smbd 在运行、重载的结局是“做了”或“不需要做”。

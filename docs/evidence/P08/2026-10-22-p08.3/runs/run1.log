@@ -1,0 +1,244 @@
+== 0. 环境与安全守卫 ==
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  依赖命令可用 python3
+PASS  依赖命令可用 curl
+PASS  依赖命令可用 runuser
+PASS  依赖命令可用 sha256sum
+PASS  依赖命令可用 findmnt
+PASS  依赖命令可用 lsblk
+PASS  依赖命令可用 sgdisk
+PASS  依赖命令可用 blkid
+PASS  依赖命令可用 wipefs
+PASS  依赖命令可用 udevadm
+PASS  依赖命令可用 blockdev
+PASS  依赖命令可用 stat
+PASS  依赖命令可用 awk
+PASS  依赖命令可用 diff
+PASS  依赖命令可用 grep
+PASS  依赖命令可用 systemctl
+PASS  依赖命令可用 systemd-escape
+PASS  依赖命令可用 mount
+PASS  依赖命令可用 umount
+PASS  夹具：/usr/sbin/smbd 存在
+PASS  夹具：/usr/bin/smbpasswd 存在
+PASS  夹具：/usr/bin/pdbedit 存在
+PASS  夹具：/usr/bin/testparm 存在
+PASS  夹具：/usr/bin/smbcontrol 存在
+PASS  夹具：/usr/bin/smbstatus 存在
+PASS  夹具：/usr/bin/smbclient 存在
+PASS  夹具：/usr/bin/setfacl 存在
+PASS  夹具：/usr/bin/getfacl 存在
+PASS  夹具：/etc/samba/smb.conf 存在
+      smbd 版本（独立读取）：Version 4.19.5-Ubuntu
+PASS  Web 账号 upanel-web 存在
+      卸掉上一轮遗留的挂载 /srv/upanel/volumes/data
+      清掉遗留的托管块（内容留档到 /var/tmp/upanel-accept-p08-3.fstab-before-reset.txt）
+PASS  承载 / 的设备是 /dev/sda1（整盘 sda）
+PASS  一次性盘 /dev/sdb 存在
+      /dev/sdb：8589934592 字节，无挂载
+PASS  起点：smb.conf 的 sha256 已记录（8b519488b5592bfe20bef55634c208979c4d2d6cf47b37895dd15af17be42a39）
+      起点：smb.conf 里有 3 个段，其中既有第三方共享必须保留
+      清掉上一轮遗留的 /etc/samba/upanel.d
+PASS  起点：smb.conf 里没有残留的 include 行
+PASS  起点：开机依赖 drop-in 不存在
+PASS  起点：systemd 里 smbd 没有 RequiresMountsFor
+PASS  一次性盘 /dev/sdb 清成空白
+PASS  起点：受管理账号已清空
+PASS  夹具：smbd 在运行
+
+== 1. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  代理日志声明共享模块已接线
+PASS  代理日志声明启用共享卷监视
+PASS  监视日志写明锚定的是同一把配置锁
+PASS  监视日志写明不自动恢复
+PASS  代理把 share.apply 登记成可执行动作
+PASS  代理把 share.disable 登记成可执行动作
+PASS  代理把 share.delete 登记成可执行动作
+PASS  代理把 storage.volume.unmount 登记成可执行动作
+PASS  代理把 storage.volume.forget 登记成可执行动作
+PASS  代理把 storage.filesystem.format 登记成可执行动作
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19478 启动
+PASS  监听 19478 的 Web 进程不是 root（pid=79086 uid=999）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+
+== 2. 夹具：空盘 → GPT → 分区 → ext4 → 导入 → 挂载；受管理账号 ==
+PASS  初始化分区表预检允许
+PASS  初始化分区表任务终态
+PASS  建分区任务终态
+PASS  独立证据：内核看到了 sdb1
+PASS  格式化任务终态
+PASS  独立证据：blkid 读出的类型是 ext4
+PASS  导入预检允许
+PASS  导入任务终态
+PASS  挂载点由 slug 派生
+PASS  挂载任务终态
+PASS  独立证据：卷真的挂上了
+PASS  存 smbp08b3 的密码走秘密通道
+PASS  拿得到 smbp08b3 的 secret_ref
+PASS  建 smbp08b3 任务终态
+PASS  独立证据：账号在 passdb 里
+
+== 3. 基线：共享应用成功，客户端真的能访问 ==
+PASS  应用共享预检允许
+PASS  应用共享任务终态
+PASS  应用共享结果是 verified
+PASS  应用共享带 verified_at
+PASS  应用共享observed.served
+PASS  拿到共享标识
+PASS  独立证据：托管文件里有这一段
+PASS  独立证据：Samba 读回的 path
+PASS  客户端能上传（共享真的在服务）
+PASS  客户端能列出刚上传的文件
+
+== 4. 开机依赖：drop-in 写出来，而且 systemd 自己认了这条顺序 ==
+PASS  作业里 startup_deps 是 written
+PASS  作业里 startup_paths 就是卷的挂载点
+PASS  独立证据：drop-in 文件存在
+PASS  独立证据：drop-in 目录权限 0755
+PASS  独立证据：drop-in 权限 0644
+PASS  独立证据：drop-in 是 [Unit] 片段
+PASS  独立证据：drop-in 里的 RequiresMountsFor
+PASS  独立证据：drop-in 里只有一行 RequiresMountsFor
+PASS  systemd 的 DropInPaths 里有这份 drop-in
+PASS  systemd 解析出的 RequiresMountsFor
+PASS  挂载单元名由路径派生
+PASS  systemd 的 After 里出现该挂载单元（顺序约束真的生效）
+
+== 5. 运行中脱盘：外部 umount → 一个监视周期内撤销 ==
+PASS  独立证据：findmnt 说这个挂载点没挂
+PASS  独立证据：根分区上的标记文件确实存在（空目录不是空的）
+      此时 /srv/upanel/volumes/p08v3/team/docs 属于根分区，不是那块卷
+      从 umount 到登记表记录撤销：timeouts（监视间隔 30s，存储扫描 5s）
+FAIL  监视循环在一个周期内撤销了共享: 等了 75s 仍没有 runtime_revoked
+PASS  登记表：config_applied 归 false
+FAIL  撤销现场记的是这块卷: 期望 'vol_343fb05ecadba358ec51ed17d50b691c'，实际 'ERR:KeyError:'runtime_revoked''
+FAIL  撤销现场记的是卷名: 期望 '数据卷'，实际 'ERR:KeyError:'runtime_revoked''
+FAIL  撤销现场记的是 unmounted: 期望 'unmounted'，实际 'ERR:KeyError:'runtime_revoked''
+PASS  撤销现场带时间
+FAIL  撤销原因说清是挂载状态: 期望包含 '没有挂载'，实际 'ERR:KeyError:'runtime_revoked''
+PASS  独立证据：托管文件里这段已经没了
+PASS  独立证据：Samba 里这一段不存在
+PASS  客户端拿到的是“共享不存在”
+PASS  客户端没有看到根分区上的标记文件
+PASS  客户端也没列出一个空目录
+PASS  独立证据：Samba 自己说这份共享上的树连接是 0
+PASS  撤销确实重写了托管文件
+PASS  撤销没有动 smb.conf（第三方共享逐字节不变）
+PASS  独立证据：smb.conf 仍是初始内容的前缀延伸
+PASS  独立证据：include 行仍然只有一行
+PASS  撤销之后 drop-in 被收回（没有共享要等这个挂载点了）
+PASS  撤销之后 systemd 里不再要求 RequiresMountsFor
+PASS  代理日志记下这次撤销
+PASS  代理日志写明不会自动写回
+
+== 6. 撤销之后再来一轮：不写、不重载、不刷新时间（用重启走“启动首轮”） ==
+PASS  代理重启（走启动首轮的对账）
+PASS  第二轮之后托管文件哈希不变
+PASS  第二轮之后托管文件 mtime 不变
+PASS  第二轮之后撤销时间仍是第一次的
+FAIL  第二轮之后 updated_at 没有被推到当下: 期望 '2026-10-22T14:55:58.591Z'，实际 '2026-10-22T14:56:07.502Z'
+PASS  第二轮之后这一段仍然不在配置里
+PASS  第二轮之后 config_applied 仍然是 false
+
+== 7. 卷没挂的时候再点“应用”：预检必须挡下 ==
+PASS  卷没挂时应用共享的预检被拒
+PASS  挡下它的码是 VOLUME_NOT_MOUNTED
+PASS  理由说清挂载点此时是系统盘上的空目录
+      预检没有放行，所以这一节不提交任何作业（提交被挡下的预检本身就该失败）
+
+== 8. 卷回来不自动恢复；人再应用一次才回来（而且服务的是卷里的内容） ==
+PASS  独立证据：卷又挂上了
+      等一个监视周期（75 秒内）确认它不会自动恢复……
+PASS  一个周期之后这一段仍然不在配置里（不自动恢复）
+PASS  一个周期之后托管文件哈希不变（没有静默写回）
+FAIL  一个周期之后撤销现场仍然保留: 期望 'True'，实际 'False'
+PASS  一个周期之后 shared 的 config_applied 仍是 false
+PASS  独立证据：这期间 Samba 里仍然没有这一段
+PASS  人重新应用：预检允许
+PASS  人重新应用任务终态
+PASS  人重新应用结果是 verified
+PASS  人重新应用带 verified_at
+PASS  人重新应用observed.served
+PASS  重新应用之后 startup_deps 重新是 written（drop-in 装回来）
+PASS  独立证据：drop-in 又在了
+PASS  独立证据：systemd 又重新要求 RequiresMountsFor
+PASS  客户端又连得上了，并且看到卷里那个文件
+PASS  客户端没有看到根分区上的标记文件（服务的是卷）
+PASS  独立证据：标记文件此刻被挂载遮住（但确实还在根分区上）
+
+== 9. 依赖阻断的三个阈值：卸载、格式化、退出管理 ==
+PASS  卷在列表里
+FAIL  列表里这块卷的 volume_id: 期望 'vol_343fb05ecadba358ec51ed17d50b691c'，实际 'ERR:NameError:name 'ERR' is not defined'
+PASS  有启用共享时卸载预检被拒
+PASS  挡下它的是 VOLUME_IN_USE_BY_SHARE
+PASS  理由里点了共享的名字
+PASS  有共享时格式化预检被拒
+PASS  挡下格式化的是 VOLUME_IN_USE_BY_SHARE
+PASS  有共享时退出管理预检被拒
+PASS  挡下退出管理的是 VOLUME_HAS_DEPENDENCIES
+FAIL  卷列表里这块卷 busy=true: 期望 'True'，实际 'ERR:NameError:name 'ERR' is not defined'
+FAIL  卷列表里点出了依赖它的共享名: 期望包含 'p08sh3'，实际 'ERR:NameError:name 'ERR' is not defined'
+PASS  禁用共享任务终态
+PASS  禁用之后 served=false
+PASS  禁用之后 startup_deps 是 removed（没有共享要等挂载点了）
+PASS  独立证据：drop-in 被删掉
+PASS  独立证据：systemd 里不再要求 RequiresMountsFor
+PASS  独立证据：Samba 里这一段没了
+PASS  共享只被禁用（没删）时卸载预检放行
+PASS  禁用中的共享仍然挡住退出管理
+PASS  挡住退出管理的仍是 VOLUME_HAS_DEPENDENCIES
+PASS  禁用中的共享仍然挡住格式化
+PASS  挡住格式化的仍是 VOLUME_IN_USE_BY_SHARE
+
+== 10. 重新启用把开机依赖装回来；删掉最后一条共享之后依赖清单清零 ==
+PASS  重新启用任务终态
+PASS  重新启用结果是 verified
+PASS  重新启用带 verified_at
+PASS  重新启用observed.served
+PASS  重新启用之后 startup_deps 是 written
+PASS  独立证据：drop-in 回来了
+PASS  独立证据：systemd 里又要求 RequiresMountsFor
+PASS  删除任务终态
+PASS  删除之后 startup_deps 是 removed
+PASS  删除之后共享详情是 404
+PASS  独立证据：drop-in 不在了
+PASS  独立证据：systemd 里 RequiresMountsFor 空了
+PASS  共享列表回到空
+FAIL  依赖清零之后卷不再 busy: 期望 'False'，实际 'ERR:NameError:name 'ERR' is not defined'
+FAIL  依赖清零之后 blockers.shares 是空的: 期望 '0'，实际 'ERR:NameError:name 'ERR' is not defined'
+/var/tmp/p08-3.sh: 1126: FAIL  没有依赖时卸载预检允许: 期望 'True'，实际 ''
+PASS  卸载任务终态
+PRE_ALLOWED: not found
+PASS  独立证据：卷已经卸下来了
+      已清理根分区上的夹具目录 /srv/upanel/volumes/p08v3/team/docs
+
+== 11. 收尾不变量 ==
+PASS  整轮下来 include 仍然只有一行
+PASS  整轮下来 smb.conf 原有段名一个都没少
+PASS  整轮下来 smb.conf 仍是初始内容的前缀延伸（逐字节）
+PASS  托管 include 目录权限是 0755
+FAIL  托管文件权限是 0644: 期望 '644'，实际 '600'
+PASS  两个日志里没有共享密码明文
+PASS  两个数据库（含 WAL）里没有共享密码明文
+PASS  任何进程的 argv/environ 里没有共享密码明文
+PASS  代理整轮没有退出
+PASS  socket 仍然在
+PASS  收尾：smbd 在运行（本脚本没把它停在停着的状态）
+
+== 12. 明确不验（NOT RUN） ==
+NOT RUN  真的重启一次看开机窗口：本脚本中途不会被 reboot 打断；由 p08-3-reboot-order.sh 分两阶段验收
+NOT RUN  观测不明（SHARE_VOLUME_STATE_UNKNOWN）：真机要造出“卷挂着但读不出来”得先弄坏采集器；单测覆盖
+NOT RUN  依赖查询失败（VOLUME_DEPENDENCIES_UNKNOWN）：代理总是接了这个查询；单测覆盖 internal/storage/deps_test.go
+NOT RUN  跨机器 SMB 客户端：P00-VM-D（客户端 VM）尚未建立
+NOT RUN  浏览器里的真实渲染：本脚本验的是页面读到的载荷
+
+== 13. 结论 ==
+PASS=184 FAIL=14 NOT RUN=5
+失败项： | 监视循环在一个周期内撤销了共享 | 撤销现场记的是这块卷 | 撤销现场记的是卷名 | 撤销现场记的是 unmounted | 撤销原因说清是挂载状态 | 第二轮之后 updated_at 没有被推到当下 | 一个周期之后撤销现场仍然保留 | 列表里这块卷的 volume_id | 卷列表里这块卷 busy=true | 卷列表里点出了依赖它的共享名 | 依赖清零之后卷不再 busy | 依赖清零之后 blockers.shares 是空的 | 没有依赖时卸载预检允许 | 托管文件权限是 0644

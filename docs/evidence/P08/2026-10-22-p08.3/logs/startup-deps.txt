@@ -1,0 +1,10 @@
+drop-in:
+# 由 uPanel 生成，每次应用共享时整份重写：手工修改会在下次应用时被覆盖。
+# 这条 drop-in 只做一件事：让 smbd 等这些挂载点就位再启动。
+# 卷挂不上时 smbd 不会启动——比启动了去服务系统盘上的空目录要好。
+[Unit]
+RequiresMountsFor=/srv/upanel/volumes/p08v3
+
+DropInPaths: /etc/systemd/system/smbd.service.d/upanel-shares.conf
+RequiresMountsFor: /srv/upanel/volumes/p08v3
+After: -.mount network-online.target sysinit.target winbind.service network.target nmbd.service system.slice basic.target srv-upanel-volumes-p08v3.mount systemd-journald.socket

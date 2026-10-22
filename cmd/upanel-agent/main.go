@@ -230,13 +230,21 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// storage.topology 查询只读最近一次快照。全部只读。
 	// P04.3 起额外：每 5 秒读 /proc/diskstats 算速率，按 15 分钟（可配 5—60）读 SMART，
 	// 网络挂载容量走隔离子进程——不执行任何改变系统状态的命令。
+	// P08.3：共享依赖查询。装配上有一个环——storage 的判决要问“谁挂着这块卷”，
+	// 而回答要读共享登记表与卷的现场视图（后者正是下面的 storageCollector）。
+	// 所以这里先建一个待接线的适配器交给 storage，等共享模块与采集器都齐了再 Fill。
+	// 没接线之前它返回错误，卷的卸载/格式化/退出管理会被拒——漏接线不该表现成“没有依赖”。
+	shareDeps := agent.NewShareDependents()
+	storageEnv := storage.SystemEnv()
+	storageEnv.Dependents = shareDeps.Probe
+
 	storageOpts := storage.Options{
 		Logger:                 logger,
 		HealthInterval:         cfg.Agent.Storage.SmartInterval(),
 		NetworkCapacityTimeout: cfg.Agent.Storage.NetworkCapacityTimeout(),
 		// P07.1：存储写动作预检需要的探针（设备签名、进程占用），全部只读。
 		// 接上之后每台设备的 capabilities 才会被填成真实状态；没接就是空数组。
-		Env: storage.SystemEnv(),
+		Env: storageEnv,
 		// P07.2：磁盘写原语。Runner 是唯一把命令交给内核的出口（syscmd：绝对路径 +
 		// argv + 固定环境 + 固定模板 stdin + 有上限的输出）。不给 Runner 就是
 		// DEPENDENCY_MISSING，而不是“假装写成功”。
@@ -307,6 +315,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		logger.Error("初始化共享模块失败", "error", err)
 		return 1
 	}
+	// 环合上了：storage 的判决从现在起能问到“谁挂着这块卷”，
+	// 运行时监视也能读到同一份登记表与同一份卷现场视图。
+	shareDeps.Fill(sharesEngine, storageCollector)
 	logger.Info("共享模块已接线",
 		"include_dir", shares.DefaultIncludeDir,
 		"config_path", shares.DefaultConfigPath,
@@ -520,6 +531,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Files:           filesManager,
 		FileWrites:      filesManager,
 		Terminal:        terminalAPI,
+		// P08.3：运行时脱盘监视。间隔取默认值（30 秒），循环自己拿 samba:config 锁。
+		ShareWatch: sharesEngine,
 	})
 	if err != nil {
 		logger.Error("初始化代理失败", "error", err)

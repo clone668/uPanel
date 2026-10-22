@@ -210,7 +210,16 @@ type Env struct {
 	Signatures SignatureProber
 	// Busy 列出正打开这台设备的进程。
 	Busy BusyScanner
+	// Dependents 列出面板侧依赖这台设备的共享。
+	//
+	// 格式化会把内容抹掉，因此任何指向它的共享都要拦；禁用的共享也算，
+	// 因为绑定关系本身就在这块盘上。为 nil 或返回错误一律阻塞——
+	// “问不出谁依赖它”不能当成“没人依赖它”。
+	Dependents DependencyProber
 }
+
+// DependencyProber 回答“谁依赖这块卷/这台设备”。
+type DependencyProber func(ctx context.Context, q DependencyQuery) ([]VolumeDependency, error)
 
 // SystemEnv 返回指向真实 /dev、/sys、/proc 的生产探针。
 //
@@ -675,6 +684,21 @@ func assessFormat(a *Assessment, target *Device, index topologyIndex, in assessm
 	if in.filesystem != "" && !ValidFilesystem(in.filesystem) {
 		a.block(NoticeUnsupportedKind,
 			fmt.Sprintf("只支持 ext4 与 xfs，收到 %q", in.filesystem))
+	}
+	// 面板侧依赖：有共享绑在这块设备上时，格式化会把共享背后的目录一次性抹掉。
+	//
+	// 这里的口径比卸载严：**任何**共享都拦，禁用的也算。卸载只是把它停下来，
+	// 配置和数据都还在；格式化之后那些共享指向的内容就没了，禁用状态也一样。
+	if env.Dependents == nil {
+		a.block(NoticeVolumeDependenciesUnknown,
+			"无法确认 "+target.ID+" 上还有没有面板对象依赖它（本机没有配置面板依赖查询）。不能靠“大概没人用”格式化")
+	} else if deps, err := env.Dependents(ctx, DependencyQuery{DeviceID: target.ID, Purpose: PurposeFormat}); err != nil {
+		a.block(NoticeVolumeDependenciesUnknown,
+			fmt.Sprintf("无法确认 %s 上还有没有面板对象依赖它（%v）。不能靠“大概没人用”格式化", target.ID, err))
+	} else if len(deps) > 0 {
+		a.block(NoticeVolumeInUseByShare,
+			"分区 %s 上还有共享依赖它（%s）。先删掉这些共享再格式化——格式化之后它们指向的内容就没了",
+			target.ID, describeDependencies(deps))
 	}
 	if in.filesystem != "" {
 		if err := ValidateLabel(in.filesystem, in.label); err != nil {

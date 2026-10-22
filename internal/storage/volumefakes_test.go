@@ -248,6 +248,14 @@ func newVolumeFixture(t *testing.T, content string) *volumeFixture {
 	return f
 }
 
+// noDependents 是“问过了，确实没有面板对象依赖”的假查询。
+//
+// 生产里 nil 探针是阻塞的（证明不了没人用）；测试若想走“放行”这条路，
+// 就必须显式写出“查过了，空”这个事实，而不是靠漏接线蒙过去。
+func noDependents(context.Context, DependencyQuery) ([]VolumeDependency, error) {
+	return nil, nil
+}
+
 // volumeEnv 组一份判决环境（未提供的探针留空，对应“依赖缺失”的路径）。
 func (f *volumeFixture) volumeEnv() VolumeEnv {
 	return VolumeEnv{
@@ -255,6 +263,7 @@ func (f *volumeFixture) volumeEnv() VolumeEnv {
 		Fstab:       f.fstab,
 		Superblocks: f.super,
 		Busy:        &fakeBusy{},
+		Dependents:  noDependents,
 		Root:        DefaultVolumeRoot,
 		Now:         func() time.Time { return f.now },
 	}

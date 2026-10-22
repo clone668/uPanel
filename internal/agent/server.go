@@ -71,6 +71,11 @@ type Options struct {
 	// Terminal 是受限终端的会话层（P06.3）。为 nil 时不提供 terminal.io 流与
 	// 会话关闭入口，也不登记 terminal.create / terminal.sessions。
 	Terminal TerminalManager
+	// ShareWatch 是运行时卷监视（P08.3）。为 nil 时不起循环：没有共享模块就没有
+	// “共享所在的卷脱盘”这件事要处理，而不是起一个什么都不做的循环去占锁。
+	ShareWatch sharesReconciler
+	// ShareWatchInterval 是监视间隔；<=0 时用 DefaultShareWatchInterval。
+	ShareWatchInterval time.Duration
 }
 
 // Server 是代理服务。
@@ -278,6 +283,10 @@ func (s *Server) Serve(ctx context.Context) error {
 
 	// 过期暂存（未提交的上传）24 小时后清掉：它们占着真实磁盘空间。
 	go s.runStagingSweeper(ctx)
+
+	// 共享卷监视（P08.3）：运行中掉盘的卷要让它的共享随之下线。
+	// 循环自己拿 shares.ConfigLockName，拿不到就跳过本轮（见 sharewatch.go）。
+	go s.runShareWatch(ctx)
 
 	// 上次运行遗留的非终态操作：标成 interrupted，**不自动重新执行**（CONTRACTS.md 4.3）。
 	// 顺序在监听之后、接活之前：先让“过去的未完成”变成可查的事实，再接受新操作。
