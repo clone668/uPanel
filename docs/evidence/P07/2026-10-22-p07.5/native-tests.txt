@@ -1,0 +1,46 @@
+# P07.5 宿主原生检查（2026-10-22T09:00:14Z）
+
+## go version
+go version go1.27.3 windows/amd64
+
+## go vet ./...
+exit=0
+
+## gofmt -l cmd internal
+(空 = 没有需要格式化的文件)
+
+## GOOS=linux go build ./...
+exit=0
+
+
+## go test ./... -count=1
+ok  	upanel/cmd/upanel-agent	1.249s
+ok  	upanel/cmd/upanel-web	3.197s
+ok  	upanel/cmd/upanelctl	2.135s
+ok  	upanel/internal/agent	19.489s
+ok  	upanel/internal/agentclient	1.541s
+ok  	upanel/internal/agentstore	2.947s
+ok  	upanel/internal/api	75.426s
+ok  	upanel/internal/audit	1.343s
+ok  	upanel/internal/auth	31.870s
+ok  	upanel/internal/config	0.845s
+ok  	upanel/internal/files	0.375s
+ok  	upanel/internal/httpx	0.402s
+ok  	upanel/internal/journal	0.897s
+ok  	upanel/internal/logging	0.406s
+ok  	upanel/internal/logs	1.313s
+ok  	upanel/internal/monitoring	0.979s
+ok  	upanel/internal/operations	3.388s
+ok  	upanel/internal/platform	0.296s
+ok  	upanel/internal/processes	0.753s
+ok  	upanel/internal/services	1.422s
+ok  	upanel/internal/storage	8.729s
+ok  	upanel/internal/store	1.210s
+ok  	upanel/internal/syscmd	10.703s
+ok  	upanel/internal/terminal	0.450s
+?   	upanel/internal/testsupport	[no test files]
+ok  	upanel/internal/version	0.257s
+ok  	upanel/internal/webui	0.867s
+?   	upanel/migrations	[no test files]
+?   	upanel/migrations/agentdb	[no test files]
+exit=0

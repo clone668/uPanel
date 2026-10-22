@@ -2,10 +2,10 @@
 // 单台设备详情（只读）。
 //
 // 这是 P04 里信息最密的一页，顺序按“先确认是不是我以为的那块盘，再看能不能动它”：
-//   身份与介质 → 容量与挂载 → 分区表与空闲区 → 健康 → I/O → 保护与依赖 → 可用动作。
+//   身份与介质 → 容量与挂载 → 分区表与空闲区 → 健康 → I/O → 保护与依赖 → 可执行的动作。
 //
-// 本阶段不提供任何写操作：capabilities 恒为空，页面明说“没有可执行动作”，
-// 而不是摆一个点不动的按钮。
+// capabilities 自 P07.1 起是代理判决层的投影（available / blocked / unsupported + reason），
+// 这里如实列出它，但按钮的画与灰由 DeviceStorageActions 负责，放行仍然在预检。
 
 import { computed } from 'vue'
 import { NCard, NTag } from 'naive-ui'
@@ -21,6 +21,7 @@ import {
   type StorageEdge,
 } from '@/api/storage'
 import CapacityBar from '@/components/CapacityBar.vue'
+import DeviceStorageActions from '@/components/DeviceStorageActions.vue'
 import HealthBadge from '@/components/HealthBadge.vue'
 import IoStats from '@/components/IoStats.vue'
 import {
@@ -31,14 +32,23 @@ import {
   formatTimestamp,
 } from '@/utils/format'
 
-const props = defineProps<{
-  device: StorageDevice
-  edges: StorageEdge[]
-  /** 采集节奏，用于页头说明数据多久刷新一次。 */
-  intervalMs: number
-  /** 快照采集时间（与设备自身的 collected_at 相同，页头用快照那份）。 */
-  collectedAt: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    device: StorageDevice
+    edges: StorageEdge[]
+    /** 采集节奏，用于页头说明数据多久刷新一次。 */
+    intervalMs: number
+    /** 快照采集时间（与设备自身的 collected_at 相同，页头用快照那份）。 */
+    collectedAt: string
+    /** 这台设备上登记过的受管理挂载点（来自卷列表，不是本地推算）。 */
+    volumeMountPaths?: string[]
+    /** 只有管理员能提交写动作。 */
+    canAct?: boolean
+  }>(),
+  { volumeMountPaths: () => [], canAct: true },
+)
+
+const emit = defineEmits<{ changed: [] }>()
 
 const table = computed(() => props.device.partition_table)
 const mounts = computed(() => props.device.filesystem?.mounts ?? [])
@@ -231,17 +241,28 @@ const confidenceLabel = computed(() => IDENTITY_CONFIDENCE_LABELS[props.device.i
       </ul>
     </NCard>
 
-    <NCard title="可用动作" size="small">
+    <NCard title="服务端判定的动作" size="small">
       <p v-if="capabilities.length === 0" class="detail__muted" data-testid="no-actions">
-        当前阶段没有可执行的动作。写操作（分区、格式化、挂载等）自 P07 起逐项登记，
-        未登记的动作不会出现在界面上。
+        服务端没有报告这台设备上的任何动作。可能原因：代理与页面的版本不一致
+        （载荷里没有 capabilities 字段），或者这台设备不属于可写操作的种类。
       </p>
       <ul v-else class="detail__list">
         <li v-for="cap in capabilities" :key="cap.action" class="detail__item">
           {{ cap.action }}（{{ cap.state }}）<span v-if="cap.reason" class="detail__muted">：{{ cap.reason }}</span>
         </li>
       </ul>
+      <p class="detail__muted">
+        这份列表有 30 秒缓存，所以它是“刚才的判定”，不是放行凭据：
+        点下去之后的预检会拿现场状态重新算一遍。
+      </p>
     </NCard>
+
+    <DeviceStorageActions
+      :device="device"
+      :volume-mount-paths="volumeMountPaths"
+      :can-act="canAct"
+      @changed="emit('changed')"
+    />
   </div>
 </template>
 

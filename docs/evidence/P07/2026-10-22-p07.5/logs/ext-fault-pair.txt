@@ -1,0 +1,35 @@
+== 存储外部独立检查 ==
+INFO fstab: /var/tmp/upanel-accept-p07-5/fixtures/fault.fstab.pair
+INFO 时间: 2026-10-22T08:56:43Z
+INFO 托管块标记: BEGIN=1 END=0
+FAIL 托管块的 BEGIN/END 不配对（BEGIN=1 END=0）：有人手工动过，面板会拒绝写
+INFO 托管块内条目: 2
+PASS 托管块内每一行都是 6 列、UUID= 作首列、挂载点是绝对路径、dump 列为 0
+PASS 托管块内没有重复的挂载点
+PASS /srv/upanel/volumes/data: UUID 形状合法
+PASS 挂载点在面板的卷根下: /srv/upanel/volumes/data
+PASS /srv/upanel/volumes/data: UUID cb0c6b10-07f9-47df-8065-1b9c18702255 现在是 /dev/sdb1
+PASS /srv/upanel/volumes/data: 盘上的文件系统类型是 ext4（与 fstab 一致）
+PASS /srv/upanel/volumes/data: 现在挂着（findmnt --mountpoint source=/dev/sdb1）
+PASS /srv/upanel/volumes/data: --target 也指向它自己（两路读数一致）
+PASS /srv/upanel/volumes/data: 内核挂载表 /proc/self/mountinfo 里有它
+PASS /srv/upanel/volumes/data: 挂载来源与 UUID 对得上（/dev/sdb1）
+PASS /srv/upanel/volumes/data: 它是一个真正的挂载点（设备号与父目录不同）
+PASS /srv/upanel/volumes/data: 选项里有 nofail（盘不在也不阻塞开机）
+PASS /srv/upanel/volumes/data: ext4 的 fsck 顺序是 2
+PASS /srv/upanel/volumes/data: systemd 里有 srv-upanel-volumes-data.mount（LoadState=loaded）
+PASS /srv/upanel/volumes/logs: UUID 形状合法
+PASS 挂载点在面板的卷根下: /srv/upanel/volumes/logs
+PASS /srv/upanel/volumes/logs: UUID 75baee15-5ce3-4c6b-a6ee-ecfb57879eee 现在是 /dev/sdc1
+PASS /srv/upanel/volumes/logs: 盘上的文件系统类型是 ext4（与 fstab 一致）
+INFO /srv/upanel/volumes/logs: 现在没有挂载
+PASS /srv/upanel/volumes/logs: 挂载点目录存在
+PASS /srv/upanel/volumes/logs: 选项里有 nofail（盘不在也不阻塞开机）
+PASS /srv/upanel/volumes/logs: ext4 的 fsck 顺序是 2
+PASS /srv/upanel/volumes/logs: systemd 里有 srv-upanel-volumes-logs.mount（LoadState=loaded）
+INFO fstab 备份目录: /var/lib/upanel-agent/fstab-backups（3 份备份）
+PASS 最新的备份权限是 0600（20261022T085528Z-52c3b1a3.fstab）
+INFO 最新备份里已经有托管块（说明它是块写入之后的状态，回滚它会保住那些条目）
+== 汇总 ==
+INFO 断言执行 26 项，跳过 0 项
+RESULT 有 1 处对不上：先别重启、别重复提交，按上面的 FAIL 行逐条查（见 docs/STORAGE_RECOVERY.md）

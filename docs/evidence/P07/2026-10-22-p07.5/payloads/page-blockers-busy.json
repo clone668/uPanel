@@ -1,0 +1,1 @@
+{"data":{"volume_id":"vol_95da9a38d67992f13ea24dc7d8fe33ab","mounted":true,"mounts":["/srv/upanel/volumes/data"],"processes":[{"pid":"18021","comm":"sleep"}],"holders":[],"swap_active":false,"apps":[],"shares":[],"backups":[],"busy":true,"checked_at":"2026-10-22T08:56:19Z"},"request_id":"293d71847a2e1052c51f10e00f613050"}

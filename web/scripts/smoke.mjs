@@ -279,6 +279,12 @@ try {
       const deviceCount = await page.locator('[data-device-id]').count()
       check('存储页渲染到设备卡片', deviceCount > 0, `${deviceCount} 台`)
       check('存储页显示容量单位', /(GiB|MiB|TiB|B)/.test(storageText))
+      // 受管卷区块（P07.5）：读完了要有结论——要么是卷，要么是“还没有受管的卷”，
+      // 不能停在「正在读取受管卷」。
+      check(
+        '存储页的受管卷区块读到了结果',
+        storageText.includes('受管卷') && !storageText.includes('正在读取受管卷'),
+      )
       if (deviceCount > 0) {
         const firstId = await page.locator('[data-device-id]').first().getAttribute('data-device-id')
         await page.locator('[data-device-id] a').first().click()
@@ -289,7 +295,9 @@ try {
           detailText.includes('身份与介质') && detailText.includes('容量与挂载'),
         )
         check('设备详情页有健康与 I/O 区块', detailText.includes('健康') && detailText.includes('I/O'))
-        check('设备详情页明说没有可执行动作', detailText.includes('当前阶段没有可执行的动作'))
+        // P07.5 起这个区块的标题是「服务端判定的动作」：页面不再自己说“没有可执行动作”，
+        // 而是把判决层给的四种判定（available/blocked/unsupported）与理由摆出来。
+        check('设备详情页显示服务端判定的动作', detailText.includes('服务端判定的动作'))
         check('设备详情页显示设备名', detailText.includes(firstId ?? ''), firstId ?? '')
 
         await page.click('text=返回磁盘列表')

@@ -8,7 +8,7 @@
 //   - loop 与光盘默认收起（数量照实写出来），可以展开，不会被悄悄丢掉；
 //   - 没有块设备时是“空数据”，不是错误；
 //   - 扫描失败（status=error）时明确写出“显示的是上一次成功的快照”；
-//   - 本阶段没有写操作入口，页面底部说明原因。
+//   - 写操作入口只出现在管理员视图里，且每次都要过预检（P07.5）。
 
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { NCard, NCheckbox, NTag } from 'naive-ui'
@@ -26,6 +26,8 @@ import ApiErrorPanel from '@/components/ApiErrorPanel.vue'
 import CapacityBar from '@/components/CapacityBar.vue'
 import DeviceCard from '@/components/DeviceCard.vue'
 import StatePanel from '@/components/StatePanel.vue'
+import VolumeSection from '@/components/VolumeSection.vue'
+import { useSessionStore } from '@/stores/session'
 import { formatSampleSummary, formatTimestamp } from '@/utils/format'
 import { createPoller, type Poller } from '@/utils/polling'
 import { apiPanelState, retryablePanelState } from '@/utils/viewstate'
@@ -34,6 +36,7 @@ type Phase = 'loading' | 'ready' | 'error'
 
 const DEFAULT_INTERVAL_MS = 5000
 
+const session = useSessionStore()
 const phase = ref<Phase>('loading')
 const error = ref<ApiError | null>(null)
 const topology = ref<StorageTopology | null>(null)
@@ -42,6 +45,8 @@ const showBackground = ref(false)
 const panelState = computed(() => (error.value ? apiPanelState(error.value) : null))
 
 const split = computed(() => splitDevices(topology.value?.nodes ?? []))
+// “纳入管理”的候选分区来自同一份快照：不额外请求，避免两处设备列表说法不一致。
+const allDevices = computed(() => topology.value?.nodes ?? [])
 const networkMounts = computed(() => topology.value?.network_mounts ?? [])
 const attention = computed(() => attentionDevices(topology.value?.nodes ?? []))
 const sampleLine = computed(() =>
@@ -144,6 +149,8 @@ onBeforeUnmount(() => {
         </p>
       </NCard>
 
+      <VolumeSection :devices="allDevices" :can-act="session.isAdmin" @changed="load" />
+
       <NCard title="网络挂载" size="small">
         <p v-if="networkMounts.length === 0" class="storage__meta">
           没有网络挂载（NFS/CIFS/SSHFS…）。本地块设备的挂载点显示在各自的卡片里。
@@ -172,8 +179,13 @@ onBeforeUnmount(() => {
           容量默认用 IEC 单位（GiB/TiB），鼠标悬停可以看到精确字节数。
         </p>
         <p class="storage__line">
-          当前阶段没有写操作：分区、格式化、挂载等动作自 P07 起逐项登记，
-          未登记的动作不会出现在界面上。
+          写操作没有“直接执行”的接口：每次点下去都先要一份预检（当前状态允不允许、
+          有没有占用、锁有没有被别处拿着），预检通过了才提交任务。
+          预检结果 120 秒内有效，过期就重新预检——页面不会拿一份旧结论去写盘。
+        </p>
+        <p class="storage__line">
+          破坏性动作（初始化分区表、删分区、格式化）要输入确认短语，并通过二次身份检查；
+          卷的挂载/卸载/改配置/退出管理只要求二次身份检查，因为数据不会被销毁。
         </p>
       </NCard>
     </template>

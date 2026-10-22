@@ -1,0 +1,23 @@
+== 存储外部独立检查 ==
+INFO fstab: /etc/fstab
+INFO 时间: 2026-10-22T08:57:55Z
+INFO 托管块标记: BEGIN=1 END=1
+PASS 托管块结构完整（是唯一一块，BEGIN/END 配对）
+INFO 托管块内条目: 1
+PASS 托管块内每一行都是 6 列、UUID= 作首列、挂载点是绝对路径、dump 列为 0
+PASS 托管块内没有重复的挂载点
+PASS /srv/upanel/volumes/logs: UUID 形状合法
+PASS 挂载点在面板的卷根下: /srv/upanel/volumes/logs
+PASS /srv/upanel/volumes/logs: UUID 75baee15-5ce3-4c6b-a6ee-ecfb57879eee 现在是 /dev/sdc1
+PASS /srv/upanel/volumes/logs: 盘上的文件系统类型是 ext4（与 fstab 一致）
+INFO /srv/upanel/volumes/logs: 现在没有挂载
+PASS /srv/upanel/volumes/logs: 挂载点目录存在
+PASS /srv/upanel/volumes/logs: 选项里有 nofail（盘不在也不阻塞开机）
+PASS /srv/upanel/volumes/logs: ext4 的 fsck 顺序是 2
+PASS /srv/upanel/volumes/logs: systemd 里有 srv-upanel-volumes-logs.mount（LoadState=loaded）
+INFO fstab 备份目录: /var/lib/upanel-agent/fstab-backups（4 份备份）
+PASS 最新的备份权限是 0600（20261022T085743Z-5f8edc1d.fstab）
+INFO 最新备份里已经有托管块（说明它是块写入之后的状态，回滚它会保住那些条目）
+== 汇总 ==
+INFO 断言执行 14 项，跳过 0 项
+RESULT 一致：这台机器的 fstab 托管块、挂载事实与设备身份能互相对上

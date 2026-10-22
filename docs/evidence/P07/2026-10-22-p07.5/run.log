@@ -1,0 +1,248 @@
+== 0. 环境与安全守卫 ==
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  依赖命令可用 python3
+PASS  依赖命令可用 curl
+PASS  依赖命令可用 runuser
+PASS  依赖命令可用 sha256sum
+PASS  依赖命令可用 findmnt
+PASS  依赖命令可用 lsblk
+PASS  依赖命令可用 sgdisk
+PASS  依赖命令可用 blkid
+PASS  依赖命令可用 wipefs
+PASS  依赖命令可用 udevadm
+PASS  依赖命令可用 blockdev
+PASS  依赖命令可用 systemd-escape
+PASS  依赖命令可用 stat
+PASS  依赖命令可用 awk
+PASS  依赖命令可用 diff
+PASS  依赖命令可用 grep
+PASS  外部检查脚本存在 /var/tmp/storage-external-check.sh
+      findmnt: findmnt from util-linux 2.39.3
+      整机 fstab（验收开始时）：
+        LABEL=cloudimg-rootfs	/	 ext4	discard,commit=30,errors=remount-ro	0 1
+        LABEL=BOOT	/boot	ext4	defaults	0 2
+        LABEL=UEFI	/boot/efi	vfat	umask=0077	0 1
+        # BEGIN upanel managed volumes
+        # 以下条目由 uPanel 维护（同一块内的手工修改会在下次变更时被覆盖）
+        # END upanel managed volumes
+PASS  Web 账号 upanel-web 存在
+PASS  承载 / 的设备是 /dev/sda1（整盘 sda）
+PASS  一次性盘 /dev/sdb 存在
+      /dev/sdb：8589934592 字节，无挂载
+PASS  一次性盘 /dev/sdc 存在
+      /dev/sdc：4294967296 字节，无挂载
+      清掉遗留的托管块（内容留档到 /var/tmp/upanel-accept-p07-5/logs/fstab-before-reset.txt）
+PASS  起点：fstab 里没有托管块
+PASS  起点：fstab 本身能通过 findmnt --verify
+PASS  两块一次性盘清成空白
+
+== 1. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  代理日志声明受管理卷已接线
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19475 启动
+PASS  监听 19475 的 Web 进程不是 root（pid=15449 uid=999）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+
+== 2. 页面依赖的载荷：动作判定与空列表语义 ==
+PASS  拓扑可读
+PASS  拓扑 status 是 ok
+PASS  拓扑里所有设备都有四个动作判定
+PASS  动作判定里的状态都落在闭集里
+PASS  blocked 的判定都带理由（页面直接显示这句）
+PASS  available 的判定不带阻塞理由
+PASS  系统盘上的写动作全部不可执行
+PASS  空白盘上初始化分区表可执行
+PASS  对整盘格式化是 unsupported
+PASS  volumes 列表在没有任何卷时是空数组
+
+== 3. 夹具：两块空盘走产品的 GPT → 分区 → ext4 ==
+PASS  初始化分区表预检允许
+PASS  初始化分区表任务终态
+PASS  初始化分区表结果是 verified
+PASS  初始化分区表带 verified_at
+PASS  初始化的短语动词是 INIT
+PASS  快照反映了操作之后的状态（sdb）
+PASS  独立证据：blkid 读出的分区表类型是 gpt
+PASS  建分区预检允许
+PASS  建分区任务终态
+PASS  建分区结果是 verified
+PASS  建分区带 verified_at
+PASS  快照反映了操作之后的状态（sdb）
+PASS  独立证据：内核看到了 sdb1
+PASS  格式化预检允许
+PASS  格式化任务终态
+PASS  格式化结果是 verified
+PASS  格式化带 verified_at
+PASS  独立证据：blkid 读出的类型是 ext4
+PASS  独立证据：blkid 读出的卷标
+PASS  独立证据：UUID 非空
+PASS  快照反映了操作之后的状态（sdb）
+PASS  整盘详情可读
+PASS  整盘详情：分区表条目里能看到刚建的分区
+PASS  整盘详情：四个动作判定都在
+PASS  分区详情：未挂载时文件系统类型按契约为空（不是猜的）
+PASS  分区详情：UUID 只能是内核那个，或者读不到
+PASS  没有分区表时建分区被拒
+PASS  拒绝的阻塞码
+PASS  第二块盘初始化分区表任务终态
+PASS  第二块盘初始化分区表结果是 verified
+PASS  第二块盘初始化分区表带 verified_at
+PASS  第二块盘建分区任务终态
+PASS  第二块盘建分区结果是 verified
+PASS  第二块盘建分区带 verified_at
+PASS  快照反映了操作之后的状态（sdc）
+PASS  第二块盘格式化任务终态
+PASS  第二块盘格式化结果是 verified
+PASS  第二块盘格式化带 verified_at
+PASS  独立证据：第二块盘的 UUID 非空
+
+== 4. 导入两个卷：fstab 最小修改、备份、挂载点由 slug 派生 ==
+PASS  导入预检允许
+PASS  导入不需要再认证
+PASS  导入没有确认短语
+PASS  导入的锁里有整盘
+PASS  导入任务终态
+PASS  导入结果是 verified
+PASS  导入带 verified_at
+PASS  卷标识是 vol_ 形状
+PASS  备份目录里多了一份
+PASS  备份的内容就是写之前的 fstab
+PASS  fstab 权限与属主没被顺手改掉
+PASS  挂载点由 slug 派生
+PASS  挂载点目录已创建
+PASS  导入没把卷挂上（不改运行状态）
+PASS  写入的条目带 noauto（导入默认不开自动挂载）
+PASS  第二个卷导入任务终态
+PASS  第二个卷导入结果是 verified
+PASS  第二个卷导入带 verified_at
+PASS  托管块里现在两条条目
+PASS  条目按挂载点排序
+PASS  配置预检允许
+PASS  配置要求再认证
+PASS  配置（开自动挂载）任务终态
+PASS  配置（开自动挂载）结果是 verified
+PASS  配置（开自动挂载）带 verified_at
+PASS  条目里不再有 noauto
+PASS  配置也留了备份
+PASS  另一个卷的条目没被改动
+
+== 5. 挂载：容量只在真挂着时有，文件也能真写进去 ==
+PASS  挂载预检允许
+PASS  挂载不要求再认证
+PASS  挂载任务终态
+PASS  挂载结果是 verified
+PASS  挂载带 verified_at
+PASS  内核视图：挂上了
+PASS  内核视图：挂载来源的 UUID 就是登记的那个
+PASS  内核挂载表里有它
+PASS  快照反映了操作之后的状态（sdb1）
+PASS  挂载后分区详情的类型是 ext4
+PASS  挂载后分区详情能看到挂载点
+PASS  页面的卷详情：observed_state=mounted
+PASS  页面的卷详情：desired_state=mounted
+PASS  页面的卷详情：capacity 不是 null
+PASS  页面的卷详情：capacity 的字节数大于 0
+PASS  页面的卷详情：没有 observed_error
+PASS  文件落在卷的挂载点上（stat 与 findmnt 两条路径一致）
+PASS  另一个卷仍然没挂
+
+== 6. 占用列表：说得出是谁占着（页面直接显示这个 pid） ==
+PASS  独立证据：确实有进程开着卷里的文件
+PASS  占用接口可读
+PASS  占用接口：mounted=true
+PASS  占用接口：busy=true
+PASS  占用列表里列出了进程
+PASS  产品点名的每个 pid 都真的开着这个卷里的文件
+PASS  脚本自己开的那个 fd 也在列表里
+PASS  占用者的 comm 来自 /proc（不是编的名字）
+PASS  占用者退出后回到不忙
+
+== 7. 系统外部独立检查：一条不经过面板的命令把同一批事实再读一遍 ==
+PASS  fstab 条目与期望逐字一致（自动挂载已打开，所以没有 noauto）
+      现在的托管块：
+        UUID=cb0c6b10-07f9-47df-8065-1b9c18702255 /srv/upanel/volumes/data ext4 rw,nodev,nosuid,nofail,x-systemd.device-timeout=30 0 2
+        UUID=75baee15-5ce3-4c6b-a6ee-ecfb57879eee /srv/upanel/volumes/logs ext4 rw,nodev,nosuid,nofail,x-systemd.device-timeout=30,noauto 0 2
+PASS  外部检查对着真实 fstab 的退出码
+PASS  外部检查的结论
+PASS  外部检查认得托管块结构
+PASS  外部检查确认这个卷挂着
+PASS  外部检查确认另一个卷没挂
+PASS  外部检查确认 UUID 指向的设备
+PASS  外部检查确认 fsck 顺序
+PASS  外部检查确认 nofail
+PASS  外部检查确认 systemd 单元
+PASS  外部检查确认备份权限
+PASS  外部检查没有 FAIL 行
+PASS  交叉核对：findmnt 的挂载点是 /srv/upanel/volumes/data
+PASS  交叉核对：blkid -U 指到 /dev/sdb1
+PASS  交叉核对：systemd 认得挂载单元
+PASS  交叉核对：挂载点目录的设备号与父目录不同
+PASS  把挂着的卷断言成没挂：退出码非 0
+PASS  并且说清是哪一条对不上
+PASS  缺 nofail 的副本：退出码非 0
+PASS  缺 nofail 的副本：说清是哪一条
+PASS  fsck 顺序写错的副本：退出码非 0
+PASS  fsck 顺序写错的副本：说清是哪一条
+PASS  UUID 不存在的副本：退出码非 0
+PASS  UUID 不存在的副本：说清是哪一条
+PASS  重复挂载点的副本：退出码非 0
+PASS  重复挂载点的副本：说清是哪一条
+PASS  托管块不配对的副本：退出码非 0
+PASS  托管块不配对的副本：说清是哪一条
+PASS  干净的副本：退出码 0（注入的坏法才是坏法）
+
+== 8. 卸载 → 重挂载：文件一致 ==
+PASS  卸载预检允许
+PASS  卸载任务终态
+PASS  卸载结果是 verified
+PASS  卸载带 verified_at
+PASS  内核视图：没有挂载点了
+PASS  快照反映了操作之后的状态（sdb1）
+PASS  页面的卷详情：observed_state=unmounted
+PASS  页面的卷详情：capacity 是 null（不是 0）
+PASS  重挂载任务终态
+PASS  重挂载结果是 verified
+PASS  重挂载带 verified_at
+PASS  重挂载之后文件内容一致
+PASS  重挂载之后 UUID 仍然对得上
+
+== 9. 退出管理：托管块回到干净状态 ==
+PASS  退出管理之前的卸载任务终态
+PASS  退出管理之前的卸载结果是 verified
+PASS  退出管理之前的卸载带 verified_at
+PASS  退出管理要求再认证
+PASS  退出管理任务终态
+PASS  退出管理结果是 verified
+PASS  退出管理带 verified_at
+PASS  托管块里没有这条 UUID 了
+PASS  退出管理没有把另一个卷弄丢
+PASS  退出管理留了备份
+PASS  卷详情现在是 404
+PASS  卷列表里只剩一个卷
+PASS  退出管理之后外部检查仍然一致
+PASS  并且知道剩下的那一条还在
+PASS  第二个卷退出管理任务终态
+PASS  第二个卷退出管理结果是 verified
+PASS  第二个卷退出管理带 verified_at
+PASS  托管块还在，但里面已经没有条目
+PASS  块外的内容逐字未变
+PASS  fstab 仍能通过 findmnt --verify
+PASS  一个卷都没有时外部检查也是一致
+PASS  并且说得清块里是空的
+
+== 10. 收尾 ==
+PASS  代理已停止、socket 已清理
+NOT RUN  浏览器里的真实渲染：本脚本验载荷；DOM 由 web 侧 SSR 回放覆盖，浏览器端到端由 smoke 覆盖
+NOT RUN  开机自动挂载 / 跨重启：P07.4 已用一次真重启证明（Q195），本脚本不重复
+NOT RUN  九种动作的每一次点击：设备动作由 P07.2/P07.3 验收覆盖；本脚本验的是载荷形状
+
+== 汇总 ==
+PASS=205 FAIL=0 NOT RUN=3
+
+证据留在 /var/tmp/upanel-accept-p07-5（payloads/ 是页面与任务的原始响应，logs/ 是外部检查的输出）

@@ -17,8 +17,8 @@
 
 import { readFileSync } from 'node:fs'
 
-import { describe, expect, it } from 'vitest'
-import { createSSRApp, h, type Component } from 'vue'
+import { describe, expect, it, vi } from 'vitest'
+import { createSSRApp, h, type Component, type VNodeChild } from 'vue'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import { renderToString } from 'vue/server-renderer'
 
@@ -28,6 +28,46 @@ import type {
   StoragePartition,
 } from '@/api/storage'
 import DeviceDetailPanel from './DeviceDetailPanel.vue'
+
+// naive-ui 的按钮/输入在 SSR 里会去挂样式（需要 document）。换成最小实现：
+// 文字与 disabled 原样带出来，断言仍然断的是“这份真实载荷被画成了什么”。
+vi.mock('naive-ui', async () => {
+  const { h: hh } = await import('vue')
+  const stub = (name: string) => ({
+    name: `Stub${name}`,
+    props: ['title', 'description', 'status', 'disabled', 'value', 'options', 'checked', 'type', 'size', 'placeholder', 'maxlength', 'min', 'max', 'step', 'bordered', 'secondary', 'loading'],
+    setup(
+      props: { title?: unknown; description?: unknown; disabled?: unknown },
+      ctx: { slots: { default?: () => unknown; header?: () => unknown; 'header-extra'?: () => unknown } },
+    ) {
+      return () => {
+        const children: VNodeChild[] = []
+        if (typeof props.title === 'string') children.push(props.title)
+        if (typeof props.description === 'string') children.push(props.description)
+        const header = ctx.slots.header?.()
+        if (header !== undefined) children.push(header as VNodeChild)
+        const slot = ctx.slots.default?.()
+        if (slot !== undefined) children.push(slot as VNodeChild)
+        const extra = ctx.slots['header-extra']?.()
+        if (extra !== undefined) children.push(extra as VNodeChild)
+        const attrs: Record<string, unknown> = { 'data-naive': name }
+        if (props.disabled === true) attrs['data-disabled'] = 'true'
+        return hh('div', attrs, children)
+      }
+    },
+  })
+  return {
+    NAlert: stub('alert'),
+    NButton: stub('button'),
+    NCard: stub('card'),
+    NCheckbox: stub('checkbox'),
+    NInput: stub('input'),
+    NInputNumber: stub('input-number'),
+    NProgress: stub('progress'),
+    NSelect: stub('select'),
+    NTag: stub('tag'),
+  }
+})
 
 function fixture<T>(name: string): T {
   const raw = readFileSync(new URL(`../fixtures/p07-2-vm/${name}`, import.meta.url), 'utf8')
@@ -134,9 +174,10 @@ describe('真实 VM 数据：写动作之后的设备详情', () => {
     }
     // 格式化（P07.3）还没有执行器，它绝不能以 available 出现在界面上。
     expect(html).not.toContain('storage.filesystem.format（available）')
-    // 有动作就逐条列出来，没动作就明说没有——不能两种情况都不说。
+    // 有动作就逐条列出来；没有时要说清是“载荷里没这个字段”（版本不一致），
+    // 不能画成“这台设备没有可做的事”——两种情况都不能不说。
     if (device.capabilities.length === 0) {
-      expect(html).toContain('当前阶段没有可执行的动作')
+      expect(html).toContain('代理与页面的版本不一致')
     } else {
       for (const cap of device.capabilities) {
         expect(html).toContain(`${cap.action}（${cap.state}）`)

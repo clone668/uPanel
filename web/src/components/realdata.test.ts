@@ -312,11 +312,20 @@ describe('真实 VM 数据：设备详情', () => {
     }
   })
 
-  it('本阶段不显示任何可执行动作', async () => {
+  it('载荷里没有 capabilities 时不摆可点的写入口', async () => {
     const html = await render(DeviceDetailPanel, detailProps())
+    // 这份 P04 抓的载荷还没有 capabilities 字段（P07.1 起才有）。
     expect(detail.device.capabilities).toEqual([])
-    expect(html).toContain('当前阶段没有可执行的动作')
-    // 没有按钮：不给“点了什么都不会发生”的入口。
-    expect(html).not.toContain('<button')
+    // 不能画成“这台设备没有可做的事”，要说清是载荷缺字段。
+    expect(html).toContain('代理与页面的版本不一致')
+    // 四个写动作里一个都不能画成可点：先声明过 capabilities 才谈得上“能不能做”。
+    for (const action of [
+      'storage.partition_table.initialize',
+      'storage.partition.create',
+      'storage.partition.delete',
+      'storage.filesystem.format',
+    ]) {
+      expect(html).not.toContain(`data-action="${action}"`)
+    }
   })
 })

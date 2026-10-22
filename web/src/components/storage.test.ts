@@ -456,7 +456,7 @@ describe('DeviceDetailPanel', () => {
     expect(html).toContain('没有与这台设备直接相关的关系边')
   })
 
-  it('capabilities 为空时明说“没有可执行动作”，不摆按钮', async () => {
+  it('capabilities 为空时说清是载荷缺字段（版本不一致），不摆按钮', async () => {
     const html = await render(
       DeviceDetailPanel,
       {
@@ -468,7 +468,9 @@ describe('DeviceDetailPanel', () => {
       { router: true },
     )
     expect(html).toContain('data-testid="no-actions"')
-    expect(html).toContain('当前阶段没有可执行的动作')
+    // P07.1 起 capabilities 由判决层投影，空列表不再是“当前阶段没有动作”，
+    // 而是“载荷里没有这个字段”——不能画成“这台设备没有可做的事”。
+    expect(html).toContain('代理与页面的版本不一致')
     expect(html).not.toContain('>格式化<')
     expect(html).not.toContain('>删除分区<')
   })

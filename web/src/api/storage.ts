@@ -452,3 +452,255 @@ export function reachabilityLabel(reachable: boolean | null): string {
 export function needsAttentionNetworkMount(mount: StorageNetworkMount): boolean {
   return mount.reachable === false
 }
+
+// ------------------------------------------------- 设备写动作（P07.5 的页面入口）
+//
+// 四个动作都走统一的 POST /operations/preflight + POST /jobs，与其它写操作同一条链路：
+// 页面只负责拼参数、显示预检结论、把短语原样带回去。**没有**第二个执行入口。
+//
+// 哪些动作现在就做得成，由设备上的 capabilities 说了算（P07.1 起由判决层投影）：
+//   available    = 现在能做
+//   blocked      = 动作适合这种设备，但当前状态被拒（受保护/已挂载/被占用……），带 reason
+//   unsupported  = 与这种设备类型无关（对整盘格式化、对分区初始化分区表）
+// 界面按它决定按钮是否可点，但**放行判断永远在预检**：capabilities 有 30 秒缓存。
+
+export const STORAGE_ACTIONS = {
+  initTable: 'storage.partition_table.initialize',
+  createPartition: 'storage.partition.create',
+  deletePartition: 'storage.partition.delete',
+  format: 'storage.filesystem.format',
+} as const
+
+export type StorageAction = (typeof STORAGE_ACTIONS)[keyof typeof STORAGE_ACTIONS]
+
+export const STORAGE_ACTION_LABELS: Record<StorageAction, string> = {
+  'storage.partition_table.initialize': '初始化 GPT 分区表',
+  'storage.partition.create': '新建分区',
+  'storage.partition.delete': '删除分区',
+  'storage.filesystem.format': '格式化',
+}
+
+/**
+ * 各动作的动词（与服务端生成确认短语时用的那个一致）。
+ *
+ * 短语由服务端生成、明文只在预检响应里出现一次，这里只用来写“你会看到类似 INIT XXXXXX
+ * 这样的短语”这类说明——界面**不生成**短语。
+ */
+export const STORAGE_PHRASE_VERBS: Record<StorageAction, string> = {
+  'storage.partition_table.initialize': 'INIT',
+  'storage.partition.create': '',
+  'storage.partition.delete': 'DELETE',
+  'storage.filesystem.format': 'FORMAT',
+}
+
+/**
+ * 这个存储动作要不要 5 分钟内的再认证（**界面提示**；服务端策略仍是唯一权威）。
+ *
+ * 设备侧四个动作都要：它们改的是盘上的字节。
+ * 卷侧另有 api/volumes.ts 的 volumeActionNeedsReauth（导入与挂载不要，其余要）——
+ * 两个函数分开是因为两类动作的理由不同，写在一起会让“为什么这个不要密码”看不见。
+ * 这里对 `storage.volume.*` 一律返回 false，只为在有人误用时不会多要一次密码。
+ */
+export function storageActionNeedsReauth(action: string): boolean {
+  switch (action) {
+    case STORAGE_ACTIONS.initTable:
+    case STORAGE_ACTIONS.createPartition:
+    case STORAGE_ACTIONS.deletePartition:
+    case STORAGE_ACTIONS.format:
+      return true
+    default:
+      return false
+  }
+}
+
+export const FILESYSTEM_CHOICES = ['ext4', 'xfs'] as const
+export type FilesystemChoice = (typeof FILESYSTEM_CHOICES)[number]
+
+/** ext4 的卷标上限是 16 字节，XFS 是 12 字节（CONTRACTS.md 第 6 节，按实际限制分别校验）。 */
+export const FILESYSTEM_LABEL_LIMITS: Record<FilesystemChoice, number> = {
+  ext4: 16,
+  xfs: 12,
+}
+
+/** 1 MiB：分区起点与大小都要对齐到它（PLAN.md 第 9.1 节）。 */
+export const PARTITION_ALIGN_BYTES = 1_048_576n
+
+export interface InitTableParams {
+  deviceId: string
+}
+
+export function initTableParams(input: InitTableParams): Record<string, unknown> {
+  return { device_id: input.deviceId, table_type: 'gpt' }
+}
+
+export interface CreatePartitionParams {
+  deviceId: string
+  /** 十进制字节串：由页面从“MiB 数”换算而来，不自己算位移。 */
+  startBytes: string
+  sizeBytes: string
+  name?: string
+}
+
+export function createPartitionParams(input: CreatePartitionParams): Record<string, unknown> {
+  const params: Record<string, unknown> = {
+    device_id: input.deviceId,
+    start_bytes: input.startBytes,
+    size_bytes: input.sizeBytes,
+  }
+  if (input.name !== undefined && input.name.trim() !== '') params.name = input.name.trim()
+  return params
+}
+
+export interface DeletePartitionParams {
+  deviceId: string
+}
+
+export function deletePartitionParams(input: DeletePartitionParams): Record<string, unknown> {
+  return { device_id: input.deviceId }
+}
+
+export interface FormatParams {
+  deviceId: string
+  filesystem: FilesystemChoice
+  label?: string
+}
+
+export function formatParams(input: FormatParams): Record<string, unknown> {
+  const params: Record<string, unknown> = {
+    device_id: input.deviceId,
+    filesystem: input.filesystem,
+  }
+  if (input.label !== undefined && input.label.trim() !== '') params.label = input.label.trim()
+  return params
+}
+
+// ------------------------------------------------- 字节与 MiB 的换算
+
+/**
+ * 把 MiB 数换成十进制字节串。
+ *
+ * 为什么不让用户直接填字节：分区起点/大小必须 1 MiB 对齐，让人填 1000000000 再报
+ * “不对齐”是无意义的摩擦；MiB 是唯一能填对的口径。返回**字符串**是因为字节量按
+ * CONTRACTS.md 第 1 节一律是十进制字符串（2^53 以上用 JSON number 会丢位）。
+ */
+export function mibToBytes(mib: number): string {
+  if (!Number.isInteger(mib) || mib <= 0) return '0'
+  return (BigInt(mib) * PARTITION_ALIGN_BYTES).toString()
+}
+
+/** 字节串换成 MiB（向下取整）；不是合法字节串时返回 0。 */
+export function bytesToMib(bytes: string): number {
+  if (!/^[0-9]{1,20}$/.test(bytes)) return 0
+  return Number(BigInt(bytes) / PARTITION_ALIGN_BYTES)
+}
+
+/** 一个空闲区能切出的最大整数 MiB。 */
+export function maxMibInRegion(sizeBytes: string): number {
+  return bytesToMib(sizeBytes)
+}
+
+export interface PartitionSizeCheck {
+  ok: boolean
+  /** 不合法时的原因（已经翻译成人话，可直接显示）。 */
+  reason?: string
+  sizeBytes?: string
+}
+
+/**
+ * 校验“在某个空闲区里切 sizeMib 大小的分区”。
+ *
+ * 三条都查：大于 0、不超过空闲区、1 MiB 对齐（按 MiB 输入天然满足，仍然显式验一次，
+ * 免得将来换了输入单位就漏掉）。起点用空闲区的 start_bytes——它由探针给出且已对齐。
+ */
+export function checkPartitionSize(regionSizeBytes: string, sizeMib: number): PartitionSizeCheck {
+  if (!Number.isInteger(sizeMib) || sizeMib <= 0) {
+    return { ok: false, reason: '大小必须是正整数 MiB' }
+  }
+  if (!/^[0-9]{1,20}$/.test(regionSizeBytes)) {
+    return { ok: false, reason: '空闲区大小不是合法的字节串，无法计算' }
+  }
+  const size = BigInt(mibToBytes(sizeMib))
+  if (size <= 0n) return { ok: false, reason: '大小必须是正整数 MiB' }
+  if (size % PARTITION_ALIGN_BYTES !== 0n) {
+    return { ok: false, reason: '大小必须按 1 MiB 对齐' }
+  }
+  if (size > BigInt(regionSizeBytes)) {
+    return { ok: false, reason: '超过这个空闲区的可用大小' }
+  }
+  return { ok: true, sizeBytes: size.toString() }
+}
+
+/** 分区名字的上限（CONTRACTS.md 第 6 节：可打印 ASCII、≤36 字节）。 */
+export const MAX_PARTITION_NAME_LENGTH = 36
+
+/** 分区名允许的字符：可打印 ASCII，且不含 fstab/sfdisk 会误解的引号与反斜杠。 */
+export function isValidPartitionName(name: string): boolean {
+  if (name === '') return true
+  if (name.length > MAX_PARTITION_NAME_LENGTH) return false
+  return /^[\x20-\x21\x23-\x5B\x5D-\x7E]+$/.test(name)
+}
+
+/** 卷标长度是否合法（按文件系统的实际上限，不是通用 255）。 */
+export function isValidFilesystemLabel(filesystem: FilesystemChoice, label: string): boolean {
+  return checkFilesystemLabel(filesystem, label).ok
+}
+
+/**
+ * 卷标的完整校验：上限按文件系统分别算（ext4 16 字节、XFS 12 字节），
+ * 且只允许可打印 ASCII、不含 `/`。
+ *
+ * 为什么在页面上也算一遍：超限的标签在 mkfs 那里可能 rc=0 然后被**静默截断**
+ * （P07.3 的 Q184 就是实测出来的），那种“成功了但名字短了一截”最难查。
+ * 页面提前说清楚，服务端仍然独立校验一次。
+ */
+export function checkFilesystemLabel(
+  filesystem: FilesystemChoice,
+  label: string,
+): { ok: boolean; reason?: string } {
+  if (label === '') return { ok: true }
+  // 卷标按**字节**算：ext4 与 XFS 都是按字节写进超级块的，不是按字符。
+  const bytes = new TextEncoder().encode(label)
+  const limit = FILESYSTEM_LABEL_LIMITS[filesystem]
+  if (bytes.length > limit) {
+    return { ok: false, reason: `${filesystem} 的卷标最多 ${limit} 字节，当前 ${bytes.length} 字节` }
+  }
+  for (const byte of bytes) {
+    if (byte < 0x20 || byte > 0x7e || byte === 0x2f) {
+      return { ok: false, reason: `${filesystem} 的卷标只能包含可打印 ASCII 且不能含 /` }
+    }
+  }
+  return { ok: true }
+}
+
+/** 取某台设备上某个动作的能力状态；载荷里没有这个动作时返回 undefined（不是 unsupported）。 */
+export function capabilityFor(
+  device: Pick<StorageDevice, 'capabilities'>,
+  action: string,
+): StorageCapability | undefined {
+  return device.capabilities.find((capability) => capability.action === action)
+}
+
+/**
+ * 这个动作的按钮该不该画、能不能点。
+ *
+ * 三种回答分得很清：
+ *   hidden   = 服务端说 unsupported（对整盘格式化、对分区初始化分区表），连按钮都不画；
+ *   disabled = blocked，按钮画出来但灰着，旁边写服务端给的 reason；
+ *   enabled  = available。
+ * 载荷里干脆没有这个动作时按 disabled 处理并说明“服务端没报告这个动作”——
+ * 那说明代理与前端版本不一致，不该猜成可用。
+ */
+export type CapabilityGate = 'hidden' | 'disabled' | 'enabled'
+
+export function capabilityGate(
+  device: Pick<StorageDevice, 'capabilities'>,
+  action: string,
+): { gate: CapabilityGate; reason: string | null } {
+  const capability = capabilityFor(device, action)
+  if (capability === undefined) {
+    return { gate: 'disabled', reason: '服务端没有报告这个动作（代理与页面版本可能不一致）' }
+  }
+  if (capability.state === 'unsupported') return { gate: 'hidden', reason: capability.reason ?? null }
+  if (capability.state === 'blocked') return { gate: 'disabled', reason: capability.reason ?? '当前状态下不允许' }
+  return { gate: 'enabled', reason: null }
+}

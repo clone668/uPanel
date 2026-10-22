@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: uPanel API
-  version: 0.0.0-p06.3
+  version: 0.0.0-p07.5
   summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
   description: |
     uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。
@@ -23,7 +23,7 @@ info:
     name: Proprietary
     identifier: LicenseRef-Proprietary
 x-upanel-contract-status:
-  stage: P06.3
+  stage: P07.5
   implemented_paths:
     - get /api/v1/health/live
     - head /api/v1/health/live
@@ -40,6 +40,9 @@ x-upanel-contract-status:
     - get /api/v1/storage/topology
     - get /api/v1/storage/devices
     - get /api/v1/storage/devices/{id}
+    - get /api/v1/storage/volumes
+    - get /api/v1/storage/volumes/{id}
+    - get /api/v1/storage/volumes/{id}/blockers
     - post /api/v1/operations/preflight
     - post /api/v1/jobs
     - get /api/v1/jobs
@@ -801,6 +804,164 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/v1/storage/volumes:
+    get:
+      operationId: listStorageVolumes
+      summary: 受管理卷列表（含现场观测状态与容量）
+      description: |
+        CONTRACTS.md 第 6.5 节（P07.4 起），权限 V。返回代理当前登记的全部受管理卷。
+
+        observed_state 是代理**现场**读超级块与挂载表之后算出来的，不是把 desired_state
+        抄一遍：两者不一致（盘没插、UUID 变了、挂在别处）恰恰是页面要提醒的事。
+
+        capacity 只在真正挂载且容量读取成功时存在，否则是 null——不能拿 0 字节冒充“没读到”。
+
+        dependencies 在 P07.4/P07.5 恒为空数组（应用的共享与备份模块尚未实现），
+        空数组的意思是“没有依赖”，不是“没查”。
+
+        排序按 mount_path 稳定输出，便于页面与验收脚本做 diff。
+      tags: [storage]
+      responses:
+        '200':
+          description: 受管理卷列表；没有卷时 volumes 是 `[]`，不是 null。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/StorageVolumeList'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '503':
+          description: 代理不可用（未配置 socket 或连接失败）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/storage/volumes/{id}:
+    get:
+      operationId: getStorageVolume
+      summary: 单个受管理卷
+      description: |
+        CONTRACTS.md 第 6.5 节（P07.4 起），权限 V。
+
+        id 的形状是 `vol_` 加 32 位小写十六进制；形状不对在本层就返回 400，
+        不透传任意字符串给代理（它会进日志与审计）。不存在的卷是 404，不是空对象。
+      tags: [storage]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 卷标识，形如 vol_ac1ceea48853ce6d068878632d603a14。
+          schema:
+            type: string
+            pattern: '^vol_[0-9a-f]{32}$'
+      responses:
+        '200':
+          description: 卷详情。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/StorageVolume'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: 代理不可用（未配置 socket 或连接失败）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/storage/volumes/{id}/blockers:
+    get:
+      operationId: getStorageVolumeBlockers
+      summary: 这个卷现在为什么卸载不了（占用详情）
+      description: |
+        CONTRACTS.md 第 6.5 节（P07.4 起），**admin**（占用里有进程 PID 与挂载点，
+        比卷详情更细）。
+
+        busy 是结论，只有真的有人打开着这块设备或这个挂载点上的文件、被 dm/md 消费、
+        是活动交换区，或面板侧有应用/共享/备份依赖时才为真。**挂着但空闲不算忙**——
+        那种卷能干净卸载，预检也会放行，两处口径一致。
+
+        两种占用都要查：umount 撞的 EBUSY 来自“文件系统上还有打开的文件”，
+        而 dd/mkfs 这类直接开块设备的进程不会让 umount 失败但同样意味着别动它。
+
+        查不到就报“查不到”：读不到 /proc、扫描出错或没配占用检查器时 busy=true，
+        绝不返回空列表冒充“没人用”。
+      tags: [storage]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 卷标识，形如 vol_ac1ceea48853ce6d068878632d603a14。
+          schema:
+            type: string
+            pattern: '^vol_[0-9a-f]{32}$'
+      responses:
+        '200':
+          description: 占用详情与检查时间。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/StorageVolumeBlockers'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: 代理不可用（未配置 socket 或连接失败）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/services:
     get:
       operationId: listServices
@@ -1299,6 +1460,12 @@ paths:
           description: |
             缺少或不合法的 Idempotency-Key、请求体不是 application/json、含未知字段、
             不是合法 JSON（VALIDATION_ERROR）。
+
+            另有一类**容易误解**的 400：预检当时 allowed=true，提交时代理重新判决为不允许
+            （例如 occupier 恰好在这几百毫秒里出现），代理回 409 VALIDATION_ERROR
+            “当前状态不允许执行：<阻塞码>”，而 VALIDATION_ERROR 的对外状态码是 400
+            （CONTRACTS.md 第 1 节、DECISIONS Q200）。这不是“请求写错了”，是状态变了；
+            这次的提交已经落库为 failed/rejected 的任务行，重新预检即可。
           headers:
             X-Request-ID:
               $ref: '#/components/headers/RequestId'
@@ -3854,7 +4021,12 @@ components:
           $ref: '#/components/schemas/StorageHealth'
         capabilities:
           type: array
-          description: 这台设备当前**可以**执行的动作。P04.2 起恒为空。
+          description: |
+            这台设备当前**可以**执行的动作（CONTRACTS.md 第 6.1 节）。P04.2 时恒为空；
+            P07.1 起由判决层投影得出：只有当前这块设备真的能做的动作才是 available，
+            其余是 blocked（被保护/已挂载/被占用/身份不可靠）或 unsupported（类型无关，
+            例如对整盘格式化、对分区初始化分区表），两者都带 reason。
+            这份投影有 30 秒缓存，只用于界面显示按钮状态；**放行判断永远在预检**。
           items:
             $ref: '#/components/schemas/StorageCapability'
         protection:
@@ -3878,6 +4050,177 @@ components:
             - type: 'null'
         collected_at:
           $ref: '#/components/schemas/Rfc3339Utc'
+
+    StorageVolume:
+      type: object
+      additionalProperties: false
+      description: |
+        一个受管理卷（CONTRACTS.md 第 6 节与第 6.5 节，P07.4 起）。
+
+        它把三样东西绑在一起：代理库里的登记记录、/etc/fstab 受管块里的那一行、
+        挂载点 /srv/upanel/volumes/<slug>。三者由五个动作维护，任何一个对不上都
+        由 observed_state 表达，而不是猜着修。
+
+        version 是乐观并发令牌：页面提交挂载/卸载/配置/退出管理时必须带回它，
+        与服务端当前记录不一致时判 VOLUME_VERSION_MISMATCH（409），
+        而不是“按请求里的版本执行”（那等于覆盖别人刚做的变更）。
+      required: [id, version, display_name, slug, device_id, filesystem_uuid,
+                 filesystem_type, mount_path, automount, read_only, nodev, nosuid,
+                 desired_state, observed_state, capacity, dependencies, updated_at]
+      properties:
+        id:
+          type: string
+          pattern: '^vol_[0-9a-f]{32}$'
+        version:
+          type: string
+          pattern: '^[0-9]{1,20}$'
+          description: 单调递增的十进制计数器，作为乐观并发令牌。
+        display_name:
+          type: string
+          maxLength: 64
+          description: 只给人看，不进 fstab。
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+          maxLength: 32
+          description: 决定挂载点 <volume_root>/<slug>；挂载点不由调用方指定。
+        device_id:
+          type: string
+          description: 内核设备名（sdb1）。它是**会变**的线索，不是身份。
+        filesystem_uuid:
+          type: string
+          description: 挂载与 fstab 条目都以它为准，不以设备路径为准。
+        filesystem_type:
+          type: string
+          enum: [ext4, xfs]
+        mount_path:
+          type: string
+          description: 由 slug 派生的固定挂载点（/srv/upanel/volumes/<slug>）。
+        automount:
+          type: boolean
+          description: 为真时 fstab 条目不写 noauto，开机自动挂载。
+        read_only:
+          type: boolean
+        nodev:
+          type: boolean
+        nosuid:
+          type: boolean
+        desired_state:
+          type: string
+          enum: [mounted, unmounted]
+        observed_state:
+          type: string
+          enum: [mounted, unmounted, missing, mismatch, error, unknown]
+          description: |
+            代理现场观测到的状态，取值与 CONTRACTS.md 第 6 节的闭集一致。
+            “文件系统挂着但不在面板的挂载点上”仍是 mounted（区别在内部布尔，判决据此
+            拒绝），不新增取值。mismatch 表示盘上的 UUID 与登记不符：依赖它的东西一律拒绝。
+        capacity:
+          oneOf:
+            - $ref: '#/components/schemas/StorageCapacity'
+            - type: 'null'
+          description: 只在真的挂载且读取成功时存在；null 不是“0 字节可用”。
+        dependencies:
+          type: array
+          description: 依赖这个卷的应用/共享/备份摘要；P07.5 时三块尚未实现，恒为 []。
+          items:
+            $ref: '#/components/schemas/StorageVolumeDependency'
+        observed_error:
+          type: string
+          maxLength: 500
+          description: 说明 observed_state 为什么不是 mounted/unmounted；正常时不出现。
+        updated_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
+    StorageVolumeDependency:
+      type: object
+      additionalProperties: false
+      required: [kind, id, name]
+      properties:
+        kind:
+          type: string
+          enum: [app, share, backup]
+        id:
+          type: string
+        name:
+          type: string
+
+    StorageVolumeList:
+      type: object
+      additionalProperties: false
+      description: GET /storage/volumes 的响应体；对象包一层，便于以后加附注而不改外形。
+      required: [volumes]
+      properties:
+        volumes:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorageVolume'
+
+    StorageVolumeBlockers:
+      type: object
+      additionalProperties: false
+      description: |
+        GET /storage/volumes/{id}/blockers 的响应体（admin）：这个卷现在为什么卸载不了。
+
+        busy 是**结论**，不是“有没有挂载”：挂着但空闲的卷能干净卸载，busy=false。
+      required: [volume_id, mounted, mounts, processes, holders, swap_active,
+                 apps, shares, backups, busy, checked_at]
+      properties:
+        volume_id:
+          type: string
+          pattern: '^vol_[0-9a-f]{32}$'
+        mounted:
+          type: boolean
+          description: 这块设备现在挂着没有；没挂的卷没有“繁忙”可言。
+        mounts:
+          type: array
+          description: 这块设备当前的挂载点（可能不止一个）。
+          items:
+            type: string
+        processes:
+          type: array
+          description: 打开着这块设备或这个挂载点上任何文件的进程，按 pid 升序去重。
+          items:
+            $ref: '#/components/schemas/StorageBusyProcess'
+        holders:
+          type: array
+          description: 依赖这台设备的 dm/md 设备 id。
+          items:
+            type: string
+        swap_active:
+          type: boolean
+        apps:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorageVolumeDependency'
+        shares:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorageVolumeDependency'
+        backups:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorageVolumeDependency'
+        busy:
+          type: boolean
+          description: |
+            现在卸载会被谁挡住。只有在真的有人开着文件、设备被 dm/md 消费、是活动交换区，
+            或面板侧有应用/共享/备份依赖时为真。查不到占用时也是 true（宁可拒绝）。
+        checked_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
+    StorageBusyProcess:
+      type: object
+      additionalProperties: false
+      required: [pid, comm]
+      properties:
+        pid:
+          type: string
+          pattern: '^[0-9]{1,10}$'
+        comm:
+          type: string
+          maxLength: 64
+          description: /proc/<pid>/comm；读不到时是 "?"。
 
     StorageProtection:
       type: object

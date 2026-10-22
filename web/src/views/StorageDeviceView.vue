@@ -14,9 +14,11 @@ import {
   fetchStorageDevice,
   type StorageDeviceDetail,
 } from '@/api/storage'
+import { fetchVolumes, type Volume } from '@/api/volumes'
 import ApiErrorPanel from '@/components/ApiErrorPanel.vue'
 import DeviceDetailPanel from '@/components/DeviceDetailPanel.vue'
 import StatePanel from '@/components/StatePanel.vue'
+import { useSessionStore } from '@/stores/session'
 import { createPoller, type Poller } from '@/utils/polling'
 import { apiPanelState, retryablePanelState } from '@/utils/viewstate'
 
@@ -24,6 +26,7 @@ type Phase = 'loading' | 'ready' | 'missing' | 'error'
 
 const DEFAULT_INTERVAL_MS = 5000
 
+const session = useSessionStore()
 const route = useRoute()
 const deviceId = computed(() => {
   const raw = route.params.id
@@ -33,6 +36,22 @@ const deviceId = computed(() => {
 const phase = ref<Phase>('loading')
 const error = ref<ApiError | null>(null)
 const detail = ref<StorageDeviceDetail | null>(null)
+const volumes = ref<Volume[]>([])
+
+// 这台设备上登记过的受管理挂载点。用来在“重新分区/格式化”前提醒先退出管理。
+// 卷列表读失败不影响设备详情——它只是提示，不是判断依据。
+const volumeMountPaths = computed(() =>
+  volumes.value.filter((volume) => volume.device_id === deviceId.value).map((volume) => volume.mount_path),
+)
+
+async function loadVolumes(): Promise<void> {
+  try {
+    const result = await fetchVolumes()
+    volumes.value = result.data.volumes
+  } catch {
+    volumes.value = []
+  }
+}
 
 const panelState = computed(() => (error.value ? apiPanelState(error.value) : null))
 
@@ -66,13 +85,22 @@ const poller: Poller = createPoller(load, {
 
 watch(deviceId, () => {
   detail.value = null
+  volumes.value = []
   phase.value = 'loading'
   poller.trigger()
+  void loadVolumes()
 })
 
 onMounted(() => {
   poller.start()
+  void loadVolumes()
 })
+
+function onChanged(): void {
+  // 动作刚跑完：设备拓扑与受管卷都可能变了，两路都重读，不拿旧快照继续显示。
+  poller.trigger()
+  void loadVolumes()
+}
 
 onBeforeUnmount(() => {
   poller.stop()
@@ -121,6 +149,9 @@ onBeforeUnmount(() => {
         :edges="detail.edges"
         :interval-ms="detail.interval_ms"
         :collected-at="detail.collected_at"
+        :volume-mount-paths="volumeMountPaths"
+        :can-act="session.isAdmin"
+        @changed="onChanged"
       />
     </template>
   </section>

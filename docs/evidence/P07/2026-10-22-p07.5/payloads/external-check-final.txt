@@ -1,0 +1,14 @@
+== 存储外部独立检查 ==
+INFO fstab: /etc/fstab
+INFO 时间: 2026-10-22T08:58:25Z
+INFO 托管块标记: BEGIN=1 END=1
+PASS 托管块结构完整（是唯一一块，BEGIN/END 配对）
+INFO 托管块内条目: 0
+PASS 托管块内每一行都是 6 列、UUID= 作首列、挂载点是绝对路径、dump 列为 0
+PASS 托管块内没有重复的挂载点
+INFO fstab 备份目录: /var/lib/upanel-agent/fstab-backups（5 份备份）
+PASS 最新的备份权限是 0600（20261022T085806Z-8dd08f92.fstab）
+INFO 最新备份里已经有托管块（说明它是块写入之后的状态，回滚它会保住那些条目）
+== 汇总 ==
+INFO 断言执行 5 项，跳过 0 项
+RESULT 一致：这台机器的 fstab 托管块、挂载事实与设备身份能互相对上
