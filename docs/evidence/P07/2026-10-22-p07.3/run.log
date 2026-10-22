@@ -1,0 +1,252 @@
+== 0. 环境与安全守卫 ==
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  依赖命令可用 python3
+PASS  依赖命令可用 curl
+PASS  依赖命令可用 runuser
+PASS  依赖命令可用 blockdev
+PASS  依赖命令可用 sha256sum
+PASS  依赖命令可用 findmnt
+PASS  依赖命令可用 lsblk
+PASS  依赖命令可用 sgdisk
+PASS  依赖命令可用 blkid
+PASS  依赖命令可用 wipefs
+PASS  依赖命令可用 udevadm
+PASS  依赖命令可用 dd
+PASS  依赖命令可用 ss
+PASS  写原语依赖存在且可执行 /usr/sbin/sfdisk
+PASS  写原语依赖存在且可执行 /usr/bin/udevadm
+PASS  写原语依赖存在且可执行 /usr/sbin/mkfs.ext4
+PASS  写原语依赖存在且可执行 /usr/sbin/mkfs.xfs
+      sfdisk: sfdisk from util-linux 2.39.3
+      mkfs.ext4: mke2fs 1.47.0 (5-Feb-2023)
+      mkfs.xfs: mkfs.xfs version 6.6.0
+PASS  Web 账号 upanel-web 存在
+PASS  Web 组 upanel-web 存在
+PASS  承载 / 的设备是 /dev/sda1（整盘 sda）
+      根设备链路： sda1 └─sda  sda1  
+PASS  一次性盘 /dev/sdb 存在
+      /dev/sdb：8589934592 字节，无挂载、无 swap
+PASS  一次性盘 /dev/sdc 存在
+      /dev/sdc：4294967296 字节，无挂载、无 swap
+PASS  一次性盘 /dev/sdd 存在
+      /dev/sdd：4294967296 字节，无挂载、无 swap
+PASS  三块一次性盘全部清成空白（wipefs + zap-all + 首尾 4 MiB 归零）
+
+== 1. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19473 启动
+PASS  监听 19473 的 Web 进程不是 root（pid=572416 uid=999）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+
+== 2. 能力：格式化现在是可执行动作 ==
+PASS  capabilities 里有 storage.partition_table.initialize
+PASS  capabilities 里有 storage.partition.create
+PASS  capabilities 里有 storage.partition.delete
+PASS  capabilities 里有 storage.filesystem.format
+      代理登记的动作数：15
+
+== 3. 夹具：GPT + 三个分区（用 sgdisk，不占用产品动作） ==
+PASS  夹具分区 /dev/sdb1 存在
+PASS  夹具分区 /dev/sdc1 存在
+PASS  夹具分区 /dev/sdd1 存在
+PASS  夹具：sdb1 的内核大小
+PASS  夹具：sdc1 的内核大小
+PASS  夹具：sdd1 的内核大小
+PASS  夹具：sdb1 上还没有文件系统
+PASS  快照反映了操作之后的状态（sdb）
+PASS  快照反映了操作之后的状态（sdc）
+PASS  快照反映了操作之后的状态（sdd）
+
+== 4. ext4 格式化：标签、两源核验、独立工具复核 ==
+PASS  ext4 预检状态码
+PASS  ext4 预检允许
+PASS  格式化的锁是整盘
+PASS  格式化要求再认证
+PASS  短语首词是 FORMAT
+PASS  影响里有数据丢失
+      目标：sdb1（1.0 GiB，sdb 上的分区）
+
+== 5. 确认短语：错的短语被拒，且这份预检就此作废 ==
+PASS  再认证
+PASS  错短语提交被拒（400）
+PASS  错短语的错误码
+PASS  错短语留下一条被拒记录（不是静默丢弃）
+PASS  被拒的那条停在 failed/rejected
+PASS  错短语之后分区上还是空白（一个字节都没写）
+PASS  同一份预检不能再用（哪怕短语是对的）
+PASS  再用时被判预检已作废
+PASS  作废之后分区上还是空白
+PASS  重新预检（ext4）
+PASS  重新预检允许
+PASS  再认证
+PASS  ext4 任务终态
+PASS  任务状态 succeeded
+PASS  结果是 verified
+PASS  结果带 verified_at
+PASS  observed_state 的文件系统
+PASS  observed_state 的标签
+PASS  observed_state 的设备 id
+PASS  observed_state 说 udev 已稳定
+PASS  observed_state 说节点在
+PASS  observed_state 的签名分类器结论
+PASS  observed_state 的块大小
+PASS  observed_state 的容量等于分区大小
+PASS  observed_state 的分区大小
+PASS  核验走了两条读路径
+PASS  data 里的文件系统
+PASS  data 里的标签
+PASS  data 里的 previous_kind 是空（原来没有文件系统）
+PASS  argv 里的程序是 /usr/sbin/mkfs.ext4
+PASS  argv 里没有 -F
+PASS  argv 里的标签是单独一项
+      实际 argv：/usr/sbin/mkfs.ext4 -L data-vol /dev/sdb1
+PASS  blkid 认出的类型是 ext4
+PASS  blkid 读到的标签
+PASS  blkid 读到的 UUID 与任务观察值一致
+PASS  blkid 读到的块大小
+PASS  格式化真的写了盘（分区首 4 MiB 哈希变了）
+
+== 6. 同一个分区改成 XFS：UUID 必须换，-f 在 argv 里 ==
+PASS  xfs 预检状态码
+PASS  xfs 预检允许
+PASS  xfs 预检的告警里有 EXISTING_DATA_WILL_BE_LOST
+PASS  再认证
+PASS  xfs 任务终态
+PASS  结果是 verified
+PASS  observed_state 的文件系统
+PASS  observed_state 的标签
+PASS  observed_state 的签名分类器结论
+PASS  data 里的 previous_kind 是 ext4
+PASS  data 里的 previous_uuid 是上一份 UUID
+PASS  argv 里的程序是 /usr/sbin/mkfs.xfs
+PASS  argv 里带 -f
+      实际 argv：/usr/sbin/mkfs.xfs -f -L xfsvol /dev/sdb1
+PASS  文件系统 UUID 换了（不是“命令说成功、盘没变”）
+PASS  blkid 认出的类型是 xfs
+PASS  blkid 读到的标签
+PASS  blkid 读到的 UUID 与任务观察值一致
+PASS  改成 xfs 真的写了盘
+
+== 7. 标签上限：超限在**预检之前**就被拒（400），既不落任务也不碰盘 ==
+PASS  ext4 17 字节标签的预检被拒（400）
+PASS  ext4 超限的错误码是 VALIDATION_ERROR
+PASS  理由里说明了 ext4 的字节上限
+PASS  理由里说了标签
+PASS  超限的请求没有生成预检
+PASS  xfs 13 字节标签的预检被拒（400）
+PASS  xfs 超限的错误码是 VALIDATION_ERROR
+PASS  理由里说明了 xfs 的字节上限
+PASS  超限的请求没有生成预检（xfs）
+PASS  两次被拒都没有留下任务
+PASS  两次被拒之后分区上的文件系统没变
+PASS  UUID 也没变
+
+== 8. 禁止取消：mkfs 跑着时取消 → 409，任务不被标成 canceled ==
+PASS  快照反映了操作之后的状态（sdb）
+PASS  ext4 预检（取消用例）
+PASS  再认证
+PASS  提交被受理（202）
+PASS  冻住了代理正在跑的 mkfs（pid=573502）
+      冻住时进程名：mkfs.ext4 T
+      取消前的任务状态：running / executing
+PASS  取消请求被拒（409）
+PASS  拒收的错误码是 VALIDATION_ERROR
+PASS  理由说明这个动作不能取消
+PASS  任务没有被标成 canceled
+PASS  任务的 cancellable 是 false
+PASS  解冻后任务终态
+PASS  解冻后结果是 verified
+PASS  解冻后文件系统是 ext4
+PASS  解冻后 UUID 与之前那次 ext4 不同
+
+== 9. 错误退出：预检允许、mkfs 以非 0 结束 ==
+PASS  小分区 xfs 预检状态码
+PASS  小分区 xfs 预检允许（错误是命令层的，不是判决层的）
+PASS  再认证
+PASS  小分区 xfs 任务终态
+PASS  任务状态是 failed
+PASS  错误码是 COMMAND_FAILED
+PASS  失败消息带退出码
+PASS  失败消息带 mkfs 的真实输出
+PASS  失败消息带“盘上现在是”（读回的实际状态）
+PASS  失败消息提醒先核实再重新提交
+PASS  mkfs 失败后分区上什么都没写
+PASS  mkfs 失败后分区上仍然没有文件系统
+
+== 10. 执行前二次身份检查：预检之后有人动了盘 ==
+PASS  快照反映了操作之后的状态（sdb）
+PASS  10a 起点预检
+PASS  再认证（10a 起点）
+PASS  10a 起点任务
+PASS  10a 起点：sdb1 上是 ext4
+PASS  快照反映了操作之后的状态（sdb）
+PASS  预检（待被作废）
+PASS  这条预检当时允许
+      预检绑定的身份指纹：sha256:4894c019d170d44f2913093eb4dc7ac2cc80338b7080671836ffdf3f9571733f
+PASS  预检（待被换位）
+PASS  夹具：sdb 上多出一个 sdb2
+PASS  快照反映了操作之后的状态（sdb）
+      新建分区之后的快照版本：sha256:cf5140458f4408cc8f5ab373646e0e8612a5dd3ba098ce2463e0117ddf1c4a14（之前是 sha256:efee4d6b832ec219b62619f856eb26d9657949edc49ebec5471dd367146418a3）
+PASS  盘的结构变了，快照版本也跟着变（预检该失效的原因）
+PASS  再认证
+PASS  盘的结构变了之后提交被拒（409）
+PASS  拒收理由指向预检过期
+PASS  被拒的提交留下一条失败任务
+PASS  被拒之后目标分区上没多写一个字节
+PASS  被拒之后目标分区上仍然是 ext4
+PASS  被拒之后目标分区的 UUID 没变
+PASS  夹具：sdc1 换到新起点后仍然是 /dev/sdc1
+      新起点扇区：4096 (at 2.0 MiB)（预检时是 2048）
+PASS  快照反映了操作之后的状态（sdc）
+PASS  分区被换位之后提交被拒（409）
+PASS  拒收理由指向预检过期或身份变化（DEVICE_IDENTITY_CHANGED）
+PASS  被拒之后新位置的分区上没多写一个字节
+PASS  被拒之后新位置的分区上仍然没有文件系统
+NOT RUN  DEVICE_IDENTITY_CHANGED 的内核/盘不一致那一路：要在提交前的一瞬制造内核与盘上条目的不一致，属真实竞态；单测 TestFormatRefusesPartitionThatMoved 覆盖
+
+== 11. 进程中断：mkfs 跑着时代理被 SIGKILL ==
+PASS  快照反映了操作之后的状态（sdd）
+PASS  中断用例的预检
+PASS  再认证
+PASS  提交被受理（202）
+PASS  冻住了代理正在跑的 mkfs（pid=574309）
+PASS  代理被 SIGKILL（模拟进程中断）
+PASS  代理重启并重新创建 socket
+PASS  任务终态是 interrupted
+PASS  错误码是 OPERATION_INTERRUPTED
+PASS  错误说明实际状态未知
+PASS  中断没有引出自动重跑（任务数不变）
+PASS  中断之后没有第二条针对同一分区的成功任务
+
+== 12. 回归与日志卫生 ==
+PASS  存储拓扑仍可读
+PASS  拓扑里设备数 > 0
+PASS  设备详情 200
+PASS  未知设备 404
+PASS  任务列表仍可读
+PASS  没有非终态任务
+PASS  Web 日志里没有 mkfs/blkid
+PASS  日志里没有明文口令 agent.log
+PASS  日志里没有明文口令 web.log
+
+== 13. 收尾：擦掉夹具 ==
+PASS  收尾后一次性盘上没有残留分区
+PASS  收尾后 /dev/sdb1 上没有文件系统
+PASS  收尾后 /dev/sdc1 上没有文件系统
+PASS  收尾后 /dev/sdd1 上没有文件系统
+PASS  快照反映了操作之后的状态（sdb）
+PASS  不存在的设备：预检不是 500
+PASS  不存在的设备：不允许执行
+PASS  不存在的设备：阻塞码是 DEVICE_NOT_FOUND
+PASS  不存在的设备：拒绝的理由说得清问的是谁
+PASS  不存在的设备：不编造身份指纹
+      擦盘之后对 sdb1 的预检（记录项，不当作断言）：allowed=False blockers=DEVICE_NOT_FOUND
+
+== 汇总 ==
+PASS 204 / FAIL 0 / NOT RUN 1

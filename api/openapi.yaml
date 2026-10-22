@@ -3086,7 +3086,10 @@ components:
         identity_fingerprint:
           type: string
           maxLength: 128
-          description: 目标身份指纹；执行时若不一致会以 DEVICE_IDENTITY_CHANGED 或 PREFLIGHT_STALE 拒绝。
+          description: |
+            目标身份指纹；执行时若不一致会以 DEVICE_IDENTITY_CHANGED 或 PREFLIGHT_STALE 拒绝。
+            allowed=false 时允许为空：目标已经不存在（例如 DEVICE_NOT_FOUND）就没有可复核的
+            身份，这时不编造指纹，界面按 blockers 说明拒绝原因。
 
     PreflightNotice:
       type: object

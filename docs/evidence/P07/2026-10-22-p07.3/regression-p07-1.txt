@@ -1,0 +1,222 @@
+== 0. 环境与安全守卫 ==
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  依赖命令可用 python3
+PASS  依赖命令可用 curl
+PASS  依赖命令可用 runuser
+PASS  依赖命令可用 blockdev
+PASS  依赖命令可用 sha256sum
+PASS  依赖命令可用 findmnt
+PASS  依赖命令可用 lsblk
+PASS  依赖命令可用 sgdisk
+PASS  依赖命令可用 blkid
+PASS  依赖命令可用 wipefs
+PASS  依赖命令可用 mkswap
+PASS  依赖命令可用 swapon
+PASS  依赖命令可用 swapoff
+PASS  依赖命令可用 dmsetup
+PASS  依赖命令可用 mountpoint
+PASS  依赖命令可用 udevadm
+PASS  依赖命令可用 dd
+PASS  Web 账号 upanel-web 存在
+PASS  Web 组 upanel-web 存在
+PASS  承载 / 的设备是 /dev/sda1（整盘 sda）
+      根设备链路： sda1 └─sda  sda1  
+PASS  一次性盘 /dev/sdb 存在
+      /dev/sdb：8589934592 字节，无挂载、无 swap、无 dm 引用
+PASS  一次性盘 /dev/sdc 存在
+      /dev/sdc：4294967296 字节，无挂载、无 swap、无 dm 引用
+PASS  一次性盘 /dev/sdd 存在
+      /dev/sdd：4294967296 字节，无挂载、无 swap、无 dm 引用
+PASS  三块一次性盘全部清成空白（wipefs + zap-all + 首尾 4 MiB 归零）
+
+== 1. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19471 启动
+PASS  监听 19471 的 Web 进程不是 root（pid=577210 uid=999）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+PASS  创建 viewer 账号
+PASS  viewer 登录
+
+== 2. 能力真实性：预检入口齐全，supported_actions 里没有计划外的名字 ==
+PASS  supported_actions 里的 storage.* 都在四个固定动作之内
+PASS  supported_actions 没有重复项
+      代理登记的可执行存储动作：['storage.filesystem.format', 'storage.partition.create', 'storage.partition.delete', 'storage.partition_table.initialize']
+PASS  还没有执行器的格式化也能预检（不是未登记动作）
+PASS  空白盘能力项数
+PASS  空白盘能力动作顺序
+PASS  空白盘初始化 = available
+PASS  空白盘建分区 = blocked（还没有 GPT）
+PASS  空白盘删除分区 = unsupported
+PASS  空白盘整盘格式化 = unsupported
+PASS  空白盘系统盘保护为 false
+PASS  系统盘初始化 = blocked
+PASS  系统盘保护为 true
+PASS  系统盘能力理由里说明是系统数据
+
+== 3. 系统盘与它的分区：一律拒绝 ==
+PASS  系统盘初始化的预检状态码
+PASS  系统盘初始化 allowed
+PASS  系统盘初始化的阻塞码
+PASS  系统盘初始化的理由说清承载系统数据
+PASS  系统盘初始化的锁是整盘
+PASS  根分区格式化的预检状态码
+PASS  根分区格式化 allowed
+PASS  根分区格式化的阻塞码
+PASS  根分区格式化的锁仍是整盘
+PASS  根分区删除的预检状态码
+PASS  根分区删除 allowed
+PASS  根分区删除的阻塞码
+PASS  同盘分区 sda1 的删除被保护
+PASS  同盘分区 sda14 的删除被保护
+PASS  同盘分区 sda15 的删除被保护
+PASS  同盘分区 sda16 的删除被保护
+PASS  系统盘上一共断言了 4 个分区的保护
+
+== 4. 空白盘初始化：允许、影响、整盘锁、短语 ==
+PASS  空白盘初始化的预检状态码
+PASS  空白盘初始化 allowed
+PASS  空白盘初始化没有阻塞项
+PASS  空白盘初始化的锁
+PASS  空白盘初始化的影响
+PASS  影响里写明未检测到签名不代表没有数据
+PASS  影响里写明覆盖分区元数据
+PASS  空白盘初始化要求再认证
+PASS  空白盘初始化不可取消
+PASS  短语首词是 INIT
+PASS  预检绑定了非空身份指纹
+      目标：sdb（8.0 GiB，QEMU HARDDISK）
+      指纹：sha256:fa27ad08fcf5604ce67763b4560cce16a843a91e25800c014f9040c96cb9a7d1
+PASS  允许的预检没有写盘（首尾 4 MiB 哈希不变）
+
+== 5. 提交：未再认证 403；再认证后四个存储动作都已可执行 ==
+PASS  未再认证就提交 → 403
+PASS  未再认证的错误码
+PASS  再认证拒绝没有留下任务
+PASS  再认证拒绝没有写盘
+PASS  再认证
+PASS  四个存储动作都已登记为可执行
+NOT RUN  过门之后仍然 501（动作没有执行器）：P07.3 起四个存储动作都有执行器，真机上不再存在这种现场；单测 TestStorageSubmitWithoutExecutorIs501 覆盖（自造一个只有 Plan 的动作）
+PASS  没有非终态任务（不留永远跑不起来的排队）
+PASS  快照反映了现场（sdd，采集于夹具之后）
+
+== 6. 有分区表的盘：初始化拒绝、建分区的对齐与越界 ==
+PASS  快照反映了现场（sdb，采集于夹具之后）
+PASS  有 GPT 时初始化 = blocked
+PASS  有 GPT 时建分区 = available
+PASS  有 GPT 时初始化预检状态码
+PASS  已有分区表的阻塞码
+PASS  已有分区表时 allowed
+PASS  读到最大的空闲区（起点 537919488，大小 8051998208）
+PASS  合法区间 allowed
+PASS  合法区间没有阻塞项
+PASS  起点没对齐的阻塞码
+PASS  小于最小分区的阻塞码
+PASS  超出容量的阻塞码
+PASS  落在分区表区的阻塞码
+PASS  落在分区表区 allowed
+PASS  分区名过长在参数层被拒
+PASS  分区名过长的错误码
+PASS  字节数写成数字被拒
+PASS  表类型 mbr 在参数层被拒
+PASS  快照反映了现场（sdb1，采集于夹具之后）
+PASS  空白分区删除 allowed
+PASS  空白分区删除的锁是整盘
+PASS  空白分区格式化 allowed
+PASS  ext4 13 字节标签可以
+PASS  xfs 13 字节标签被拒
+PASS  支持之外的文件系统被拒
+PASS  设备 id 带路径分隔符被拒
+
+== 7. 签名：首扇区全零的整盘 ext4，与写在第一页末 10 字节的 swap ==
+PASS  快照反映了现场（sdc，采集于夹具之后）
+PASS  整盘 ext4 的初始化预检状态码
+PASS  整盘 ext4 的初始化 allowed
+PASS  整盘 ext4 的阻塞码
+PASS  理由里点出 ext 系列签名
+PASS  整盘 ext4 时初始化能力 = blocked
+PASS  快照反映了现场（sdd，采集于夹具之后）
+PASS  整盘 swap 的初始化预检状态码
+PASS  整盘 swap 的初始化 allowed
+PASS  整盘 swap 的阻塞码
+PASS  理由里点出交换区签名
+PASS  快照反映了现场（sdc，采集于夹具之后）
+PASS  LUKS 头的初始化 allowed
+PASS  LUKS 头的阻塞码
+PASS  理由里点出 LUKS
+
+== 8. 四类占用：挂载、活动交换区、dm holders、进程打开 ==
+PASS  快照反映了现场（sdd，采集于夹具之后）
+PASS  快照反映了现场（sdd1，采集于夹具之后）
+PASS  快照反映了现场（sdd1，采集于夹具之后）
+PASS  挂载中的分区格式化 allowed
+PASS  挂载中的阻塞码
+PASS  阻塞理由带上挂载点
+PASS  卸载 /var/tmp/upanel-accept-p07-1/mnt
+PASS  快照反映了现场（sdd1，采集于夹具之后）
+PASS  卸载后格式化 allowed
+PASS  快照反映了现场（sdd2，采集于夹具之后）
+PASS  活动交换区的删除 allowed
+PASS  活动交换区的阻塞码
+PASS  快照反映了现场（sdd2，采集于夹具之后）
+PASS  swapoff 之后删除 allowed
+PASS  快照反映了现场（sdd1，采集于夹具之后）
+PASS  有 dm holder 的分区格式化 allowed
+PASS  有 dm holder 的阻塞码
+PASS  快照反映了现场（sdd1，采集于夹具之后）
+PASS  夹具进程已打开 /dev/sdd1（pid=578649）
+PASS  被进程打开的分区格式化 allowed
+PASS  被进程打开时的阻塞码
+PASS  阻塞理由带上 pid
+PASS  进程退出后格式化 allowed
+PASS  夹具进程已打开整盘 /dev/sdd（pid=578677）
+PASS  整盘被打开时对其分区的格式化 allowed
+PASS  整盘占用传递到分区的阻塞码
+PASS  整盘被打开时建分区 allowed
+PASS  整盘被打开时建分区的阻塞码
+
+== 9. 设备身份：分区指纹由整盘身份 + 起点决定 ==
+PASS  分区格式化预检状态码
+PASS  分区身份指纹是 sha256: 形态
+PASS  同一台设备两次预检的身份指纹一致
+PASS  同盘不同分区的身份指纹不同
+PASS  快照反映了现场（sdd，采集于夹具之后）
+PASS  拓扑变化后分区身份指纹不变
+      预检响应不向前端暴露 state_version（内部绑定信息），这里只能验证身份稳定；
+NOT RUN  执行前复核（PREFLIGHT_STALE）：本脚本不写盘，复核只在执行器里发生；由 p07-2-storage-write-acceptance.sh 在一次性盘上验
+
+== 10. 权限：匿名 401、viewer 403 ==
+PASS  匿名预检 401
+PASS  匿名提交 401
+PASS  viewer 预检 403
+PASS  viewer 预检的错误码
+PASS  viewer 提交 403
+PASS  viewer 能读设备详情
+
+== 11. 回归与日志卫生 ==
+PASS  存储拓扑仍可读
+PASS  拓扑里设备数 > 0
+PASS  设备详情 200
+PASS  未知设备 404
+PASS  系统概览仍可读
+PASS  任务列表仍可读
+PASS  代理日志里没有磁盘命令
+PASS  Web 日志里没有磁盘命令
+PASS  日志里没有明文口令 agent.log
+PASS  日志里没有明文口令 web.log
+
+== 12. 收尾：擦掉夹具，能力跟着状态回到 available ==
+PASS  快照反映了现场（sdb，采集于夹具之后）
+PASS  擦回空白后初始化能力 = available
+PASS  擦回空白后再次允许初始化
+PASS  擦回空白后 allowed
+PASS  收尾后没有遗留 swap
+PASS  收尾后没有遗留 dm 设备
+
+== 汇总 ==
+PASS 184 / FAIL 0 / NOT RUN 2

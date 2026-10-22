@@ -1,0 +1,78 @@
+
+--- 0. 擦干净 /dev/sdd
+NAME         SIZE TYPE
+sdd    4294967296 disk
+├─sdd1  536870912 part
+└─sdd2 3221225472 part
+
+--- 1. mkfs.ext4 空白分区、stdin 为空、不加 -F
+rc=0 elapsed_ms=130
+
+Allocating group tables: 0/4   done                            
+Writing inode tables: 0/4   done                            
+Creating journal (4096 blocks): done
+Writing superblocks and filesystem accounting information: 0/4   done
+
+/dev/sdd1: LABEL="probe1" UUID="a13ab118-921d-468a-bed1-6045fa15a9a8" BLOCK_SIZE="4096" TYPE="ext4" PARTUUID="01a19faf-54e5-4eba-9318-a6741a657f6a"
+
+--- 2. mkfs.ext4 已有 ext4、不加 -F（标准输入为空）
+rc=0 elapsed_ms=153
+Superblock backups stored on blocks: 
+	32768, 98304
+
+Allocating group tables: 0/4   done                            
+Writing inode tables: 0/4   done                            
+Creating journal (4096 blocks): done
+Writing superblocks and filesystem accounting information: 0/4   done
+
+/dev/sdd1: LABEL="probe2" UUID="4aa8e567-497d-4827-8952-b23177959361" BLOCK_SIZE="4096" TYPE="ext4" PARTUUID="01a19faf-54e5-4eba-9318-a6741a657f6a"
+
+--- 3. mkfs.ext4 已有 ext4、加 -F
+rc=0 elapsed_ms=56
+Writing inode tables: 0/4   done                            
+Creating journal (4096 blocks): done
+Writing superblocks and filesystem accounting information: 0/4   done
+
+/dev/sdd1: LABEL="probe3" UUID="bdd34f8d-111a-4b6d-9a2c-6aef537d2a2a" BLOCK_SIZE="4096" TYPE="ext4" PARTUUID="01a19faf-54e5-4eba-9318-a6741a657f6a"
+
+--- 4. 标签上限：ext4 16 字节 vs 17 字节
+16B rc=0
+0123456789abcdef
+17B rc=0
+Creating journal (4096 blocks): done
+Writing superblocks and filesystem accounting information: 0/4   done
+
+
+--- 5. mkfs.xfs 空白分区、不加 -f
+rc=1 elapsed_ms=76
+mkfs.xfs: /dev/sdd1 appears to contain an existing filesystem (ext4).
+mkfs.xfs: Use the -f option to force overwrite.
+/dev/sdd1: LABEL="0123456789abcdef" UUID="e344ee26-16e0-4ff0-a5bc-9f2575552841" BLOCK_SIZE="4096" TYPE="ext4" PARTUUID="01a19faf-54e5-4eba-9318-a6741a657f6a"
+
+--- 6. mkfs.xfs 已有 xfs、不加 -f
+rc=1
+mkfs.xfs: /dev/sdd1 appears to contain an existing filesystem (ext4).
+mkfs.xfs: Use the -f option to force overwrite.
+
+--- 7. mkfs.xfs 已有 xfs、加 -f
+rc=0 elapsed_ms=145
+         =                       sectsz=512   sunit=0 blks, lazy-count=1
+realtime =none                   extsz=4096   blocks=0, rtextents=0
+Discarding blocks...Done.
+/dev/sdd1: LABEL="probe3" UUID="d7068dbf-d53e-4c3c-96bc-6e737aebd925" BLOCK_SIZE="512" TYPE="xfs" PARTUUID="01a19faf-54e5-4eba-9318-a6741a657f6a"
+
+--- 8. 标签上限：xfs 12 字节 vs 13 字节
+12B rc=0
+0123456789ab
+13B rc=1
+<num> is xxx (bytes), xxxs (sectors), xxxb (fs blocks), xxxk (xxx KiB),
+      xxxm (xxx MiB), xxxg (xxx GiB), xxxt (xxx TiB) or xxxp (xxx PiB).
+<value> is xxx (512 byte blocks).
+
+--- 9. 大分区耗时（中断窗口用）：3 GiB ext4 / 3 GiB xfs
+3G ext4 rc=0 elapsed_ms=166
+3G xfs rc=0 elapsed_ms=132
+
+--- 10. 收尾：两处分区擦回空白
+done
+REMOTE_EXIT=0

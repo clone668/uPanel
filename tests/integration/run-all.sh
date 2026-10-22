@@ -11,8 +11,10 @@
 #     此时“隔离到期后容量自愈”一项如实记为 NOT RUN，其它断言照跑；
 #     p07-1 要在三块**一次性空盘**上造分区/文件系统/swap/dm 现场（默认 sdb sdc sdd，
 #     可用 SPARE_DISKS 覆盖），它会先算出承载 / 的整盘，一旦有盘与根设备同源就拒绝运行；
-#     p07-2 会在同样的三块盘上**真的写盘**（初始化 GPT、建分区、删分区），跑完自己擦回空白，
-#     所以它必须排在 p07-1 之后——p07-1 需要空白盘来验“该拒的都拒”，而 p07-2 会把盘写脏。
+#     p07-2 会在同样的三块盘上**真的写盘**（初始化 GPT、建分区、删分区），跑完自己擦回空白；
+#     p07-3 更狠，会真的 mkfs（还要在 mkfs 运行期间冻住它、杀掉代理），跑完也自己擦回空白。
+#     三者必须按 p07-1 → p07-2 → p07-3 的顺序跑：后一个会把盘写脏，而前一个需要空白盘来验
+#     “该拒的都拒”。
 # 典型事故：用 `sudo sh p01-2-acceptance.sh` 跑 p01-2，root 绕过目录权限，
 # “数据库目录不可写即拒绝启动”那条永远等不到退出，脚本会一直挂着。
 #
@@ -43,7 +45,7 @@ if [ -n "$DEPLOY_DIR" ] && [ ! -d "$DEPLOY_DIR/systemd" ]; then
 fi
 
 NONROOT_SCRIPTS="p01-1-acceptance p01-2-acceptance p01-4-acceptance p02-1-acceptance p02-2-acceptance"
-ROOT_SCRIPTS="p02-3-agent-acceptance p02-4-agent-secrets-acceptance p03-1-preflight-acceptance p03-2-jobs-acceptance p03-3-events-acceptance p03-4-reconcile-acceptance p04-1-system-acceptance p04-2-storage-acceptance p04-3-storage-health-acceptance p05-1-services-acceptance p05-2-processes-acceptance p05-3-logs-acceptance p06-1-files-acceptance p06-2-files-write-acceptance p06-3-terminal-acceptance p07-1-storage-guard-acceptance p07-2-storage-write-acceptance"
+ROOT_SCRIPTS="p02-3-agent-acceptance p02-4-agent-secrets-acceptance p03-1-preflight-acceptance p03-2-jobs-acceptance p03-3-events-acceptance p03-4-reconcile-acceptance p04-1-system-acceptance p04-2-storage-acceptance p04-3-storage-health-acceptance p05-1-services-acceptance p05-2-processes-acceptance p05-3-logs-acceptance p06-1-files-acceptance p06-2-files-write-acceptance p06-3-terminal-acceptance p07-1-storage-guard-acceptance p07-2-storage-write-acceptance p07-3-storage-format-acceptance"
 
 if [ $# -gt 0 ]; then
     SELECTED="$*"

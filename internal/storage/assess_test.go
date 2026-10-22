@@ -598,6 +598,17 @@ func TestAssessDeviceNotFound(t *testing.T) {
 	if a.StateVersion == "" {
 		t.Error("即使找不到设备，也必须给出状态版本（预检需要绑定它）")
 	}
+	// 设备不在了就没有身份可绑：指纹是空的，这是设计而不是漏填。预检层只对
+	// allowed=true 要求绑定（Q190：无条件要求会把这条正确的拒绝变成 500）。
+	if a.IdentityFingerprint != "" {
+		t.Errorf("找不到设备时不该编造身份指纹，实际 %q", a.IdentityFingerprint)
+	}
+	if a.Allowed {
+		t.Error("找不到设备必须判不允许")
+	}
+	if a.DisplayName != "sdz" {
+		t.Errorf("拒绝时也要说明问的是哪个设备，实际 %q", a.DisplayName)
+	}
 }
 
 // TestAssessTopologyUnavailable 校验采集失败的快照不能用来放行。

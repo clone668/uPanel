@@ -1,0 +1,279 @@
+
+===== 0. 环境 =====
+  e2fsprogs 1.47.0-2.4~exp1ubuntu4.1
+  xfsprogs 6.6.0-1ubuntu2.1
+  kernel: 6.8.0-147-generic
+  /dev/sdc:   4G QEMU HARDDISK
+  serial: 
+
+===== 1. 准备：GPT + 两个 1 GiB 分区 =====
+sdc      4G disk
+├─sdc1   1G part
+└─sdc2   1G part
+
+===== 2. ext4 覆盖已有 ext4 签名（不加 -F，stdin 为空） =====
+
+--- 先做一次 ext4（无标签）
+  cmd: mkfs.ext4 /dev/sdc1
+  rc=0
+  | mke2fs 1.47.0 (5-Feb-2023)
+  | Discarding device blocks:      0/262144             done                            
+  | Creating filesystem with 262144 4k blocks and 65536 inodes
+  | Filesystem UUID: 0dc5360a-c729-4ed2-89a1-8e83051259fb
+  | Superblock backups stored on blocks: 
+  | 	32768, 98304, 163840, 229376
+  | 
+  | Allocating group tables: 0/8   done                            
+  | Writing inode tables: 0/8   done                            
+  | Creating journal (8192 blocks): done
+  | Writing superblocks and filesystem accounting information: 0/8   done
+
+--- 再一次 ext4，同一分区，不加 -F
+  cmd: mkfs.ext4 /dev/sdc1
+  rc=0
+  | mke2fs 1.47.0 (5-Feb-2023)
+  | Discarding device blocks:      0/262144             done                            
+  | Creating filesystem with 262144 4k blocks and 65536 inodes
+  | Filesystem UUID: c7e50472-ae34-4a4e-96fb-4690602cdce6
+  | Superblock backups stored on blocks: 
+  | 	32768, 98304, 163840, 229376
+  | 
+  | Allocating group tables: 0/8   done                            
+  | Writing inode tables: 0/8   done                            
+  | Creating journal (8192 blocks): done
+  | Writing superblocks and filesystem accounting information: 0/8   done
+
+===== 3. ext4 覆盖 xfs 签名（不加 -F） =====
+
+--- 先做 xfs 带标签
+  cmd: mkfs.xfs -f -L XFSLBL /dev/sdc1
+  rc=0
+  | meta-data=/dev/sdc1              isize=512    agcount=4, agsize=65536 blks
+  |          =                       sectsz=512   attr=2, projid32bit=1
+  |          =                       crc=1        finobt=1, sparse=1, rmapbt=1
+  |          =                       reflink=1    bigtime=1 inobtcount=1 nrext64=0
+  | data     =                       bsize=4096   blocks=262144, imaxpct=25
+  |          =                       sunit=0      swidth=0 blks
+  | naming   =version 2              bsize=4096   ascii-ci=0, ftype=1
+  | log      =internal log           bsize=4096   blocks=16384, version=2
+  |          =                       sectsz=512   sunit=0 blks, lazy-count=1
+  | realtime =none                   extsz=4096   blocks=0, rtextents=0
+  | Discarding blocks...Done.
+  sb_fname      (off 0x06c,12B):    X   F   S   L   B   L  \0  \0  \0  \0  \0  \0
+  sb_magicnum   (off 0x000,4B) :    X   F   S   B
+  sb_uuid       (off 0x020,16B):  9f c8 e2 cf 63 cb 41 b6 a1 05 91 dc 10 e7 af 14
+
+--- ext4 覆盖 xfs 签名，不加 -F
+  cmd: mkfs.ext4 /dev/sdc1
+  rc=0
+  | mke2fs 1.47.0 (5-Feb-2023)
+  | Discarding device blocks:      0/262144             done                            
+  | Creating filesystem with 262144 4k blocks and 65536 inodes
+  | Filesystem UUID: 8883027a-91c4-4e06-b43b-acde1c280921
+  | Superblock backups stored on blocks: 
+  | 	32768, 98304, 163840, 229376
+  | 
+  | Allocating group tables: 0/8   done                            
+  | Writing inode tables: 0/8   done                            
+  | Creating journal (8192 blocks): done
+  | Writing superblocks and filesystem accounting information: 0/8   done
+  s_volume_name (off 0x478,16B):   \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0
+  s_uuid        (off 0x468,16B):  88 83 02 7a 91 c4 4e 06 b4 3b ac de 1c 28 09 21
+  magic         (off 0x438,2B) :  53 ef
+
+===== 4. ext4 覆盖认不出来的非零内容（不加 -F） =====
+
+--- ext4 覆盖随机内容，不加 -F
+  cmd: mkfs.ext4 /dev/sdc2
+  rc=0
+  | mke2fs 1.47.0 (5-Feb-2023)
+  | Discarding device blocks:      0/262144             done                            
+  | Creating filesystem with 262144 4k blocks and 65536 inodes
+  | Filesystem UUID: 7dd8eb57-e360-455c-80b4-8dc106f583df
+  | Superblock backups stored on blocks: 
+  | 	32768, 98304, 163840, 229376
+  | 
+  | Allocating group tables: 0/8   done                            
+  | Writing inode tables: 0/8   done                            
+  | Creating journal (8192 blocks): done
+  | Writing superblocks and filesystem accounting information: 0/8   done
+  s_volume_name (off 0x478,16B):   \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0
+  s_uuid        (off 0x468,16B):  7d d8 eb 57 e3 60 45 5c 80 b4 8d c1 06 f5 83 df
+  magic         (off 0x438,2B) :  53 ef
+
+===== 5. 标签边界：ext4 -L 16 字节 / 17 字节 =====
+
+--- ext4 -L 16 字节
+  cmd: mkfs.ext4 -L 0123456789abcdef /dev/sdc2
+  rc=0
+  | mke2fs 1.47.0 (5-Feb-2023)
+  | Discarding device blocks:      0/262144             done                            
+  | Creating filesystem with 262144 4k blocks and 65536 inodes
+  | Filesystem UUID: 8f71b601-74b4-43e7-8989-b737f0e3682e
+  | Superblock backups stored on blocks: 
+  | 	32768, 98304, 163840, 229376
+  | 
+  | Allocating group tables: 0/8   done                            
+  | Writing inode tables: 0/8   done                            
+  | Creating journal (8192 blocks): done
+  | Writing superblocks and filesystem accounting information: 0/8   done
+  s_volume_name (off 0x478,16B):    0   1   2   3   4   5   6   7   8   9   a   b   c   d   e   f
+  s_uuid        (off 0x468,16B):  8f 71 b6 01 74 b4 43 e7 89 89 b7 37 f0 e3 68 2e
+  magic         (off 0x438,2B) :  53 ef
+
+--- ext4 -L 17 字节
+  cmd: mkfs.ext4 -L 0123456789abcdefg /dev/sdc2
+  rc=0
+  | Warning: label too long; will be truncated to '0123456789abcdef'
+  | 
+  | mke2fs 1.47.0 (5-Feb-2023)
+  | Discarding device blocks:      0/262144             done                            
+  | Creating filesystem with 262144 4k blocks and 65536 inodes
+  | Filesystem UUID: 44a712e0-ae25-46d3-8b63-f072cda2277b
+  | Superblock backups stored on blocks: 
+  | 	32768, 98304, 163840, 229376
+  | 
+  | Allocating group tables: 0/8   done                            
+  | Writing inode tables: 0/8   done                            
+  | Creating journal (8192 blocks): done
+  | Writing superblocks and filesystem accounting information: 0/8   done
+  s_volume_name (off 0x478,16B):    0   1   2   3   4   5   6   7   8   9   a   b   c   d   e   f
+  s_uuid        (off 0x468,16B):  44 a7 12 e0 ae 25 46 d3 8b 63 f0 72 cd a2 27 7b
+  magic         (off 0x438,2B) :  53 ef
+
+===== 6. 标签边界：xfs -L 12 字节 / 13 字节 =====
+
+--- xfs -f -L 12 字节
+  cmd: mkfs.xfs -f -L 0123456789ab /dev/sdc1
+  rc=0
+  | meta-data=/dev/sdc1              isize=512    agcount=4, agsize=65536 blks
+  |          =                       sectsz=512   attr=2, projid32bit=1
+  |          =                       crc=1        finobt=1, sparse=1, rmapbt=1
+  |          =                       reflink=1    bigtime=1 inobtcount=1 nrext64=0
+  | data     =                       bsize=4096   blocks=262144, imaxpct=25
+  |          =                       sunit=0      swidth=0 blks
+  | naming   =version 2              bsize=4096   ascii-ci=0, ftype=1
+  | log      =internal log           bsize=4096   blocks=16384, version=2
+  |          =                       sectsz=512   sunit=0 blks, lazy-count=1
+  | realtime =none                   extsz=4096   blocks=0, rtextents=0
+  | Discarding blocks...Done.
+  sb_fname      (off 0x06c,12B):    0   1   2   3   4   5   6   7   8   9   a   b
+  sb_magicnum   (off 0x000,4B) :    X   F   S   B
+  sb_uuid       (off 0x020,16B):  71 75 aa 7f 9f b6 44 1c a2 c1 01 38 f5 14 91 a6
+
+--- xfs -f -L 13 字节
+  cmd: mkfs.xfs -f -L 0123456789abc /dev/sdc1
+  rc=1
+  | Invalid value 0123456789abc for -L option
+  | Usage: mkfs.xfs
+  | /* blocksize */		[-b size=num]
+  | /* config file */	[-c options=xxx]
+  | /* metadata */		[-m crc=0|1,finobt=0|1,uuid=xxx,rmapbt=0|1,reflink=0|1,
+  | 			    inobtcount=0|1,bigtime=0|1]
+  | /* data subvol */	[-d agcount=n,agsize=n,file,name=xxx,size=num,
+  | 			    (sunit=value,swidth=value|su=num,sw=num|noalign),
+  | 			    sectsize=num
+  | /* force overwrite */	[-f]
+  | /* inode size */	[-i perblock=n|size=num,maxpct=n,attr=0|1|2,
+  | 			    projid32bit=0|1,sparse=0|1,nrext64=0|1]
+  | /* no discard */	[-K]
+  | /* log subvol */	[-l agnum=n,internal,size=num,logdev=xxx,version=n
+  | 			    sunit=value|su=num,sectsize=num,lazy-count=0|1]
+  | /* label */		[-L label (maximum 12 characters)]
+  | /* naming */		[-n size=num,version=2|ci,ftype=0|1]
+  | /* no-op info only */	[-N]
+  | /* prototype file */	[-p fname]
+  | /* quiet */		[-q]
+  | /* realtime subvol */	[-r extsize=num,size=num,rtdev=xxx]
+  | /* sectorsize */	[-s size=num]
+  | /* version */		[-V]
+  | 			devicename
+  | <devicename> is required unless -d name=xxx is given.
+  | <num> is xxx (bytes), xxxs (sectors), xxxb (fs blocks), xxxk (xxx KiB),
+  |       xxxm (xxx MiB), xxxg (xxx GiB), xxxt (xxx TiB) or xxxp (xxx PiB).
+  | <value> is xxx (512 byte blocks).
+  sb_fname      (off 0x06c,12B):    0   1   2   3   4   5   6   7   8   9   a   b
+  sb_magicnum   (off 0x000,4B) :   \0  \0  \0  \0
+  sb_uuid       (off 0x020,16B):  71 75 aa 7f 9f b6 44 1c a2 c1 01 38 f5 14 91 a6
+
+===== 7. xfs 覆盖已有 ext4 签名：不加 -f =====
+
+--- 先做 ext4
+  cmd: mkfs.ext4 /dev/sdc1
+  rc=0
+  | mke2fs 1.47.0 (5-Feb-2023)
+  | Discarding device blocks:      0/262144             done                            
+  | Creating filesystem with 262144 4k blocks and 65536 inodes
+  | Filesystem UUID: 254f940d-3e62-44ec-b7df-2ce126d79915
+  | Superblock backups stored on blocks: 
+  | 	32768, 98304, 163840, 229376
+  | 
+  | Allocating group tables: 0/8   done                            
+  | Writing inode tables: 0/8   done                            
+  | Creating journal (8192 blocks): done
+  | Writing superblocks and filesystem accounting information: 0/8   done
+
+--- xfs 覆盖 ext4，不加 -f
+  cmd: mkfs.xfs /dev/sdc1
+  rc=1
+  | mkfs.xfs: /dev/sdc1 appears to contain an existing filesystem (ext4).
+  | mkfs.xfs: Use the -f option to force overwrite.
+
+===== 8. 已挂载分区上 mkfs（错误退出验收用） =====
+  mounted /dev/sdc2 -> /var/tmp/upanel-mkfs-probe
+
+--- mkfs.ext4 覆盖已挂载的 ext4
+  cmd: mkfs.ext4 /dev/sdc2
+  rc=1
+  | mke2fs 1.47.0 (5-Feb-2023)
+  | /dev/sdc2 is mounted; will not make a filesystem here!
+
+--- mkfs.ext4 -F 覆盖已挂载的 ext4
+  cmd: mkfs.ext4 -F /dev/sdc2
+  rc=1
+  | mke2fs 1.47.0 (5-Feb-2023)
+  | /dev/sdc2 is mounted; will not make a filesystem here!
+
+--- mkfs.xfs -f 覆盖已挂载的分区
+  cmd: mkfs.xfs -f -L MOUNTED /dev/sdc2
+  rc=1
+  | mkfs.xfs: /dev/sdc2 contains a mounted filesystem
+  | Usage: mkfs.xfs
+  | /* blocksize */		[-b size=num]
+  | /* config file */	[-c options=xxx]
+  | /* metadata */		[-m crc=0|1,finobt=0|1,uuid=xxx,rmapbt=0|1,reflink=0|1,
+  | 			    inobtcount=0|1,bigtime=0|1]
+  | /* data subvol */	[-d agcount=n,agsize=n,file,name=xxx,size=num,
+  | 			    (sunit=value,swidth=value|su=num,sw=num|noalign),
+  | 			    sectsize=num
+  | /* force overwrite */	[-f]
+  | /* inode size */	[-i perblock=n|size=num,maxpct=n,attr=0|1|2,
+  | 			    projid32bit=0|1,sparse=0|1,nrext64=0|1]
+  | /* no discard */	[-K]
+  | /* log subvol */	[-l agnum=n,internal,size=num,logdev=xxx,version=n
+  | 			    sunit=value|su=num,sectsize=num,lazy-count=0|1]
+  | /* label */		[-L label (maximum 12 characters)]
+  | /* naming */		[-n size=num,version=2|ci,ftype=0|1]
+  | /* no-op info only */	[-N]
+  | /* prototype file */	[-p fname]
+  | /* quiet */		[-q]
+  | /* realtime subvol */	[-r extsize=num,size=num,rtdev=xxx]
+  | /* sectorsize */	[-s size=num]
+  | /* version */		[-V]
+  | 			devicename
+  | <devicename> is required unless -d name=xxx is given.
+  | <num> is xxx (bytes), xxxs (sectors), xxxb (fs blocks), xxxk (xxx KiB),
+  |       xxxm (xxx MiB), xxxg (xxx GiB), xxxt (xxx TiB) or xxxp (xxx PiB).
+  | <value> is xxx (512 byte blocks).
+
+===== 9. 耗时（决定中断测试怎么做） =====
+  mkfs.ext4 1GiB #1: 43 ms
+  mkfs.ext4 1GiB #2: 53 ms
+  mkfs.ext4 1GiB #3: 46 ms
+  mkfs.xfs  1GiB #1: 89 ms
+  mkfs.xfs  1GiB #2: 64 ms
+  mkfs.xfs  1GiB #3: 103 ms
+
+===== 10. 收尾 =====
+sdc    4G disk
+PROBE_DONE

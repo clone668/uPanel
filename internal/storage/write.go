@@ -71,7 +71,11 @@ const (
 // 写原语不能只依赖另一层：真正把字节交给内核的是这里。
 var ErrUnsafeWrite = errors.New("storage: 写参数不安全")
 
-// ErrNoWritePrimitive 表示这个动作还没有写原语（例如 P07.3 的格式化）。
+// ErrNoWritePrimitive 表示这个动作还没有写原语。
+//
+// P07.3 起四个存储写动作都有原语了，所以它在写路径上不再出现（格式化由 format.go
+// 执行）。留着是因为动作登记表会继续长大：一个还没实现写原语的动作必须明确说
+// “没有”，而不是“什么也没做却返回成功”。
 var ErrNoWritePrimitive = errors.New("storage: 动作还没有写原语")
 
 // CommandRunner 执行一次外部命令。生产实现是 syscmd.Run（见 syscmd_adapter.go）。
@@ -148,9 +152,13 @@ type WriteOptions struct {
 	Nodes NodeChecker
 	// Dev 是设备目录（真实值 /dev）；空时用 DefaultDevDir。
 	Dev string
-	// Sfdisk / Udevadm 是固定程序路径；空时用默认值。
-	Sfdisk  string
-	Udevadm string
+	// Sfdisk / Udevadm / MkfsExt4 / MkfsXFS 是固定程序路径；空时用默认值。
+	Sfdisk   string
+	Udevadm  string
+	MkfsExt4 string
+	MkfsXFS  string
+	// Superblocks 读取文件系统的超级块（格式化后的读回核验）。nil 表示本机不能格式化。
+	Superblocks SuperblockProber
 	// SettleTimeout / KernelWait 是 udev 稳定与内核视图等待的上限；0 时用默认值。
 	SettleTimeout time.Duration
 	KernelWait    time.Duration
@@ -159,17 +167,20 @@ type WriteOptions struct {
 
 // writer 是写原语的实现体。
 type writer struct {
-	scanner TopologyScanner
-	env     Env
-	runner  CommandRunner
-	nodes   NodeChecker
-	dev     string
-	sfdisk  string
-	udevadm string
-	settle  time.Duration
-	wait    time.Duration
-	poll    time.Duration
-	logger  *slog.Logger
+	scanner     TopologyScanner
+	env         Env
+	runner      CommandRunner
+	nodes       NodeChecker
+	dev         string
+	sfdisk      string
+	udevadm     string
+	mkfsExt4    string
+	mkfsXFS     string
+	superblocks SuperblockProber
+	settle      time.Duration
+	wait        time.Duration
+	poll        time.Duration
+	logger      *slog.Logger
 }
 
 func newWriter(opts WriteOptions) *writer {
@@ -191,17 +202,20 @@ func newWriter(opts WriteOptions) *writer {
 		nodes = OSNodeChecker{Dev: dev}
 	}
 	return &writer{
-		scanner: opts.Scanner,
-		env:     opts.Env,
-		runner:  opts.Runner,
-		nodes:   nodes,
-		dev:     dev,
-		sfdisk:  pick(opts.Sfdisk, DefaultSfdiskPath),
-		udevadm: pick(opts.Udevadm, DefaultUdevadmPath),
-		settle:  positive(opts.SettleTimeout, DefaultSettleTimeout),
-		wait:    positive(opts.KernelWait, DefaultKernelWait),
-		poll:    defaultKernelPoll,
-		logger:  opts.Logger,
+		scanner:     opts.Scanner,
+		env:         opts.Env,
+		runner:      opts.Runner,
+		nodes:       nodes,
+		dev:         dev,
+		sfdisk:      pick(opts.Sfdisk, DefaultSfdiskPath),
+		udevadm:     pick(opts.Udevadm, DefaultUdevadmPath),
+		mkfsExt4:    pick(opts.MkfsExt4, DefaultMkfsExt4Path),
+		mkfsXFS:     pick(opts.MkfsXFS, DefaultMkfsXFS),
+		superblocks: opts.Superblocks,
+		settle:      positive(opts.SettleTimeout, DefaultSettleTimeout),
+		wait:        positive(opts.KernelWait, DefaultKernelWait),
+		poll:        defaultKernelPoll,
+		logger:      opts.Logger,
 	}
 }
 
@@ -237,6 +251,10 @@ type preparedWrite struct {
 	sizeBytes  uint64
 	name       string
 
+	// filesystem / label 只用于格式化：前者来自闭集（ext4/xfs），后者已过 ValidateLabel。
+	filesystem string
+	label      string
+
 	// deleteNumber 是删除动作要用的槽位号（从盘上的 GPT 条目读出来，不来自参数）。
 	deleteNumber int
 }
@@ -265,15 +283,41 @@ func prepareWrite(action string, params any) (preparedWrite, error) {
 			return preparedWrite{}, fmt.Errorf("storage: %s 的参数类型不匹配: %T", action, params)
 		}
 		return preparedWrite{action: action, targetID: p.DeviceID}, nil
+	case ActionFilesystemFormat:
+		p, ok := params.(FilesystemFormatParams)
+		if !ok {
+			return preparedWrite{}, fmt.Errorf("storage: %s 的参数类型不匹配: %T", action, params)
+		}
+		return preparedWrite{
+			action: action, targetID: p.DeviceID,
+			filesystem: p.Filesystem, label: p.Label,
+		}, nil
 	default:
-		// storage.filesystem.format 的写原语属 P07.3：明确拒绝，而不是“什么也没做
-		// 却返回成功”。
 		return preparedWrite{}, fmt.Errorf("%w: %s", ErrNoWritePrimitive, action)
 	}
 }
 
 // execute 是一次写动作的全过程：复核 → 写 → 等 udev → 读回核验。
+//
+// 出口只有一个：无论在哪一步失败，只要**任务上下文已经结束**，返回的错误就统一成
+// 中断。理由是这一步写的是磁盘——上下文没了意味着“这次动作没有跑完”，而不是
+// “这次动作没有生效”。runner 用 errors.Is(err, context.Canceled) 区分这两种收尾：
+// 认不出就是 failed（可重试、可放心重来），认得出就是 interrupted（实际状态未知，
+// 要人工核实）。把“复核阶段上下文就结束了”报成 SIGNATURE_UNREADABLE 之类的
+// 业务拒绝，会让人以为盘上什么都没发生。
 func (w *writer) execute(ctx context.Context, req WriteRequest) (WriteReport, error) {
+	report, err := w.performWrite(ctx, req)
+	if err == nil {
+		return report, nil
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil && !errors.Is(err, ctxErr) {
+		return WriteReport{}, interruptedRun(ctxErr, targetDeviceID(req.Params))
+	}
+	return WriteReport{}, err
+}
+
+// performWrite 是 execute 的主体：它只负责“做”，中断的归类留给调用它的那一层。
+func (w *writer) performWrite(ctx context.Context, req WriteRequest) (WriteReport, error) {
 	if w == nil || w.runner == nil {
 		return WriteReport{}, dependencyMissing("没有配置命令执行器，本机不能执行磁盘写动作")
 	}
@@ -284,7 +328,13 @@ func (w *writer) execute(ctx context.Context, req WriteRequest) (WriteReport, er
 	if err != nil {
 		return WriteReport{}, err
 	}
-	if err := w.requirePrograms(); err != nil {
+	// 缺程序的判断按动作区分：格式化不需要 sfdisk，分区表动作不需要 mkfs。
+	// 两者都不能在“命令找不到”时才报错——那会让管理员以为是盘的问题。
+	if prep.action == ActionFilesystemFormat {
+		if err := w.requireFormatPrograms(prep.filesystem); err != nil {
+			return WriteReport{}, err
+		}
+	} else if err := w.requirePartitionPrograms(); err != nil {
 		return WriteReport{}, err
 	}
 
@@ -336,6 +386,17 @@ func (w *writer) execute(ctx context.Context, req WriteRequest) (WriteReport, er
 	} else if before.Type != TableGPT {
 		return WriteReport{}, preflightStale(diskID + " 的分区表类型是 " + before.Type + "，不是 gpt")
 	}
+	// 复核已经通过（还是那块盘、还是那个状态、表还是 GPT、目标还在）：从这里开始，
+	// 后面每一条路径都真的会去动设备，因此“复核完成”这条进度对两者都是同一个意思。
+	progress(req, WriteStepRecheck, map[string]any{
+		"device_id": diskID,
+		"version":   assessment.StateVersion,
+	})
+	// 格式化与三个分区表动作共用上面的复核，但从这里分开：它不改变分区表，
+	// 也不存在“写完之后表应该长什么样”的期望形态。
+	if prep.action == ActionFilesystemFormat {
+		return w.executeFormat(ctx, req, prep, topo, disk, diskID, before)
+	}
 	if prep.action == ActionPartitionDelete {
 		entry, ok := findEntry(before.Entries, prep.targetID, disk.PartitionTable)
 		if !ok {
@@ -343,10 +404,6 @@ func (w *writer) execute(ctx context.Context, req WriteRequest) (WriteReport, er
 		}
 		prep.deleteNumber = entry.Number
 	}
-	progress(req, WriteStepRecheck, map[string]any{
-		"device_id": diskID,
-		"version":   assessment.StateVersion,
-	})
 	// 这次动作期望得到的分区形态（写之前就从“现在的表 + 意图”算出来）。
 	want, err := expectedState(prep, disk, before)
 	if err != nil {
@@ -498,31 +555,71 @@ func checkWritableSectors(disk *Device) error {
 	}
 }
 
-// requirePrograms 确认写动作需要的程序就在固定路径上。
+// requirePartitionPrograms 确认分区表写动作需要的程序就在固定路径上。
 //
 // 缺了就说 DEPENDENCY_MISSING（503），而不是让命令执行器抛一个 "no such file or directory"
 // 让管理员以为是盘的问题。
-func (w *writer) requirePrograms() error {
-	need := []struct{ name, path string }{
+func (w *writer) requirePartitionPrograms() error {
+	return requireFiles([]programNeed{
 		{"sfdisk", w.sfdisk},
 		{"udevadm", w.udevadm},
+	})
+}
+
+// requireFormatPrograms 确认格式化这台设备所需的程序在固定路径上。
+func (w *writer) requireFormatPrograms(filesystem string) error {
+	need := []programNeed{{"udevadm", w.udevadm}}
+	switch filesystem {
+	case FilesystemExt4:
+		need = append(need, programNeed{"mkfs.ext4", w.mkfsExt4})
+	case FilesystemXFS:
+		need = append(need, programNeed{"mkfs.xfs", w.mkfsXFS})
+	default:
+		return unsupportedDevice("文件系统 %q 没有格式化原语", filesystem)
 	}
+	return requireFiles(need)
+}
+
+// requireAllPrograms 检查本机是否具备全部写原语的固定依赖。
+//
+// 装配时调用一次（CheckWriteDependencies）：缺依赖不该阻止代理启动（拓扑与预检仍然
+// 有用），但启动日志里必须说清楚哪几个缺，否则管理员只会在第一次点按钮时才发现。
+func (w *writer) requireAllPrograms() error {
+	need := []programNeed{
+		{"sfdisk", w.sfdisk},
+		{"udevadm", w.udevadm},
+		{"mkfs.ext4", w.mkfsExt4},
+		{"mkfs.xfs", w.mkfsXFS},
+	}
+	var missing []error
+	for _, n := range need {
+		if err := requireFiles([]programNeed{n}); err != nil {
+			missing = append(missing, err)
+		}
+	}
+	return errors.Join(missing...)
+}
+
+// programNeed 是一个“必须存在于固定路径”的程序。
+type programNeed struct{ name, path string }
+
+// requireFiles 逐个确认程序存在且是普通文件。
+func requireFiles(need []programNeed) error {
 	for _, n := range need {
 		fi, err := os.Stat(n.path)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				return dependencyMissing("本机缺少 %s（%s），分区写动作不可执行", n.name, n.path)
+				return dependencyMissing("本机缺少 %s（%s），这个写动作不可执行", n.name, n.path)
 			}
 			return dependencyMissing("无法确认 %s（%s）是否可用：%v", n.name, n.path, err)
 		}
 		if fi.IsDir() {
-			return dependencyMissing("%s（%s）是目录，分区写动作不可执行", n.name, n.path)
+			return dependencyMissing("%s（%s）是目录，这个写动作不可执行", n.name, n.path)
 		}
 		// 可执行位只在有意义的平台上检查：Windows 的 FileMode 不含用户可执行位
-		// （Go 对 .exe 也报 0666），那里只做存在性检查。生产目标平台是 Linux，
-		// 两者都查。
+		// （Go 对 .exe 也报 0666），那里只做存在性检查。生产目标平台是 Linux，两者都查。
 		if runtime.GOOS != "windows" && fi.Mode()&0o111 == 0 {
-			return dependencyMissing("%s（%s）没有可执行位，分区写动作不可执行", n.name, n.path)
+			return dependencyMissing("%s（%s）没有可执行位，这个写动作不可执行", n.name, n.path)
 		}
 	}
 	return nil
@@ -535,6 +632,12 @@ func (w *writer) runCommand(ctx context.Context, spec syscmd.Spec) (syscmd.Resul
 
 // describeCommandFailure 把一次命令失败说清楚：退出码、输出摘要与**读回的实际状态**。
 func (w *writer) describeCommandFailure(ctx context.Context, diskID string, res syscmd.Result, runErr error) error {
+	// 上下文在命令执行期间结束（停机、任务超时）：命令是被 syscmd 连同进程组一起杀掉
+	// 的，写了多少不知道。这时既不能算成功，也不能当成一次普通的“命令失败”——后者会让
+	// 人以为盘没动过。返回带上下文的错误，runner 据此记成 interrupted（实际状态未知）。
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return interruptedWrite(ctxErr, diskID, "sfdisk")
+	}
 	var detail string
 	switch {
 	case res.TimedOut:

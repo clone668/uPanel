@@ -108,7 +108,7 @@ func decodeFor(t *testing.T, reg *Registry, action, raw string) (any, error) {
 	return a.Decode(json.RawMessage(raw))
 }
 
-// TestStorageActionsRegistered 校验四个动作都登记了，且只有三个分区动作有执行器。
+// TestStorageActionsRegistered 校验四个动作都登记了，且四个都有执行器（P07.3 起）。
 func TestStorageActionsRegistered(t *testing.T) {
 	reg, _ := storageRegistry(t)
 	want := []string{
@@ -126,15 +126,16 @@ func TestStorageActionsRegistered(t *testing.T) {
 		if a.Decode == nil || a.Plan == nil {
 			t.Errorf("%s 缺少解码或预检", name)
 		}
-		// P07.2 只登记三个分区写原语；格式化等 P07.3。留空 = 501，不是“假装成功”。
-		wantExecutor := name != storage.ActionFilesystemFormat
-		if (a.Execute != nil) != wantExecutor {
-			t.Errorf("%s 的执行器 = %v，期望 %v", name, a.Execute != nil, wantExecutor)
+		// P07.3 起四个存储写动作都有执行器：没执行器就不该被登记成可执行，
+		// 这条不变量本身由 TestExecutableActionNamesFiltersNilExecutor 守住。
+		if a.Execute == nil {
+			t.Errorf("%s 没有执行器（登记成可执行就会生成一个永远跑不起来的任务）", name)
 		}
 	}
 	// 能力列表必须与实际执行器一致：列进去就等于承诺能执行。
 	exec := reg.ExecutableActionNames()
 	wantExec := []string{
+		storage.ActionFilesystemFormat,
 		storage.ActionPartitionCreate,
 		storage.ActionPartitionDelete,
 		storage.ActionPartitionTableInitialize,
@@ -353,20 +354,38 @@ func TestStoragePlanFailureIsNotBlocked(t *testing.T) {
 	}
 }
 
-// TestStorageSubmitWithoutExecutorIs501 校验：格式化的预检允许之后提交仍然 501，
-// 而且**不留下任何操作记录**——不能生成一个永远不跑的任务。
+// TestStorageSubmitWithoutExecutorIs501 校验：预检允许、但**没有执行器**的动作提交时
+// 仍然 501，而且不留下任何操作记录——不能生成一个永远不跑的任务。
+//
+// 用一个测试专用动作（test.plan_only）而不是某个真实存储动作来守这条不变量：
+// 四个存储动作自 P07.3 起都有执行器，把它们钉在“501”上会让这条断言每到一个阶段
+// 就要重写一遍，而它真正要证明的是“nil 执行器 = 明确拒绝、绝不落操作”。
 func TestStorageSubmitWithoutExecutorIs501(t *testing.T) {
-	src := &fakeStorage{assessment: allowedAssessment(storage.ActionFilesystemFormat, "sdb1")}
 	reg := NewRegistry()
-	if err := RegisterStorageActions(reg, src); err != nil {
-		t.Fatalf("登记失败: %v", err)
+	if err := reg.RegisterAction(Action{
+		Name:   "test.plan_only",
+		Decode: func(json.RawMessage) (any, error) { return struct{}{}, nil },
+		Policy: ActionPolicy{RequiresReauth: true, RequiresPhrase: true, PhraseVerb: "TEST"},
+		Plan: func(context.Context, PlanInput) (Plan, error) {
+			return Plan{
+				NormalizedParams: map[string]any{"kind": "plan_only"},
+				Target: Target{
+					DisplayName:         "只做预检的目标",
+					IdentityFingerprint: "sha256:" + strings.Repeat("ef", 32),
+					StateVersion:        "sha256:" + strings.Repeat("cd", 32),
+				},
+				Allowed: true,
+				Impacts: []Impact{{Kind: "noop", Description: "这个动作不会做任何事"}},
+			}, nil
+		},
+	}); err != nil {
+		t.Fatalf("登记测试动作失败: %v", err)
 	}
 	srv, _ := newPreflightServer(t, reg)
 
-	plan := mustPreflight(t, srv, storage.ActionFilesystemFormat,
-		`{"device_id":"sdb1","filesystem":"ext4","label":"data"}`)
+	plan := mustPreflight(t, srv, "test.plan_only", `{}`)
 	if !plan.Allowed {
-		t.Fatalf("格式化预检应当放行，实际 %+v", plan.Blockers)
+		t.Fatalf("预检应当放行，实际 %+v", plan.Blockers)
 	}
 
 	operationID := "op_" + strings.Repeat("2", 32)
@@ -517,12 +536,13 @@ func TestStorageCapabilitiesListExecutableStorageActions(t *testing.T) {
 		}
 	}
 	want := []string{
+		storage.ActionFilesystemFormat,
 		storage.ActionPartitionCreate,
 		storage.ActionPartitionDelete,
 		storage.ActionPartitionTableInitialize,
 	}
 	if strings.Join(stor, ",") != strings.Join(want, ",") {
-		t.Fatalf("supported_actions 里的存储动作 = %v，期望 %v（格式化还没有执行器）", stor, want)
+		t.Fatalf("supported_actions 里的存储动作 = %v，期望 %v", stor, want)
 	}
 }
 
@@ -568,4 +588,68 @@ func newCapabilitiesRequest() *http.Request {
 	req, _ := http.NewRequest(http.MethodGet, "/internal/v1/capabilities", nil)
 	req.Header.Set("X-Request-ID", "rid-caps")
 	return req
+}
+
+// TestStoragePreflightForMissingDeviceIsNot500 覆盖 Q190。
+//
+// 目标设备已经不在拓扑里时，判决本身是对的（allowed=false + DEVICE_NOT_FOUND），
+// 但“消失的设备”没有任何身份可绑定。预检层第一版无条件要求目标指纹与状态版本，
+// 于是把这条最普通不过的拒绝判成“预检结果不合法”，用户拿到 500 内部错误。
+// 真机 P07.3 验收 §13 就是这么撞出来的：对擦盘之后已经不存在的 sdb1 做格式化预检。
+//
+// 这里用真的存储预检器（假判决源）走完整条 HTTP 路径：拒绝必须原样发出去、落库，
+// 并且提交端仍然拒它——拒绝没有被“修好”成放行。
+func TestStoragePreflightForMissingDeviceIsNot500(t *testing.T) {
+	reg, src := storageRegistry(t)
+	src.assessment = storage.Assessment{
+		Action:           storage.ActionFilesystemFormat,
+		NormalizedParams: nil, // 由 Plan 用 in.Params 填
+		TargetID:         "sdz1",
+		DiskIDs:          []string{},
+		DisplayName:      "sdz1",
+		// 关键：设备不在了，指纹就是空的（见 internal/storage 的判决与 Q190）。
+		IdentityFingerprint: "",
+		StateVersion:        "sha256:" + strings.Repeat("cd", 32),
+		Allowed:             false,
+		Blockers: []storage.Blocker{{
+			Code:    storage.NoticeDeviceMissing,
+			Message: "设备 sdz1 不在当前拓扑里",
+		}},
+		Warnings: []storage.Blocker{},
+		Impacts:  []storage.Impact{},
+		Locks:    []string{},
+	}
+	srv, plans := newPreflightServer(t, reg)
+
+	rec := postPreflight(t, srv, testWebUID, preflightBody(storage.ActionFilesystemFormat,
+		`{"device_id":"sdz1","filesystem":"ext4"}`))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("状态码 = %d，期望 201（拒绝不是内部错误）；响应 %s", rec.Code, rec.Body.String())
+	}
+	pf := decodePreflight(t, rec)
+	if pf.Allowed {
+		t.Fatal("设备不在拓扑里不该放行")
+	}
+	if len(pf.Blockers) != 1 || pf.Blockers[0].Code != storage.NoticeDeviceMissing {
+		t.Fatalf("阻塞项 = %+v，期望一条 %s", pf.Blockers, storage.NoticeDeviceMissing)
+	}
+	if pf.Target.IdentityFingerprint != "" {
+		t.Fatalf("拒绝的预检不该编造身份指纹，实际 %q", pf.Target.IdentityFingerprint)
+	}
+	if pf.Target.DisplayName != "sdz1" {
+		t.Fatalf("目标名字要保留（界面靠它说明拒绝的是谁），实际 %q", pf.Target.DisplayName)
+	}
+	if n := plans.count(); n != 1 {
+		t.Fatalf("拒绝的预检同样要落库（其中一条被拒记录），实际 %d 条", n)
+	}
+
+	// 而且它仍然不能被提交：拒绝没有变成一条能跑的任务。
+	body := operationSubmitBody("op_"+strings.Repeat("3", 32), pf.PreflightRef, "", testSessionHash, recentReauth())
+	sub := submitOperation(t, srv, body)
+	if sub.Code != http.StatusConflict {
+		t.Fatalf("提交一个被拒的预检应当 409，实际 %d；响应 %s", sub.Code, sub.Body.String())
+	}
+	if code := errorCode(t, sub); code != "VALIDATION_ERROR" {
+		t.Fatalf("错误码 = %q，期望 VALIDATION_ERROR", code)
+	}
 }

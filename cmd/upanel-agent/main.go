@@ -224,7 +224,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// P07.2：磁盘写原语。Runner 是唯一把命令交给内核的出口（syscmd：绝对路径 +
 		// argv + 固定环境 + 固定模板 stdin + 有上限的输出）。不给 Runner 就是
 		// DEPENDENCY_MISSING，而不是“假装写成功”。
-		Write: storage.WriteOptions{Runner: storage.SyscmdRunner()},
+		// P07.3：格式化接了 mkfs.ext4/mkfs.xfs，并且必须有超级块读取器——
+		// 没有它就无法读回核验，格式化会以 503 拒绝而不是“跑完就算成功”。
+		Write: storage.WriteOptions{
+			Runner:      storage.SyscmdRunner(),
+			Superblocks: storage.SystemSuperblockProber(),
+		},
 	}
 	if cfg.Agent.Storage.SmartEnabled {
 		if path, ok := storage.FindSmartctl(cfg.Agent.Storage.SmartctlPath); ok {
@@ -240,11 +245,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		logger.Info("SMART 采集已在配置中关闭")
 	}
 	if err := storage.CheckWriteDependencies(); err != nil {
-		// 缺 sfdisk/udevadm 不阻止启动：预检与拓扑仍然可用，写动作会以 503 明确拒绝。
-		logger.Warn("磁盘写原语的依赖不完整，分区写动作将被拒绝", "reason", err)
+		// 缺 sfdisk/mkfs 不阻止启动：预检与拓扑仍然可用，写动作会以 503 明确拒绝。
+		logger.Warn("磁盘写原语的依赖不完整，写动作将被拒绝", "reason", err)
 	} else {
-		logger.Info("磁盘写原语已接线", "sfdisk", storage.DefaultSfdiskPath,
-			"udevadm", storage.DefaultUdevadmPath)
+		logger.Info("磁盘写原语已接线",
+			"sfdisk", storage.DefaultSfdiskPath,
+			"udevadm", storage.DefaultUdevadmPath,
+			"mkfs_ext4", storage.DefaultMkfsExt4Path,
+			"mkfs_xfs", storage.DefaultMkfsXFS)
 	}
 	storageCollector := storage.NewCollector(storageOpts)
 

@@ -18,11 +18,12 @@
 #
 # 本脚本**不会**让产品写任何东西（P07.2 之后仍然成立，这一点不能被改坏）：
 #   - P07.1 时四个存储动作的 Execute 都是 nil，提交必 501；P07.2 起三个分区动作有了
-#     执行器，**提交会真的写盘**，所以 §5 的“过门之后呢”改用仍然没有执行器的格式化
-#     （P07.3），并让它的目标是一个由测试手工具造出来的空白分区；
+#     执行器，**提交会真的写盘**；P07.3 起连格式化也有了执行器，所以“过门之后必然 501”
+#     在真机上**已经没有现场**——那条行为改由单测覆盖，§5 显式记 NOT RUN 并继续断言
+#     “四个存储动作都已登记为可执行”；
 #   - 脚本里的分区表/文件系统/swap/dm 夹具都是测试手工具（sgdisk/mkfs/mkswap/dmsetup）
 #     在一次性空盘上造的，不是产品动作；
-#   - §4 与 §5 用前后哈希证明“允许的预检”与“501 的提交”连一个字节都没写。
+#   - §4 与 §5 用前后哈希证明“允许的预检”与“被再认证挡住的提交”连一个字节都没写。
 #
 # 覆盖的验收点（STAGES §8 P07.1、PLAN §9.1/§9.2、CONTRACTS §5/§4.1/§6/§13）：
 #   1. 安全守卫：先算出承载 / 的整盘，拒绝把任何与它同源的设备当一次性盘
@@ -33,9 +34,9 @@
 #      锁是整盘 disk:<id>
 #   4. 空白盘初始化：allowed=true、影响里带“未检测到已知签名不代表盘上绝无原始数据”、
 #      影响项 data_loss+partition_table_change、短语首词 INIT、要求再认证、整盘锁
-#   5. 提交：未再认证 403 REAUTH_REQUIRED（门在代理之前，盘上字节不变）；再认证后对
-#      一个**没有执行器**的动作（格式化，P07.3）仍是 501 NOT_IMPLEMENTED，任务表只多
-#      一条 failed/rejected（Q159 留痕），且没有任何非终态任务
+#   5. 提交：未再认证 403 REAUTH_REQUIRED（门在代理之前，盘上字节不变）；再认证之后
+#      四个存储动作都已登记为可执行，且没有任何非终态任务。P07.3 起“过门之后仍然 501”
+#      的现场不存在了，这一条记 NOT RUN 并指向单测（不假装验过）
 #   6. 已有分区表 → PARTITION_TABLE_PRESENT；建分区的对齐/最小/越界/落在表内/名称过长
 #   7. 签名：整盘 mkfs.ext4（首扇区全零但盘上有文件系统）与整盘 mkswap（魔数在第一个
 #      页面的末 10 字节）都被拒；LUKS 头（有 cryptsetup 时）
@@ -653,7 +654,7 @@ AFTER=$(disk_digest "/dev/$BLANK_A")
 expect_eq "允许的预检没有写盘（首尾 4 MiB 哈希不变）" "$BEFORE" "$AFTER"
 
 echo
-echo "== 5. 提交：未再认证 403、再认证后 501（只留一条 failed 痕迹） =="
+echo "== 5. 提交：未再认证 403；再认证后四个存储动作都已可执行 =="
 PF_ALLOWED=$(pget 'd["data"]["preflight_id"]')
 PHRASE_ALLOWED=$(pphrase)
 api "$JAR" "$CSRF" GET "$JOBS" >/dev/null
@@ -672,47 +673,24 @@ api "$JAR" "$CSRF" GET "$JOBS" >/dev/null
 expect_eq "再认证拒绝没有留下任务" "$JOBS_BEFORE" "$(resp_get 'len(d["data"]["jobs"])')"
 expect_eq "再认证拒绝没有写盘" "$BEFORE" "$(disk_digest "/dev/$BLANK_A")"
 
-# 5.2 再认证之后呢？P07.1 的答案是“仍然 501，因为四个动作都没有执行器”。
-#     P07.2 起三个分区动作有了执行器，再提交这条初始化预检就会**真的把 BLANK_A 写成
-#     GPT**——本节的主语是“门”，不是“写”，所以换一个仍然没有执行器的动作：格式化
-#     （P07.3）。它的目标用测试手工具在一次性盘上造一个空白分区，产品照旧一个字节不写。
+# 5.2 再认证之后呢？P07.1 的答案是“仍然 501，因为四个动作都没有执行器”；P07.2 把“没有
+#     执行器”的现场换成了格式化。**P07.3 起四个存储动作全部有执行器**，真机上再没有
+#     “过门之后必然 501”的现场了，所以这一条在真机上退役：
+#       - 仍然成立的事实：四个存储动作都登记为可执行（过门的提交会被受理，不会被
+#         “没有执行器”挡回来），这一条继续断言；
+#       - 那条行为改由单测 TestStorageSubmitWithoutExecutorIs501 覆盖——它自己合成一个
+#         只有 Plan、没有 Execute 的动作，不依赖生产登记表长什么样；
+#       - 本节“门在写之前”的证据由 5.1 的“未再认证 → 403 且一个字节不写”继续承担。
+#     旧断言在这里显式记 NOT RUN，而不是删掉：删掉就等于假装它验过了。
 expect_eq "再认证" "200" "$(api "$JAR" "$CSRF" POST /api/v1/auth/reauth "{\"password\":\"$PASSWORD\"}")"
-wipe_disk "/dev/$BLANK_C"
-sgdisk --clear --new=1:0:+512M "/dev/$BLANK_C" >/dev/null 2>&1
-udevadm settle --timeout=5 >/dev/null 2>&1
-PART_NI="${BLANK_C}1"
-settle "$PART_NI" 'd["data"]["device"]["kind"] == "partition"'
-BEFORE_NI=$(disk_digest "/dev/$BLANK_C")
-expect_eq "待提交的格式化预检状态码" "200" \
-  "$(preflight storage.filesystem.format "{\"device_id\":\"$PART_NI\",\"filesystem\":\"ext4\"}")"
-expect_eq "待提交的格式化预检 allowed" "True" "$(pallowed)"
-PF_NI=$(pget 'd["data"]["preflight_id"]')
-PHRASE_NI=$(pphrase)
-cp "$WORK/preflight.json" "$PAYLOADS/preflight-format-noprimitive.json"
-printf '{"preflight_id":"%s","confirmation_phrase":"%s"}' "$PF_NI" "$PHRASE_NI" >"$WORK/jobreq-ni.json"
-SUB_CODE=$(curl -s -b "$JAR" -o "$WORK/resp.json" -w '%{http_code}' -X POST "$BASE$JOBS" \
-  -H 'Content-Type: application/json' -H "Origin: $ORIGIN" -H "X-CSRF-Token: $CSRF" \
-  -H "Idempotency-Key: p07-1-submit-1" -d @"$WORK/jobreq-ni.json")
-cp "$WORK/resp.json" "$PAYLOADS/job-501.json"
-expect_eq "提交存储动作的状态码" "501" "$SUB_CODE"
-expect_eq "提交的错误码" "NOT_IMPLEMENTED" "$(resp_get 'd["error"]["code"]')"
+expect_eq "四个存储动作都已登记为可执行" "True" \
+  "$(jget "$PAYLOADS/agent-capabilities.json" \
+     'all(a in d["data"]["supported_actions"] for a in ("storage.partition_table.initialize","storage.partition.create","storage.partition.delete","storage.filesystem.format"))')"
+notrun "过门之后仍然 501（动作没有执行器）" \
+  "P07.3 起四个存储动作都有执行器，真机上不再存在这种现场；单测 TestStorageSubmitWithoutExecutorIs501 覆盖（自造一个只有 Plan 的动作）"
 api "$JAR" "$CSRF" GET "$JOBS" >/dev/null
-cp "$WORK/resp.json" "$PAYLOADS/jobs-after-501.json"
-# Q159：受理即拒的提交**保留**一条 failed/rejected 任务（那是“刚才那次点击到底发生了什么”
-# 的唯一凭据）。所以这里断言的不是“没有任务”，而是“只多了一条、而且它已经是终态”——
-# 绝不允许留下一条永远跑不起来、却在排队等执行的任务。
-expect_eq "被拒的提交只新增一条任务" "$((JOBS_BEFORE + 1))" "$(resp_get 'len(d["data"]["jobs"])')"
-expect_eq "这条任务的 action 是格式化" "storage.filesystem.format" \
-  "$(resp_get '[j for j in d["data"]["jobs"] if j["action"]=="storage.filesystem.format"][0]["action"]')"
-expect_eq "这条任务停在 rejected 阶段" "rejected" \
-  "$(resp_get '[j for j in d["data"]["jobs"] if j["action"]=="storage.filesystem.format"][0]["step"]')"
-expect_eq "这条任务的状态是 failed" "failed" \
-  "$(resp_get '[j for j in d["data"]["jobs"] if j["action"]=="storage.filesystem.format"][0]["status"]')"
-expect_eq "这条任务的错误码是 NOT_IMPLEMENTED" "NOT_IMPLEMENTED" \
-  "$(resp_get '[j for j in d["data"]["jobs"] if j["action"]=="storage.filesystem.format"][0]["error"]["code"]')"
 expect_eq "没有非终态任务（不留永远跑不起来的排队）" "0" \
   "$(resp_get 'len([j for j in d["data"]["jobs"] if j["status"] not in ("failed","succeeded","canceled")])')"
-expect_eq "磁盘内容在 501 之后仍未变" "$BEFORE_NI" "$(disk_digest "/dev/$BLANK_C")"
 # 夹具回收：BLANK_C 后面 §7 要当“整盘 swap”的现场，必须先擦回全零。
 wipe_disk "/dev/$BLANK_C"
 settle "$BLANK_C" 'd["data"]["device"]["partition_table"]["type"] == "none"'
@@ -1067,8 +1045,14 @@ expect_eq "任务列表仍可读" "200" "$(api "$JAR" "$CSRF" GET "$JOBS")"
 
 # 日志卫生：产品的预检不应该调用任何分区/格式化命令。夹具命令是脚本自己跑的，
 # 所以这里查的是“代理与 Web 的日志里没有出现这些命令名”。
-if grep -Eq 'sgdisk|mkfs\.|wipefs|mkswap|dmsetup create' "$AGENT_LOG" 2>/dev/null; then
-  fail "代理日志里没有磁盘命令" "$(grep -Eo 'sgdisk|mkfs\.[a-z0-9]+|wipefs|mkswap|dmsetup create' "$AGENT_LOG" | head -3 | tr '\n' ' ')"
+#
+# 一处例外：代理启动时会**记录**它接线的二进制路径（`磁盘写原语已接线`，带 sfdisk/
+# mkfs.ext4/mkfs.xfs 的绝对路径）。那一行是设计出来的、可审计的接线记录，不是“跑了
+# 命令”——P07.3 的验收跑过之后重跑本脚本，这条断言第一次因为那一行报假失败。
+if grep -Ev '磁盘写原语已接线' "$AGENT_LOG" 2>/dev/null \
+   | grep -Eq 'sgdisk|mkfs\.|wipefs|mkswap|dmsetup create'; then
+  fail "代理日志里没有磁盘命令" "$(grep -Ev '磁盘写原语已接线' "$AGENT_LOG" \
+    | grep -Eo 'sgdisk|mkfs\.[a-z0-9]+|wipefs|mkswap|dmsetup create' | head -3 | tr '\n' ' ')"
 else
   pass "代理日志里没有磁盘命令"
 fi

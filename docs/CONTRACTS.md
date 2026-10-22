@@ -82,6 +82,8 @@ POST /operations/preflight
 
 预检有效期 120 秒，绑定用户、会话、动作、规范化参数和目标状态版本。危险确认短语由服务端生成，不能由前端决定。GPT 初始化、格式化、删除分区、递归删除目录、覆盖恢复和仓库清理必须要求确认短语；其他动作按注册策略要求普通确认或短语。预检本身不写磁盘、不停止服务、不安装软件。
 
+**被拒绝的预检没有目标可绑定。** `allowed=false` 时 `target.identity_fingerprint` 允许为空——典型情形就是设备已经不在拓扑里（阻塞项 `DEVICE_NOT_FOUND`：拔了、改名了、`device_id` 写错），此时 `state_version` 退到拓扑版本。目标绑定（指纹 + 状态版本）是**放行**的前提，因为它是执行前复核“还是那个目标”的唯一依据；被拒的预检不可能被执行（提交端对 `!allowed` 直接 409），所以不要求绑定，也**不得为了让校验通过而编造指纹**。`target.display_name` 始终填，界面靠它说明拒绝的是谁。（Q190）
+
 ### 4.2 创建任务
 
 POST /jobs，必须携带 Idempotency-Key（客户端生成 UUID，一次意图重试时复用）。
@@ -332,6 +334,69 @@ disk_entries 的每一项：
     `["disk_bytes","kernel_sysfs"]`）；create 另带 `created_partition`（`number`、`start_bytes`、
     `size_bytes`、`name`、`device_id`），delete 另带 `deleted_device_id`。
 - 写动作只在**两源都对上**之后才是 `verified`：退出码 0、`sfdisk` 打印成功、udev 已稳定，都不算验证。
+
+### 6.4 附加字段（P07.3 起）
+
+P07.3 开始 `storage.filesystem.format` 会真的调用 `mkfs` 并读回核验。格式化**不改变分区表**，
+所以它的 result 不复用 6.3 的 `table_type`/`disk_entries`，改用下面这组字段。
+
+预检与门槛：
+
+| 项 | 值 |
+|---|---|
+| 参数 | `device_id`（分区）、`filesystem`（闭集 `ext4`/`xfs`）、`label`（可空） |
+| 标签上限 | ext4 **16 字节**、XFS **12 字节**；只接受可打印 ASCII，且不能含 `/` |
+| 超限的判决 | **预检之前**就拒：400 `VALIDATION_ERROR`，消息里带真实上限；不生成 `preflight_id` |
+| 再认证 / 确认短语 | 都需要；短语形如 `FORMAT XXXXXX`（6 位，去掉易混的 I/O/0/1） |
+| `cancellable` | `false`：动作开始后不能取消，取消请求得到 409 `VALIDATION_ERROR` |
+| 锁 | 整盘（`disk:<disk_id>`），与分区动作互斥 |
+
+result.observed_state（写完之后从设备读回来的事实）：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| device_id / disk_id | 字符串 | 目标分区与它所在的整盘 |
+| filesystem | 字符串 | 请求的文件系统类型（读回的分类也必须与它一致） |
+| uuid | 字符串 | 新文件系统的 UUID；**必须与写之前不同** |
+| label | 字符串 | 读回的卷标，逐字节与请求一致（截断会被抓出来） |
+| size_bytes | 十进制字符串 | 文件系统容量 |
+| partition_size_bytes | 十进制字符串 | 分区容量（`0 < size_bytes ≤ partition_size_bytes`，且不小于其 9/10） |
+| block_size_bytes | 十进制字符串 | 文件系统块大小 |
+| signature | 字符串 | **独立**签名分类器（P07.1 的扫描器）读到的类型；与 superblock 结论不一致即失败 |
+| udev_settled | 布尔 | `udevadm settle` 是否成功；失败不单独判失败，只如实上报 |
+| node_present | 布尔 | 写完之后设备节点是否还在 |
+
+result.data（这次到底做了什么）：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| device_id / filesystem | 字符串 | 同上 |
+| uuid / label / size_bytes | 同上 | 同上 |
+| checked_via | 字符串数组 | 固定 `["superblock","signature_probe"]`：两条独立的读路径 |
+| command | 字符串数组 | 实际执行的 argv（含程序路径），供审计回放 |
+| previous_kind | 字符串 | 写之前那个分区上是什么文件系统；空串表示没有签名 |
+| previous_uuid | 字符串 | 写之前的 UUID（无签名时为空） |
+
+规则：
+
+- **退出码 0 不算成功。** 只有 superblock 读回、几何关系、标签逐字节一致、UUID 已更换，
+  并且独立分类器给出同一个结论，才算 `verified`。任务失败时消息必须带 mkfs 的真实输出
+  与“盘上现在是……”（读回的实际状态），并且明确提示“核实实际状态之前不要重新提交”。
+- **ext4 不带 `-F`**（实测：覆盖 ext4/xfs/随机内容都不需要它，stdin 为空时也不会提问）；
+  **XFS 固定带 `-f`**（实测：任何已有签名都会让 mkfs.xfs 以 rc=1 要求 `-f`）。两者都
+  解不开 mkfs 自己的“已挂载”检查，所以 `-f` 不是占用保护的旁路。
+- 格式化动作在**进程执行期间**任务上下文结束时，一律记为 `interrupted`
+  （`OPERATION_INTERRUPTED`，实际状态未知），不记为 `failed`——失败的语义是“可以放心重来”。
+- 预检之后的第二道门：提交时与执行前各重算一次判决并逐字比较。比较用的是**采集快照的版本**
+  （采集间隔 5 秒），而写动作真正动手前还会**直接从设备**重读分区表条目、签名与节点。
+  两者分工：版本比较抓“从预检到现在盘上变了”，设备直读抓“此刻这块盘还是不是那块盘”。
+- **版本只覆盖结构，不覆盖盘上的签名。** `snapshot_version` 由拓扑内容算出：节点（整盘/分区/
+  LVM/RAID/crypt/loop）、边、分区表条目、挂载、身份指纹、容量。未挂载分区的文件系统签名、UUID
+  与卷标**不在其中**——`storage.scan` 只给整盘与**已挂载**的分区填 `filesystem`。真机实测
+  （P07.3 验收 §10a）：在一个未挂载、带卷标的 ext4 分区上 `wipefs -a`，前后两次快照版本
+  **逐字节相同**；在同一块盘上新建一个分区，版本立刻变。于是版本比较能抓“结构变了”，抓不到
+  “签名被换了”；后者由写动作动手前的设备直读承担，并如实上报 `previous_kind`/`previous_uuid`。
+  对 `format` 来说签名变化本来也不构成拒绝理由：它的工作就是覆盖掉那个签名。
 
 ## 7. 共享契约
 

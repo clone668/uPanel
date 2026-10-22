@@ -320,11 +320,22 @@ func validatePlanResult(plan Plan) error {
 	if plan.NormalizedParams == nil {
 		return errors.New("缺少规范化参数")
 	}
-	if strings.TrimSpace(plan.Target.IdentityFingerprint) == "" {
-		return errors.New("缺少目标身份指纹：预检必须绑定一个可复核的目标")
-	}
-	if strings.TrimSpace(plan.Target.StateVersion) == "" {
-		return errors.New("缺少目标状态版本：预检必须绑定目标状态快照")
+	// 目标绑定只在**打算执行**时才要求。
+	//
+	// 身份指纹与状态版本存在的唯一理由是让执行端复核“我要动的还是预检时那个东西”；
+	// 对一条 allowed=false 的预检，这条安全义务不存在——提交端在 `!plan.Allowed`
+	// 那一步就拒了（operations.go），它根本不可能被执行。无条件要求绑定会把最普通
+	// 的一种拒绝变成实现错误：真机 P07.3 验收 §13 撞到的就是它——对一个已经从拓扑里
+	// 消失的分区做预检，判决层正确地给出 DEVICE_NOT_FOUND，但“消失的设备”没有任何
+	// 东西可以绑定，于是这里判“预检结果不合法”，用户拿到 500 内部错误，而不是
+	// “这台设备已经不在了”。（Q190）
+	if plan.Allowed {
+		if strings.TrimSpace(plan.Target.IdentityFingerprint) == "" {
+			return errors.New("缺少目标身份指纹：预检必须绑定一个可复核的目标")
+		}
+		if strings.TrimSpace(plan.Target.StateVersion) == "" {
+			return errors.New("缺少目标状态版本：预检必须绑定目标状态快照")
+		}
 	}
 	if !plan.Allowed && len(plan.Blockers) == 0 {
 		return errors.New("不允许执行却没有给出阻塞项")

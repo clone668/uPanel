@@ -23,10 +23,11 @@ func SyscmdRunner() CommandRunner {
 	})
 }
 
-// CheckWriteDependencies 检查本机是否具备磁盘写原语的固定依赖（sfdisk、udevadm）。
+// CheckWriteDependencies 检查本机是否具备磁盘写原语的固定依赖
+// （sfdisk、udevadm、mkfs.ext4、mkfs.xfs）。
 //
 // 装配时调用一次：缺依赖不该阻止代理启动（拓扑与预检仍然有用），但启动日志里必须
-// 说清楚，否则管理员只会在第一次点按钮时才发现。
+// 说清楚哪几个缺，否则管理员只会在第一次点按钮时才发现。
 func CheckWriteDependencies() error {
-	return newWriter(WriteOptions{}).requirePrograms()
+	return newWriter(WriteOptions{}).requireAllPrograms()
 }

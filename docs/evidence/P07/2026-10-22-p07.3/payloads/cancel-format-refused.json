@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"该动作开始执行后不可取消（格式化、分区写入这类操作一旦开始就必须走完）"},"request_id":"52ba7da917637cdc5fe08d6c1d983a1b"}

@@ -369,6 +369,9 @@ func assess(ctx context.Context, topo Topology, in assessmentInput, env Env) Ass
 	index := indexTopology(topo)
 	target, ok := index.devices[in.deviceID]
 	if !ok {
+		// 设备不在了，就没有可绑定的身份：IdentityFingerprint 保持空，StateVersion
+		// 退到拓扑版本（见上面的缺省）。这不是漏填——一条被拒绝的预检本来就没有
+		// 目标可复核，而提交端对 allowed=false 直接拒绝，绑不绑定都不会被执行。
 		a.block(NoticeDeviceMissing, "设备 "+in.deviceID+" 不在当前拓扑里")
 		a.finish()
 		return a

@@ -1,17 +1,18 @@
 package agent
 
-// 存储写动作（P07.1 预检，P07.2 起前三个动作有执行器）。
+// 存储写动作（P07.1 预检，P07.2 起分区表动作有执行器，P07.3 起格式化也有）。
 //
-// 四个动作都登记参数解码与预检；初始化 GPT、建分区、删分区三个在 P07.2 接上执行器，
-// 格式化（storage.filesystem.format）的执行器属 P07.3，Execute 仍为 nil，提交时得到
-// 501 NOT_IMPLEMENTED（ErrNoExecutor），而不是一个永远跑不起来的任务。
+// 四个动作都登记参数解码、预检与执行器：初始化 GPT、建分区、删分区（P07.2）、
+// 格式化（P07.3）。没有执行器的动作会以 501 NOT_IMPLEMENTED（ErrNoExecutor）拒绝提交，
+// 而不是登记成一个永远跑不起来的任务。
 //
 // 为什么先把“只会拒绝”的动作登记进来：PLAN.md 第 9.2 节的整盘锁、系统设备保护、
 // 挂载/swap/holders 依赖判断、身份指纹与状态版本绑定，全都在预检阶段生效。把它们
 // 先做出来并在真实设备上验证“该拒的都拒了”，才轮得到写磁盘的那一步。
 //
 // 四个动作都只允许 admin（由 Web 层保证），都需要 5 分钟内的再认证（CONTRACTS.md
-// 第 5 节 R 列全为“是”），并且都不可取消：分区表一动手就没有“安全取消”可言。
+// 第 5 节 R 列全为“是”），并且都不可取消：分区表或文件系统一动手就没有“安全取消”
+// 可言（STAGES.md P07.3“禁止取消”）。取消请求在这里得到 409，而不是被默默忽略。
 
 import (
 	"context"
@@ -222,7 +223,7 @@ func newFilesystemFormatAction(src storageSource) Action {
 			PhraseVerb:     phraseVerbFormat,
 			Cancellable:    false,
 		},
-		// Execute 留空：格式化的写原语属 P07.3。留空 = 明确 501，不是“假装成功”。
+		Execute: storageExecutor(src, storage.ActionFilesystemFormat),
 	}
 }
 

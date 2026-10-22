@@ -152,8 +152,17 @@ TERM 与 KILL 是两次独立操作，关键进程零能力；P05.3 journal 结�
   “没读到”在 JSON 里撞车，`omitempty` 把两者说成同一件事）、记下 4 处验收脚本缺陷（Q178—Q181），
   §10 的并发还**撞到了 `runner` 里的第二次 `revalidate`**（Q182，P07.1 那条 NOT RUN 由此补上机会性证据）。
   宿主 `check.sh` PASS 13/0/0、前端 **450** 用例（新增 5 例真机载荷回放）、openapi valid。
-  下一个子任务 **P07.3**（ext4/XFS 格式化、标签校验、确认短语、禁止取消、执行前二次身份检查；
-  测试错误退出和进程中断）未开始。
+  **P07.3（ext4/XFS 格式化）passed**：`internal/storage/format.go`（448 行）+ `fsprobe.go` 把
+  `storage.filesystem.format` 接上执行器——固定模板（只有已校验的文件系统名、设备路径与卷标），
+  卷标经第三道闸；写完**直接读超级块**（ext4 偏移 1024 的 `53 ef`/`s_uuid`/`s_volume_name`，
+  XFS 偏移 0 的 `XFSB`/`sb_uuid`/`sb_fname`）做两源核验，退出码 0 不算验证。四条纪律落地：
+  确认短语猜错一次就作废整份预检；标签超限在**预检之前**就是 400（ext4 的 17 字节标签会 rc=0
+  并被**静默截断**，见 Q184）；mkfs 跑着时取消是 409 且任务不会被标成 canceled；代理被 SIGKILL
+  后操作落 `interrupted` + `OPERATION_INTERRUPTED` 且**不自动重跑**。VM 上
+  **PASS=204 / FAIL=0 / NOT RUN=1**（唯一 NOT RUN 是内核/盘上条目不一致的真实竞态，单测覆盖）；
+  真机抓出并修掉 **1 个**产品缺陷（Q190：对已经不存在的设备做预检回 500——拒绝路径没有目标可绑定，
+  预检层却无条件要求绑定），记下 Q184—Q190。
+  下一个子任务 **P07.4**（卷导入、挂载与 fstab）未开始。
 - 已完成子任务：P00.1—P00.3、**P01.1**—**P01.4**、**P02.1**（首个管理员、密码哈希、登录、
   退出、会话轮换、CSRF、Origin、限速；无默认密码）、**P02.2**（admin/viewer、账号管理、
   最后管理员保护、再认证、脱敏 DTO、审计事件起步）、**P02.3**（代理 Unix socket + SO_PEERCRED
@@ -231,14 +240,23 @@ TERM 与 KILL 是两次独立操作，关键进程零能力；P05.3 journal 结�
   帧字段闭集 + 单个 64 KiB 载荷 + 256 KiB/s 与 200 帧/s 上限 + 关闭码 1000/4001/4002，
   会话两状态、单连接（第二条 409）、断流宽限内重连接回同一个 shell，时限与数量只能收紧，
   审计只记元数据（终端全文不进日志/审计）；VM 上 282/0/0、VM 内核原生 962/0、前端 445 例，
-  真机抓到 6 类缺陷——最硬的一条是“关 master 不会挂断”，会话已结束而 shell 还在跑（Q169））。
-- 下一子任务：**P07.3**（ext4/XFS 格式化：标签校验、确认短语、**禁止取消**、执行前二次身份检查；
-  验收要覆盖工具错误退出与进程中断——`mkfs` 半途被杀、盘上留下半成品时对账得到什么）。
-  前置已就位：P07.2 的写盘链路（执行前重算判决 + 比对身份指纹与状态版本 → 固定模板交给 `syscmd` →
-  `udevadm settle` → 两源读回核对才算 `verified`）、`internal/storage/write.go` 的模板与核验骨架、
-  `syscmd` 的有上限 stdin 通道、以及 P07.1 的签名/占用/系统盘保护。
-  P07.3 要补的两条路径：**执行的不可取消性**（磁盘写动作进任务后不允许取消，取消请求必须被明确拒绝）
-  与“执行中被中断 → 对账得到 `unknown_result`”而不是猜成功。
+  真机抓到 6 类缺陷——最硬的一条是“关 master 不会挂断”，会话已结束而 shell 还在跑（Q169））、
+  **P07.1**（存储动作预检、可靠设备身份、整盘锁、系统设备/挂载/swap/holders/依赖保护；**只验证拒绝逻辑**，
+  四个动作 `Execute` 为 nil、提交必 501，VM 上 189/0/1，真机抓到 Q171/Q172 两个缺陷）、
+  **P07.2**（真的写盘：固定模板初始化 GPT、建分区、删未使用分区，模板只经 `syscmd` 的有上限 stdin 通道，
+  写前重算判决+比对身份与版本，写后 `udevadm settle` 再两源读回核对，VM 上 177/0/1，抓到 Q177）、
+  **P07.3**（ext4/XFS 格式化：固定模板 + 超级块直读的两源核验、标签上限在预检前 400、错短语作废整份预检、
+  禁止取消、代理被 SIGKILL 后 `interrupted` 且不自动重跑、执行前二次身份检查；VM 上 204/0/1，
+  抓到 Q190——“对不存在的设备做预检回 500”）。
+- 下一子任务：**P07.4**（导入卷、挂载/卸载、UUID 校验、fstab 最小修改、原子替换/备份/回滚、
+  开机自动挂载、繁忙占用列表）。
+  前置已就位：P07.3 的超级块直读（`internal/storage/fsprobe.go`）已经能不看 `blkid` 认出 ext4/XFS
+  的 UUID 与卷标——“UUID 校验”不必依赖外部工具；P07.2 的写盘链路（执行前重算判决 + 比对身份指纹与
+  状态版本 → 固定模板交给 `syscmd` → 两源读回核对才算 `verified`）可以直接承载 fstab 的原子替换；
+  P07.1 的挂载/占用/系统盘保护与“读不出来一律阻塞”的判决层是“卸载前先列清谁在占用”的现成基础。
+  P07.4 要补的几条路径：**挂载点与 fstab 的最小修改**（只动自己那一行、原子替换、备份、失败回滚，
+  不覆盖别人的配置）、**导入卷**（已有文件系统的分区纳入管理，身份与 UUID 可复核）、
+  **开机自动挂载**的可回滚写入，以及**繁忙占用列表**（卸载被拒时要说清是哪个挂载点、哪个 pid）。
   **破坏性验收只能用可丢弃的独立 VM 数据盘（sdb/sdc/sdd），
   验收脚本必须先算出承载 `/` 的整盘并拒绝任何与它同源的盘**。
   P05 结束时面板已有四类只读查询（系统/存储/服务/进程/日志）、受控写动作（服务启停与进程信号）
@@ -315,7 +333,7 @@ TERM 与 KILL 是两次独立操作，关键进程零能力；P05.3 journal 结�
 | P04 | 首页和存储只读 | **passed** | P04.1 **passed**：`internal/monitoring` 纯文件读取采集（`/proc/stat`、`meminfo`、`loadavg`、`net/dev`、`os-release`、`uptime`、`cpuinfo` + `uname`），代理侧 5 秒轮询缓存（`collected_at`/`interval_ms`/`stale`/`degraded` + 分节 `status`），速率只由相邻样本差分给出、算不出来为 `null`，`boot_id` 变化让 CPU 窗口失效；查询登记表新增唯一查询 `system.summary`（`DecodeParams` 拒绝任何字段），Web 侧 `GET /api/v1/system/summary`（权限 V）只透传、不做第二层缓存，代理不可用 503 `AGENT_UNAVAILABLE` 且不影响登录；能力只上报真实存在的东西。证据 `docs/evidence/P04/2026-10-20-p04.1/`（两台 VM 各 **72** 项断言 + VM 内核原生 **401** 用例 0 FAIL + 12 脚本全量回归 930/0；宿主 check.sh PASS 12/0/NOT RUN 0，redocly valid 9 warnings）。**生产登记表仍为空，本轮没有新增任何写动作**。P04.2 **passed**：`internal/storage` 只读块设备拓扑（`/sys/block` + `/sys/class/block`，整盘/分区/lvm/raid/crypt/loop/rom/other）、边 `partition_of`/`depends_on`（from=子→to=父）、设备身份 `sha256:` 指纹 + 诚实的 `identity_confidence`、系统盘保护从 mountinfo/swaps 出发沿边递归向上、分区表读盘头部只补类型与 free_regions（内核结果优先）、容量 30 秒缓存取 `f_bavail`、`snapshot_version` 只由内容决定；代理查询 `storage.topology`、Web `GET /api/v1/storage/{topology,devices,devices/:id}`（V 权限、只透传）；`health.status` 一律 `unknown`、`capabilities` 一律 `[]`。证据 `docs/evidence/P04/2026-10-20-p04.2/`（两台 VM 各 **108** 项断言 + VM 内核原生 **473** 用例 0 FAIL + 13 脚本全量回归 1038/0；宿主 check.sh PASS 12/0/NOT RUN 0）。本轮修掉 Q89（块设备被当普通文件读 → 代理 OOM）、Q90（快照版本依赖时间）、Q91（by-id 链接缺已知设备约束）、Q96（一个测试抖动）。P04.3 **passed**（SMART/NVMe 健康与 diskstats：15 分钟采集节奏、睡眠盘不唤醒）——`internal/storage` 新增 `smart.go`/`diskstats.go`/`capacity*.go`：smartctl `-j -H -A -i` 按**退出状态位掩码**判读（失效/预失效 → `critical`，历史位/日志位 → `warning`，命令失败/打开失败 → `unknown`），先读 sysfs 电源状态、非 NVMe 再加 `-n standby`，**不为读健康唤醒休眠盘**；`/proc/diskstats` 每台设备只取自己那一行、计数转十进制字符串，速率由相邻两次采样差分（归零/回绕/窗口异常 → `null`），平均延迟只在完成次数 > 0 时给，扇区固定 512 字节；网络文件系统容量在代理自己的 `--statfs-helper` 子进程里查（并发 2、默认 10 秒超时、失败后隔离 5 分钟不再重试），拓扑新增 `network_mounts`（无块设备的网络挂载单独成表）、`Device.io`、`Mount.capacity_error`，`io` 不进 `snapshot_version`。证据 `docs/evidence/P04/2026-10-21-p04.3/`：24.04.5 与 22.04.5 各 **77** 项通过、`upanel-smart`（QEMU NVMe）**62** 项通过，0 失败（未执行项各 1/1/2，均写明原因）；**statfs 挂在内核里时登录仍 332 ms / 271 ms 返回 200**；原生 `storage.test` 三台 VM **103/0**；22.04 VM 内 `go test -race ./...` 19 包 ok、**0 条 DATA RACE**。P04.3 补强（第二轮）：QEMU USB 盘的两个真实反例（“桥不认识”“`-d sat` 打不开”）+ 真实 `mount --bind` 多挂载点用例 + `smartctl` 原话透进 `health.details`（Q104），三台 VM 重跑 77/77/**63**、0 失败，原生 `storage.test` **106/0**、`-race` 19 包 ok / 0 DATA RACE。P04.4 **passed**（首页、磁盘列表、拓扑/分区详情、健康与容量卡片；**写操作能力此时不启用**）：前端 DTO 与 `api/openapi.yaml` 同源，页面把 `null` 一律显示 `—`、容量与百分比照实、`unsupported/unknown` 不挂告警、`capabilities` 为空就明说没有动作；Playwright 冒烟 31/0/5 + dist 预览 10/10，前端 **192** 用例；VM 上四份真实响应载荷校验 **856/0**、脚本 **31/0 NOT RUN 0**；证据 `docs/evidence/P04/2026-10-21-p04.4/`。**P04 到此全部 passed** |
 | P05 | 服务、进程、日志 | **passed** | P05.1 **passed**：服务列表/详情/保护名单 + 预检→任务→读回的执行链路（`internal/services`、`internal/api/services.go`、`internal/agent/service*`、前端列表与详情页）；VM 上 **PASS=140 / FAIL=0 / NOT RUN=3**、载荷校验 **22369/0**，前端真实载荷回放 22 例、全量 252 例，宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P05/2026-10-21-p05.1/`。P05.2 **passed**：进程列表与信号（`internal/processes` 纯 `/proc` 采集、`pid`+`start_time_ticks` 身份、5 秒 2000 条快照、10 状态 7 类保护闭集、命令摘要脱敏；`process.signal` 生产动作走同一条预检→任务→锁→读回链路，TERM 与 KILL 两次独立操作、KILL 再认证 + 一次性短语、受保护进程零能力、执行前现场重读 `/proc` 核对身份与保护）；VM 上 **PASS=128 / FAIL=0 / NOT RUN=0**、载荷校验 **9250/0（1 SKIP）**，PID 重用由 `ns_last_pid` 真机造出并验证旧预检被拒、新进程安然无恙；前端真实载荷回放 31 例、全量 295 例，宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P05/2026-10-21-p05.2/`。P05.3 **passed**：日志（`internal/journal` 真实 journalctl 结构化查询与跟随流、`internal/logs` Web 侧契约校验、`logs.query` 代理查询 + `/internal/v1/streams` 单次许可的 NDJSON 流、`GET /api/v1/logs` 与 `GET /api/v1/logs/stream` 两条 admin 接口，前端查询页/条目行/实时流）；VM 上 **PASS=132 / FAIL=0 / NOT RUN=1**、载荷校验 **6466/0/0**，9 个真实缺陷被真机抓出并修掉（游标与 `--since` 冲突、`--kernel`、未转义 `;` 被静默丢弃、参数错误 500→503、`limit=0`、流不 flush 头、错误消息三层前缀），**结束订阅不残留 journalctl 子进程**与空闲超时收流都在真机上验过；前端真实载荷回放 24 例、全量 347 例，宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P05/2026-10-21-p05.3/`。**P05 到此全部 passed** |
 | P06 | 文件和受限终端 | **passed** | P06.1 **passed**：受管理文件根 + 句柄级路径约束 + 列表/文本/下载（`internal/files` 双角色一套 DTO、`openat2` 单次解析 + 同句柄 `fstat`、根身份每次核对、配置拒绝 `/`；`files.roots|list|text` 三个查询 + `files.download` 单次许可流；`GET /api/v1/files/{roots,list,text,download}` 四条 admin 接口；前端文件页/条目行四态与“不跟随、不读取”说明）。VM 上 **PASS=115 / FAIL=0 / NOT RUN=0**、载荷校验 **6379/0**，前端真实载荷回放 27 例、全量 406 例，宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P06/2026-10-21-p06.1/`。P06.2 **passed**：流式暂存上传与受控写入（`internal/files/staging.go` 声明即预留/收满即归还、根内 `.upanel/staging`、TTL 24 h；`write.go` 编辑备份 10 份 + 500 MiB；`StatTree` 树统计与 `TREE_TOO_LARGE`/`TREE_UNSUPPORTED`；七个写动作 `file.mkdir|write_text|copy|move|delete|chmod|chown` + `commit_upload` 全部走预检→任务→幂等→资源锁→`renameat2` 原子换位→同句柄 `fstat` 读回→审计；上传三件套与四条 `/api/v1/files/uploads*` 接口，字节经代理单次许可通道、不进 job 表；前端上传/新建/重命名/复制/删除/编辑/改权限改所有者与确认短语弹窗）。VM 上 **PASS=228 / FAIL=0 / NOT RUN=0**、VM 内核原生 **909/0**、宿主 `check.sh` PASS 13/0/0、前端 428 例、openapi valid；真机抓出并修掉 4 类 6 个缺陷（Q155—Q158）；未验证项 8 条逐条写在 result.md §5；证据 `docs/evidence/P06/2026-10-21-p06.2/`。P06.3 **passed**：受限 Web 终端（`internal/terminal` 会话表 + 限额收紧 + Linux PTY 降权启动与身份读回 + 显式挂断；`internal/agent/terminalaction.go|terminalstream.go` 动作 `terminal.create`、查询 `terminal.sessions`、WS 流；`internal/api/terminal*.go` 四条接口 + 一次性许可 + WS 中继；前端 `TerminalView.vue` 六态与“不是 root shell”边界提示）。浏览器→Web→代理两跳 WS，四道门（Origin/子协议/许可/代理附加）全在 upgrade 前，帧闭集 + 64 KiB 载荷 + 256 KiB/s 与 200 帧/s 上限 + 关闭码 1000/4001/4002，两状态 + 单连接 409 + 宽限重连同壳，审计只记元数据。VM 上 **PASS=282 / FAIL=0 / NOT RUN=0**、VM 内核原生 **962/0**、宿主 `check.sh` PASS 13/0/0、前端 445 例、openapi valid；真机抓出并修掉 6 类缺陷（Q165—Q169，其中 Q169“关 master 不会挂断”会话结束后 shell 残留）；NOT RUN 5 条见 result.md §6；证据 `docs/evidence/P06/2026-10-21-p06.3/`。**阶段结论：P06 三个子任务全部完成** |
-| P07 | 分区、格式化、挂载 | in_progress | P07.1 **passed**：存储写动作的**拒绝逻辑**（预检判决、可靠设备身份、整盘锁、系统设备/挂载/swap/holders/依赖保护）。四个动作 `storage.partition_table.initialize|partition.create|partition.delete|filesystem.format` 只登记解码 + `Plan`，`Execute` 为 nil，提交必 501 `NOT_IMPLEMENTED`（Q170），因此**这一轮没有任何一次写盘**。判决层 `internal/storage/assess.go` 以“读不出来不等于可以写”为第一原则（签名读不到/`/proc/*/fd` 扫不动/分区表只有 sysfs/设备类型未知 → 一律阻塞），保护沿 `partition_of`/`depends_on` 递归向上，阻塞码是闭集；能力投影由判决层算出、30 秒 TTL；签名识别 ext/XFS/Btrfs/swap/LUKS/LVM2/md 固定魔数，占用按 `st_rdev` 比对。VM 上 **PASS=189 / FAIL=0 / NOT RUN=1**（`PREFLIGHT_STALE` 无法验证——提交在复核之前就 501）；真机抓出并修掉 **2 个**产品缺陷：交换区魔数在第一个页面的末 10 字节（4096−10）而不是盘尾、`holders/`/`slaves/` 是符号链接目录没有 `list` 属性（导致 dm/md 占用在真机上永远看不见），见 Q171/Q172。证据 `docs/evidence/P07/2026-10-21-p07.1/`。**P07.2 passed**：三个分区动作接上执行器并在 VM 的三块一次性空盘上**真的写盘**——固定模板（`label: gpt` / `--append --wipe-partitions never start=… size=… type=linux name="…"` / `--delete <dev> <n>`）、模板只经 `syscmd` 的有上限 stdin 通道、命令行里只有已校验的数字与名字；写前重算判决并比对身份指纹/状态版本，写后 `udevadm settle` + 等内核与 `/dev` 节点 + 读回盘上 GPT 头与条目表与期望形态逐条比对，两源都对上才 `verified`（退出码 0 不算）。契约新增 `partition_table.disk_guid`/`disk_entries`（CONTRACTS §6.3、openapi `StorageGPTEntry`、前端 DTO 与真机载荷回放）。VM 上 **PASS=177 / FAIL=0 / NOT RUN=1**，真机抓出并修掉 Q177（`disk_entries` 空数组与“没读到”撞车），记下 Q178—Q182；宿主 `check.sh` PASS 13/0/0、前端 450 用例。证据 `docs/evidence/P07/2026-10-22-p07.2/`。下一子任务 **P07.3**（ext4/XFS 格式化、标签校验、确认短语、禁止取消、执行前二次身份检查；测试错误退出与进程中断） |
+| P07 | 分区、格式化、挂载 | in_progress | P07.1 **passed**：存储写动作的**拒绝逻辑**（预检判决、可靠设备身份、整盘锁、系统设备/挂载/swap/holders/依赖保护）。四个动作 `storage.partition_table.initialize|partition.create|partition.delete|filesystem.format` 只登记解码 + `Plan`，`Execute` 为 nil，提交必 501 `NOT_IMPLEMENTED`（Q170），因此**这一轮没有任何一次写盘**。判决层 `internal/storage/assess.go` 以“读不出来不等于可以写”为第一原则（签名读不到/`/proc/*/fd` 扫不动/分区表只有 sysfs/设备类型未知 → 一律阻塞），保护沿 `partition_of`/`depends_on` 递归向上，阻塞码是闭集；能力投影由判决层算出、30 秒 TTL；签名识别 ext/XFS/Btrfs/swap/LUKS/LVM2/md 固定魔数，占用按 `st_rdev` 比对。VM 上 **PASS=189 / FAIL=0 / NOT RUN=1**（`PREFLIGHT_STALE` 无法验证——提交在复核之前就 501）；真机抓出并修掉 **2 个**产品缺陷：交换区魔数在第一个页面的末 10 字节（4096−10）而不是盘尾、`holders/`/`slaves/` 是符号链接目录没有 `list` 属性（导致 dm/md 占用在真机上永远看不见），见 Q171/Q172。证据 `docs/evidence/P07/2026-10-21-p07.1/`。**P07.2 passed**：三个分区动作接上执行器并在 VM 的三块一次性空盘上**真的写盘**——固定模板（`label: gpt` / `--append --wipe-partitions never start=… size=… type=linux name="…"` / `--delete <dev> <n>`）、模板只经 `syscmd` 的有上限 stdin 通道、命令行里只有已校验的数字与名字；写前重算判决并比对身份指纹/状态版本，写后 `udevadm settle` + 等内核与 `/dev` 节点 + 读回盘上 GPT 头与条目表与期望形态逐条比对，两源都对上才 `verified`（退出码 0 不算）。契约新增 `partition_table.disk_guid`/`disk_entries`（CONTRACTS §6.3、openapi `StorageGPTEntry`、前端 DTO 与真机载荷回放）。VM 上 **PASS=177 / FAIL=0 / NOT RUN=1**，真机抓出并修掉 Q177（`disk_entries` 空数组与“没读到”撞车），记下 Q178—Q182；宿主 `check.sh` PASS 13/0/0、前端 450 用例。证据 `docs/evidence/P07/2026-10-22-p07.2/`。**P07.3 passed**：`storage.filesystem.format` 接上执行器（`internal/storage/format.go` 448 行 + `fsprobe.go`）——固定模板里只有已校验的文件系统名、设备路径与卷标（卷标另有第三道 `ErrUnsafeWrite` 闸），写完**直接读超级块**做两源核验（ext4 偏移 1024 的 `53 ef`/`s_uuid`/`s_volume_name`，XFS 偏移 0 的 `XFSB`/`sb_uuid`/`sb_fname`），退出码 0 不算验证。四条纪律落地：错短语 400 且**整份预检就此作废**；标签超限在预检之前就是 400（ext4 的 17 字节标签会 rc=0 并被静默截断，Q184）；mkfs 跑着时取消是 409 且任务不会被标成 canceled；代理被 SIGKILL 后操作落 `interrupted` + `OPERATION_INTERRUPTED` 且**不自动重跑**；执行前二次身份检查用两道门——版本比对（结构变了 → 409 `PREFLIGHT_STALE`）与设备直读（字节换了 → 409 `DEVICE_IDENTITY_CHANGED`）。VM 上 **PASS=204 / FAIL=0 / NOT RUN=1**（唯一 NOT RUN 是内核/盘上条目不一致的真实竞态，单测 `TestFormatRefusesPartitionThatMoved` 覆盖），真机抓出并修掉 **1 个**产品缺陷 Q190（对已经不存在的设备做预检回 500：拒绝路径没有目标可绑定，预检层却无条件要求绑定），记下 Q184—Q190；宿主 `check.sh` PASS 13/0/0、`go test ./... -count=1` 26 包 ok、storage 单测 PASS 328 / FAIL 0（P07.2 提交同口径 291，+37）。证据 `docs/evidence/P07/2026-10-22-p07.3/`。下一子任务 **P07.4**（导入卷、挂载/卸载、UUID 校验、fstab 最小修改、原子替换/备份/回滚、开机自动挂载、繁忙占用列表） |
 | P08 | SMB 与卷依赖 | not_started | 需真实客户端 |
 | P09 | 现有 Web 应用与 Docker | not_started | — |
 | P10 | 反向代理、HTTPS、0.1 发布 | not_started | — |
@@ -2891,6 +2909,107 @@ terminal 33 / monitoring 30 / storage **294** / journal 40 / logs 22；storage �
 （产品只读主表）、格式化（P07.3）、损坏的 GPT、写盘过程中的断电/进程被杀（P07.3 的验收点）、22.04.5 上
 无任何 P07 证据、`go test -race`（验收 VM 没有 Go/cgo 工具链，交叉编译的测试二进制不带 `-race`）。
 
+### P07.3（2026-10-22）— ext4/XFS 格式化：固定模板、超级块直读、错短语作废预检、禁止取消、二次身份检查
+
+**范围**：`docs/STAGES.md` §9 P07.3 全句。P07.1 证明“该拒的都拒”，P07.2 证明“分区该写的写对了”，
+这一轮把最后一个写动作接上执行器：`storage.filesystem.format` 不再是 501，它真的在一次性空盘上
+`mkfs.ext4` / `mkfs.xfs`，并且**每一件事都要能被第二个人独立复核**。
+
+第一原则仍然是固定模板：命令行里只有**已校验的文件系统名**（`ext4`/`xfs`）、**已校验的设备路径**
+与**已校验的卷标**；卷标另有一道 `formatCommand` 的 `ErrUnsafeWrite` 闸，确认它只能出现在 `-L`
+的位置。`mkfs.ext4` 不加 `-F`（真机实测：覆盖 ext4/xfs 签名、覆盖随机内容都不需要它），
+`mkfs.xfs` 加 `-f`（不加会被已有签名拒掉）。
+
+第二原则是**退出码 0 不算验证**：写完直接读超级块——ext4 在偏移 1024（`0x438` 处的 `53 ef`、
+`s_uuid`、`s_volume_name`），XFS 在偏移 0（`XFSB`、`sb_uuid`、`sb_fname`）——再与内核侧的
+`/dev` 与 `blkid` 这个**独立工具**的读数对一遍。产品自己不调用 `blkid`：它是验收的证人。
+
+| 文件 | 改动 |
+|---|---|
+| `internal/storage/format.go`（新增，448 行） | 格式化执行器：`executeFormat`（再读设备 → 比对预检绑定的身份与状态版本 → 拼模板 → 经 `syscmd` 执行 → 探测超级块 → 两源核验 → `WriteReport`）、`compareFormatIdentity`、`formatObservedState`、`formatReportData`、`signatureKindFor`、进程中断的 `interruptedWrite`/`interruptedRun` |
+| `internal/storage/fsprobe.go`（新增） | 超级块直读：`FilesystemIdentity`（类型、UUID、卷标、签名种类），不依赖 `blkid`。P07.4 的 UUID 校验与卷导入可以直接用它 |
+| `internal/storage/syscmd_adapter.go`、`write.go`（改） | 格式化走同一条写原语与同一条错误出口 |
+| `internal/agent/storageaction.go`、`registry.go`、`cmd/upanel-agent/main.go`（改） | 格式化登记执行器；标签上限判定进入预检；启动时记录接线的写原语路径（可审计） |
+| `internal/agent/preflight.go`（改） | 目标绑定（身份指纹 + 状态版本）只在 `allowed=true` 时是硬性要求（Q190） |
+| `internal/storage/assess.go`（改） | 拒绝路径写清“设备不在了就没有身份可绑”，`display_name` 始终保留 |
+| `internal/storage/format_test.go`、`fsprobe_test.go`（新增）、`assess_test.go`、`internal/agent/storageaction_test.go`（改） | 执行器、超级块探测、标签边界、Q190 的回归用例 |
+| `docs/CONTRACTS.md` §4.1、§6.4 | 两条新边界：**被拒绝的预检没有目标可绑定**（Q190）；**快照版本只覆盖结构，不覆盖未挂载分区的签名**（Q189） |
+| `api/openapi.yaml` | `PreflightTarget.identity_fingerprint` 在 `allowed=false` 时允许为空 |
+| `tests/integration/p07-3-storage-format-acceptance.sh`（新增，14 节 1296 行） | 本轮真机验收 |
+| `tests/integration/p07-1-storage-guard-acceptance.sh`（改） | ① 格式化也有执行器之后，“过门之后必然 501”这种现场在真机上不存在了，改成显式 NOT RUN + 一条跨阶段不变量（四个存储动作都已可执行）；② 日志卫生断言排除代理启动时那行“磁盘写原语已接线”（它记录的是接线的路径，不是跑了命令——P07.3 验收跑过之后再跑 P07.1，这条第一次报假失败） |
+| `tests/integration/run-all.sh`（改） | 补 p07-3，并写明 p07-1 → p07-2 → p07-3 必须串行（都写盘） |
+| `docs/DECISIONS.md` | Q184—Q190 |
+
+**真机验收覆盖（14 节 204 条断言 + 1 NOT RUN）**：环境与安全守卫（三块一次性盘都与承载 `/` 的整盘
+不同源、代理硬编码的 `mkfs.ext4`/`mkfs.xfs` 真在、Web 非 root）→ 能力表里格式化已可执行 →
+夹具（`sgdisk` 造 GPT + sdb1 1 GiB / sdc1 64 MiB / sdd1 2 GiB）→ ext4 格式化并两源核验 →
+**确认短语**（错短语 400 且整份预检作废，盘上一个字节都没写）→ 同一分区改成 XFS（UUID 必须换、
+`-f` 在 argv 里）→ **标签上限**（ext4 17 字节 / xfs 13 字节在预检之前就 400，不落任务不碰盘）→
+**禁止取消**（冻住 mkfs → 取消 409 → 任务不是 `canceled`、`cancellable=false` → 解冻后跑完 `verified`）→
+**错误退出**（64 MiB 上做 xfs：预检允许、mkfs 退出 1 → `COMMAND_FAILED`，消息带退出码、真实输出、
+“盘上现在是”与“重新提交”提醒，分区首 4 MiB 哈希不变）→ **执行前二次身份检查**（结构变了 → 409
+`PREFLIGHT_STALE` 且目标分区字节/UUID/文件系统全不变；换位 → 409 `DEVICE_IDENTITY_CHANGED`）→
+**进程中断**（冻住 mkfs → `SIGKILL` 代理 → 重启后 reconcile 把操作标 `interrupted` +
+`OPERATION_INTERRUPTED`、“实际状态未知”、**不自动重跑**）→ 回归与日志卫生（Web 日志里没有
+`mkfs|blkid`、两份日志里没有明文口令）→ 收尾（擦盘、无残留分区、不存在的设备的预检不是 500）。
+
+**刻意不做的事**：不导入卷、不挂载、不写 fstab（P07.4）；不做 btrfs/f2fs；不做 `-m`/`-i`/条带等
+格式参数；不做分区改名/改类型/调整大小；不做前端写操作交互（P07.5）。
+
+**本轮被真机抓出的产品缺陷（改产品，不改断言）**
+
+1. **对不存在的设备做预检回 500**（Q190）：第 7 轮 §13 的收尾探针打印 `allowed=ERR:KeyError:'data'`，
+   翻响应是 `500 INTERNAL_ERROR`，代理日志写着 `预检结果不合法: 缺少目标身份指纹`。链路是：
+   判决层**正确**地给出 `allowed=false` + `DEVICE_NOT_FOUND`（设备不在了就没有东西可以绑定，指纹留空
+   是对的），而 `validatePlanResult` 无条件要求目标指纹与状态版本，于是把这条最普通的拒绝判成了实现
+   错误。这个洞从 P07.1 就在，只是前两轮的验收从没对未知设备做过预检。修法是**绑定只在 `allowed=true`
+   时是硬性要求**：绑定的唯一用途是让执行端复核“要动的还是预检时那个东西”，而提交端对 `!allowed`
+   直接 409，被拒的预检根本不可能被执行。反向约束一条没放松（放行的预检仍必须有指纹与状态版本；
+   “不允许执行却没有给出阻塞项”仍报错），并补了 `TestStoragePreflightForMissingDeviceIsNot500`
+   与 `TestAssessDeviceNotFound` 的三条断言。
+
+**验收脚本自身的缺陷（记录，不掩盖；每条都换成更难假通过的写法）**
+
+1. **冻不住 mkfs，四次翻车**。要测“取消被拒”与“进程被杀”，必须在 mkfs 跑着的那几十毫秒里下手：
+   ① 第一版用 shell 循环盯 `/proc`，一轮 20—40 ms，而 `mkfs.ext4` 1 GiB 只要 43—53 ms，整轮都能漏；
+   ② 换 Python 之后 `$!` 只是外层子 shell，杀它会把 Python 留成孤儿继续轮询，第 6 轮它把 §9 那次
+   `mkfs.xfs` 冻住、任务再也结束不了——改成按 Python 自己报的 pid 杀，并用 `*.watch` 文件做启动握手
+   （冷启动几十毫秒，不握手就会在 import 期间错过窗口）；③ 第 12 轮（run8）又漏一次，原因是 `seen`
+   让每个 pid 只看一次，而 fork 与 exec 之间 `comm` 还是父进程的名字，0.5 ms 的采样有相当概率落在
+   这个几十微秒的缝里——表现极具误导性（窗口更宽的 2 GiB `mkfs.xfs` 漏了，1 GiB 的 `mkfs.ext4` 抓到了）；
+   ④ 现在每轮都重新看当前子进程（`seen` 只用于写诊断轨迹），并且 §8/§11 各自最多试 3 次（每次都
+   用新的预检；断言只在成功的那次上做，条数因此稳定），三次都没抓住才记 NOT RUN 并打印
+   `frozen*.pid.trace`（pid + 当时的 comm）。
+2. **测试工具自己把 500 吞成一句看不懂的话**：§13 的收尾探针用 `pallowed`/`pall` 直接取 `d["data"]`，
+   遇到错误信封只会打印 `ERR:KeyError`——Q190 差点因此被漏掉。现在拆成显式断言（不存在的设备预检
+   不是 500、阻塞码 `DEVICE_NOT_FOUND`、不编造指纹、说得清问的是谁）+ 一条容错的记录项。
+3. **“预检之后 `wipefs` 掉签名”不能用来验第二道门**（Q189）：第 4、5 两轮的真机实测发现，
+   `wipefs -a` 之后设备详情里的 `snapshot_version` **逐字节相同**（`sha256:576972147d41b6c5…`），
+   于是预检仍然有效，该被拒的提交把盘格式化了。原因是 `storage.scan` 只给整盘与**已挂载**分区填
+   `filesystem`，未挂载分区上的签名/UUID/卷标不进拓扑，也就不进版本。改成制造**结构**变化
+   （同一块盘上新建一个分区）并加两条硬断言：版本**必须**变、被拒之后字节/UUID/文件系统**必须**不动。
+
+**实际执行的检查与证据**：VM 24.04.5 上 **PASS=204 / FAIL=0 / NOT RUN=1**（唯一 NOT RUN 是
+“内核与盘上条目不一致”那一路，属真实竞态，单测 `TestFormatRefusesPartitionThatMoved` 覆盖）。
+关键读数：10a 的结构变化让快照版本从 `sha256:2683d3fa…` 变成 `sha256:23d53538…`，被拒之后目标分区
+首 4 MiB 哈希、`ext4` 签名、UUID 全部不变；冻结现场 `comm=mkfs.ext4`、`stat=T`、任务停在
+`running/executing`，此时取消是 409 且 `cancellable=false`；解冻后任务 `succeeded`/`verified`，
+UUID 与上一次不同；SIGKILL 代理后操作落 `interrupted`/`OPERATION_INTERRUPTED`，任务数不变、
+同一分区上没有第二条成功任务；64 MiB 上做 xfs 的失败消息里同时有退出码、`larger than 300MB`、
+“盘上现在是”与“重新提交”。同机回归：`p07-1-storage-guard-acceptance.sh` 与
+`p04-2-storage-acceptance.sh`（数字见证据目录的 `regression-*.txt`）。宿主 `check.sh`
+**PASS 13 / FAIL 0 / NOT RUN 0**（Node 22.23.3）、`go test ./... -count=1` **26 包 ok**、`go vet` 与
+`gofmt -l` 干净、storage 包单测 **PASS 328 / FAIL 0**（对 P07.2 提交 `882b6d5` 同口径是 291，+37）、`api/openapi.yaml` valid（7 warning）。
+证据 `docs/evidence/P07/2026-10-22-p07.3/`（`run.log`、`env.txt`、`check.txt`、`native-tests.txt`、
+`measurements.txt`、`measurements-mkfs.txt`、20 份真实响应 payload、代理与 Web 日志、`lsblk`、
+两个探针脚本、`result.md`）。
+
+**未验证（NOT RUN，逐条原因见 result.md §8）**：`DEVICE_IDENTITY_CHANGED` 的“内核与盘上条目不一致”
+那一路（真实竞态，单测覆盖）、22.04.5 上无任何 P07 证据、`go test -race`（验收 VM 没有 Go/cgo 工具链）。
+
+**遗留改进项（不在本轮改）**：把状态版本按设备粒度化（Q189 的后续），让“未挂载分区的签名变化”也能
+进入版本；这会牵动 p04-2/p07-1 的快照语义，需要单独一轮。
+
 ## 6. 未决问题与范围变更
 
 未批准任何范围变更。DECISIONS.md 第 8 节记录 Q1—Q80；P03.3 新增六条：Q67（阶段与事件必须同事务，
@@ -3210,6 +3329,13 @@ Q103（`cmd/upanel-web` 的用例会读机器上的 `/etc/upanel/upanel.json`，
 | P07.2-RESULT | P07 | 已产出：范围与逐文件改动、13 节覆盖表与逐节断言数、4 条“只有真机才知道的事实”、1 个产品缺陷（Q177）、4 处验收脚本自身缺陷（Q178—Q181）与 1 处测试工具缺陷（`run-native-tests.sh` 把 `rc≠0` 的超时/崩溃算成 0 失败）、机会性证据 Q182（`runner` 第二次 `revalidate` 在真实竞态里确实触发）、实际执行的检查表、逐条 NOT RUN 与原因、与 P07.1 的差异、复现命令与 sha256 | docs/evidence/P07/2026-10-22-p07.2/{result.md} |
 | P07.2-UNIT-VM | P07 | 已执行通过：VM 内核上跑 13 个交叉编译的测试二进制，**TOTAL PASS=1134 / FAIL=0**、13 个包全 `rc=0`（agentstore 72 / agent 240 / agentclient 39 / operations 57 / syscmd 16 / store 11 / api 200 / files 80 / terminal 33 / monitoring 30 / **storage 294** / journal 40 / logs 22）。storage 从 P07.1 的 162 涨到 294，新增覆盖即写盘执行器（模板校验、重算判决、身份/状态版本比对、两源核验、幂等重放、身份变化拒绝）。跑了两遍：改脚本前后各一遍，两遍数字一致（第一遍留底 `native-tests-run1-unbounded.txt`） | docs/evidence/P07/2026-10-22-p07.2/{native-tests.txt,native-tests-run1-unbounded.txt,env.txt} |
 | P07.2-REGRESSION | P07 | 已执行通过（同机定向回归，同一批一次性盘）：①`p04-2-storage-acceptance.sh` **通过 114 / 失败 0 / 未执行 0**（只读拓扑没被写盘执行器带坏：系统盘保护、`snapshot_version` 只由内容决定、容量与 statvfs 一致）；②`p07-1-storage-guard-acceptance.sh` **PASS 194 / FAIL 0 / NOT RUN 1**（唯一 NOT RUN 仍是 `PREFLIGHT_STALE`，本轮由 P07.2 验收补上）。p07-1 从 189 变 194 是脚本自己这轮的改动（§2 +1 跨阶段不变量、§5 +4：**§5 必须换动作**，否则“再认证后提交初始化”在 P07.2 起会真的写盘） | docs/evidence/P07/2026-10-22-p07.2/{regression-p04-2.txt,regression-p07-1.txt} |
+| P07.3-VM | P07 | **已执行通过（Ubuntu 24.04.5 / 6.8.0-147，root 起代理、uid 999 起 Web，三块一次性盘 sdb/sdc/sdd）**：`p07-3-storage-format-acceptance.sh`（sha256 `3d70edcc…13b1e2`，1296 行）**PASS=204 / FAIL=0 / NOT RUN=1**（`REMOTE_EXIT=0`；唯一 NOT RUN 是 `DEVICE_IDENTITY_CHANGED`，见 result.md §8）。含：环境与安全守卫（三块盘都与承载 `/` 的整盘不同源、硬编码的 `mkfs.ext4`/`mkfs.xfs` 真在、版本可追溯）→ 能力表里格式化已可执行 → ext4 格式化并**两源核验**（超级块直读 + `blkid` 这个独立证人；零退出码不算）→ **确认短语错** 400 `CONFIRMATION_MISMATCH` 且整份预检作废、盘上一个字节没写 → 同分区改 XFS（UUID 换、`-f` 在 argv）→ **标签超限**（ext4 17B / xfs 13B）在预检之前就 400 且不落任务（§5，字节数来自 mkfs 实测）→ **禁止取消**（冻住 `mkfs.ext4` 现场 `comm=mkfs.ext4`/`stat=T`/任务 `running/executing` → 取消 409 `VALIDATION_ERROR`、不是 `canceled`、`cancellable=false` → 解冻后 `succeeded`/`verified`）→ **错误退出**（64 MiB 做 xfs：预检允许、mkfs 退出码 1 → `COMMAND_FAILED`，消息带退出码 + `larger than 300MB` + “盘上现在是” + 重新提交提醒，分区首 4 MiB 哈希不变）→ **执行前二次身份检查**（结构变化：版本 `sha256:2683d3fa…`→`sha256:23d53538…`，409 `PREFLIGHT_STALE`，目标分区字节/UUID/ext4 签名全不变；换位：409 `DEVICE_IDENTITY_CHANGED`）→ **进程中断**（冻住 `mkfs.xfs` 后 `SIGKILL` 代理 → 重启 reconcile 落 `interrupted` + `OPERATION_INTERRUPTED` + “实际状态未知”，任务数不变、不自动重跑）→ 日志卫生（Web 日志无 `mkfs|blkid`、两份日志无明文口令）→ 收尾（擦盘无残留；不存在的设备的预检是 `allowed=false` + `DEVICE_NOT_FOUND`，**不是 500**） | docs/evidence/P07/2026-10-22-p07.3/run.log |
+| P07.3-DATA | P07 | 已产出：20 份 VM 真实响应逐字节存入 `payloads/`（ext4/xfs 格式化任务的 `verified` 结果与 `report_data`、错短语 403/400 与作废后重放、标签超限两份、小分区命令失败、结构变化被拒、换位被拒、中断任务、不存在的设备的预检、格式化能力表），以及 `logs/`（agent.log、web.log、`lsblk-initial/final.txt`） | docs/evidence/P07/2026-10-22-p07.3/{payloads/,logs/} |
+| P07.3-CHECK | P07 | 已执行通过：`sh scripts/check.sh`（Node v22.23.3、Go 1.27.3）→ **PASS 13 / FAIL 0 / NOT RUN 0**（go-build/go-vet/go-test/go-build-linux/go-vet-linux/gofmt/node-version/web-typecheck/web-lint/web-test/web-build/web-smoke/openapi-lint）；另单独跑 `go test ./... -count=1` **26 个包 ok**（EXIT=0，不吃缓存）、`gofmt -l internal/ cmd/` 无输出、`redocly lint api/openapi.yaml` valid + 7 warning（与上一轮同一批） | docs/evidence/P07/2026-10-22-p07.3/{check.txt,native-tests.txt} |
+| P07.3-MEASURE | P07 | 已产出（真机实测，决定验收怎么写）：`mkfs.ext4` 1 GiB 43/53/46 ms、`mkfs.xfs` 1 GiB 89/64/103 ms、3 GiB ext4 166 ms / xfs 132 ms（**所以取消用例必须先把进程冻住**，否则窗口来不及）；ext4 不加 `-F` 能覆盖 ext4/xfs/随机内容；xfs 不加 `-f` 被已有签名拒；ext4 `-L` 给 17 字节 rc=0 但**静默截断**成 16、xfs `-L` 给 13 字节 rc=1；两者都拒已挂载分区；xfs 拒 <300 MB（§9“错误退出”用例的来源） | docs/evidence/P07/2026-10-22-p07.3/{measurements.txt,measurements-mkfs.txt} |
+| P07.3-UNIT | P07 | 已执行通过：宿主 `go test ./... -count=1` 26 包；`internal/storage` 包 **PASS 328 / FAIL 0**（同一口径对同一个包：P07.2 提交 `882b6d5` 是 291，本轮 +37，即 212 顶层 + 116 子测试）：新增 `format_test.go` 覆盖 argv 组装（`-F` 不出现、`-f` 出现、标签/`-L` 位置）、标签字节数上限（ext4 16 / xfs 12，按字节不是字符）、模板校验与身份/状态版本比对、`COMMAND_FAILED` 消息四要素、`fsprobe` 的 UUID/签名/超级块直读；另新增 `TestStoragePreflightForMissingDeviceIsNot500`（Q190 回归锁） | docs/evidence/P07/2026-10-22-p07.3/native-tests.txt |
+| P07.3-REGRESSION | P07 | 已执行通过（同机定向回归，同一批一次性盘，串行）：①`p07-1-storage-guard-acceptance.sh` **PASS 184 / FAIL 0 / NOT RUN 2**（NOT RUN 两条：§5.2“过门之后仍然 501”这个现场在 P07.3 之后已不存在、由 `TestStorageSubmitWithoutExecutorIs501` 顶上；§10 `PREFLIGHT_STALE` 由 p07-2/p07-3 在一次性盘上验。§5 从 18 条降到 8 条是因为那段原本对**四个动作各跑一遍**“再认证后仍然 501”，现在四个动作都真的可执行）；②`p04-2-storage-acceptance.sh` **通过 114 / 失败 0 / 未执行 0**（只读拓扑没被格式化执行器带坏） | docs/evidence/P07/2026-10-22-p07.3/{regression-p07-1.txt,regression-p04-2.txt} |
+| P07.3-RESULT | P07 | 已产出：范围与逐文件改动、14 节覆盖表与逐节断言数（27/8/4/10/6/37/18/12/14/12/25/12/9/10）、关键断言原文与读数（版本前后值、冻结现场、失败消息四要素）、1 个产品缺陷（Q190：对不存在的设备做预检回 500）与 3 类验收脚本缺陷（冻结机制四次翻车、收尾探针吞 500、§10a 设计错）、1 条 NOT RUN 与替代证据、实际执行的检查表、已知限制、下一子任务 P07.4 | docs/evidence/P07/2026-10-22-p07.3/result.md |
 | P00-VM-C（LVM 根） | P00/P04 | **NOT RUN**（未创建） | 需在 P04 前补齐 |
 | P00-VM-D（SMB 客户端） | P00/P08 | **NOT RUN**（未创建） | 需在 P08 前补齐 |
 
