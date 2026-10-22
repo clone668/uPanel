@@ -3995,6 +3995,41 @@ components:
           type: string
           maxLength: 500
           description: 盘上分区表与内核分区不一致等情况的说明，不隐藏。
+        disk_guid:
+          type: string
+          description: |
+            盘上 GPT 头里的 DiskGUID（规范大写带连字符）。只在 source=device 且真的读到 GPT
+            时出现；读不到就没有这个键（不是空串）。CONTRACTS.md 第 6.3 节。
+        disk_entries:
+          type: array
+          description: |
+            盘上条目表（LBA 2 起）的原始内容，与 partitions 是两个来源：partitions 是内核视图，
+            disk_entries 是盘上的字节。写动作的结果核验要求两边都对上。只在 source=device 且
+            真的读到 GPT 时出现。只读主表，不读盘尾的备份表。
+          items:
+            $ref: '#/components/schemas/StorageGPTEntry'
+
+    StorageGPTEntry:
+      type: object
+      additionalProperties: false
+      description: |
+        GPT 条目表里的一个槽位（CONTRACTS.md 第 6.3 节）。槽位号就是内核给分区的编号；
+        delete 不会重排槽位号，所以删掉 2 号之后 1 号仍然是 1 号。
+      required: [number, start_bytes, size_bytes, type_guid, name]
+      properties:
+        number:
+          type: integer
+          minimum: 1
+        start_bytes:
+          $ref: '#/components/schemas/ByteString'
+        size_bytes:
+          $ref: '#/components/schemas/ByteString'
+        type_guid:
+          type: string
+          description: 分区类型 GUID 的规范大写形态（type=linux 即 0FC63DAF-8483-4772-8E79-3D69D8477DE4）。
+        name:
+          type: string
+          description: 条目里的 UTF-16LE 分区名；空串表示名字为空，不是解析失败。
 
     StoragePartition:
       type: object

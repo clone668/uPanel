@@ -3,6 +3,7 @@ package syscmd
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -76,6 +77,21 @@ func runHelper(mode string) {
 	case "die-with-stderr":
 		os.Stderr.WriteString(strings.Repeat("E", 4096))
 		os.Exit(9)
+	case "cat-stdin":
+		// 把标准输入原样吐到标准输出：用来证明固定模板逐字节到达子进程，
+		// 且没有被 shell 解释过。
+		buf, err := io.ReadAll(io.LimitReader(os.Stdin, 1<<20))
+		if err != nil {
+			os.Stderr.WriteString("read stdin: " + err.Error() + "\n")
+			os.Exit(4)
+		}
+		os.Stdout.WriteString("STDIN|" + string(buf))
+		os.Stdout.WriteString("|LEN|" + strconv.Itoa(len(buf)) + "\n")
+		os.Exit(0)
+	case "read-stdin-length":
+		buf, _ := io.ReadAll(io.LimitReader(os.Stdin, 1<<20))
+		os.Stdout.WriteString("LEN|" + strconv.Itoa(len(buf)) + "\n")
+		os.Exit(0)
 	}
 	os.Stderr.WriteString("unknown helper mode: " + mode + "\n")
 	os.Exit(2)
@@ -251,5 +267,42 @@ func TestLimitsDefaults(t *testing.T) {
 	l := Limits{}.withDefaults()
 	if l.Timeout != DefaultTimeout || l.MaxStdout != DefaultMaxStdout || l.MaxStderr != DefaultMaxStderr {
 		t.Fatalf("默认限额 = %+v", l)
+	}
+}
+
+// TestRunPassesStdinVerbatim 钉住固定模板通道：字节逐字到达子进程，没有被解释。
+func TestRunPassesStdinVerbatim(t *testing.T) {
+	script := []byte("label: gpt\nstart=2048, size=2097152, type=linux, name=\"d1\"\n$(id) `id` ; rm -rf /\n")
+	exe, args := helper(t, "cat-stdin")
+	res, err := Run(context.Background(), Spec{Program: exe, Args: args, Stdin: script}, Limits{Timeout: 20 * time.Second})
+	if err != nil {
+		t.Fatalf("执行失败: %v", err)
+	}
+	want := "STDIN|" + string(script) + "|LEN|" + strconv.Itoa(len(script)) + "\n"
+	if res.Stdout != want {
+		t.Fatalf("子进程收到的标准输入 = %q，期望 %q", res.Stdout, want)
+	}
+}
+
+// TestRunWithoutStdinKeepsStdinClosed 验证"没给模板时标准输入仍是空的"——
+// 不能因为加了模板通道，就把父进程的 stdin 顺手接给子进程。
+func TestRunWithoutStdinKeepsStdinClosed(t *testing.T) {
+	exe, args := helper(t, "read-stdin-length")
+	res, err := Run(context.Background(), Spec{Program: exe, Args: args}, Limits{Timeout: 20 * time.Second})
+	if err != nil {
+		t.Fatalf("执行失败: %v", err)
+	}
+	if strings.TrimSpace(res.Stdout) != "LEN|0" {
+		t.Fatalf("标准输入 = %q，期望空", res.Stdout)
+	}
+}
+
+// TestRunRejectsOversizeStdin 验证上限在启动子进程之前就生效。
+func TestRunRejectsOversizeStdin(t *testing.T) {
+	exe, args := helper(t, "read-stdin-length")
+	big := make([]byte, MaxStdinBytes+1)
+	_, err := Run(context.Background(), Spec{Program: exe, Args: args, Stdin: big}, Limits{Timeout: 20 * time.Second})
+	if !errors.Is(err, ErrStdinTooLarge) {
+		t.Fatalf("应返回 ErrStdinTooLarge，实际 %v", err)
 	}
 }

@@ -16,23 +16,26 @@
 #
 # 退出码：0 全部通过；1 有失败项；2 环境不满足（非 root / 盘不安全 / 缺工具）。
 #
-# 本脚本**不会**让产品写任何东西：
-#   - 四个存储动作只登记了参数解码与预检，Execute 为 nil，提交必 501；
+# 本脚本**不会**让产品写任何东西（P07.2 之后仍然成立，这一点不能被改坏）：
+#   - P07.1 时四个存储动作的 Execute 都是 nil，提交必 501；P07.2 起三个分区动作有了
+#     执行器，**提交会真的写盘**，所以 §5 的“过门之后呢”改用仍然没有执行器的格式化
+#     （P07.3），并让它的目标是一个由测试手工具造出来的空白分区；
 #   - 脚本里的分区表/文件系统/swap/dm 夹具都是测试手工具（sgdisk/mkfs/mkswap/dmsetup）
 #     在一次性空盘上造的，不是产品动作；
 #   - §4 与 §5 用前后哈希证明“允许的预检”与“501 的提交”连一个字节都没写。
 #
 # 覆盖的验收点（STAGES §8 P07.1、PLAN §9.1/§9.2、CONTRACTS §5/§4.1/§6/§13）：
 #   1. 安全守卫：先算出承载 / 的整盘，拒绝把任何与它同源的设备当一次性盘
-#   2. 能力真实性：capabilities.supported_actions 里**没有**这四个动作（没有执行器就
-#      不能宣传）；但预检入口在，且设备 capabilities 的四项状态与判决一致
+#   2. 能力真实性：supported_actions 里的 storage.* 名字只能出自四个固定动作（不钉死
+#      哪几个已实现，那是阶段进度不是契约）；但预检入口在，且设备 capabilities 的
+#      四项状态与判决一致
 #   3. 系统盘：整盘初始化、根分区/同盘分区的删除与格式化一律 SYSTEM_DISK_PROTECTED，
 #      锁是整盘 disk:<id>
 #   4. 空白盘初始化：allowed=true、影响里带“未检测到已知签名不代表盘上绝无原始数据”、
 #      影响项 data_loss+partition_table_change、短语首词 INIT、要求再认证、整盘锁
-#   5. 提交：未再认证 403 REAUTH_REQUIRED（门在代理之前，盘上字节不变）；再认证后
-#      仍是 501 NOT_IMPLEMENTED，任务表只多一条 failed/rejected（Q159 留痕），
-#      且没有任何非终态任务
+#   5. 提交：未再认证 403 REAUTH_REQUIRED（门在代理之前，盘上字节不变）；再认证后对
+#      一个**没有执行器**的动作（格式化，P07.3）仍是 501 NOT_IMPLEMENTED，任务表只多
+#      一条 failed/rejected（Q159 留痕），且没有任何非终态任务
 #   6. 已有分区表 → PARTITION_TABLE_PRESENT；建分区的对齐/最小/越界/落在表内/名称过长
 #   7. 签名：整盘 mkfs.ext4（首扇区全零但盘上有文件系统）与整盘 mkswap（魔数在第一个
 #      页面的末 10 字节）都被拒；LUKS 头（有 cryptsetup 时）
@@ -45,12 +48,13 @@
 #  12. 收尾：擦掉夹具后设备能力回到 available（能力跟着状态变，不是一次性结论）
 #
 # 明确不覆盖（NOT RUN，原因写在这里，不在脚本里假装通过）：
-#   - **执行前复核（PREFLIGHT_STALE）**：四个动作没有执行器，提交在复核之前就 501 了，
-#     所以“预检过期 / 目标变了”这条路径本轮无法在真机上触发。P07.2 登记执行器后补。
+#   - **执行前复核（PREFLIGHT_STALE / DEVICE_IDENTITY_CHANGED）**：本脚本的契约是
+#     “不写盘”，而复核只在执行器里发生。这两条由
+#     tests/integration/p07-2-storage-write-acceptance.sh 在一次性盘上验。
 #   - 离线 / 只读设备：要热拔盘或拿真光盘；P04.x 已用 sysfs 夹具与 loop 覆盖只读判定。
 #   - RAID（md）成员：VM 没有 mdadm 现场；holders 用 dm 现场覆盖（同一条 sysfs 路径）。
-#   - 并发真竞态（两个预检同时抢同一块盘）：本阶段还没有执行器，锁的真实争用在 P03.2
-#     已验；存储动作的锁字符串在 §3/§4/§6 里断言。
+#   - 并发真竞态（两个预检同时抢同一块盘）：本脚本只断言锁**字符串**（§3/§4/§6），
+#     执行期的资源锁争用在 P07.2 的写脚本里验；锁本身的抢用在 P03.2 已验。
 #   - 应用/共享/备份依赖（PLAN §9.1 第 5—7 项）：要到 P08/P11/P17 才有对象。
 
 set -u
@@ -549,15 +553,22 @@ expect_eq "viewer 登录" "200" "$(login viewer "$VIEWER_PASSWORD" "$VJAR" login
 VCSRF=$(csrf_of "$WORK/login-viewer.json")
 
 echo
-echo "== 2. 能力真实性：能预检，但不在 supported_actions 里 =="
-# 四个动作登记了参数解码与预检，但没有执行器。把它们写进 supported_actions 就是在
-# 告诉前端“这个能做”，而提交一定 501——那是能力撒谎。
+echo "== 2. 能力真实性：预检入口齐全，supported_actions 里没有计划外的名字 =="
+# P07.2 起三个分区动作有了执行器（P07.1 时四个都没有）。这条断言**故意不钉死**
+# “哪几个已实现”——那是阶段进度，不是契约；钉死它就得每个阶段改一次测试，而且
+# 一旦有人漏改，测试会替实现说话。跨阶段成立的只有两条：
+#   1) storage.* 的名字只能出自四个固定动作（不许凭空多出一个）
+#   2) 列表有序且不重复（前端按这个列表渲染开关）
 STORAGE_ACTIONS="storage.partition_table.initialize,storage.partition.create,storage.partition.delete,storage.filesystem.format"
-expect_eq "supported_actions 里没有任何 storage.* 动作" "[]" \
-  "$(jget "$PAYLOADS/agent-capabilities.json" 'sorted(a for a in d["data"]["supported_actions"] if a.startswith("storage."))')"
-note "代理登记的可执行动作：$(jget "$PAYLOADS/agent-capabilities.json" 'd["data"]["supported_actions"]')"
-# 但预检入口必须在：不登记就连接不到预检，用户就看不到“为什么不能碰这块盘”。
-expect_eq "四个存储动作都能预检（不是未登记动作）" "200" \
+expect_eq "supported_actions 里的 storage.* 都在四个固定动作之内" "" \
+  "$(jget "$PAYLOADS/agent-capabilities.json" \
+     '",".join(a for a in sorted(set(d["data"]["supported_actions"])) if a.startswith("storage.") and a not in ("storage.partition_table.initialize","storage.partition.create","storage.partition.delete","storage.filesystem.format"))')"
+expect_eq "supported_actions 没有重复项" "True" \
+  "$(jget "$PAYLOADS/agent-capabilities.json" 'len(d["data"]["supported_actions"]) == len(set(d["data"]["supported_actions"]))')"
+note "代理登记的可执行存储动作：$(jget "$PAYLOADS/agent-capabilities.json" 'sorted(a for a in d["data"]["supported_actions"] if a.startswith("storage."))')"
+# 但预检入口必须在，且与执行器无关：格式化到 P07.3 才有执行器，照样要能预检。
+# 不登记就连接不到预检，用户就看不到“为什么不能碰这块盘”。
+expect_eq "还没有执行器的格式化也能预检（不是未登记动作）" "200" \
   "$(preflight storage.filesystem.format "{\"device_id\":\"$ROOT_DISK\",\"filesystem\":\"ext4\"}")"
 
 # 设备能力：四项、顺序固定、状态与判决一致。
@@ -661,12 +672,27 @@ api "$JAR" "$CSRF" GET "$JOBS" >/dev/null
 expect_eq "再认证拒绝没有留下任务" "$JOBS_BEFORE" "$(resp_get 'len(d["data"]["jobs"])')"
 expect_eq "再认证拒绝没有写盘" "$BEFORE" "$(disk_digest "/dev/$BLANK_A")"
 
-# 5.2 再认证之后同一个预检可以直接用：仍然 501（没有执行器），
-#     不能因为过了门就悄悄变成一次真实的写操作。
+# 5.2 再认证之后呢？P07.1 的答案是“仍然 501，因为四个动作都没有执行器”。
+#     P07.2 起三个分区动作有了执行器，再提交这条初始化预检就会**真的把 BLANK_A 写成
+#     GPT**——本节的主语是“门”，不是“写”，所以换一个仍然没有执行器的动作：格式化
+#     （P07.3）。它的目标用测试手工具在一次性盘上造一个空白分区，产品照旧一个字节不写。
 expect_eq "再认证" "200" "$(api "$JAR" "$CSRF" POST /api/v1/auth/reauth "{\"password\":\"$PASSWORD\"}")"
+wipe_disk "/dev/$BLANK_C"
+sgdisk --clear --new=1:0:+512M "/dev/$BLANK_C" >/dev/null 2>&1
+udevadm settle --timeout=5 >/dev/null 2>&1
+PART_NI="${BLANK_C}1"
+settle "$PART_NI" 'd["data"]["device"]["kind"] == "partition"'
+BEFORE_NI=$(disk_digest "/dev/$BLANK_C")
+expect_eq "待提交的格式化预检状态码" "200" \
+  "$(preflight storage.filesystem.format "{\"device_id\":\"$PART_NI\",\"filesystem\":\"ext4\"}")"
+expect_eq "待提交的格式化预检 allowed" "True" "$(pallowed)"
+PF_NI=$(pget 'd["data"]["preflight_id"]')
+PHRASE_NI=$(pphrase)
+cp "$WORK/preflight.json" "$PAYLOADS/preflight-format-noprimitive.json"
+printf '{"preflight_id":"%s","confirmation_phrase":"%s"}' "$PF_NI" "$PHRASE_NI" >"$WORK/jobreq-ni.json"
 SUB_CODE=$(curl -s -b "$JAR" -o "$WORK/resp.json" -w '%{http_code}' -X POST "$BASE$JOBS" \
   -H 'Content-Type: application/json' -H "Origin: $ORIGIN" -H "X-CSRF-Token: $CSRF" \
-  -H "Idempotency-Key: p07-1-submit-1" -d @"$WORK/jobreq.json")
+  -H "Idempotency-Key: p07-1-submit-1" -d @"$WORK/jobreq-ni.json")
 cp "$WORK/resp.json" "$PAYLOADS/job-501.json"
 expect_eq "提交存储动作的状态码" "501" "$SUB_CODE"
 expect_eq "提交的错误码" "NOT_IMPLEMENTED" "$(resp_get 'd["error"]["code"]')"
@@ -676,17 +702,20 @@ cp "$WORK/resp.json" "$PAYLOADS/jobs-after-501.json"
 # 的唯一凭据）。所以这里断言的不是“没有任务”，而是“只多了一条、而且它已经是终态”——
 # 绝不允许留下一条永远跑不起来、却在排队等执行的任务。
 expect_eq "被拒的提交只新增一条任务" "$((JOBS_BEFORE + 1))" "$(resp_get 'len(d["data"]["jobs"])')"
-expect_eq "这条任务的 action 是初始化" "storage.partition_table.initialize" \
-  "$(resp_get '[j for j in d["data"]["jobs"] if j["action"]=="storage.partition_table.initialize"][0]["action"]')"
+expect_eq "这条任务的 action 是格式化" "storage.filesystem.format" \
+  "$(resp_get '[j for j in d["data"]["jobs"] if j["action"]=="storage.filesystem.format"][0]["action"]')"
 expect_eq "这条任务停在 rejected 阶段" "rejected" \
-  "$(resp_get '[j for j in d["data"]["jobs"] if j["action"]=="storage.partition_table.initialize"][0]["step"]')"
+  "$(resp_get '[j for j in d["data"]["jobs"] if j["action"]=="storage.filesystem.format"][0]["step"]')"
 expect_eq "这条任务的状态是 failed" "failed" \
-  "$(resp_get '[j for j in d["data"]["jobs"] if j["action"]=="storage.partition_table.initialize"][0]["status"]')"
+  "$(resp_get '[j for j in d["data"]["jobs"] if j["action"]=="storage.filesystem.format"][0]["status"]')"
 expect_eq "这条任务的错误码是 NOT_IMPLEMENTED" "NOT_IMPLEMENTED" \
-  "$(resp_get '[j for j in d["data"]["jobs"] if j["action"]=="storage.partition_table.initialize"][0]["error"]["code"]')"
+  "$(resp_get '[j for j in d["data"]["jobs"] if j["action"]=="storage.filesystem.format"][0]["error"]["code"]')"
 expect_eq "没有非终态任务（不留永远跑不起来的排队）" "0" \
   "$(resp_get 'len([j for j in d["data"]["jobs"] if j["status"] not in ("failed","succeeded","canceled")])')"
-expect_eq "磁盘内容在 501 之后仍未变" "$BEFORE" "$(disk_digest "/dev/$BLANK_A")"
+expect_eq "磁盘内容在 501 之后仍未变" "$BEFORE_NI" "$(disk_digest "/dev/$BLANK_C")"
+# 夹具回收：BLANK_C 后面 §7 要当“整盘 swap”的现场，必须先擦回全零。
+wipe_disk "/dev/$BLANK_C"
+settle "$BLANK_C" 'd["data"]["device"]["partition_table"]["type"] == "none"'
 
 echo
 echo "== 6. 有分区表的盘：初始化拒绝、建分区的对齐与越界 =="
@@ -1000,8 +1029,7 @@ preflight storage.filesystem.format "{\"device_id\":\"$PART_C1\",\"filesystem\":
 cp "$WORK/preflight.json" "$PAYLOADS/preflight-identity-2.json"
 expect_eq "拓扑变化后分区身份指纹不变" "$PF_FP1" "$(pfp)"
 note "预检响应不向前端暴露 state_version（内部绑定信息），这里只能验证身份稳定；"
-note "“版本变了 → 提交时 PREFLIGHT_STALE”要等 P07.2 有了执行器才能验。"
-notrun "执行前复核（PREFLIGHT_STALE）" "四个动作没有执行器，提交在复核之前就 501；P07.2 登记执行器后补"
+notrun "执行前复核（PREFLIGHT_STALE）" "本脚本不写盘，复核只在执行器里发生；由 p07-2-storage-write-acceptance.sh 在一次性盘上验"
 
 echo
 echo "== 10. 权限：匿名 401、viewer 403 =="

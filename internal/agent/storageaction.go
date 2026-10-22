@@ -1,11 +1,10 @@
 package agent
 
-// 存储写动作（P07.1）。
+// 存储写动作（P07.1 预检，P07.2 起前三个动作有执行器）。
 //
-// 这一轮登记四个动作的**参数解码与预检**，不登记执行器：Execute 为 nil，
-// 提交时得到 501 NOT_IMPLEMENTED（ErrNoExecutor），而不是一个永远跑不起来的任务。
-// 破坏性执行器在 P07.2（GPT/分区）与 P07.3（格式化）登记，届时会把这里的判决
-// 在执行前重算一遍再动手（operations.go 的 revalidate）。
+// 四个动作都登记参数解码与预检；初始化 GPT、建分区、删分区三个在 P07.2 接上执行器，
+// 格式化（storage.filesystem.format）的执行器属 P07.3，Execute 仍为 nil，提交时得到
+// 501 NOT_IMPLEMENTED（ErrNoExecutor），而不是一个永远跑不起来的任务。
 //
 // 为什么先把“只会拒绝”的动作登记进来：PLAN.md 第 9.2 节的整盘锁、系统设备保护、
 // 挂载/swap/holders 依赖判断、身份指纹与状态版本绑定，全都在预检阶段生效。把它们
@@ -19,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"upanel/internal/storage"
 )
@@ -39,8 +39,23 @@ type storageAssessor interface {
 	Assess(ctx context.Context, action string, params any) (storage.Assessment, error)
 }
 
-// RegisterStorageActions 登记四个存储写动作（只登记解码与预检）。
-func RegisterStorageActions(reg *Registry, src storageAssessor) error {
+// storageWriter 是存储写原语的来源（P07.2）。
+//
+// 它与 storageAssessor 分开声明、合起来要求（见 RegisterStorageActions 的入参）：
+// 一个有判决能力但没有写原语的实现不该悄悄把动作登记成“能执行然后永远 501”——
+// 那种降级只会在验收时才被发现。合成一个接口，漏实现就是编译错误。
+type storageWriter interface {
+	ExecuteWrite(ctx context.Context, req storage.WriteRequest) (storage.WriteReport, error)
+}
+
+// storageSource 是登记存储动作所需的全部能力。
+type storageSource interface {
+	storageAssessor
+	storageWriter
+}
+
+// RegisterStorageActions 登记四个存储写动作（解码 + 预检 + P07.2 的三个执行器）。
+func RegisterStorageActions(reg *Registry, src storageSource) error {
 	for _, a := range []Action{
 		newPartitionTableInitializeAction(src),
 		newPartitionCreateAction(src),
@@ -54,8 +69,39 @@ func RegisterStorageActions(reg *Registry, src storageAssessor) error {
 	return nil
 }
 
+// storageExecutor 把一次写动作交给 storage 的写原语执行。
+//
+// 三件事都在这一层之外发生，但都必须由这里的入参保证：
+//   - 目标身份与状态版本来自**预检**（in.Target），不是执行时重新算的；
+//   - 参数是预检落库的规范化参数（in.Params），提交时不再接受新参数；
+//   - 写原语自己会再复核一次“还是那块盘、还是那个状态”，不一致就拒（409）。
+//
+// 错误原样返回：storage.HTTPError 实现了 statusCarrier，runner 会把它映射成
+// DEVICE_IDENTITY_CHANGED / PREFLIGHT_STALE / VALIDATION_ERROR / UNSUPPORTED_DEVICE
+// 这类能自己处理的原因，而不是压成一句“动作执行失败”。
+func storageExecutor(src storageWriter, action string) func(context.Context, ExecuteInput) (Result, error) {
+	return func(ctx context.Context, in ExecuteInput) (Result, error) {
+		report, err := src.ExecuteWrite(ctx, storage.WriteRequest{
+			Action:               action,
+			Params:               in.Params,
+			ExpectedIdentity:     in.Target.IdentityFingerprint,
+			ExpectedStateVersion: in.Target.StateVersion,
+			Progress:             in.Progress,
+		})
+		if err != nil {
+			return Result{}, err
+		}
+		return Result{
+			Outcome:       OutcomeVerified,
+			VerifiedAt:    time.Now().UTC().Truncate(time.Second),
+			ObservedState: report.Observed,
+			Data:          report.Data,
+		}, nil
+	}
+}
+
 // newPartitionTableInitializeAction 登记 storage.partition_table.initialize。
-func newPartitionTableInitializeAction(src storageAssessor) Action {
+func newPartitionTableInitializeAction(src storageSource) Action {
 	return Action{
 		Name: storage.ActionPartitionTableInitialize,
 		Decode: func(raw json.RawMessage) (any, error) {
@@ -81,12 +127,12 @@ func newPartitionTableInitializeAction(src storageAssessor) Action {
 			PhraseVerb:     phraseVerbInit,
 			Cancellable:    false,
 		},
-		// Execute 留空：P07.1 只做拒绝逻辑。见本文件开头的说明。
+		Execute: storageExecutor(src, storage.ActionPartitionTableInitialize),
 	}
 }
 
 // newPartitionCreateAction 登记 storage.partition.create。
-func newPartitionCreateAction(src storageAssessor) Action {
+func newPartitionCreateAction(src storageSource) Action {
 	return Action{
 		Name: storage.ActionPartitionCreate,
 		Decode: func(raw json.RawMessage) (any, error) {
@@ -115,11 +161,12 @@ func newPartitionCreateAction(src storageAssessor) Action {
 			RequiresPhrase: false,
 			Cancellable:    false,
 		},
+		Execute: storageExecutor(src, storage.ActionPartitionCreate),
 	}
 }
 
 // newPartitionDeleteAction 登记 storage.partition.delete。
-func newPartitionDeleteAction(src storageAssessor) Action {
+func newPartitionDeleteAction(src storageSource) Action {
 	return Action{
 		Name: storage.ActionPartitionDelete,
 		Decode: func(raw json.RawMessage) (any, error) {
@@ -140,11 +187,12 @@ func newPartitionDeleteAction(src storageAssessor) Action {
 			PhraseVerb:     phraseVerbDelete,
 			Cancellable:    false,
 		},
+		Execute: storageExecutor(src, storage.ActionPartitionDelete),
 	}
 }
 
 // newFilesystemFormatAction 登记 storage.filesystem.format。
-func newFilesystemFormatAction(src storageAssessor) Action {
+func newFilesystemFormatAction(src storageSource) Action {
 	return Action{
 		Name: storage.ActionFilesystemFormat,
 		Decode: func(raw json.RawMessage) (any, error) {
@@ -174,6 +222,7 @@ func newFilesystemFormatAction(src storageAssessor) Action {
 			PhraseVerb:     phraseVerbFormat,
 			Cancellable:    false,
 		},
+		// Execute 留空：格式化的写原语属 P07.3。留空 = 明确 501，不是“假装成功”。
 	}
 }
 

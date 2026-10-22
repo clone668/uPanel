@@ -173,7 +173,13 @@ func (r *runner) execute(ctx context.Context, op agentstore.Operation) {
 		Actor:        ActorContext{UserID: op.UserID, SessionIDHash: op.SessionHash},
 		OperationID:  op.ID,
 		PreflightRef: op.PreflightRef,
-		Now:          now,
+		Target: Target{
+			// 目标三元组里执行前复核真正要用的两项：还是那块盘、还是那个状态。
+			// DisplayName 只是人读的名字，执行器不靠它判断，因此不在这里拼。
+			IdentityFingerprint: op.IdentityFingerprint,
+			StateVersion:        op.StateVersion,
+		},
+		Now: now,
 		Progress: func(step string, fields map[string]any) {
 			payload := map[string]any{"step": step}
 			for k, v := range fields {

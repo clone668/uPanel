@@ -295,6 +295,44 @@ health 在 P04.3 的取值与来源：
 - 超时后该挂载点在 5 分钟内**不再重试**（可能还挂在不可中断的内核 I/O 里的子进程杀不掉，不能每 30 秒再派一个），期间 capacity 为 null、capacity_error 说明解禁时间。
 - 本地挂载直接 statfs，不走子进程，不因为网络配置而变慢。
 
+### 6.3 附加字段（P07.2 起）
+
+P07.2 开始分区动作会真的写盘，于是 `partition_table` 多出两个**只在读到 GPT 时出现**的字段。
+两个都是补充：`additionalProperties: false` 的客户端在没有 GPT 的盘上看到的还是老样子。
+
+| 字段 | 类型 | 语义 |
+|---|---|---|
+| partition_table.disk_guid | 字符串，读不到时不出现 | 盘上 GPT 头里的 DiskGUID（规范大写带连字符） |
+| partition_table.disk_entries | 数组，读不到时不出现 | 盘上条目表（LBA 2 起）的原始内容，与 partitions 是两个来源 |
+
+disk_entries 的每一项：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| number | 整数 ≥1 | 条目表里的槽位号，也是内核给分区的编号 |
+| start_bytes / size_bytes | 十进制字符串 | 按 512 字节扇区换算 |
+| type_guid | 字符串 | 分区类型 GUID 的规范大写形态（`type=linux` 即 `0FC63DAF-8483-4772-8E79-3D69D8477DE4`） |
+| name | 字符串 | 条目里的 UTF-16LE 分区名；空串表示名字为空，不是解析失败 |
+
+规则：
+
+- **两个来源分开报，不合并。** partitions 来自 sysfs（内核此刻认定的分区），disk_entries 来自盘上的字节。
+  写动作的结果核验要求两边都对上：只看盘上字节会漏掉“内核没重读分区表”，只看内核会漏掉
+  “盘上写坏了但内核还拿着旧表”。
+- 只读**主** GPT（LBA 1—33）。盘尾的备份表不解、不比对，这是已记录的限制（PROGRESS 第 8 节）。
+- 这两个键只在 `source=device` 且真的读到 GPT 时出现。`kernel`/`skipped` 的设备上键**不存在**——
+  不是空数组、不是空串。判据是“读到了”与“没读到”，不是“有没有分区”。
+- 分区名只接受可打印 ASCII、长度 ≤36，并且**不允许 `"` 与 `\`**：模板里名字是 `name="<名字>"`，
+  一个双引号会提前结束引号、让 sfdisk 报 `line 1: unsupported command`（实测 rc=1）；反斜杠会被
+  转义处理吃掉。其余可打印 ASCII 原样落盘、原样读回（实测）。
+- 写动作的 result 沿用第 4.3 节的通用结构，字段如下：
+  - `observed_state`：`device_id`、`table_type`、`disk_guid`、`disk_entries`、`kernel_partitions`
+    （字符串数组）、`udev_settled`（布尔）。
+  - `data`：`device_id`、`table_type`、`partitions`（整数）、`checked_via`（固定
+    `["disk_bytes","kernel_sysfs"]`）；create 另带 `created_partition`（`number`、`start_bytes`、
+    `size_bytes`、`name`、`device_id`），delete 另带 `deleted_device_id`。
+- 写动作只在**两源都对上**之后才是 `verified`：退出码 0、`sfdisk` 打印成功、udev 已稳定，都不算验证。
+
 ## 7. 共享契约
 
 GET /shares、GET /shares/:id、GET /shares/:id/connections、GET /share-accounts：admin。viewer 只在首页看到共享数量和健康摘要。

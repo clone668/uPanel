@@ -1,0 +1,15 @@
+== agentstore rc=0 PASS=72 FAIL=0
+== agent rc=0 PASS=240 FAIL=0
+== agentclient rc=0 PASS=39 FAIL=0
+== operations rc=0 PASS=57 FAIL=0
+== syscmd rc=0 PASS=16 FAIL=0
+== store rc=0 PASS=11 FAIL=0
+== api rc=0 PASS=200 FAIL=0
+== files rc=0 PASS=80 FAIL=0
+== terminal rc=0 PASS=33 FAIL=0
+== monitoring rc=0 PASS=30 FAIL=0
+== storage rc=0 PASS=294 FAIL=0
+== journal rc=0 PASS=40 FAIL=0
+== logs rc=0 PASS=22 FAIL=0
+TOTAL PASS=1134 FAIL=0
+REMOTE_EXIT=0

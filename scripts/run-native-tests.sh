@@ -4,12 +4,18 @@
 #
 #   sudo BIN_DIR=/tmp/upanel-bin sh run-native-tests.sh
 #
+# 可选环境变量：UPANEL_TEST_TIMEOUT（默认 3600s，作为每个包的 -test.timeout）。
+#
 # 只做事：逐个子包跑 -test.v，统计 --- PASS / --- FAIL，最后打印总计。
 # 退出码 = 失败项数（0 表示全绿），方便验收脚本判断。
 set -u
 
 BIN_DIR="${BIN_DIR:-/tmp/upanel-bin}"
 TESTS="$BIN_DIR/tests"
+# 每个包的 -test.timeout。验收 VM 是 TCG 软件模拟，api 包要起真 HTTP 服务、跑 cookie/
+# 限速/多段上传，默认 10 分钟会先到点后跑完：超时 panic 一条 --- FAIL 都没有，看起来
+# 像“什么都没发生”。用环境变量可覆盖（UPANEL_TEST_TIMEOUT=10m 复现默认行为）。
+TIMEOUT="${UPANEL_TEST_TIMEOUT:-3600s}"
 
 if [ ! -d "$TESTS" ]; then
     echo "找不到测试二进制目录: $TESTS" >&2
@@ -74,10 +80,18 @@ for name in agentstore agent agentclient operations syscmd store api files termi
         total_fail=$((total_fail + 1))
         continue
     fi
-    out=$("$bin" -test.v 2>&1)
+    out=$("$bin" -test.v -test.timeout "$TIMEOUT" 2>&1)
     rc=$?
     pass=$(printf '%s\n' "$out" | grep -c -- '--- PASS')
     fail=$(printf '%s\n' "$out" | grep -c -- '--- FAIL')
+    # rc≠0 但一条 --- FAIL 都没有 = 超时 panic / 提前崩溃 / 测试二进制自身报错。
+    # 这种包一条 --- FAIL 都不会打印，只数 --- FAIL 会把它算成“0 失败”，于是整个
+    # 脚本在最需要报警的时候报绿。所以 rc≠0 一律再记一次失败（不重复计数）。
+    if [ "$fail" -eq 0 ] && [ "$rc" -ne 0 ]; then
+        fail=1
+        echo "!! $name 退出码 $rc 但没有 --- FAIL 行（超时/panic/二进制报错），按 1 次失败计"
+        printf '%s\n' "$out" | tail -25
+    fi
     total_pass=$((total_pass + pass))
     total_fail=$((total_fail + fail))
     echo "== $name rc=$rc PASS=$pass FAIL=$fail"

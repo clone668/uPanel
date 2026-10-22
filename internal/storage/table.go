@@ -72,6 +72,16 @@ func probePartitionTable(ctx context.Context, root Root, dir string, dev *Device
 	table.Type = parsed.Type
 	table.Source = "device"
 	table.FreeRegions = parsed.FreeRegions
+	if parsed.Type == TableGPT {
+		// 读到 GPT 就一定给出这两个键：条目表是空的时候给空数组，不给“没有这个键”。
+		// “读到了，零条”与“没读到”对写后核验是完全不同的两件事（后者要报错）。
+		table.DiskGUID = parsed.DiskGUID
+		entries := parsed.Entries
+		if entries == nil {
+			entries = []GPTEntry{}
+		}
+		table.DiskEntries = &entries
+	}
 
 	// 盘上条目数与内核分区数不一致时如实提示：可能是分区表刚改过还没重读，
 	// 也可能是内核拒收了某些分区。两种都不该被隐藏。
@@ -87,6 +97,11 @@ type partitionTableResult struct {
 	Type        string
 	Count       int
 	FreeRegions []FreeRegion
+	// DiskGUID 是 GPT 头的 Disk GUID（字符串形态，只用来说明与核验，不参与判断）。
+	DiskGUID string
+	// Entries 是逐条解出来的 GPT 条目。采集侧不用它（只要数量与空闲区），
+	// P07.2 的写后核验要拿它逐条比对（起点、大小、名字、类型）。
+	Entries []GPTEntry
 }
 
 // parsePartitionTable 解析读到的整盘头部字节（至少含 LBA0 与 LBA1）。
@@ -153,6 +168,7 @@ func parseGPT(raw []byte) (partitionTableResult, error) {
 	// 免得每处都 +1）。
 	type span struct{ start, end uint64 }
 	used := make([]span, 0, entryCount)
+	entries := make([]GPTEntry, 0, 8)
 	count := 0
 	for i := uint32(0); i < entryCount; i++ {
 		off := entryOff + int(i)*int(entrySize)
@@ -170,6 +186,16 @@ func parseGPT(raw []byte) (partitionTableResult, error) {
 		}
 		count++
 		used = append(used, span{start: first, end: last + 1})
+		// 条目号就是内核给分区的编号：GPT 条目表里的第 i 个槽位（从 1 开始）。
+		// sfdisk 的 `--delete <dev> <n>` 也按这个编号删，且删掉中间一条**不会**重排，
+		// 因此编号是核验“删的是不是那一条”的唯一依据。
+		entries = append(entries, GPTEntry{
+			Number:     int(i) + 1,
+			StartBytes: first * sectorSize,
+			SizeBytes:  (last + 1 - first) * sectorSize,
+			TypeGUID:   formatGPTGUID(entry[0:16]),
+			Name:       gptEntryName(entry),
+		})
 	}
 
 	// 空闲区间 = 可用区间减去已用区间（补集）。空闲区间的意义是“还能建多大的分区”，
@@ -195,7 +221,13 @@ func parseGPT(raw []byte) (partitionTableResult, error) {
 	}
 	emit(cursor, lastUsable+1)
 
-	return partitionTableResult{Type: TableGPT, Count: count, FreeRegions: free}, nil
+	return partitionTableResult{
+		Type:        TableGPT,
+		Count:       count,
+		FreeRegions: free,
+		DiskGUID:    formatGPTGUID(hdr[56:72]),
+		Entries:     entries,
+	}, nil
 }
 
 // sleeping 判断设备是否处于休眠：runtime_status 为 suspended 时读 /dev 会把它唤醒。
@@ -227,8 +259,10 @@ func allZero(b []byte) bool {
 	return true
 }
 
-// gptEntryName 把 GPT 条目里的 UTF-16LE 名字解出来（调试与未来展示用）。
-// 未使用时不参与任何判断，保留它是为了将来别在别处重新实现一遍。
+// gptEntryName 把 GPT 条目里的 UTF-16LE 名字解出来。
+//
+// 采集侧只把它用于核验（P07.2 写后读回比对名字）：名字是用户输入，必须逐字确认
+// 落到了盘上的是同一串，而不是"看起来写进去了"。
 func gptEntryName(entry []byte) string {
 	if len(entry) < 128 {
 		return ""
@@ -246,4 +280,43 @@ func gptEntryName(entry []byte) string {
 		return ""
 	}
 	return s
+}
+
+// GPTEntry 是一条 GPT 分区条目（从盘上的条目表解出来的原始形态）。
+//
+// 它与 Partition（来自 sysfs 的内核视图）是**两个来源**：写动作的结果核验必须两边
+// 都对上才算 verified——只看盘上的字节，会漏掉"内核根本没重读分区表"这种情况；
+// 只看内核，会漏掉"盘上写坏了但内核还拿着旧表"。
+type GPTEntry struct {
+	// Number 是条目表里的槽位号（从 1 开始），也就是内核给分区的编号。
+	Number int `json:"number"`
+	// StartBytes / SizeBytes 是分区起点与大小（字节，512 字节扇区换算）。
+	StartBytes uint64 `json:"start_bytes,string"`
+	SizeBytes  uint64 `json:"size_bytes,string"`
+	// TypeGUID 是分区类型 GUID 的规范大写形态（例如 Linux filesystem 的 0FC63DAF-…）。
+	TypeGUID string `json:"type_guid"`
+	// Name 是条目里 UTF-16LE 的分区名（空串表示名字为空，不是"解析失败"——
+	// 解析失败由调用方按"名字不符"处理，宁可判成不一致）。
+	Name string `json:"name"`
+}
+
+// gptTypeLinuxFilesystem 是 Linux 文件系统分区的类型 GUID（sfdisk 的 `type=linux`）。
+//
+// 固定在代码里而不是让调用方指定：P07.2 只允许建这一类分区，参数里不提供类型选择——
+// 有选项就有"把分区标成 EFI 系统分区"这种用法，而那会改变引导行为。
+const gptTypeLinuxFilesystem = "0FC63DAF-8483-4772-8E79-3D69D8477DE4"
+
+// formatGPTGUID 把 GPT 的 16 字节 GUID（混合字节序）转成规范文本形态。
+//
+// GPT 存的是 UEFI 的混合字节序：前三段小端、后两段按原顺序。直接按大端打印会得到
+// 一个"看起来像 GUID 但永远对不上"的字符串，所以必须按规范拼。
+func formatGPTGUID(b []byte) string {
+	if len(b) < 16 {
+		return ""
+	}
+	return fmt.Sprintf("%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X",
+		binary.LittleEndian.Uint32(b[0:4]),
+		binary.LittleEndian.Uint16(b[4:6]),
+		binary.LittleEndian.Uint16(b[6:8]),
+		b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15])
 }

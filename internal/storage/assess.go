@@ -253,6 +253,12 @@ func ValidateLabel(filesystem, label string) error {
 }
 
 // ValidatePartitionName 校验 GPT 分区名。
+//
+// 除了“可打印 ASCII、不超过 36 个字符”，还拒绝双引号与反斜杠——这不是审美，是实测出来的
+// 限制：sfdisk 的分区脚本用双引号括起名字，util-linux 2.39.3 上 `name="a\"b"` 会被判成
+// `line 1: unsupported command` 直接失败，而反斜杠会走它自己的转义处理（`a\b` 落盘后变成
+// `a\x5cb` 这样的另一种东西）。名字是唯一一个进入命令模板的用户字符串，因此在这里就把
+// 它限制成“放进引号里没有任何歧义”的字符集，而不是赌转义语义。
 func ValidatePartitionName(name string) error {
 	if name == "" {
 		return nil
@@ -263,6 +269,9 @@ func ValidatePartitionName(name string) error {
 	for _, r := range name {
 		if r < 0x20 || r > 0x7e {
 			return fmt.Errorf("分区名只能包含可打印 ASCII")
+		}
+		if r == '"' || r == '\\' {
+			return fmt.Errorf("分区名不能包含双引号或反斜杠（sfdisk 的脚本语法无法安全表达它们）")
 		}
 	}
 	return nil

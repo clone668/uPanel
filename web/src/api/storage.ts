@@ -1,12 +1,15 @@
 // 存储接口 DTO（GET /storage/topology、/storage/devices、/storage/devices/{id}）。
 //
 // 与 api/openapi.yaml 的 Storage* schema 逐字对应，字段名保持 snake_case；
-// 与 CONTRACTS.md 第 6、6.1、6.2 节一起看。
+// 与 CONTRACTS.md 第 6、6.1、6.2、6.3 节一起看。
 //
 // 三个要点在这里写成类型与注释，页面不再各自解释：
 //   1) 未知量是 null，不是 0 或空串；字节数是十进制字符串，展示走 utils/format；
 //   2) health.status 是封闭集合，healthy 必须有来源自己的判定支撑（P04.3）；
-//   3) capabilities 在 P04.4 恒为空数组——写操作能力此时不启用，界面不能预告动作。
+//   3) capabilities 自 P07.1 起由代理的判决层算出（不再是恒空的占位）：只有
+//      **当前这块设备真的能做**的动作才是 available，其余是 blocked/unsupported，
+//      并且带原因。界面照它显示，不自己推断“应该能做什么”。
+//      P07.2 登记了三个分区动作的执行器，格式化（P07.3）仍未登记。
 
 import { get, type ApiResult } from './client'
 
@@ -176,6 +179,23 @@ export interface StorageFreeRegion {
   size_bytes: string
 }
 
+/**
+ * 盘上 GPT 条目表里的一个槽位（CONTRACTS 第 6.3 节，P07.2 起）。
+ *
+ * 它和 `partitions` 是**两个来源**：`partitions` 来自 sysfs（内核此刻认定的分区），
+ * 这里来自盘上的字节。看分区表时以后者为准，看"内核有没有重读"时以前者为准。
+ */
+export interface StorageGPTEntry {
+  /** 条目表里的槽位号，也是分区编号；delete 不会重排，删掉 2 号后 1 号仍是 1 号。 */
+  number: number
+  start_bytes: string
+  size_bytes: string
+  /** 分区类型 GUID 的规范大写形态（type=linux 即 0FC63DAF-…）。 */
+  type_guid: string
+  /** 条目里的 UTF-16LE 分区名；空串表示名字为空，不是解析失败。 */
+  name: string
+}
+
 export type PartitionTableType = 'gpt' | 'mbr' | 'none' | 'unknown'
 
 export type PartitionTableSource = 'device' | 'kernel' | 'skipped'
@@ -199,6 +219,10 @@ export interface StoragePartitionTable {
   free_regions: StorageFreeRegion[]
   source: PartitionTableSource
   warning?: string | undefined
+  /** 盘上 GPT 头里的 DiskGUID。只在 source=device 且真的读到 GPT 时出现（不是空串）。 */
+  disk_guid?: string | undefined
+  /** 盘上条目表（LBA 2 起）。与 partitions 是两个来源，只在真的读到 GPT 时出现。 */
+  disk_entries?: StorageGPTEntry[] | undefined
 }
 
 export interface StorageHealth {

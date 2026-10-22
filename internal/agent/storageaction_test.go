@@ -1,9 +1,9 @@
 package agent
 
-// P07.1 代理侧用例：四个存储写动作的登记、参数、策略、预检映射与“提交必 501”。
+// P07.1/P07.2 代理侧用例：四个存储写动作的登记、参数、策略、预检映射与执行交接。
 //
-// 这一层不写磁盘（真正的拒绝逻辑在 internal/storage，破坏性执行器在 P07.2/P07.3）。
-// 它要证明的是**中间这一层没有把纪律弄丢**：
+// 这一层不写磁盘（真正的写原语在 internal/storage，用假执行器代替）。它要证明的是
+// **中间这一层没有把纪律弄丢**：
 //
 //  1. **参数形状就是契约里的形状**：`device_id` 只能是内核设备名，别名/多余字段/
 //     把字节数写成字符串都在解码层被拒，不会被静默忽略后当成默认值。
@@ -11,9 +11,11 @@ package agent
 //     还需要确认短语（首词 INIT / FORMAT / DELETE），建分区不需要；都不可取消。
 //  3. **拒绝不是错误**：判决里的 Blockers/Warnings/Impacts/Locks 原样变成预检计划，
 //     界面因此永远说得清按钮为什么是灰的。
-//  4. **登记了但没有执行器**：预检照常给出真实结论，提交却必须 501——
-//     而不是留下一个永远跑不起来的任务。
-//  5. **能力不撒谎**：capabilities.supported_actions 里不出现这四个动作。
+//  4. **没有执行器就是 501**：格式化还没有写原语，预检照常给出真实结论，提交却必须
+//     501——而不是留下一个永远跑不起来的任务。
+//  5. **能力不撒谎**：capabilities.supported_actions 里只出现真的有执行器的三个动作。
+//  6. **执行交接不丢东西**：提交给写原语的请求必须带着预检绑定的身份指纹与状态版本
+//     （这是执行前复核“还是那块盘”的唯一依据），返回的核验结果必须是 verified。
 
 import (
 	"context"
@@ -23,6 +25,8 @@ import (
 	"strings"
 	"testing"
 
+	"upanel/internal/agentstore"
+	"upanel/internal/httpx"
 	"upanel/internal/storage"
 )
 
@@ -31,9 +35,14 @@ type fakeStorage struct {
 	assessment storage.Assessment
 	err        error
 
+	// report / writeErr 是执行器的返回值（P07.2 起三个分区动作有执行器）。
+	report   storage.WriteReport
+	writeErr error
+
 	// 记录调用，验证代理层没有偷偷改入参或动作名。
 	actions []string
 	params  []any
+	writes  []storage.WriteRequest
 }
 
 func (f *fakeStorage) Assess(_ context.Context, action string, params any) (storage.Assessment, error) {
@@ -43,6 +52,15 @@ func (f *fakeStorage) Assess(_ context.Context, action string, params any) (stor
 		return storage.Assessment{}, f.err
 	}
 	return f.assessment, nil
+}
+
+// ExecuteWrite 是 storageWriter 的测试替身：记录收到的写请求，返回预置结果。
+func (f *fakeStorage) ExecuteWrite(_ context.Context, req storage.WriteRequest) (storage.WriteReport, error) {
+	f.writes = append(f.writes, req)
+	if f.writeErr != nil {
+		return storage.WriteReport{}, f.writeErr
+	}
+	return f.report, nil
 }
 
 // allowedAssessment 是一份“放行且要素齐备”的判决。
@@ -90,7 +108,7 @@ func decodeFor(t *testing.T, reg *Registry, action, raw string) (any, error) {
 	return a.Decode(json.RawMessage(raw))
 }
 
-// TestStorageActionsRegistered 校验四个动作都登记了，且都只有解码与预检。
+// TestStorageActionsRegistered 校验四个动作都登记了，且只有三个分区动作有执行器。
 func TestStorageActionsRegistered(t *testing.T) {
 	reg, _ := storageRegistry(t)
 	want := []string{
@@ -108,13 +126,21 @@ func TestStorageActionsRegistered(t *testing.T) {
 		if a.Decode == nil || a.Plan == nil {
 			t.Errorf("%s 缺少解码或预检", name)
 		}
-		if a.Execute != nil {
-			t.Errorf("%s 在 P07.1 不应有执行器", name)
+		// P07.2 只登记三个分区写原语；格式化等 P07.3。留空 = 501，不是“假装成功”。
+		wantExecutor := name != storage.ActionFilesystemFormat
+		if (a.Execute != nil) != wantExecutor {
+			t.Errorf("%s 的执行器 = %v，期望 %v", name, a.Execute != nil, wantExecutor)
 		}
 	}
-	// 能力列表里不能出现它们：预检能用、提交必 501，列进 supported_actions 就是撒谎。
-	if names := reg.ExecutableActionNames(); len(names) != 0 {
-		t.Fatalf("ExecutableActionNames = %v，这四个动作都还没有执行器", names)
+	// 能力列表必须与实际执行器一致：列进去就等于承诺能执行。
+	exec := reg.ExecutableActionNames()
+	wantExec := []string{
+		storage.ActionPartitionCreate,
+		storage.ActionPartitionDelete,
+		storage.ActionPartitionTableInitialize,
+	}
+	if strings.Join(exec, ",") != strings.Join(wantExec, ",") {
+		t.Fatalf("ExecutableActionNames = %v，期望 %v", exec, wantExec)
 	}
 }
 
@@ -327,23 +353,23 @@ func TestStoragePlanFailureIsNotBlocked(t *testing.T) {
 	}
 }
 
-// TestStorageSubmitWithoutExecutorIs501 校验：预检允许之后提交仍然 501，
+// TestStorageSubmitWithoutExecutorIs501 校验：格式化的预检允许之后提交仍然 501，
 // 而且**不留下任何操作记录**——不能生成一个永远不跑的任务。
 func TestStorageSubmitWithoutExecutorIs501(t *testing.T) {
-	src := &fakeStorage{assessment: allowedAssessment(storage.ActionPartitionTableInitialize, "sdb")}
+	src := &fakeStorage{assessment: allowedAssessment(storage.ActionFilesystemFormat, "sdb1")}
 	reg := NewRegistry()
 	if err := RegisterStorageActions(reg, src); err != nil {
 		t.Fatalf("登记失败: %v", err)
 	}
 	srv, _ := newPreflightServer(t, reg)
 
-	plan := mustPreflight(t, srv, storage.ActionPartitionTableInitialize,
-		`{"device_id":"sdb","table_type":"gpt"}`)
+	plan := mustPreflight(t, srv, storage.ActionFilesystemFormat,
+		`{"device_id":"sdb1","filesystem":"ext4","label":"data"}`)
 	if !plan.Allowed {
-		t.Fatalf("空白盘的初始化应当放行，实际 %+v", plan.Blockers)
+		t.Fatalf("格式化预检应当放行，实际 %+v", plan.Blockers)
 	}
 
-	operationID := "op_" + strings.Repeat("1", 32)
+	operationID := "op_" + strings.Repeat("2", 32)
 	body := operationSubmitBody(operationID, plan.PreflightRef, plan.ConfirmationPhrase, testSessionHash, recentReauth())
 	rec := submitOperation(t, srv, body)
 
@@ -360,9 +386,111 @@ func TestStorageSubmitWithoutExecutorIs501(t *testing.T) {
 	}
 }
 
-// TestStorageCapabilitiesDoNotListPlanOnlyActions 校验 capabilities 与预检入口的差别：
-// 四个动作能被预检，但不在 supported_actions 里。
-func TestStorageCapabilitiesDoNotListPlanOnlyActions(t *testing.T) {
+// TestStorageExecuteHandsTargetToWriter 校验执行交接：
+//
+//   - 提交给写原语的请求带着**预检时**的身份指纹与状态版本（不是执行时重新算的）；
+//   - 参数就是预检落库的规范化参数；
+//   - 写原语报 verified 之后，操作落到 succeeded，且 observed_state 里是读回的真实状态。
+func TestStorageExecuteHandsTargetToWriter(t *testing.T) {
+	src := &fakeStorage{
+		assessment: allowedAssessment(storage.ActionPartitionTableInitialize, "sdb"),
+		report: storage.WriteReport{
+			Observed: map[string]any{"device_id": "sdb", "table_type": "gpt"},
+			Data:     map[string]any{"device_id": "sdb", "partitions": 0},
+		},
+	}
+	reg := NewRegistry()
+	if err := RegisterStorageActions(reg, src); err != nil {
+		t.Fatalf("登记失败: %v", err)
+	}
+	srv, _ := newPreflightServer(t, reg)
+
+	plan := mustPreflight(t, srv, storage.ActionPartitionTableInitialize,
+		`{"device_id":"sdb","table_type":"gpt"}`)
+	if !plan.Allowed {
+		t.Fatalf("空白盘的初始化应当放行，实际 %+v", plan.Blockers)
+	}
+
+	operationID := opID("storage-exec")
+	rec := submitOperation(t, srv, operationSubmitBody(
+		operationID, plan.PreflightRef, plan.ConfirmationPhrase, testSessionHash, recentReauth()))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("状态码 = %d，期望 201；响应 %s", rec.Code, rec.Body.String())
+	}
+	done := waitForStage(t, srv, operationID, "succeeded")
+
+	if done.Stage != "succeeded" {
+		t.Fatalf("阶段 = %q，期望 succeeded", done.Stage)
+	}
+	if len(src.writes) != 1 {
+		t.Fatalf("写原语被调用了 %d 次", len(src.writes))
+	}
+	w := src.writes[0]
+	if w.Action != storage.ActionPartitionTableInitialize {
+		t.Errorf("动作 = %q", w.Action)
+	}
+	// 身份与版本必须是预检那一份：执行器自己重新算就等于没有绑定。
+	if w.ExpectedIdentity != plan.Target.IdentityFingerprint {
+		t.Errorf("身份指纹 = %q，期望预检里的 %q", w.ExpectedIdentity, plan.Target.IdentityFingerprint)
+	}
+	if w.ExpectedStateVersion != plan.Target.StateVersion {
+		t.Errorf("状态版本 = %q，期望预检里的 %q", w.ExpectedStateVersion, plan.Target.StateVersion)
+	}
+	p, ok := w.Params.(storage.PartitionTableInitializeParams)
+	if !ok || p.DeviceID != "sdb" || p.TableType != "gpt" {
+		t.Fatalf("写原语收到的参数 = %#v", w.Params)
+	}
+}
+
+// carrierErr 是最小 statusCarrier：执行器返回的判决必须原样到达任务记录。
+//
+// 这里刻意不复用 storage 的错误构造器——代理层要证明的是**直通**，
+// storage 自己会证明它给出的确实是 409 DEVICE_IDENTITY_CHANGED。
+type carrierErr struct{}
+
+func (carrierErr) Error() string { return "盘换了，不能写" }
+
+func (carrierErr) HTTPStatus() (int, httpx.Code) { return 409, "DEVICE_IDENTITY_CHANGED" }
+
+// TestStorageExecuteRejectionKeepsCode 校验写原语的拒绝经 statusCarrier 直通：
+// 身份变了要说 DEVICE_IDENTITY_CHANGED，不能压成一句“执行失败”。
+func TestStorageExecuteRejectionKeepsCode(t *testing.T) {
+	src := &fakeStorage{
+		assessment: allowedAssessment(storage.ActionPartitionCreate, "sdb"),
+		writeErr:   carrierErr{},
+	}
+	reg := NewRegistry()
+	if err := RegisterStorageActions(reg, src); err != nil {
+		t.Fatalf("登记失败: %v", err)
+	}
+	srv, _ := newPreflightServer(t, reg)
+
+	plan := mustPreflight(t, srv, storage.ActionPartitionCreate,
+		`{"device_id":"sdb","start_bytes":"1048576","size_bytes":"4194304","name":"data"}`)
+	if !plan.Allowed {
+		t.Fatalf("预检应当放行，实际 %+v", plan.Blockers)
+	}
+	operationID := opID("storage-reject")
+	rec := submitOperation(t, srv, operationSubmitBody(
+		operationID, plan.PreflightRef, plan.ConfirmationPhrase, testSessionHash, recentReauth()))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("状态码 = %d；响应 %s", rec.Code, rec.Body.String())
+	}
+	done := waitForStage(t, srv, operationID, agentstore.StageFailed)
+	var errDoc struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(done.Error, &errDoc); err != nil {
+		t.Fatalf("错误体不是合法 JSON: %v；原文 %s", err, done.Error)
+	}
+	if errDoc.Code != "DEVICE_IDENTITY_CHANGED" {
+		t.Fatalf("错误码 = %q，期望 DEVICE_IDENTITY_CHANGED（错误体 %s）", errDoc.Code, done.Error)
+	}
+}
+
+// TestStorageCapabilitiesListExecutableStorageActions 校验 capabilities 只列真有执行器的动作。
+func TestStorageCapabilitiesListExecutableStorageActions(t *testing.T) {
 	reg, _ := storageRegistry(t)
 	srv := newTestServerWithRegistry(t, reg)
 
@@ -379,13 +507,22 @@ func TestStorageCapabilitiesDoNotListPlanOnlyActions(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("响应不是合法 JSON: %v", err)
 	}
-	for _, name := range body.Data.SupportedActions {
-		if strings.HasPrefix(name, "storage.") {
-			t.Errorf("supported_actions 里出现了没有执行器的 %s", name)
-		}
-	}
 	if body.Data.SupportedActions == nil {
 		t.Error("supported_actions 必须是 []，不能是 null")
+	}
+	stor := []string{}
+	for _, name := range body.Data.SupportedActions {
+		if strings.HasPrefix(name, "storage.") {
+			stor = append(stor, name)
+		}
+	}
+	want := []string{
+		storage.ActionPartitionCreate,
+		storage.ActionPartitionDelete,
+		storage.ActionPartitionTableInitialize,
+	}
+	if strings.Join(stor, ",") != strings.Join(want, ",") {
+		t.Fatalf("supported_actions 里的存储动作 = %v，期望 %v（格式化还没有执行器）", stor, want)
 	}
 }
 

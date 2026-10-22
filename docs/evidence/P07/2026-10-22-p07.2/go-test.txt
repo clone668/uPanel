@@ -1,0 +1,37 @@
+== go test -count=1 ./...
+ok  	upanel/cmd/upanel-agent	1.697s
+ok  	upanel/cmd/upanel-web	2.107s
+ok  	upanel/cmd/upanelctl	2.250s
+ok  	upanel/internal/agent	17.239s
+ok  	upanel/internal/agentclient	1.580s
+ok  	upanel/internal/agentstore	2.931s
+ok  	upanel/internal/api	67.903s
+ok  	upanel/internal/audit	1.246s
+ok  	upanel/internal/auth	28.606s
+ok  	upanel/internal/config	0.494s
+ok  	upanel/internal/files	0.390s
+ok  	upanel/internal/httpx	0.445s
+ok  	upanel/internal/journal	0.782s
+ok  	upanel/internal/logging	0.325s
+ok  	upanel/internal/logs	1.176s
+ok  	upanel/internal/monitoring	0.457s
+ok  	upanel/internal/operations	4.590s
+ok  	upanel/internal/platform	0.516s
+ok  	upanel/internal/processes	0.789s
+ok  	upanel/internal/services	1.536s
+ok  	upanel/internal/storage	3.738s
+ok  	upanel/internal/store	0.875s
+ok  	upanel/internal/syscmd	10.701s
+ok  	upanel/internal/terminal	0.437s
+?   	upanel/internal/testsupport	[no test files]
+ok  	upanel/internal/version	0.271s
+ok  	upanel/internal/webui	0.379s
+?   	upanel/migrations	[no test files]
+?   	upanel/migrations/agentdb	[no test files]
+GO_TEST_EXIT=0
+
+== gofmt -l ./cmd ./internal
+GOFMT_EXIT=0
+
+== go vet ./...
+GO_VET_EXIT=0

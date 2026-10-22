@@ -41,6 +41,10 @@ type Options struct {
 	// 破坏性按钮。这是刻意的默认——忘了接线时得到的是“不知道能做什么”，
 	// 而不是“什么都能做”。生产装配见 cmd/upanel-agent/main.go。
 	Env Env
+	// Write 是磁盘写原语的依赖（P07.2）。Scanner 由采集器自己填，其余（命令执行器、
+	// 节点检查、固定程序路径）由装配决定；Runner 为 nil 时写动作一律以
+	// DEPENDENCY_MISSING 拒绝，而不是假装成功。
+	Write WriteOptions
 	// Root 指向真实的 /sys、/proc、/dev；测试时指向夹具。
 	Root   Root
 	Logger *slog.Logger
@@ -79,7 +83,10 @@ type Collector struct {
 	prober         HealthProber
 	root           Root
 	env            Env
-	logger         *slog.Logger
+	// write 是磁盘写原语（P07.2）。即使没有执行器也非 nil：它负责把“不可执行”
+	// 说成一个明确的 503，而不是让调用方以为动作成功了。
+	write  *writer
+	logger *slog.Logger
 
 	mu       sync.Mutex
 	cached   Topology
@@ -137,7 +144,7 @@ func NewCollector(opts Options) *Collector {
 			caps.Timeout = opts.NetworkCapacityTimeout
 		}
 	}
-	return &Collector{
+	c := &Collector{
 		interval:       interval,
 		capacityTTL:    ttl,
 		healthInterval: healthInterval,
@@ -151,6 +158,31 @@ func NewCollector(opts Options) *Collector {
 		lastCounters:   map[string]DiskCounters{},
 		health:         map[string]cachedHealth{},
 	}
+
+	// 写原语：扫描器必须是采集器自己（判决与核验要看同一份拓扑），判决探针沿用
+	// 预检用的那一组（否则预检与执行会拿两套签名/占用判断互相打架）。
+	wo := opts.Write
+	wo.Scanner = collectorScanner{c: c}
+	if wo.Logger == nil {
+		wo.Logger = opts.Logger
+	}
+	if wo.Env.Signatures == nil && wo.Env.Busy == nil {
+		wo.Env = opts.Env
+	}
+	c.write = newWriter(wo)
+	if wo.Runner == nil && opts.Logger != nil {
+		// 不静默降级：装配漏了命令执行器时，日志里要能看见，写动作会明确报 503。
+		opts.Logger.Warn("存储写原语没有命令执行器：写动作会以 DEPENDENCY_MISSING 拒绝")
+	}
+	return c
+}
+
+// ExecuteWrite 执行一次磁盘写动作（P07.2：初始化 GPT、建分区、删分区）。
+//
+// 调用方必须是已经过预检、复核与资源锁的代理任务；这个函数自己会再确认一次目标身份
+// 与状态版本（PREFLIGHT_STALE / DEVICE_IDENTITY_CHANGED），然后才动手写。
+func (c *Collector) ExecuteWrite(ctx context.Context, req WriteRequest) (WriteReport, error) {
+	return c.write.execute(ctx, req)
 }
 
 // Interval 返回扫描间隔。

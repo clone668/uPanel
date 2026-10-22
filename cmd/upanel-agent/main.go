@@ -221,6 +221,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// P07.1：存储写动作预检需要的探针（设备签名、进程占用），全部只读。
 		// 接上之后每台设备的 capabilities 才会被填成真实状态；没接就是空数组。
 		Env: storage.SystemEnv(),
+		// P07.2：磁盘写原语。Runner 是唯一把命令交给内核的出口（syscmd：绝对路径 +
+		// argv + 固定环境 + 固定模板 stdin + 有上限的输出）。不给 Runner 就是
+		// DEPENDENCY_MISSING，而不是“假装写成功”。
+		Write: storage.WriteOptions{Runner: storage.SyscmdRunner()},
 	}
 	if cfg.Agent.Storage.SmartEnabled {
 		if path, ok := storage.FindSmartctl(cfg.Agent.Storage.SmartctlPath); ok {
@@ -234,6 +238,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 	} else {
 		logger.Info("SMART 采集已在配置中关闭")
+	}
+	if err := storage.CheckWriteDependencies(); err != nil {
+		// 缺 sfdisk/udevadm 不阻止启动：预检与拓扑仍然可用，写动作会以 503 明确拒绝。
+		logger.Warn("磁盘写原语的依赖不完整，分区写动作将被拒绝", "reason", err)
+	} else {
+		logger.Info("磁盘写原语已接线", "sfdisk", storage.DefaultSfdiskPath,
+			"udevadm", storage.DefaultUdevadmPath)
 	}
 	storageCollector := storage.NewCollector(storageOpts)
 

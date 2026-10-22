@@ -155,9 +155,34 @@ func TestCapabilitiesListsStorageTopology(t *testing.T) {
 	if got := strings.Join(body.Data.SupportedQueries, ","); got != "storage.topology,system.summary" {
 		t.Fatalf("supported_queries = %q", got)
 	}
-	// 只读查询上线不代表写动作上线：P04.2 一个写动作都不开放。
-	if len(body.Data.SupportedActions) != 0 {
-		t.Fatalf("supported_actions = %v，P04.2 不应开放任何写动作", body.Data.SupportedActions)
+	// 跨阶段不变量：supported_actions 里只能出现 storage 那四个固定写动作中**已经有
+	// 执行器**的那些。P04.2 时它是空的；P07.2 起是三个分区动作；格式化属 P07.3。
+	// 这条断言不钉“某个阶段有哪几个”，而是钉“不许出现计划外的名字，也不许报出没有
+	// 执行器的动作”——阶段推进时只需要改 expects 这一处。
+	allowed := map[string]bool{
+		storage.ActionPartitionTableInitialize: true,
+		storage.ActionPartitionCreate:          true,
+		storage.ActionPartitionDelete:          true,
+		storage.ActionFilesystemFormat:         true,
+	}
+	for _, name := range body.Data.SupportedActions {
+		if !allowed[name] && strings.HasPrefix(name, "storage.") {
+			t.Errorf("supported_actions 里出现了计划外的存储动作 %s", name)
+		}
+	}
+	// 已经有执行器的三个必须报出来，否则前端不会显示入口。
+	got := map[string]bool{}
+	for _, name := range body.Data.SupportedActions {
+		got[name] = true
+	}
+	for _, name := range []string{
+		storage.ActionPartitionTableInitialize,
+		storage.ActionPartitionCreate,
+		storage.ActionPartitionDelete,
+	} {
+		if !got[name] {
+			t.Errorf("supported_actions 里缺少已有执行器的 %s：%v", name, body.Data.SupportedActions)
+		}
 	}
 }
 

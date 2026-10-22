@@ -409,16 +409,21 @@ if [ -n "$READY" ]; then pass "代理在 10 秒内开始应答（capabilities 20
 
 call web GET /internal/v1/capabilities
 expect_eq "capabilities 200" "200" "$CODE"
-# 不再钉死整张清单：能力表每过一个阶段就会变长（P05 的服务/进程、P06 的文件/终端），
-# 钉死清单只会让这个脚本在每个阶段都变红，而“红了就改期望值”等于把断言变成橡皮图章。
-# 这里改钉本阶段真正的不变量，跨阶段仍然成立：
+# 不再钉死整张清单：能力表每过一个阶段就会变长（P05 的服务/进程、P06 的文件/终端、
+# P07.2 的分区写动作），钉死清单只会让这个脚本在每个阶段都变红，而“红了就改期望值”
+# 等于把断言变成橡皮图章。这里改钉跨阶段真正成立的：
 #   * 存储查询在表里；
-#   * 没有任何 storage.* 写动作被登记成可执行（P07.1 的四个动作只有 Plan、没有 Execute，Q170）；
-#   * 表本身有序且无重复。
+#   * storage.* 写动作名只能出自四个固定动作（不许凭空多一个名字进来）；
+#   * 写动作名不会混进 supported_queries（两个列表不是同一个东西）；
+#   * 两张表本身有序且无重复。
 expect_eq "capabilities 报告 storage.topology 查询" "True" \
   "$(jget "$RESP" '"storage.topology" in d["data"]["supported_queries"]')"
-expect_eq "没有把任何 storage.* 写动作登记成可执行（只有预检，没有执行器）" "[]" \
-  "$(jget "$RESP" 'sorted(a for a in d["data"]["supported_actions"] if a.startswith("storage."))')"
+expect_eq "storage.* 写动作名只能出自四个固定动作" "" \
+  "$(jget "$RESP" '",".join(a for a in sorted(set(d["data"]["supported_actions"])) if a.startswith("storage.") and a not in ("storage.partition_table.initialize","storage.partition.create","storage.partition.delete","storage.filesystem.format"))')"
+expect_eq "写动作名没有混进 supported_queries" "[]" \
+  "$(jget "$RESP" 'sorted(q for q in d["data"]["supported_queries"] if q in ("storage.partition_table.initialize","storage.partition.create","storage.partition.delete","storage.filesystem.format"))')"
+expect_eq "supported_actions 有序且无重复" "True" \
+  "$(jget "$RESP" 'd["data"]["supported_actions"] == sorted(set(d["data"]["supported_actions"]))')"
 expect_eq "supported_queries 有序且无重复" "True" \
   "$(jget "$RESP" 'd["data"]["supported_queries"] == sorted(set(d["data"]["supported_queries"]))')"
 

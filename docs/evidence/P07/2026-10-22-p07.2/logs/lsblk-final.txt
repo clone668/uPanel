@@ -1,0 +1,10 @@
+NAME    TYPE  SIZE FSTYPE MOUNTPOINTS
+fd0     disk    4K        
+sda     disk   40G        
+├─sda1  part   39G ext4   /
+├─sda14 part    4M        
+├─sda15 part  106M vfat   /boot/efi
+└─sda16 part  913M ext4   /boot
+sdb     disk    8G        
+sdc     disk    4G        
+sdd     disk    4G        

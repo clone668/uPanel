@@ -61,6 +61,12 @@ const (
 	TableUnknown = "unknown"
 )
 
+// TableSourceDevice 表示分区表类型与空闲区是**读了盘**得到的（其余取值见 PartitionTable.Source）。
+//
+// P07.2 起它是写后核验的前置条件：Source 不是 device 就说明盘上的表没读到，
+// 这时既不能判断“盘上写着什么”，也就不能把写动作判成成功。
+const TableSourceDevice = "device"
+
 // 采集状态闭集（与 monitoring 包同一套语义，便于前端复用组件）。
 const (
 	StatusOK    = "ok"
@@ -256,6 +262,21 @@ type PartitionTable struct {
 	Source string `json:"source"`
 	// Warning 记录“盘上分区表与内核分区不一致”之类的情况，不隐藏。
 	Warning string `json:"warning,omitempty"`
+	// DiskGUID 是盘上 GPT 头里的 Disk GUID（读不到时为空串）。
+	//
+	// P07.2 起：写动作做完要把盘上的表**读回来**核对，Disk GUID 与逐条条目就是
+	// 读回来的内容。它与 Partitions 是两个来源——一个来自盘上的字节，一个来自 sysfs。
+	DiskGUID string `json:"disk_guid,omitempty"`
+	// DiskEntries 是盘上 GPT 条目表的逐条解读。**只在读到 GPT 时出现**。
+	//
+	// 与 Partitions 并列而不是替代：Partitions 是内核现在认可的分区（有 /dev 节点、
+	// 能挂载的那些），DiskEntries 是盘上写着什么。两者不一致时谁都不能被静默采信。
+	//
+	// 为什么是指针：一张刚初始化、还没有任何分区的 GPT 的条目表是**空数组**，
+	// 而“没读到盘上的表”（kernel/skipped/MBR）根本没有这个键。用 []GPTEntry 加
+	// omitempty 会把前者也省略掉，于是“读到了，零条”与“没读到”在 JSON 里变成同一件事
+	// ——而验收正是用“零条”来证明初始化真的清空了条目表。
+	DiskEntries *[]GPTEntry `json:"disk_entries,omitempty"`
 }
 
 // Partition 是一个分区。

@@ -3,7 +3,8 @@
 //   - 只按绝对路径调用可执行文件，逐项传参，绝不经过 sh -c / bash -c；
 //   - 环境变量使用固定白名单，不继承调用者环境（LD_PRELOAD、LD_LIBRARY_PATH、
 //     BASH_ENV、IFS 等用户可控的加载器/解释器变量一律不进入子进程）；
-//   - 标准输入为空，输出有硬上限，超时后连同子进程组一起终止；
+//   - 标准输入默认是空的（唯一例外是代码里的固定模板，见 Spec.Stdin），
+//     输出有硬上限，超时后连同子进程组一起终止；
 //   - 非零退出状态是**结果**而不是“命令失败”的推脱理由：调用方拿到退出码与输出后
 //     自行判断，不得只看 Ready/HTTP 200 就宣称成功（PLAN.md 第 6 节）。
 //
@@ -31,6 +32,12 @@ const (
 	DefaultMaxStderr = 256 << 10 // 256 KiB
 	// killWaitDelay 是终止后等待管道关闭的上限，避免孙进程占着管道导致 Wait 永久阻塞。
 	killWaitDelay = 2 * time.Second
+	// MaxStdinBytes 是一次调用能拿到的标准输入上限。
+	//
+	// 固定模板只有几百字节（sfdisk 的一行脚本最长的也就一百多字节），64 KiB 是
+	// 给"将来某个模板变长"留的余量，不是给内容传输留的口子：内容传输走文件的暂存通道，
+	// 不走标准输入。
+	MaxStdinBytes = 64 << 10
 )
 
 // 环境白名单。只给子进程三件事：固定的 PATH、固定的 UTF-8 区域设置，别无其他。
@@ -53,6 +60,8 @@ var (
 	ErrTimeout = errors.New("syscmd: 命令超出运行时限")
 	// ErrOutputLimit 表示输出超过上限（输出被截断，命令本身可能成功）。
 	ErrOutputLimit = errors.New("syscmd: 命令输出超过上限，已截断")
+	// ErrStdinTooLarge 表示标准输入超过 MaxStdinBytes。
+	ErrStdinTooLarge = errors.New("syscmd: 标准输入超过上限")
 )
 
 // Spec 描述一次调用。Args 逐项传给可执行文件，不做任何 shell 解释。
@@ -63,6 +72,16 @@ type Spec struct {
 	Args []string
 	// Dir 是可选的绝对工作目录；为空时使用进程当前目录。
 	Dir string
+	// Stdin 是可选的标准输入字节（**固定脚本**，不是命令）。
+	//
+	// 它只为一件事存在：P07.2 的 sfdisk 分区表模板。sfdisk 的脚本只能从 stdin
+	// 读（util-linux 2.39.3 的用法里没有"脚本文件"参数），而本包不允许 sh -c
+	// "echo … | sfdisk"——那会把整个执行边界交给一个 shell。于是这里开一个有上限的
+	// 字节通道，而不是开一个命令通道。
+	//
+	// 约束（与 Program 同级）：只能由代码里的固定模板填充，**不得来自 HTTP 参数**；
+	// 超过 MaxStdinBytes 直接拒绝；为空时子进程的 stdin 仍是空的（不是父进程的 stdin）。
+	Stdin []byte
 }
 
 // Limits 是本次调用的限额；零值字段取默认值。
@@ -124,6 +143,9 @@ func Run(ctx context.Context, spec Spec, limits Limits) (Result, error) {
 	if err := validateProgram(spec.Program); err != nil {
 		return res, err
 	}
+	if len(spec.Stdin) > MaxStdinBytes {
+		return res, fmt.Errorf("%w：%d 字节，上限 %d", ErrStdinTooLarge, len(spec.Stdin), MaxStdinBytes)
+	}
 	limits = limits.withDefaults()
 
 	runCtx, cancel := context.WithTimeout(ctx, limits.Timeout)
@@ -132,8 +154,12 @@ func Run(ctx context.Context, spec Spec, limits Limits) (Result, error) {
 	cmd := exec.CommandContext(runCtx, spec.Program, spec.Args...)
 	cmd.Env = fixedEnv
 	cmd.Dir = spec.Dir
-	// 标准输入保持为空：不把父进程（可能是 Web 或交互终端）的输入交给子进程。
+	// 标准输入默认保持为空：不把父进程（可能是 Web 或交互终端）的输入交给子进程。
+	// 给了固定模板才接一个只读的内存流——它不是"把 stdin 透传下去"。
 	cmd.Stdin = nil
+	if len(spec.Stdin) > 0 {
+		cmd.Stdin = bytes.NewReader(spec.Stdin)
+	}
 
 	stdout := &cappedBuffer{limit: limits.MaxStdout}
 	stderr := &cappedBuffer{limit: limits.MaxStderr}

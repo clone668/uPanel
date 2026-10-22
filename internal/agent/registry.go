@@ -136,6 +136,12 @@ type ExecuteInput struct {
 	OperationID string
 	// PreflightRef 是被消费掉的预检引用（只用于记录）。
 	PreflightRef string
+	// Target 是预检绑定的目标（显示名、身份指纹、状态版本）。
+	//
+	// 破坏性动作在真正动手前要用它再确认一次：还是那块盘（身份指纹），还是那个状态
+	// （状态版本）。它是**预检时**记下来的值，不是执行时重新算的。DisplayName 在
+	// 执行上下文里可能是空的——执行器不应该靠名字判断目标是谁。
+	Target Target
 	// Now 是执行开始时间（UTC）。
 	Now time.Time
 	// Progress 回报一个步骤；可空。字段值只允许可序列化为 JSON 的简单值。
