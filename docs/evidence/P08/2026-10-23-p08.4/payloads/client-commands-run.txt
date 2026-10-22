@@ -1,0 +1,1 @@
+smbclient //127.0.0.1/data -U smbp08rw -m SMB3 -c ls

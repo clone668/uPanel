@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: uPanel API
-  version: 0.0.0-p08.3
+  version: 0.0.0-p08.4
   summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
   description: |
     uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。

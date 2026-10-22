@@ -1,0 +1,47 @@
+# 宿主单元测试（2026-10-23）
+
+## go test ./...
+ok  	upanel/cmd/upanel-agent	1.242s
+ok  	upanel/cmd/upanel-web	3.305s
+ok  	upanel/cmd/upanelctl	2.069s
+ok  	upanel/internal/agent	33.909s
+ok  	upanel/internal/agentclient	1.772s
+ok  	upanel/internal/agentstore	4.660s
+ok  	upanel/internal/api	103.198s
+ok  	upanel/internal/audit	1.196s
+ok  	upanel/internal/auth	42.460s
+ok  	upanel/internal/config	0.495s
+ok  	upanel/internal/files	0.757s
+ok  	upanel/internal/httpx	0.830s
+ok  	upanel/internal/journal	0.996s
+ok  	upanel/internal/logging	0.407s
+ok  	upanel/internal/logs	1.283s
+ok  	upanel/internal/monitoring	0.857s
+ok  	upanel/internal/operations	4.619s
+ok  	upanel/internal/platform	0.348s
+ok  	upanel/internal/processes	0.481s
+ok  	upanel/internal/services	1.115s
+ok  	upanel/internal/shares	2.374s
+ok  	upanel/internal/storage	12.048s
+ok  	upanel/internal/store	2.078s
+ok  	upanel/internal/syscmd	10.765s
+ok  	upanel/internal/terminal	0.920s
+?   	upanel/internal/testsupport	[no test files]
+ok  	upanel/internal/version	0.337s
+ok  	upanel/internal/webui	0.979s
+?   	upanel/migrations	[no test files]
+?   	upanel/migrations/agentdb	[no test files]
+
+## go test ./internal/shares/ -v（本轮新增的那条）
+=== RUN   TestExecuteShareApplyClearsRuntimeRevocation
+--- PASS: TestExecuteShareApplyClearsRuntimeRevocation (0.02s)
+PASS
+ok  	upanel/internal/shares	0.659s
+
+
+## 前端单元测试（vitest，含 realdata 回放）
+ ✓ src/components/shares.test.ts (23 tests) 127ms
+ ✓ src/components/realdata-p08-4.test.ts (27 tests) 109ms
+ ✓ src/api/shares.test.ts (27 tests) 80ms
+ Test Files  38 passed (38)
+      Tests  637 passed (637)

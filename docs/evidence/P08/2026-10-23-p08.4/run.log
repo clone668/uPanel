@@ -1,0 +1,223 @@
+== 0. 环境与安全守卫 ==
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  依赖命令可用 python3
+PASS  依赖命令可用 curl
+PASS  依赖命令可用 runuser
+PASS  依赖命令可用 sha256sum
+PASS  依赖命令可用 findmnt
+PASS  依赖命令可用 lsblk
+PASS  依赖命令可用 sgdisk
+PASS  依赖命令可用 blkid
+PASS  依赖命令可用 wipefs
+PASS  依赖命令可用 udevadm
+PASS  依赖命令可用 blockdev
+PASS  依赖命令可用 stat
+PASS  依赖命令可用 awk
+PASS  依赖命令可用 diff
+PASS  依赖命令可用 grep
+PASS  依赖命令可用 systemctl
+PASS  依赖命令可用 mountpoint
+PASS  夹具：/usr/sbin/smbd 存在
+PASS  夹具：/usr/bin/smbpasswd 存在
+PASS  夹具：/usr/bin/pdbedit 存在
+PASS  夹具：/usr/bin/testparm 存在
+PASS  夹具：/usr/bin/smbcontrol 存在
+PASS  夹具：/usr/bin/smbstatus 存在
+PASS  夹具：/usr/bin/smbclient 存在
+PASS  夹具：/usr/bin/setfacl 存在
+PASS  夹具：/usr/bin/getfacl 存在
+PASS  夹具：/usr/sbin/mount.cifs 存在
+PASS  夹具：/etc/samba/smb.conf 存在
+      smbd 版本（独立读取）：Version 4.19.5-Ubuntu
+      mount.cifs 版本：mount.cifs version: 7.0
+PASS  Web 账号 upanel-web 存在
+PASS  承载 / 的设备是 /dev/sda1（整盘 sda）
+PASS  一次性盘 /dev/sdb 存在
+      清掉遗留的托管块（内容留档到 /var/tmp/upanel-accept-p08-4.fstab-before-reset.txt）
+      清掉上一轮遗留的 /etc/samba/upanel.d
+      摘掉 smb.conf 里残留的 include 行（前一份留档在 logs/smb-conf-initial.txt）
+PASS  起点：smb.conf 里没有残留的 include 行
+PASS  一次性盘 /dev/sdb 清成空白
+PASS  起点：受管理账号已清空
+PASS  夹具：smbd 在运行
+PASS  起点：/mnt/data 没有挂载
+PASS  起点：/mnt/data-ro 没有挂载
+
+== 1. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19478 启动
+PASS  监听 19478 的 Web 进程不是 root（pid=12664 uid=999）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+PASS  Web 二进制里嵌入了共享页（含“客户端怎么连”这段文案）
+PASS  页面在 /shares 上有入口（SPA 会返回 index.html）
+
+== 2. 夹具：卷 / 三个账号 / 一条共享 ==
+PASS  初始化分区表任务终态
+PASS  建分区任务终态
+PASS  格式化任务终态
+PASS  独立证据：blkid 读出的类型是 ext4
+PASS  导入任务终态
+PASS  挂载任务终态
+PASS  独立证据：卷真的挂上了
+PASS  存 smbp08rw 的密码走秘密通道
+PASS  拿得到 smbp08rw 的 secret_ref（sec_ 前缀）
+PASS  建 smbp08rw 任务终态
+PASS  建 smbp08rw 结果 verified
+PASS  存 smbp08ro 的密码走秘密通道
+PASS  拿得到 smbp08ro 的 secret_ref（sec_ 前缀）
+PASS  建 smbp08ro 任务终态
+PASS  建 smbp08ro 结果 verified
+PASS  存 smbp08un 的密码走秘密通道
+PASS  拿得到 smbp08un 的 secret_ref（sec_ 前缀）
+PASS  建 smbp08un 任务终态
+PASS  建 smbp08un 结果 verified
+PASS  拿到写账号的 id
+PASS  拿到读账号的 id
+PASS  拿到未授权账号的 id
+PASS  独立证据：三个账号都在 passdb 里
+PASS  应用共享预检允许
+PASS  应用共享任务终态
+PASS  应用共享结果 verified
+PASS  拿到共享标识
+PASS  独立证据：Samba 读回 valid users 含两个账号
+PASS  独立证据：Samba 读回的 path 就是卷根
+PASS  独立证据：Samba 读回的 guest ok
+
+== 3. 三个准备状态分开，且与现场一致 ==
+PASS  共享列表可读
+PASS  载荷里有这一条
+PASS  config_hash 是 64 位十六进制（sha256）
+PASS  directory_prepared 为真
+PASS  config_applied 为真
+PASS  记录的 config_hash 与任务结果里的 config_hash 一致
+PASS  没有 runtime_revoked（这一条没被撤销过）
+PASS  记录里没有 volume_state/volume_name（卷的状态由页面从卷列表 join）
+PASS  记录里没有 startup_deps/startup_paths（那是任务结果里的东西）
+PASS  记录的字段全在 openapi ShareRecord 的闭集里
+PASS  卷列表可读
+PASS  卷的观测状态是 mounted（卡片上的“观测”就取这个）
+PASS  卷有给人看的名字
+PASS  应用任务结果里的 startup_deps 在闭集里
+PASS  开机依赖列的就是这块卷的挂载点
+== 4. 页面载荷契约：账号里没有密码，连接状态带 service ==
+PASS  账号列表可读
+PASS  三个受管理账号都在
+PASS  账号载荷里没有密码/哈希/引用这类值（has_password 除外）
+PASS  has_password 是布尔且为真（密码确实经秘密通道设进去了）
+PASS  账号载荷里没有明文字段（与密码文件比对命中 0）
+PASS  每个账号都带 managed 与 disabled 两个布尔
+PASS  能力报告与列表一起返回（不是两次请求）
+PASS  managed_shares 里就是这条共享名
+PASS  连接状态可读
+PASS  连接状态的 service 在闭集里
+PASS  此刻没人连着（列表是空数组，不是 null）
+PASS  空列表时 service 仍然报得出（不是“不知道”）
+
+== 5. 照页面给的命令，逐条执行 ==
+PASS  说明里的 smbclient 命令能连上（密码从标准输入给）
+PASS  smbclient 列出了共享内容
+PASS  凭据目录 /root/.smb 建好了
+PASS  凭据目录权限 0700
+PASS  凭据文件存在
+PASS  凭据文件权限是 0600
+PASS  凭据文件里有账号与密码两行
+PASS  mount.cifs 没有报错
+PASS  独立证据：共享挂到了 /mnt/data
+PASS  mount 输出里有这条挂载
+PASS  挂载参数里是 cifs 与 vers=3.0
+PASS  /proc/mounts 里没有凭据内容
+PASS  凭据文件的路径没有出现在 /proc/mounts（mount.cifs 会把它剥掉）
+PASS  写用户通过挂载点能写
+PASS  独立证据：文件落在卷里的位置由 relative_path 决定（这里是卷根）
+PASS  落盘内容与写下的一致
+PASS  从挂载点读回内容
+PASS  只读身份的挂载没有报错
+PASS  独立证据：只读身份也挂上了
+PASS  只读身份能读到写用户留下的文件
+PASS  只读身份通过挂载点写被拒（shell 拿到非零退出码）
+PASS  拒绝是真的系统错误：touch: cannot touch '/mnt/data-ro/ro-probe.txt': Permission denied
+PASS  独立证据：卷里没有只读身份建出来的文件
+PASS  umount /mnt/data 没有报错
+PASS  独立证据：/mnt/data 已经卸掉
+PASS  独立证据：/mnt/data-ro 已经卸掉
+
+== 6. 权限矩阵（协议层，身份来自真实秘密通道） ==
+PASS  write 用户能上传
+PASS  独立证据：文件真的落在卷里
+PASS  read 用户能列目录
+PASS  read 用户看得到已有文件
+PASS  read 用户写被拒
+PASS  独立证据：read 用户没有写出任何文件
+PASS  名单外的账号（在 passdb 里）被拒
+PASS  名单外的账号看不到内容
+PASS  匿名（guest）被拒
+PASS  匿名看不到内容
+
+== 7. 密码卫生：命令行、日志、数据库、挂载表 ==
+PASS  代理日志里没有密码明文
+PASS  Web 日志里没有密码明文
+PASS  抓回来的载荷里没有密码明文
+PASS  代理与面板的数据库里没有密码明文
+PASS  进程表（cmdline/environ）里没有密码明文
+      挂载期间对 /proc 采样的命中数：0（采样不是证明，命令本身不含密码才是）
+PASS  凭据文件之外没有别的文件留着密码（/root/.smb 下只有两份 0600）
+PASS  提交账号动作时任务参数里带的是 sec_ 引用（不是明文）
+PASS  秘密响应里没有明文
+
+== 8. 抓取页面夹具（供 web 侧回放） ==
+PASS  夹具是合法 JSON：accounts.json
+PASS  夹具是合法 JSON：connections.json
+PASS  夹具是合法 JSON：job-account-apply.json
+PASS  夹具是合法 JSON：job-apply.json
+PASS  夹具是合法 JSON：preflight-apply.json
+PASS  夹具是合法 JSON：share.json
+PASS  夹具是合法 JSON：shares.json
+PASS  夹具是合法 JSON：volumes.json
+PASS  夹具里没有密码明文
+
+== 9. 卷掉线：页面说的“连不上”与现场一致 ==
+PASS  有启用共享时，面板拒绝卸载这块卷
+PASS  拒绝的理由是 VOLUME_IN_USE_BY_SHARE
+PASS  独立证据：卷被从外面卸掉了
+      等撤销用了 11 秒
+PASS  运行时撤销记录出现了
+PASS  卷那边观测到 unmounted（页面 join 的就是这个）
+PASS  共享记录里依旧没有 volume_state（状态只从卷列表来）
+PASS  撤销记录里写着当时的卷状态
+PASS  撤销记录里有一句给人读的理由
+PASS  config_applied 跟着变成假（配置里那段被撤了）
+PASS  独立证据：托管配置里已经没有这一段
+PASS  卷掉线时客户端连不上（真的 NT_STATUS）
+PASS  独立证据：卷又挂上了（fstab 里那条，noauto）
+PASS  卷挂回来之后仍然是撤销状态（不自动恢复）
+PASS  撤销状态下客户端依然连不上
+PASS  重新应用任务终态
+PASS  重新应用结果 verified
+PASS  重新应用之后撤销记录被清掉
+PASS  config_applied 回到真
+PASS  重新应用之后客户端又能连上
+== 10. 收尾不变量：撤掉共享之后卷里的东西一个不少 ==
+PASS  停用任务终态
+PASS  独立证据：段从配置里消失了
+PASS  停用之后客户端连不上
+PASS  独立证据：文件数与停用前一致
+PASS  独立证据：内容哈希没变
+PASS  停用之后拿到新版本号
+PASS  删除任务终态
+PASS  独立证据：托管文件里不再有这一段
+PASS  独立证据：目录与文件仍然在
+PASS  共享列表回到空数组
+PASS  能力报告的 managed_shares 也回到空
+
+== 11. 结论 ==
+NOT RUN  Windows 客户端（资源管理器 / net use）：这台机器上没有 Windows，P00-VM-D 客户端 VM 尚未建立；说明里给它的地址形态由 web 侧断言
+NOT RUN  macOS 客户端（Finder）：同上，没有 macOS 测试机
+NOT RUN  从另一台物理机器连进来：本机的客户端与 smbd 同机；跨机器还牵涉防火墙，属于没验过的路径
+NOT RUN  浏览器里的真实渲染：脚本验的是页面读的载荷；DOM 由 vitest 的 SSR 回放覆盖（realdata-p08-4.test.ts）
+PASS=190 FAIL=0 NOT RUN=4

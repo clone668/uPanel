@@ -1,0 +1,7 @@
+  .                                   D        0  Thu Oct 22 16:42:20 2026
+  ..                                  D        0  Thu Oct 22 16:42:20 2026
+  probe-write.txt                     A       57  Thu Oct 22 16:42:20 2026
+  lost+found                          D        0  Thu Oct 22 16:40:23 2026
+  ui-probe.txt                        A       63  Thu Oct 22 16:42:13 2026
+
+		1992552 blocks of size 1024. 1871280 blocks available

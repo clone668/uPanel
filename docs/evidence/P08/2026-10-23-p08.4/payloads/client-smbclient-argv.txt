@@ -1,0 +1,6 @@
+Password for [WORKGROUP\smbp08rw]:
+  .                                   D        0  Thu Oct 22 16:40:23 2026
+  ..                                  D        0  Thu Oct 22 16:40:23 2026
+  lost+found                          D        0  Thu Oct 22 16:40:23 2026
+
+		1992552 blocks of size 1024. 1871288 blocks available

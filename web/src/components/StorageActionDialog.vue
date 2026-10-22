@@ -17,7 +17,7 @@ import { NAlert, NButton, NInput, NModal, NTag } from 'naive-ui'
 
 import { reauthPassword } from '@/api/auth'
 import { ApiError } from '@/api/client'
-import { JOB_STATUS_LABELS, JOB_STATUS_TYPES, isTerminal, type JobStatus } from '@/api/jobs'
+import { JOB_STATUS_LABELS, JOB_STATUS_TYPES, isTerminal, type JobDTO, type JobStatus } from '@/api/jobs'
 import {
   createPreflight,
   fetchJobStatus,
@@ -46,6 +46,12 @@ const props = defineProps<{
   irreversible?: boolean
   /** 这个动作需要 5 分钟内再认证（界面提示；真正的拦截在服务端）。 */
   needsReauth?: boolean
+  /**
+   * 结果翻译器。默认是存储那一套（fstab / findmnt / 超级块）；
+   * 共享与账号动作的结果字段完全不同（samba_config / served / startup_deps），
+   * 由调用方传入自己的翻译器，而不是让这个组件按动作名分叉——分叉会随着动作变多而烂掉。
+   */
+  summarizer?: (job: Pick<JobDTO, 'status' | 'result' | 'error'>) => JobOutcomeSummary
 }>()
 
 const emit = defineEmits<{ 'update:show': [boolean]; finished: [JobStatus] }>()
@@ -182,7 +188,7 @@ async function track(jobId: string): Promise<void> {
       jobStatus.value = result.data.status
       jobStep.value = result.data.step
       if (isTerminal(result.data.status)) {
-        outcome.value = summarizeStorageJob(result.data)
+        outcome.value = (props.summarizer ?? summarizeStorageJob)(result.data)
         phase.value = 'done'
         stopTimer()
         emit('finished', result.data.status)

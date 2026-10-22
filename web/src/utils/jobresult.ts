@@ -183,3 +183,127 @@ export function summarizeStorageJob(job: Pick<JobDTO, 'status' | 'result' | 'err
       : '任务已成功，下面是执行后的现场读数'
   return { ok: true, headline, lines, hint }
 }
+
+// ---------------------------------------------------------------- 共享动作
+
+/**
+ * 共享动作的结果翻译（P08.4）。
+ *
+ * 与存储的区别在这一段最要紧：存储动作的成功是“盘上真的变了”，共享动作的成功可以是
+ * `accepted`——配置写进去了，但 `smbd` 没在跑，或者卷此刻没挂，于是它**还没来得及对外
+ * 提供服务**。所以这里不把 `accepted` 说成“成功”，而是把三件事分开摆：
+ *   - 配置这一侧做了什么（写入/未变、include 装没装、重载结果、服务状态）；
+ *   - `served` 到底是不是 true（只有它能说明“此刻在提供访问”）；
+ *   - 开机依赖写没写（drop-in）。
+ */
+const SHARE_CONFIG_LABELS: Record<string, string> = {
+  written: '托管配置已整份重写',
+  unchanged: '内容没变，没有重写也没有重载',
+  not_written: '配置没有写入',
+}
+const SHARE_INCLUDE_LABELS: Record<string, string> = {
+  installed: 'include 已装进 smb.conf',
+  present: 'include 本来就在',
+  missing: 'smb.conf 里没有 include',
+}
+const SHARE_RELOAD_LABELS: Record<string, string> = {
+  done: '已让 Samba 重载配置',
+  skipped_service_inactive: 'Samba 没在运行，因此没有重载',
+  skipped_unchanged: '内容没变，跳过了重载',
+  failed: '重载失败',
+}
+const SHARE_STARTUP_LABELS: Record<string, string> = {
+  written: '开机依赖已写入 smbd 单元',
+  unchanged: '开机依赖没有变化',
+  removed: '开机依赖已随最后一条共享一起收回',
+  failed: '开机依赖写入失败',
+  skipped_no_service: '没找到 smbd 单元，开机依赖没写',
+}
+
+/** 汇总一次共享/账号动作的结果。 */
+export function summarizeShareJob(job: Pick<JobDTO, 'status' | 'result' | 'error'>): JobOutcomeSummary {
+  const error = asRecord(job.error)
+  const errorMessage = readString(error, 'message')
+  const hint = readString(error, 'recovery_hint')
+
+  if (job.status !== 'succeeded') {
+    const headline =
+      job.status === 'interrupted'
+        ? '任务被中断，结果未知：配置可能写了一半，先去共享页看现在的状态再决定'
+        : job.status === 'canceled'
+          ? '任务已取消'
+          : '任务失败'
+    return { ok: false, headline, lines: errorMessage === null ? [] : [errorMessage], hint }
+  }
+
+  const result = asRecord(job.result) ?? {}
+  const observed = asRecord(result['observed_state'])
+  const data = asRecord(result['data'])
+  const lines: string[] = []
+
+  const outcome = readString(result, 'outcome')
+  if (outcome !== null) lines.push(OUTCOME_LABELS[outcome] ?? `服务端结论：${outcome}`)
+
+  const sambaConfig = readString(observed, 'samba_config') ?? readString(data, 'samba_config')
+  if (sambaConfig !== null) lines.push(SHARE_CONFIG_LABELS[sambaConfig] ?? `配置写入：${sambaConfig}`)
+  const include = readString(observed, 'include') ?? readString(data, 'include')
+  if (include !== null) lines.push(SHARE_INCLUDE_LABELS[include] ?? `include：${include}`)
+  const reload = readString(observed, 'reload') ?? readString(data, 'reload')
+  if (reload !== null) lines.push(SHARE_RELOAD_LABELS[reload] ?? `重载：${reload}`)
+  const service = readString(observed, 'service') ?? readString(data, 'service')
+  if (service !== null) lines.push(`smbd 此刻：${service}`)
+
+  const served = readBool(observed, 'served') ?? readBool(data, 'served')
+  if (served !== null) {
+    lines.push(
+      served
+        ? '这份共享此刻在提供服务（配置在、include 在、smbd 在跑、卷仍挂载）'
+        : '这份共享此刻没有在提供服务（配置或服务有一项没就位）',
+    )
+  }
+
+  const startup = readString(observed, 'startup_deps') ?? readString(data, 'startup_deps')
+  if (startup !== null) lines.push(SHARE_STARTUP_LABELS[startup] ?? `开机依赖：${startup}`)
+  const startupPaths = readStringList(data, 'startup_paths')
+  if (startupPaths.length > 0) lines.push(`开机前必须先就位：${startupPaths.join('、')}`)
+
+  const offlineShares = readStringList(observed, 'volume_offline_shares') ??
+    readStringList(data, 'volume_offline_shares')
+  if (offlineShares.length > 0) {
+    lines.push(`因为卷没挂而被跳过、没有重新渲染的共享：${offlineShares.join('、')}`)
+  }
+
+  const configHash = readString(data, 'config_hash') ?? readString(observed, 'config_hash')
+  if (configHash !== null) lines.push(`这一版配置的哈希：${configHash.slice(0, 16)}…`)
+  const managedConfig = readString(data, 'managed_config')
+  if (managedConfig !== null) lines.push(`托管配置文件：${managedConfig}`)
+
+  // 账号侧：三条独立读回的结果，与 P08.1 的核验口径一致。
+  const name = readString(observed, 'name')
+  if (name !== null) lines.push(`账号 ${name}：uid ${String(observed?.['uid'] ?? '?')}，shell ${readString(observed, 'shell') ?? '?'}`)
+  const linuxPassword = readString(observed, 'linux_password')
+  if (linuxPassword !== null) lines.push(`Linux 侧口令状态：${linuxPassword}（不是 NOPASSWD）`)
+  const sambaAccount = readBool(observed, 'samba_account')
+  if (sambaAccount !== null) lines.push(sambaAccount ? 'Samba passdb 里能查到这条账号' : 'Samba passdb 里查不到这条账号')
+  const passwordSet = readBool(observed, 'password_set')
+  if (passwordSet !== null) {
+    const at = readString(observed, 'password_last_set')
+    lines.push(passwordSet ? `密码已设置${at === null ? '' : `（${at}）`}` : '没有设置密码')
+  }
+  const secretPersisted = readBool(observed, 'secret_persisted')
+  if (secretPersisted === false) {
+    const note = readString(observed, 'secret_note')
+    lines.push(`密码密文没能转成持久秘密，10 分钟后会销毁${note === null ? '' : `：${note}`}`)
+  }
+
+  const aclRevoked = readBool(observed, 'acl_revoked')
+  if (aclRevoked !== null) {
+    lines.push(aclRevoked ? '目录 ACL 已清空（目录与文件都还在）' : '目录 ACL 没有变化')
+  }
+
+  const headline =
+    lines.length === 0
+      ? '任务已成功，但代理没有返回可展示的现场读数；请刷新共享列表确认'
+      : '任务已成功，下面是执行后的现场读数'
+  return { ok: true, headline, lines, hint }
+}

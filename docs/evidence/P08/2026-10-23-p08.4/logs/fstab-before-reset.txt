@@ -1,0 +1,7 @@
+LABEL=cloudimg-rootfs	/	 ext4	discard,commit=30,errors=remount-ro	0 1
+LABEL=BOOT	/boot	ext4	defaults	0 2
+LABEL=UEFI	/boot/efi	vfat	umask=0077	0 1
+# BEGIN upanel managed volumes
+# 以下条目由 uPanel 维护（同一块内的手工修改会在下次变更时被覆盖）
+UUID=83617b9a-353e-4eb1-9ca6-81e0d5341ffa /srv/upanel/volumes/data ext4 rw,nodev,nosuid,nofail,x-systemd.device-timeout=30,noauto 0 2
+# END upanel managed volumes

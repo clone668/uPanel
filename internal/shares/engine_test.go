@@ -1282,6 +1282,82 @@ func TestExecuteShareApplyWritesConfigAndServes(t *testing.T) {
 	}
 }
 
+// TestExecuteShareApplyClearsRuntimeRevocation 钉住“重新应用真的是出路”。
+//
+// 真机上抓到的缺陷（P08.4 第 9 节）：卷掉线 → 对账把共享段撤掉、记下 runtime_revoked；
+// 人点“重新应用” → 配置写回去、config_applied 回到真、客户端真的又能连了，**可是
+// runtime_revoked 一直在**。于是页面永远显示“运行时已撤销”，并且 clientHintsUsable 恒假：
+// CONTRACTS §7.4(2) 要求的同时给出现状与出路，变成了一条只通告坏消息的死路。
+//
+// 这里的断言是：apply 成功后记录里没有撤销现场；撤销仍然只由对账产生（卷再掉线会重新记）。
+func TestExecuteShareApplyClearsRuntimeRevocation(t *testing.T) {
+	h := newHarness(t)
+	h.putManagedAccount(testAcctA, "alice", false)
+	h.putManagedAccount(testAcctB, "bob", false)
+	h.setfaclOK()
+	h.getfaclReturns(wantedGetfacl)
+
+	// 一条已经落在册、被卷掉线撤销过的共享：config_applied 已经是假，配置里没有它。
+	id := "shr_0123456789abcdef0123456789abcdef"
+	def := *h.applyParams().Definition
+	h.store.putShare(ShareRecord{
+		ID:                id,
+		Definition:        def,
+		ConfigHash:        strings.Repeat("0", 64),
+		Version:           "3",
+		DirectoryPrepared: true,
+		ConfigApplied:     false,
+		RuntimeRevoked: &RuntimeRevocation{
+			At:          h.now,
+			VolumeID:    def.VolumeID,
+			VolumeName:  "数据卷",
+			VolumeState: "unmounted",
+			Reason:      "卷掉线，配置段已撤销",
+		},
+		CreatedAt: h.now,
+		UpdatedAt: h.now,
+	})
+
+	p := h.applyParams()
+	p.ShareID = &id
+	version := "3"
+	p.Version = &version
+
+	a, err := h.engine.Assess(context.Background(), ActionShareApply, p)
+	if err != nil {
+		t.Fatalf("判决失败: %v", err)
+	}
+	for _, b := range a.Blockers {
+		t.Fatalf("重新应用被挡住：%s %s", b.Code, b.Message)
+	}
+	if _, err := h.engine.ExecuteWrite(context.Background(), WriteRequest{
+		Action:               ActionShareApply,
+		Params:               a.NormalizedParams,
+		ExpectedIdentity:     a.IdentityFingerprint,
+		ExpectedStateVersion: a.StateVersion,
+		OperationID:          "op_test_reapply",
+	}); err != nil {
+		t.Fatalf("重新应用执行失败: %v", err)
+	}
+
+	rec, found, err := h.store.GetShare(context.Background(), id)
+	if err != nil || !found {
+		t.Fatalf("重新应用之后记录不见了（err=%v）", err)
+	}
+	if rec.RuntimeRevoked != nil {
+		t.Fatalf("重新应用成功了，撤销现场却还留着：%+v（页面会永远显示“已撤销”）", rec.RuntimeRevoked)
+	}
+	if !rec.ConfigApplied {
+		t.Error("config_applied 没回到真")
+	}
+	if rec.Version != "4" {
+		t.Errorf("版本是 %q，期望 4（重新应用也算一次改动）", rec.Version)
+	}
+	if !strings.Contains(h.readManaged(), "[team-data]") {
+		t.Error("重新应用之后托管配置里没有这一段")
+	}
+}
+
 // TestExecuteShareApplyIdempotentReload 验证幂等重放：内容没变就不重载。
 func TestExecuteShareApplyIdempotentReload(t *testing.T) {
 	h := newHarness(t)

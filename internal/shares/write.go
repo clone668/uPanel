@@ -215,6 +215,11 @@ func (e *Engine) executeShareApply(ctx context.Context, p ShareApplyParams, req 
 	// ConfigApplied 说的是“托管配置里现在有这一段”，不是“此刻在对客户端提供服务”。
 	// 禁用的共享不在配置里，所以它是 false；smbd 没运行属于 served=false，不影响这一项。
 	rec.ConfigApplied = def.Enabled
+	// 运行时撤销记的是“**这一版**配置被卷掉线撤掉了”。人重新应用一次就换了一版配置，
+	// 旧记录随之作废——留着它，页面会一直显示“已撤销 + 点重新应用”，而人已经点过了，
+	// 这正是 CONTRACTS §7.4(2) 禁止的死路（那条出路必须真的通）。卷要是又掉线，
+	// 30 秒一轮的对账会重新记一笔，撤销依旧只由对账产生、不由页面猜。
+	rec.RuntimeRevoked = nil
 	rec.LastOperationID = req.OperationID
 	rec.UpdatedAt = now
 	if err := e.opts.Store.SaveShare(ctx, rec); err != nil {

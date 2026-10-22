@@ -37,7 +37,13 @@ export const MODULES: readonly ModuleDef[] = [
     implementedIn: 'P04.4',
     summary: '磁盘、分区、文件系统、拓扑详情、健康与容量；写操作自 P07 起开放。',
   },
-  { key: 'shares', label: '共享', path: '/shares', implementedIn: null, summary: 'SMB 共享与卷依赖' },
+  {
+    key: 'shares',
+    label: '共享',
+    path: '/shares',
+    implementedIn: 'P08.4',
+    summary: 'SMB 共享定义、受管理账号与客户端连接说明；共享与卷的绑定、配置写入与运行时脱盘撤销自 P08 起接通。',
+  },
   { key: 'containers', label: '容器', path: '/containers', implementedIn: null, summary: '容器与镜像' },
   {
     key: 'services',

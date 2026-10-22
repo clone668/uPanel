@@ -1,0 +1,11 @@
+sudo install -d -m 0700 /root/.smb
+# 凭据从标准输入写进只有 root 能读的文件：下面是 here-doc，密码不进 argv
+sudo sh -c 'umask 077; cat > /root/.smb/data.cred' <<'CRED'
+username=smbp08rw
+password=<已填>
+CRED
+sudo chmod 0600 /root/.smb/data.cred
+sudo install -d -m 0755 /mnt/data
+sudo mount -t cifs //127.0.0.1/data /mnt/data -o credentials=/root/.smb/data.cred,vers=3.0,uid=$(id -u),gid=$(id -g)
+mount | grep data
+sudo umount /mnt/data

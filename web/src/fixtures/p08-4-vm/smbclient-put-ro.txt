@@ -1,0 +1,1 @@
+NT_STATUS_ACCESS_DENIED opening remote file \ro-should-fail.txt

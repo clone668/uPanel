@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { JobStatus } from '@/api/jobs'
-import { checkedViaLabel, summarizeStorageJob } from './jobresult'
+import { checkedViaLabel, summarizeShareJob, summarizeStorageJob } from './jobresult'
 
 type SummaryInput = Parameters<typeof summarizeStorageJob>[0]
 
@@ -195,5 +195,114 @@ describe('成功的设备动作', () => {
       job({ result: { data: { filesystem: 'xfs', uuid: 'abc', label: 'data' } } }),
     )
     expect(summary.lines).toContain('文件系统：xfs，UUID abc，卷标 data')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 共享与账号动作（P08.4）。字段与存储那一套完全不同：samba_config / include /
+// reload / served / startup_deps / 账号侧的三条读回。
+// ---------------------------------------------------------------------------
+describe('共享动作的结果翻译', () => {
+  const shareSummary = (result: unknown, status: JobStatus = 'succeeded') =>
+    // 契约里 result / error 在“没有”时是空对象 {}，不是 null（openapi Job.result、Job.error）。
+    summarizeShareJob({ status, result: result as never, error: {} })
+
+  it('写进配置并重载：把每一步都说出来，不只说“成功”', () => {
+    const summary = shareSummary({
+      outcome: 'verified',
+      observed_state: {
+        samba_config: 'written',
+        include: 'installed',
+        reload: 'done',
+        service: 'active',
+        served: true,
+        startup_deps: 'written',
+        config_hash: 'abcdef0123456789'.repeat(4),
+      },
+      data: { managed_config: '/etc/samba/upanel.d/upanel.conf', startup_paths: ['/srv/upanel/volumes/data'] },
+    })
+    expect(summary.ok).toBe(true)
+    expect(summary.lines).toContain('托管配置已整份重写')
+    expect(summary.lines).toContain('include 已装进 smb.conf')
+    expect(summary.lines).toContain('已让 Samba 重载配置')
+    expect(summary.lines).toContain('smbd 此刻：active')
+    expect(summary.lines).toContain('开机依赖已写入 smbd 单元')
+    expect(summary.lines).toContain('开机前必须先就位：/srv/upanel/volumes/data')
+  })
+
+  it('内容没变时说的是“没写也没重载”，不是“已生效”', () => {
+    const summary = shareSummary({
+      outcome: 'verified',
+      observed_state: {
+        samba_config: 'unchanged',
+        include: 'present',
+        reload: 'skipped_unchanged',
+        served: true,
+      },
+    })
+    expect(summary.lines).toContain('内容没变，没有重写也没有重载')
+    expect(summary.lines).toContain('include 本来就在')
+    expect(summary.lines).toContain('内容没变，跳过了重载')
+  })
+
+  it('smbd 没在跑：served 为假时那句话必须是否定的', () => {
+    const summary = shareSummary({
+      outcome: 'accepted',
+      observed_state: { reload: 'skipped_service_inactive', service: 'inactive', served: false },
+    })
+    expect(summary.lines).toContain('Samba 没在运行，因此没有重载')
+    expect(summary.lines.join('\n')).toContain('没有在提供服务')
+    expect(summary.lines.join('\n')).not.toContain('**')
+  })
+
+  it('被卷掉线跳过的共享点名列出（不是静悄悄跳过）', () => {
+    const summary = shareSummary({
+      observed_state: { volume_offline_shares: ['data', 'backup'] },
+    })
+    expect(summary.lines).toContain('因为卷没挂而被跳过、没有重新渲染的共享：data、backup')
+  })
+
+  it('账号侧：Linux 口令、passdb、密码时间、秘密是否转持久', () => {
+    const summary = shareSummary({
+      outcome: 'verified',
+      observed_state: {
+        name: 'teamdocs',
+        uid: 998,
+        shell: '/usr/sbin/nologin',
+        linux_password: 'L',
+        samba_account: true,
+        password_set: true,
+        password_last_set: '2026-10-22T08:00:00Z',
+        secret_persisted: false,
+        secret_note: '秘密已被引用但仍然临时',
+      },
+    })
+    const text = summary.lines.join('\n')
+    expect(text).toContain('账号 teamdocs：uid 998，shell /usr/sbin/nologin')
+    expect(text).toContain('Samba passdb 里能查到这条账号')
+    expect(text).toContain('密码已设置')
+    expect(text).toContain('密码密文没能转成持久秘密')
+  })
+
+  it('失败时不编现场读数，只给错误与恢复建议', () => {
+    const summary = summarizeShareJob({
+      status: 'failed',
+      result: {},
+      error: { message: 'testparm 拒绝了候选配置', recovery_hint: '看日志里的 testparm 输出' } as never,
+    })
+    expect(summary.ok).toBe(false)
+    expect(summary.headline).toBe('任务失败')
+    expect(summary.lines).toEqual(['testparm 拒绝了候选配置'])
+    expect(summary.hint).toBe('看日志里的 testparm 输出')
+  })
+
+  it('中断时说“结果未知”，不假装成功也不假装失败', () => {
+    const summary = summarizeShareJob({ status: 'interrupted', result: {}, error: {} })
+    expect(summary.headline).toContain('结果未知')
+  })
+
+  it('结果里什么都没有时明说没有现场读数', () => {
+    const summary = shareSummary({})
+    expect(summary.headline).toContain('没有返回可展示的现场读数')
   })
 })
