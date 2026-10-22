@@ -105,6 +105,11 @@ type Options struct {
 	// 那时 /apps/discovery 明确回 503 AGENT_UNAVAILABLE，而不是给一份空候选列表——
 	// 空列表会被读成“这台机器上没有任何服务在监听”。
 	Discovery DiscoveryReader
+	// Containers 是容器、镜像、网络、卷与部署的读取端（P09.3）。允许为 nil
+	// （演示模式不连代理）：那时 /containers*、/images、/container-networks、
+	// /container-volumes、/deployments* 明确回 503 AGENT_UNAVAILABLE，
+	// 而不是给一份空容器清单——空清单会被读成“这台机器上没有容器在跑”。
+	Containers ContainersReader
 }
 
 // Server 是 Web HTTP 服务。

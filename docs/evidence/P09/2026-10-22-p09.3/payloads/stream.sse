@@ -1,0 +1,68 @@
+: connected
+
+id: 2026-10-22T20:42:03.342436933Z
+event: entry
+data: {"timestamp":"2026-10-22T20:42:03.342436933Z","message":"line-6","truncated":false,"redacted":false}
+
+id: 2026-10-22T20:42:04.359563553Z
+event: entry
+data: {"timestamp":"2026-10-22T20:42:04.359563553Z","message":"line-7","truncated":false,"redacted":false}
+
+id: 2026-10-22T20:42:05.365675174Z
+event: entry
+data: {"timestamp":"2026-10-22T20:42:05.365675174Z","message":"line-8","truncated":false,"redacted":false}
+
+id: 2026-10-22T20:42:06.394374699Z
+event: entry
+data: {"timestamp":"2026-10-22T20:42:06.394374699Z","message":"line-9","truncated":false,"redacted":false}
+
+id: 2026-10-22T20:42:07.413252334Z
+event: entry
+data: {"timestamp":"2026-10-22T20:42:07.413252334Z","message":"line-10","truncated":false,"redacted":false}
+
+id: 2026-10-22T20:42:08.430902759Z
+event: entry
+data: {"timestamp":"2026-10-22T20:42:08.430902759Z","message":"line-11","truncated":false,"redacted":false}
+
+id: 2026-10-22T20:42:09.439337099Z
+event: entry
+data: {"timestamp":"2026-10-22T20:42:09.439337099Z","message":"line-12","truncated":false,"redacted":false}
+
+id: 2026-10-22T20:42:10.458745739Z
+event: entry
+data: {"timestamp":"2026-10-22T20:42:10.458745739Z","message":"line-13","truncated":false,"redacted":false}
+
+id: 2026-10-22T20:42:11.474767248Z
+event: entry
+data: {"timestamp":"2026-10-22T20:42:11.474767248Z","message":"line-14","truncated":false,"redacted":false}
+
+id: 2026-10-22T20:42:12.485010005Z
+event: entry
+data: {"timestamp":"2026-10-22T20:42:12.485010005Z","message":"line-15","truncated":false,"redacted":false}
+
+id: 2026-10-22T20:42:13.505386853Z
+event: entry
+data: {"timestamp":"2026-10-22T20:42:13.505386853Z","message":"line-16","truncated":false,"redacted":false}
+
+id: 2026-10-22T20:42:14.508117441Z
+event: entry
+data: {"timestamp":"2026-10-22T20:42:14.508117441Z","message":"line-17","truncated":false,"redacted":false}
+
+id: 2026-10-22T20:42:15.540006692Z
+event: entry
+data: {"timestamp":"2026-10-22T20:42:15.540006692Z","message":"line-18","truncated":false,"redacted":false}
+
+: keepalive
+
+id: 2026-10-22T20:42:16.566157192Z
+event: entry
+data: {"timestamp":"2026-10-22T20:42:16.566157192Z","message":"line-19","truncated":false,"redacted":false}
+
+id: 2026-10-22T20:42:17.612121871Z
+event: entry
+data: {"timestamp":"2026-10-22T20:42:17.612121871Z","message":"line-20","truncated":false,"redacted":false}
+
+id: 2026-10-22T20:42:18.655157123Z
+event: entry
+data: {"timestamp":"2026-10-22T20:42:18.655157123Z","message":"line-21","truncated":false,"redacted":false}
+

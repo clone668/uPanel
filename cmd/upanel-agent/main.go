@@ -19,6 +19,7 @@ import (
 	"upanel/internal/agent"
 	"upanel/internal/agentstore"
 	"upanel/internal/config"
+	"upanel/internal/containers"
 	"upanel/internal/discovery"
 	"upanel/internal/files"
 	"upanel/internal/journal"
@@ -473,6 +474,20 @@ func run(args []string, stdout, stderr io.Writer) int {
 		"docker_candidates", "/usr/bin/docker, /snap/bin/docker",
 		"probe", "只探测 127.0.0.1，TLS 校验保持开启")
 
+	// 容器读取与启停（P09.3）。docker 命令走绝对路径探测，套接字固定为
+	// /var/run/docker.sock：Web 账号永远接触不到 docker.sock，代理也只调用
+	// 常量 argv。可用性在每次调用时重新判定——Docker 停掉之后界面必须显示
+	// “不可用”，而不是继续展示上一次的容器列表。
+	containersClient := containers.NewClient()
+	if available, notice := containersClient.Availability(); available {
+		logger.Info("已启用容器管理",
+			"docker", "绝对路径探测：/usr/bin/docker、/snap/bin/docker",
+			"socket", "/var/run/docker.sock",
+			"scope", "只读查询 + 普通容器 start/stop/restart；危险容器不接管")
+	} else {
+		logger.Warn("容器功能不可用，相关查询与动作不会登记", "reason", notice)
+	}
+
 	// 动作登记表：生产表自 P05.1 起有 service.control，P05.2 起有 process.signal（受保护名单与读回验证见 internal/services）。
 	// 验收表只能靠显式参数启用，且动作全部以 acceptance. 开头、不读写任何系统资源。
 	registry := agent.NewRegistry()
@@ -493,6 +508,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		FileWrites: filesManager,
 		Shares:     sharesEngine,
 		Discovery:  discoveryCollector,
+		Containers: containersClient,
 	}
 	// 只在真的有时才赋给接口：把一个 nil 的 *terminal.Manager 塞进接口会得到
 	// 一个非 nil 的接口值，登记表于是多出一个调用就 panic 的能力。
@@ -549,6 +565,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Files:           filesManager,
 		FileWrites:      filesManager,
 		Terminal:        terminalAPI,
+		// P09.3：容器日志流。与查询共用同一个客户端，可用性判决也只有一份。
+		Containers: containersClient,
 		// P08.3：运行时脱盘监视。间隔取默认值（30 秒），循环自己拿 samba:config 锁。
 		ShareWatch: sharesEngine,
 	})

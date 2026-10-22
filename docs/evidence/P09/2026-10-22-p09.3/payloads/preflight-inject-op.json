@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"operation 只能是 start/stop/restart，收到 \"rm -f\""},"request_id":"1cf2fdfe3a5463f0c1a6e2354ce7e230"}

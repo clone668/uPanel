@@ -1,0 +1,249 @@
+== 0. 环境与安全守卫 ==
+      系统：Ubuntu 24.04.5 LTS
+PASS  以 root 运行
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  Web 运行身份存在（upanel-web）
+PASS  Web 身份没有登录 shell
+PASS  python3 可用（解析 JSON 与读库）
+PASS  端口 19493 空闲
+      本机有 docker：Docker version 29.1.3, build 29.1.3-0ubuntu3~24.04.2
+PASS  docker 守护进程可用（29.1.3）
+PASS  Web 账号不在 docker 组（upanel-web）
+      docker.sock 属主与权限：root:docker 660
+
+== 1. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19493 启动
+PASS  监听 19493 的 Web 进程不是 root（pid=63605 uid=999）
+PASS  数据库迁移到第 8 版（0008_app_health）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+
+== 2. Docker 夹具（普通容器与四类危险容器） ==
+PASS  七个夹具容器都起来了（ID 全是 64 位小写十六进制）
+PASS  普通容器在跑
+PASS  已停止夹具处于 created（面板读作 stopped）
+PASS  日志夹具已经写出一行
+PASS  普通容器已写出多行日志（21 行）
+
+== 3. 容器清单：只读、字段与风险判决 ==
+PASS  未登录读容器清单
+PASS  Web 账号连不上 docker.sock（不在 docker 组）
+PASS  Web 进程没有连 docker.sock（pid=63605）
+PASS  admin 读容器清单
+PASS  清单 available
+PASS  清单里能找到普通容器
+PASS  已停止的容器也在清单里（不只是 running）
+PASS  普通容器 state
+PASS  普通容器 state_text 非空
+PASS  普通容器 image 非空
+PASS  普通容器挂着一个数据卷
+PASS  普通容器的 compose 项目
+PASS  普通容器的 compose 服务
+PASS  普通容器 risk.level
+PASS  普通容器 managed
+PASS  普通容器可 stop
+PASS  运行中容器不可 start（状态只能用 restart 改变）
+PASS  已停止容器 state
+PASS  已停止容器可 start
+PASS  已停止容器不可 stop
+PASS  priv 容器 risk.level=high
+PASS  priv 容器 managed=false
+PASS  priv 容器三项能力全 false
+PASS  priv 容器的原因码含 privileged
+PASS  hostnet 容器 risk.level=high
+PASS  hostnet 容器 managed=false
+PASS  hostnet 容器三项能力全 false
+PASS  hostnet 容器的原因码含 host_network
+PASS  sock 容器 risk.level=high
+PASS  sock 容器 managed=false
+PASS  sock 容器三项能力全 false
+PASS  sock 容器的原因码含 docker_sock_mount
+PASS  cap 容器 risk.level=high
+PASS  cap 容器 managed=false
+PASS  cap 容器三项能力全 false
+PASS  cap 容器的原因码含 dangerous_capability
+PASS  privileged 容器至少一条风险说明
+PASS  清单里没有容器环境变量的值
+PASS  清单里没有环境变量名 APP_DB_PASSWORD
+PASS  普通容器的挂载里有命名卷 upn-p093-vol
+PASS  容器详情
+PASS  详情 id 一致
+PASS  详情 risk.level
+PASS  详情里没有容器环境变量的值
+
+== 4. 容器身份：只认完整 64 位 ID ==
+PASS  非完整 ID 的详情请求被拒（upn-p093-ok…）
+PASS  …错误码是 VALIDATION_ERROR
+PASS  非完整 ID 的详情请求被拒（7651838b1107…）
+PASS  …错误码是 VALIDATION_ERROR
+PASS  非完整 ID 的详情请求被拒（7651838B1107BF…）
+PASS  …错误码是 VALIDATION_ERROR
+PASS  非完整 ID 的详情请求被拒（7651838b1107bf…）
+PASS  …错误码是 VALIDATION_ERROR
+PASS  不存在的完整 ID → 404
+PASS  …错误码是 CONTAINER_NOT_FOUND
+PASS  tail 非整数 → 400
+PASS  tail=0 → 400
+PASS  tail=1001 → 400
+PASS  注入式容器名没能执行任何东西（容器数量未变）
+
+== 5. 容器日志：从新到旧、游标往返、脱敏 ==
+PASS  读一页容器日志
+PASS  一页 5 条
+PASS  条目从新到旧
+PASS  streams_merged=true（docker 不分 stdout/stderr）
+PASS  给了 next_cursor（还能往前翻）
+PASS  带游标翻到下一页
+PASS  第二页每条都严格早于游标（边界不重复）
+PASS  第二页不是空的（游标真的往回走了）
+PASS  游标被篡改 → 400（不当成“没给”）
+PASS  since 不是 RFC3339 → 400
+PASS  until 在未来 → 400（未来窗口不该是“这段时间没日志”）
+PASS  不存在的容器的日志 → 404
+PASS  读日志夹具的日志
+PASS  口令被脱敏成 [redacted] 且原文不在响应里
+
+== 6. 镜像 / 网络 / 数据卷 ==
+PASS  镜像清单
+PASS  镜像 available
+PASS  镜像清单不是空的
+PASS  镜像条目都带非空 ID
+PASS  网络清单
+PASS  网络 available
+PASS  夹具网络在清单里
+PASS  夹具网络带子网
+PASS  bridge 网络存在
+PASS  数据卷清单
+PASS  数据卷 available
+PASS  夹具卷在清单里
+PASS  夹具卷标出被哪个容器占用
+
+== 7. 部署（compose 项目只读视图） ==
+PASS  部署清单
+PASS  部署 available
+PASS  按 compose 标签归并出项目 upnaccept
+PASS  项目标识是派生的 dep_ 前缀（不带项目名原文）
+PASS  项目 upnaccept 三项能力全 false
+PASS  项目里有 api 服务
+PASS  项目的容器数是 1
+PASS  部署详情
+PASS  详情里带着项目的容器
+PASS  详情 capabilities.update=false
+PASS  不存在的部署 → 404
+PASS  按项目名查部署 → 404（不模糊匹配）
+
+== 8. 启停：预检 → 任务 → 读回验证 ==
+PASS  stop 预检
+PASS  stop 预检 allowed
+PASS  目标身份指纹只由容器 ID 决定
+PASS  预检带影响说明
+PASS  compose 成员带 COMPOSE_MEMBER 告警
+PASS  启停不要求再认证
+PASS  启停不要求确认短语
+PASS  锁是容器自己
+PASS  规范化参数只有 ID 与操作
+PASS  提交 stop 任务
+PASS  stop 任务终态
+PASS  stop 结果 outcome
+PASS  stop 的 observed_state.verified
+PASS  stop 读回状态是 stopped
+PASS  stop 记录了操作前状态
+PASS  docker 现场见证（已停止）
+PASS  start 任务终态
+PASS  start 读回状态是 running
+PASS  docker 现场见证（在跑）
+PASS  对已停止容器 start 的终态
+PASS  已停止夹具被真的拉起来了
+PASS  restart 任务终态
+PASS  restart 读回状态是 running
+PASS  docker 现场见证（restart 后仍在跑）
+
+== 9. 拒绝：危险容器、状态冲突、参数注入、陈旧预检 ==
+PASS  priv 容器 stop 预检被拒（HTTP 200 + allowed=false）
+PASS  priv 容器 allowed
+PASS  priv 容器阻塞码含 CONTAINER_NOT_MANAGED
+PASS  hostnet 容器 stop 预检被拒（HTTP 200 + allowed=false）
+PASS  hostnet 容器 allowed
+PASS  hostnet 容器阻塞码含 CONTAINER_NOT_MANAGED
+PASS  sock 容器 stop 预检被拒（HTTP 200 + allowed=false）
+PASS  sock 容器 allowed
+PASS  sock 容器阻塞码含 CONTAINER_NOT_MANAGED
+PASS  cap 容器 stop 预检被拒（HTTP 200 + allowed=false）
+PASS  cap 容器 allowed
+PASS  cap 容器阻塞码含 CONTAINER_NOT_MANAGED
+PASS  提交被拒的预检 → 409
+PASS  …错误码 DEPENDENCY_BLOCKED（Web 在落库时就判掉，不到代理）
+PASS  privileged 容器没有被停掉
+PASS  对 running 容器 start 的预检
+PASS  …allowed=false
+PASS  …阻塞码是 CONTAINER_STATE_CONFLICT
+PASS  用容器名预检 → 400
+PASS  …错误码 VALIDATION_ERROR
+PASS  闭集外的操作 → 400
+PASS  多余参数（args）→ 400
+PASS  把 flag 当容器 ID → 400
+PASS  注入尝试之后普通容器还在跑
+PASS  不存在容器的预检
+PASS  …allowed=false
+PASS  …阻塞码 CONTAINER_NOT_FOUND
+PASS  陈旧预检用例的预检
+PASS  …此时 allowed
+PASS  提交陈旧预检 → 409（受理时复核就挡下）
+PASS  …错误码 PREFLIGHT_STALE
+PASS  …作业表多一条（拒绝也留痕）
+PASS  …failed 作业里写着 PREFLIGHT_STALE（1 条）
+PASS  容器没有被这个旧预检停掉
+NOT RUN  执行前复核（受理之后再变）：受理时的复核已经把变化挡在 202 之前；要在受理与执行之间改状态需要可重复的竞态，真机构造不出来，由 internal/agent/containers_test.go 的 TestContainerControlExecuteStaleState 覆盖
+PASS  重新预检后 stop 终态
+PASS  docker 现场见证（第二次已停止）
+PASS  恢复运行（供日志流使用）
+
+== 10. 容器日志实时流（SSE） ==
+PASS  开流状态码
+PASS  流里收到了 entry 事件
+PASS  entry 事件带时间戳 id（供 Last-Event-ID 用）
+PASS  不存在的容器开流 → 404（不是 200 + error 帧）
+PASS  …错误码 CONTAINER_NOT_FOUND
+
+== 11. 两种“不可用”必须分开 ==
+PASS  代理停掉时读容器清单 → 503
+PASS  …错误码是 AGENT_UNAVAILABLE
+PASS  代理重新启动
+PASS  代理回来后清单恢复 200
+PASS  dockerd 停掉时清单仍是 200（不是 503）
+PASS  …available=false
+PASS  …notice 说清为什么
+PASS  …notice 提到 Docker
+PASS  …容器列表是空数组，不是 null
+PASS  dockerd 停掉时读详情 → 503
+PASS  …错误码是 DOCKER_UNAVAILABLE
+PASS  dockerd 停掉时读日志 → 503
+PASS  …错误码也是 DOCKER_UNAVAILABLE
+PASS  dockerd 停掉时预检仍是 200
+PASS  …allowed=false
+PASS  …阻塞码 DOCKER_UNAVAILABLE
+PASS  提交这种预检 → 409
+PASS  …错误码 DEPENDENCY_BLOCKED
+PASS  dockerd 已恢复（29.1.3）
+
+== 12. 权限与审计 ==
+PASS  建 viewer 账号
+PASS  viewer 登录
+PASS  viewer 拿到 CSRF 令牌
+PASS  viewer 读容器清单 → 403（侦察材料）
+PASS  viewer 读镜像 → 403
+PASS  viewer 读部署 → 403
+PASS  viewer 读容器详情 → 403
+PASS  viewer 发容器预检 → 403
+PASS  审计里有 container.control 的预检记录（18 条）
+PASS  审计里有任务提交记录（9 条）
+PASS  审计里记下了被拒的预检（5 条）
+
+== 汇总 ==
+PASS 217 / FAIL 0 / NOT RUN 1

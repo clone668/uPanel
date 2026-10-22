@@ -56,6 +56,11 @@ const (
 	// 平台不支持是 NOT_IMPLEMENTED，版本不一致是 VERSION_CONFLICT。
 	CodeRootUnavailable Code = "ROOT_UNAVAILABLE"
 	CodeFileNotText     Code = "FILE_NOT_TEXT"
+	// 容器模块（P09.3）新增的两个码，已登记进 CONTRACTS.md 第 1 节。
+	// 它们与 AGENT_UNAVAILABLE 必须分开：代理好好的，只是这台机器上没有可用的 Docker、
+	// 或者那个容器已经不在——把这两种情况说成“代理不可用”会让人去查错地方。
+	CodeContainerNotFound Code = "CONTAINER_NOT_FOUND"
+	CodeDockerUnavailable Code = "DOCKER_UNAVAILABLE"
 	// CodeInternalError 不在契约枚举里，只用于“程序本身出错”（panic、序列化失败）。
 	// 契约枚举描述的是可预期的业务拒绝；真正的 500 不应伪装成其中任何一个。
 	CodeInternalError Code = "INTERNAL_ERROR"
@@ -72,6 +77,7 @@ func Codes() []Code {
 		CodeDependencyMissing, CodeNotImplemented, CodeCommandFailed,
 		CodeOperationInterrupted, CodeRollbackFailed,
 		CodeRootUnavailable, CodeFileNotText,
+		CodeContainerNotFound, CodeDockerUnavailable,
 	}
 }
 
@@ -101,8 +107,10 @@ func StatusForCode(code Code) int {
 		CodeFileNotText:
 		// “不是文本”是“参数（路径）合法但这份内容不能按文本处理”，属于 422。
 		return http.StatusUnprocessableEntity
-	case CodeAgentUnavailable, CodeDependencyMissing:
+	case CodeAgentUnavailable, CodeDependencyMissing, CodeDockerUnavailable:
 		return http.StatusServiceUnavailable
+	case CodeContainerNotFound:
+		return http.StatusNotFound
 	case CodeNotImplemented:
 		return http.StatusNotImplemented
 	case CodeCommandFailed, CodeRollbackFailed, CodeInternalError:

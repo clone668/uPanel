@@ -43,6 +43,10 @@ type ProductionDeps struct {
 	// Shares 是共享与受管理账号的模块（P08.1）。为 nil 时不登记 share.* 动作与查询：
 	// 没有 Samba 判决与执行端的接线不该报告一个点开就报错的入口。
 	Shares sharesSource
+	// Containers 是容器读取与启停（P09.3）。为 nil 时不登记 containers.* 查询、
+	// 不接受容器日志流许可，也不登记 container.control：本机没有 docker 时，
+	// capabilities 就如实报告“没有容器能力”，而不是留一个点开就 503 的入口。
+	Containers ContainersSource
 	// Discovery 是应用发现与健康探测（P09.2）。为 nil 时不登记 apps.discovery /
 	// apps.probe：没有 /proc 与容器读取的接线时，一个“空候选列表”会被读成
 	// “这台机器上什么都没有”，那是假话。

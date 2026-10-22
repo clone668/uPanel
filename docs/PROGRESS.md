@@ -2,7 +2,7 @@
 
 最后更新：2026-10-23。
 
-当前事实：**P00—P08 全部 passed（P07.1—P07.5、P08.1—P08.4），P09 的 P09.1、P09.2 已 passed**，下一个子任务是 **P09.3**（Docker 只读查询、日志与现有受支持容器的启停）（权威状态见 §1 的“当前阶段”与 §7 的阶段表；下面这段是交付历程摘要，按轮次追加，个别中间轮次没写进来）。P01.1 交付 Go 最小可运行骨架
+当前事实：**P00—P08 全部 passed（P07.1—P07.5、P08.1—P08.4），P09 的 P09.1、P09.2、P09.3 已 passed**，下一个子任务是 **P09.4**（关联 systemd/容器的启停、日志、状态和依赖卷；受管理/未接管依赖保护明确显示）（权威状态见 §1 的“当前阶段”与 §7 的阶段表；下面这段是交付历程摘要，按轮次追加，个别中间轮次没写进来）。P01.1 交付 Go 最小可运行骨架
 （两个服务入口 + CLI、严格 JSON 配置、结构化日志、`/api/v1/health/live`、代理 `capabilities`、
 Linux/mock 分离）；P01.2 交付持久层基础（SQLite 打开与 PRAGMA 校验、显式 SQL 迁移与校验和锁定、
 事务工具、封闭错误码与统一错误信封、request_id、Gin 路由与中间件组织、`upanelctl migrate`），
@@ -152,9 +152,28 @@ P07.1 先把“该拒的都拒”证完（判决层、可靠身份、整盘锁�
 
 ## 1. 当前任务
 
-- 当前阶段：**P09（现有 Web 应用与 Docker 接入）进行中**，**P09.2 已 passed**，
-  下一个子任务 **P09.3**（Docker 只读查询、日志和现有受支持容器的启停）。
-  **P09.2（本机端口/服务/容器发现、管理员确认候选、普通健康检查与 SSRF 约束）passed**：
+- 当前阶段：**P09（现有 Web 应用与 Docker 接入）进行中**，**P09.3 已 passed**，
+  下一个子任务 **P09.4**（关联 systemd/容器的启停、日志、状态和依赖卷；受管理/未接管依赖
+  保护明确显示）。
+  **P09.3（Docker 只读查询、容器日志与现有受支持容器的启停）passed**：
+  容器/镜像/网络/数据卷/部署的只读查询、容器日志（时间键集分页 + SSE 实时流，每账号 4 条并发）、
+  以及现有受支持容器的 start/stop/restart 全部就位；Web 进程从不碰 `docker.sock`（真机验了
+  “Web 账号不在 docker 组、`docker ps` 被拒、`/proc/<pid>/fd` 里没有 docker.sock”）。三个当时
+  必须定下来的东西：**容器身份只认完整 64 位小写十六进制**（全 ID 猜不出来；它是唯一会进 argv
+  的可写字符串）、**风险是闭集**（privileged / host 网络 / 危险 capability / 挂 docker.sock /
+  挂宿主 `/` → `risk.level=high` + `managed=false` + 三项能力全 false，预检与执行前复核各拒一次）、
+  **不该要的东西不请求**（inspect 格式串里没有 `Config.Env`、没有完整标签表，真机放了唯一口令，
+  清单/详情/日志/SSE/代理日志里都搜不到）。VM 上 **PASS=217 / FAIL=0 / NOT RUN=1**（第五遍；
+  唯一 NOT RUN 是“执行前复核（受理之后再变）”，需要毫秒级可重复竞态，真机构造不出来，由
+  `TestContainerControlExecuteStaleState` 覆盖）。真机抓出并修掉 **3 个**产品缺陷——Q270
+  （`docker logs --tail N --until 游标` 里 `--tail` 先作用于整个流、`--until` 之后才过滤，往回翻页
+  永远只剩边界一条；改成时间窗 `--since … --until`，可加宽可缩窗，下限是容器创建时间）、
+  Q271（套接字还在但守护进程死了被当成“命令失败”甚至 500；判据改成 docker 自己那句
+  `Cannot connect to the Docker daemon`，清单降级 200 + `available=false`、预检
+  `allowed=false` + `DOCKER_UNAVAILABLE`）、Q272（代理回的 5xx 域内码在 Web 层被改写成
+  `AGENT_UNAVAILABLE`，页面因此把用户指错方向）。宿主 `check.sh` PASS 13/0/0、`go test ./...`
+  全绿、容器相关单测 57 个用例。证据 `docs/evidence/P09/2026-10-22-p09.3/`。
+  **上一子任务 P09.2（本机端口/服务/容器发现、管理员确认候选、普通健康检查与 SSRF 约束）passed**：
   三路来源读出本机正在对外提供什么——`/proc/net/tcp{,6}` 的 LISTEN（st=0A）→ inode →
   `/proc/<pid>/fd` → cgroup v2 → `.service` 单元、裸监听、以及 `docker ps -a --no-trunc` ——
   候选 `target_id` 只有 `local_…`/`cntr_…` 两种形状。**SSRF 不是过滤而是写不出来**：探测地址一律由
@@ -491,7 +510,7 @@ P07.1 先把“该拒的都拒”证完（判决层、可靠身份、整盘锁�
 | P06 | 文件和受限终端 | **passed** | P06.1 **passed**：受管理文件根 + 句柄级路径约束 + 列表/文本/下载（`internal/files` 双角色一套 DTO、`openat2` 单次解析 + 同句柄 `fstat`、根身份每次核对、配置拒绝 `/`；`files.roots\|list\|text` 三个查询 + `files.download` 单次许可流；`GET /api/v1/files/{roots,list,text,download}` 四条 admin 接口；前端文件页/条目行四态与“不跟随、不读取”说明）。VM 上 **PASS=115 / FAIL=0 / NOT RUN=0**、载荷校验 **6379/0**，前端真实载荷回放 27 例、全量 406 例，宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P06/2026-10-21-p06.1/`。P06.2 **passed**：流式暂存上传与受控写入（`internal/files/staging.go` 声明即预留/收满即归还、根内 `.upanel/staging`、TTL 24 h；`write.go` 编辑备份 10 份 + 500 MiB；`StatTree` 树统计与 `TREE_TOO_LARGE`/`TREE_UNSUPPORTED`；七个写动作 `file.mkdir\|write_text\|copy\|move\|delete\|chmod\|chown` + `commit_upload` 全部走预检→任务→幂等→资源锁→`renameat2` 原子换位→同句柄 `fstat` 读回→审计；上传三件套与四条 `/api/v1/files/uploads*` 接口，字节经代理单次许可通道、不进 job 表；前端上传/新建/重命名/复制/删除/编辑/改权限改所有者与确认短语弹窗）。VM 上 **PASS=228 / FAIL=0 / NOT RUN=0**、VM 内核原生 **909/0**、宿主 `check.sh` PASS 13/0/0、前端 428 例、openapi valid；真机抓出并修掉 4 类 6 个缺陷（Q155—Q158）；未验证项 8 条逐条写在 result.md §5；证据 `docs/evidence/P06/2026-10-21-p06.2/`。P06.3 **passed**：受限 Web 终端（`internal/terminal` 会话表 + 限额收紧 + Linux PTY 降权启动与身份读回 + 显式挂断；`internal/agent/terminalaction.go\|terminalstream.go` 动作 `terminal.create`、查询 `terminal.sessions`、WS 流；`internal/api/terminal*.go` 四条接口 + 一次性许可 + WS 中继；前端 `TerminalView.vue` 六态与“不是 root shell”边界提示）。浏览器→Web→代理两跳 WS，四道门（Origin/子协议/许可/代理附加）全在 upgrade 前，帧闭集 + 64 KiB 载荷 + 256 KiB/s 与 200 帧/s 上限 + 关闭码 1000/4001/4002，两状态 + 单连接 409 + 宽限重连同壳，审计只记元数据。VM 上 **PASS=282 / FAIL=0 / NOT RUN=0**、VM 内核原生 **962/0**、宿主 `check.sh` PASS 13/0/0、前端 445 例、openapi valid；真机抓出并修掉 6 类缺陷（Q165—Q169，其中 Q169“关 master 不会挂断”会话结束后 shell 残留）；NOT RUN 5 条见 result.md §6；证据 `docs/evidence/P06/2026-10-21-p06.3/`。**阶段结论：P06 三个子任务全部完成** |
 | P07 | 分区、格式化、挂载 | **passed** | P07.1 **passed**：存储写动作的**拒绝逻辑**（预检判决、可靠设备身份、整盘锁、系统设备/挂载/swap/holders/依赖保护）。四个动作 `storage.partition_table.initialize\|partition.create\|partition.delete\|filesystem.format` 只登记解码 + `Plan`，`Execute` 为 nil，提交必 501 `NOT_IMPLEMENTED`（Q170），因此**这一轮没有任何一次写盘**。判决层 `internal/storage/assess.go` 以“读不出来不等于可以写”为第一原则（签名读不到/`/proc/*/fd` 扫不动/分区表只有 sysfs/设备类型未知 → 一律阻塞），保护沿 `partition_of`/`depends_on` 递归向上，阻塞码是闭集；能力投影由判决层算出、30 秒 TTL；签名识别 ext/XFS/Btrfs/swap/LUKS/LVM2/md 固定魔数，占用按 `st_rdev` 比对。VM 上 **PASS=189 / FAIL=0 / NOT RUN=1**（`PREFLIGHT_STALE` 无法验证——提交在复核之前就 501）；真机抓出并修掉 **2 个**产品缺陷：交换区魔数在第一个页面的末 10 字节（4096−10）而不是盘尾、`holders/`/`slaves/` 是符号链接目录没有 `list` 属性（导致 dm/md 占用在真机上永远看不见），见 Q171/Q172。证据 `docs/evidence/P07/2026-10-21-p07.1/`。**P07.2 passed**：三个分区动作接上执行器并在 VM 的三块一次性空盘上**真的写盘**——固定模板（`label: gpt` / `--append --wipe-partitions never start=… size=… type=linux name="…"` / `--delete <dev> <n>`）、模板只经 `syscmd` 的有上限 stdin 通道、命令行里只有已校验的数字与名字；写前重算判决并比对身份指纹/状态版本，写后 `udevadm settle` + 等内核与 `/dev` 节点 + 读回盘上 GPT 头与条目表与期望形态逐条比对，两源都对上才 `verified`（退出码 0 不算）。契约新增 `partition_table.disk_guid`/`disk_entries`（CONTRACTS §6.3、openapi `StorageGPTEntry`、前端 DTO 与真机载荷回放）。VM 上 **PASS=177 / FAIL=0 / NOT RUN=1**，真机抓出并修掉 Q177（`disk_entries` 空数组与“没读到”撞车），记下 Q178—Q182；宿主 `check.sh` PASS 13/0/0、前端 450 用例。证据 `docs/evidence/P07/2026-10-22-p07.2/`。**P07.3 passed**：`storage.filesystem.format` 接上执行器（`internal/storage/format.go` 448 行 + `fsprobe.go`）——固定模板里只有已校验的文件系统名、设备路径与卷标（卷标另有第三道 `ErrUnsafeWrite` 闸），写完**直接读超级块**做两源核验（ext4 偏移 1024 的 `53 ef`/`s_uuid`/`s_volume_name`，XFS 偏移 0 的 `XFSB`/`sb_uuid`/`sb_fname`），退出码 0 不算验证。四条纪律落地：错短语 400 且**整份预检就此作废**；标签超限在预检之前就是 400（ext4 的 17 字节标签会 rc=0 并被静默截断，Q184）；mkfs 跑着时取消是 409 且任务不会被标成 canceled；代理被 SIGKILL 后操作落 `interrupted` + `OPERATION_INTERRUPTED` 且**不自动重跑**；执行前二次身份检查用两道门——版本比对（结构变了 → 409 `PREFLIGHT_STALE`）与设备直读（字节换了 → 409 `DEVICE_IDENTITY_CHANGED`）。VM 上 **PASS=204 / FAIL=0 / NOT RUN=1**（唯一 NOT RUN 是内核/盘上条目不一致的真实竞态，单测 `TestFormatRefusesPartitionThatMoved` 覆盖），真机抓出并修掉 **1 个**产品缺陷 Q190（对已经不存在的设备做预检回 500：拒绝路径没有目标可绑定，预检层却无条件要求绑定），记下 Q184—Q190；宿主 `check.sh` PASS 13/0/0、`go test ./... -count=1` 26 包 ok、storage 单测 PASS 328 / FAIL 0（P07.2 提交同口径 291，+37）。证据 `docs/evidence/P07/2026-10-22-p07.3/`。**P07.4 passed**：受管理卷——`internal/storage/fstab.go`（760 行）/`volume.go`/`volumeassess.go`（960）/`volumewrite.go`（878）/`volumeholders.go` 把“一块已有文件系统的分区”变成面板管理的卷，五个动作 `storage.volume.import\|mount\|unmount\|configure\|forget` 全部接上执行器（**都不要确认短语**：短语只留给“写下去就找不回来”的动作）。fstab 只做**最小修改**（块外逐字保留、选项顺序固定、`nofail` 恒在、`noauto` 随 automount、第六列 ext4=2/XFS=0），写路径“比哈希 → 渲染候选 → 临时文件 → fsync → `findmnt --verify` → 备份 → rename → fsync 目录”，候选不合格目标文件一个字节不动，渲染结果与原文相同则直接返回；**禁用 `mount -a`**。占用列表把 fd 的 `st_rdev` 与挂载点下文件的 `st_dev` 合流，“挂着但空闲”不算忙，读不到 `/proc` 一律 fail-closed。VM 上分两段（中间隔一次真重启）：第一段 **PASS=267 / FAIL=0 / NOT RUN=0**，第二段 **PASS=38 / FAIL=0 / NOT RUN=0**——开机 26 秒时 `srv-upanel-volumes-data.mount` 由 fstab 自己挂上（之后才启动面板）、UUID 一致、标记文件 sha 不变、`noauto` 的卷没有挂上。真机抓出并修掉 **1 个**产品缺陷 Q199（configure 预检漏绑定目标身份指纹 ⇒ 500），记下 Q191—Q203。证据 `docs/evidence/P07/2026-10-22-p07.4/`。**P07.5 passed**：磁盘页面完整交互 + 系统外部独立检查 + 存储恢复文档 + openapi 补齐 P07。前端五个新组件（`DeviceStorageActions`/`VolumeImportForm`/`VolumeCard`/`VolumeSection`/`StorageActionDialog`）+ `api/volumes.ts`、`utils/jobresult.ts` 把九种动作接上页面：判定只认载荷里的 `capabilities`（`available` 才可点、`blocked` 给服务端理由、`unsupported` 不出现、载荷无 `capabilities` 时一个动作都不画，Q205），`capacity` 只在真挂着时存在（没挂写「没有容量读数」而不是 `0 B`），每次动作走 `/operations/preflight` → `/jobs`（带幂等键），预检 120 秒过期要重新预检、要短语的必须原样敲、要再认证的提示重新输密码。`api/openapi.yaml` 补 `GET /storage/volumes`、`/storage/volumes/{id}`、`/storage/volumes/{id}/blockers` + 五个 schema，版本 `0.0.0-p07.5`，`capacity`/`observed_state`/`dependencies` 的空值语义写进 description。`scripts/storage-external-check.sh`（381 行）是**不经过面板的独立证人**（只读 `/etc/fstab`、`findmnt --mountpoint`、`/proc/self/mountinfo`、systemd 单元、备份权限，退出码 0=一致），真机上跑三遍真的 `/etc/fstab` + 五种坏副本；`docs/STORAGE_RECOVERY.md` 写清人怎么恢复（§2 第三步用 `--mountpoint`，Q204）。夹具从真机抓回 `web/src/fixtures/p07-5-vm/`（11 份载荷 + README），由 `realdata-p07-5.test.ts` 回放。VM 上 **PASS=205 / FAIL=0 / NOT RUN=3**（浏览器渲染 / 跨重启 / 九种动作逐一点击，逐条写原因与替代证据），真机抓出并修掉 **1 个**产品缺陷 Q208（把“未挂载所以读不到类型”当成“不合格”，于是纳入管理的候选在任何真机上都是空的——**夹具比现实干净，测试就变成了橡皮章**），记下 Q204/Q209 两个验收脚本缺陷与 Q205—Q207；宿主 `check.sh` PASS 13/0/0、web 35 文件 / 552 用例、openapi valid（7 warning）、`go test ./...` 26 包 ok（本轮没改 Go 代码，条目数与 P07.4 一致）。证据 `docs/evidence/P07/2026-10-22-p07.5/`。**阶段结论：P07 五个子任务全部完成** |
 | P08 | SMB 与卷依赖 | **已完成**（P08.1—P08.4 全部 passed）| P08.1 **passed**：Samba 能力检测、受管理账号、密码秘密通道、POSIX ACL、共享定义与配置版本。VM 上 **PASS=382 / FAIL=0 / NOT RUN=4**；`share.apply` 只到 `accepted`（不写 `smb.conf`、不重载，`sha256` 首末一致），密码明文只走 `smbpasswd` 的 stdin（五处扫描 0 命中），账号与 ACL 均用系统自己的命令读回核验。真机修掉 4 个产品缺陷（Q214/Q220/Q221/Q223），钉死 P05.1 采集器性能问题（Q222，未根治），记下 5 处验收脚本缺陷；证据 `docs/evidence/P08/2026-10-22-p08.1/`。**P08.2 passed**：托管 `upanel.conf` 整份重写 + `smb.conf` 末尾只追加两行（原有内容逐字节前缀比对保留），候选/合并两次 `testparm`、备份 0600 留 40 份、rename + 目录 fsync 的原子更新、`smbd` 活着才 `smbcontrol all reload-config`、逐参数读回、真实 `smbclient` 读写与拒绝、`smbstatus` 会话表连接状态。VM 上 **PASS=237 / FAIL=0 / NOT RUN=0**（四遍）；真机抓出 **1 个**产品缺陷（Q233 上级目录 0700 导致真实客户端 `ACCESS_DENIED`，7 条断言 1 个根因）+ **1 个**契约事实（Q234 `hosts allow` 对环回永远放行），2 处验收脚本缺陷；证据 `docs/evidence/P08/2026-10-22-p08.2/`。**P08.3 passed**：共享与 `volume_id` 绑定、启用检查、启动依赖、运行时脱盘、卸载/格式化依赖阻断。挂载门（只有 `volume_state=mounted` 才渲染，`unknown`/空按没挂处理）、30 秒一轮**只撤不恢复**的监视循环（撤销现场 `runtime_revoked{at,volume_id,volume_name,volume_state,reason}` 落在共享记录上，人再应用才回来）、systemd drop-in `/etc/systemd/system/smbd.service.d/upanel-shares.conf`（`RequiresMountsFor=` 一行四路径、排序去重、原子写、`daemon-reload` 必做、清空即整份删除）、存储侧按 `purpose` 分档的反向约束（卸载只看启用中的共享，格式化/退出管理看任何共享，查不出依赖一律阻塞）。VM 上 **PASS=207 / FAIL=0 / NOT RUN=5**（三遍：184/14 → 203/2 → 207/0），另用三阶段脚本连同一次真 `reboot` 验完重启顺序（pre 18 / post 11 / clean 5，各 0 失败，挂载单元比 `smbd` 早 57.2 秒进入 active，`smb.conf` 重启前后逐字节相同）。真机抓出 **2 个**产品缺陷（Q240 少一列导致 `runtime_revoked` 从不落盘且幂等判据永远失效；Q243 `0644` 被 umask 掩成 `0600`），**2 处**脚本缺陷（Q241、Q244），1 处契约补记（Q242）；证据 `docs/evidence/P08/2026-10-22-p08.3/`。**P08.4 passed**：共享 UI、用户权限与客户端连接说明（不加接口、不改字段）。三个准备状态分开显示；卷的状态与开机依赖**都不在共享记录里**——卷的挂没挂由页面按 `volume_id` 从 `/storage/volumes` 的 `observed_state` join（取不到就少显示一行；`unknown`/`error`/`mismatch` 说“读不出来”而不是“没挂”），开机依赖在 `share.apply` 的 `result.data`；客户端说明四种（Windows/macOS/`mount.cifs`/`smbclient`），地址取自 `window.location.hostname`，命令里永远没有密码（`credentials=` + `0600` + here-doc 走 stdin）。VM 上 **PASS=190 / FAIL=0 / NOT RUN=4**（四遍：167/20 → 187/2 → 190/0），第 5 节逐字执行说明里的 11 行（真 `smbclient` + 真 `mount.cifs` 挂载、写入读回、`umount`），第 6 节四种身份全拿真实 `NT_STATUS_*`，第 7 节 58 份载荷 / 两个库 / `/proc` 两处 / `/proc/mounts` 命中 0。真机抓出 **2 个**产品缺陷（Q246 前端 DTO 写着后端从不发送的四个字段，“卷没挂”永远亮不了；Q247 “重新应用”这条唯一的出路走不通，`runtime_revoked` 从来没被清过），**5 处**验收脚本缺陷；宿主 `check.sh` PASS 13/0/0、前端 637 条用例全绿；证据 `docs/evidence/P08/2026-10-23-p08.4/`、回放夹具 `web/src/fixtures/p08-4-vm/`。`P00-VM-D`（独立 SMB 客户端 VM）仍未建立，跨机器真实网段访问属 **NOT RUN** |
-| P09 | 现有 Web 应用与 Docker | **进行中**（P09.2 passed）| P09.2 **passed**：本机端口/服务/容器发现、管理员确认候选、普通健康检查与 SSRF 约束。三路来源（`/proc/net/tcp{,6}` LISTEN → inode → `/proc/<pid>/fd` → cgroup v2 → `.service`、裸监听、`docker ps -a --no-trunc`），候选 `target_id` 只有 `local_…`/`cntr_…` 两种形状；**SSRF 不是过滤而是写不出来**——探测地址一律由代理拼成 `http(s)://127.0.0.1:<port><path>`（`Proxy: nil`、不跟重定向、TLS 校验开、正文 64 KiB 截断），调用方没有任何位置能放主机名/IP/完整 URL；确认候选＝`POST /apps`（不另开接口）；结论只进 `app_health_results`（`0008`），定义仍在 `apps.health_json`；调度 5 秒一拍/一轮 60 秒/每应用 30—300 秒/最小间隔 5 秒，代理不可用写一条 `unknown` 即结束本轮。两条诚实性规矩：**“没看”不能变成“没有”**（探测侧 `unknown` vs `error`，入 Q257；绑定合并侧来源没采成不进 `missing_bindings`，Q260），**没发出去的探测不填 address/url**。为三条容器验收在测试机上装 `docker.io` 29.1.3 + `alpine:3.20` **夹具**（非依赖；无 docker 的机器上那三条仍是 NOT RUN）。VM 上 **PASS=120 / FAIL=0 / NOT RUN=1**（六遍 93/0 → 120/0；唯一 NOT RUN 属 P09.4）；真机抓出并修掉 **3 个**产品缺陷（Q258 pid 1 代持的 `.socket` 监听让端口出现两次、Q259 docker-proxy 在 `docker.service` cgroup 里让容器出现两次且抑制必须在单元分类之前、Q260 停 dockerd 后容器应用被误判“需重新确认”）+ 一条语义修正 Q257；宿主 `check.sh` PASS 13/0/0、`go test ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.2/`。**下一子任务 P09.3**（Docker 只读查询、日志、现有受支持容器的启停）。P09.1 **passed**：应用/分组/收藏元数据、link/systemd/docker/compose 判别模型、公共入口与内部目标分离。四张表（`apps`/`app_groups`/`app_favorites`/`app_volume_dependencies`，`0007_apps.sql`）；`type` 决定 `binding` 的唯一合法键，规范化 JSON + `uq_apps_binding`（`WHERE type <> 'link'`）+ `CHECK` 让唯一性由数据库保证；`public_url` 只受理浏览器能打开的地址（生产禁回环/通配），健康检查 `target_id` 形状写不出 IP/主机名/URL，`169.254.169.254` 真机试过；摘要字段只填“不知道”（link `not_applicable`，其余 `unknown` + `last_checked_at=null` + `dependency_protection=unmanaged`），`capabilities` 只有 `open`；依赖卷不建外键（Q248），写入经代理确认，503 不写库、422 带 `volume_id`；删除只删元数据，收藏按用户隔离且不写审计。VM 上 **PASS=210 / FAIL=0 / NOT RUN=0**（第八遍；第七遍复跑同样 210/0/0）。真机**无产品缺陷**，前几遍 23 个 FAIL 全为脚本自身问题（断言写错 4 处、破坏性动作漏再认证、夹具没清干净 1 处），并把“预检绑定快照”这条产品语义钉进脚本；宿主 `check.sh` PASS 13/0/0、`go test ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.1/`。|
+| P09 | 现有 Web 应用与 Docker | **进行中**（P09.3 passed）| P09.3 **passed**：Docker 只读查询（容器/镜像/网络/数据卷/部署）、容器日志（时间键集分页 + SSE 流，每账号 4 条并发）、现有受支持容器的 start/stop/restart。**Web 进程从不碰 `docker.sock`**——所有查询与动作在代理里用固定子命令完成，真机验了 Web 账号不在 docker 组、`docker ps` 被拒、`/proc/<pid>/fd` 里没有 sock。**容器身份只认完整 64 位小写十六进制**（唯一会进 argv 的可写字符串，名字只在输出里出现；短 ID 可猜，全 ID 不行），`^[0-9a-f]{64}$` 在 Web 与代理各校验一次。**风险是闭集而不是启发式**：privileged、host 网络/pid/ipc、危险 capability、挂 `docker.sock`、挂宿主 `/` → `risk.level=high` + `managed=false` + 三项能力全 false，并在预检（`CONTAINER_NOT_MANAGED`）与执行前复核（`controlBlockedError` → 409 `PREFLIGHT_STALE`）**两处**拒绝。**不该要的东西不请求**：inspect 格式串里没有 `Config.Env`、没有完整标签表（只取六个 `com.docker.compose.*`），真机放了唯一口令，清单/详情/日志/SSE/代理日志里都搜不到，日志正文经 `logging.Redact` 成 `[redacted]`。启停每条都“预检 → 任务 → 读回”并与 `docker inspect` 现场对照：**退出码 0 不算成功，读回状态一致才算**（`observed_state.verified`）。compose 项目是派生身份 `dep_`+sha256 前缀，只做精确匹配 GET，外部 YAML 不执行不解析不落盘。VM 上 **PASS=217 / FAIL=0 / NOT RUN=1**（五遍；唯一 NOT RUN 是“执行前复核（受理之后再变）”，需毫秒级可重复竞态，由 `TestContainerControlExecuteStaleState` 覆盖）；真机抓出并修掉 **3 个**产品缺陷（Q270 `--tail`/`--until` 顺序让往回翻页只剩边界一条 → 时间窗分页；Q271 套接字还在但守护进程死了被当成命令失败/500 → 按 `Cannot connect to the Docker daemon` 判 `UnavailableError`，清单降级 200 + `available=false`、预检 `allowed=false` + `DOCKER_UNAVAILABLE`；Q272 代理的 5xx 域内码被 Web 改写成 `AGENT_UNAVAILABLE`）；宿主 `check.sh` PASS 13/0/0、`go test ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.3/`。**下一子任务 P09.4**（关联 systemd/容器的启停、日志、状态与依赖卷；受管理/未接管依赖保护明确显示）。P09.2 **passed**：本机端口/服务/容器发现、管理员确认候选、普通健康检查与 SSRF 约束。三路来源（`/proc/net/tcp{,6}` LISTEN → inode → `/proc/<pid>/fd` → cgroup v2 → `.service`、裸监听、`docker ps -a --no-trunc`），候选 `target_id` 只有 `local_…`/`cntr_…` 两种形状；**SSRF 不是过滤而是写不出来**——探测地址一律由代理拼成 `http(s)://127.0.0.1:<port><path>`（`Proxy: nil`、不跟重定向、TLS 校验开、正文 64 KiB 截断），调用方没有任何位置能放主机名/IP/完整 URL；确认候选＝`POST /apps`（不另开接口）；结论只进 `app_health_results`（`0008`），定义仍在 `apps.health_json`；调度 5 秒一拍/一轮 60 秒/每应用 30—300 秒/最小间隔 5 秒，代理不可用写一条 `unknown` 即结束本轮。两条诚实性规矩：**“没看”不能变成“没有”**（探测侧 `unknown` vs `error`，入 Q257；绑定合并侧来源没采成不进 `missing_bindings`，Q260），**没发出去的探测不填 address/url**。为三条容器验收在测试机上装 `docker.io` 29.1.3 + `alpine:3.20` **夹具**（非依赖；无 docker 的机器上那三条仍是 NOT RUN）。VM 上 **PASS=120 / FAIL=0 / NOT RUN=1**（六遍 93/0 → 120/0；唯一 NOT RUN 属 P09.4）；真机抓出并修掉 **3 个**产品缺陷（Q258 pid 1 代持的 `.socket` 监听让端口出现两次、Q259 docker-proxy 在 `docker.service` cgroup 里让容器出现两次且抑制必须在单元分类之前、Q260 停 dockerd 后容器应用被误判“需重新确认”）+ 一条语义修正 Q257；宿主 `check.sh` PASS 13/0/0、`go test ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.2/`。**下一子任务 P09.3**（Docker 只读查询、日志、现有受支持容器的启停）。P09.1 **passed**：应用/分组/收藏元数据、link/systemd/docker/compose 判别模型、公共入口与内部目标分离。四张表（`apps`/`app_groups`/`app_favorites`/`app_volume_dependencies`，`0007_apps.sql`）；`type` 决定 `binding` 的唯一合法键，规范化 JSON + `uq_apps_binding`（`WHERE type <> 'link'`）+ `CHECK` 让唯一性由数据库保证；`public_url` 只受理浏览器能打开的地址（生产禁回环/通配），健康检查 `target_id` 形状写不出 IP/主机名/URL，`169.254.169.254` 真机试过；摘要字段只填“不知道”（link `not_applicable`，其余 `unknown` + `last_checked_at=null` + `dependency_protection=unmanaged`），`capabilities` 只有 `open`；依赖卷不建外键（Q248），写入经代理确认，503 不写库、422 带 `volume_id`；删除只删元数据，收藏按用户隔离且不写审计。VM 上 **PASS=210 / FAIL=0 / NOT RUN=0**（第八遍；第七遍复跑同样 210/0/0）。真机**无产品缺陷**，前几遍 23 个 FAIL 全为脚本自身问题（断言写错 4 处、破坏性动作漏再认证、夹具没清干净 1 处），并把“预检绑定快照”这条产品语义钉进脚本；宿主 `check.sh` PASS 13/0/0、`go test ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.1/`。|
 | P10 | 反向代理、HTTPS、0.1 发布 | not_started | — |
 | P11 | 软件更新与电源 | not_started | — |
 | P12 | 备份恢复与计划任务 | not_started | 需恢复校验 |
@@ -3756,6 +3775,97 @@ systemd 单元 / 容器 / compose 项目之间的绑定关系。本子任务**�
 证据：`docs/evidence/P09/2026-10-22-p09.2/`（`run.log`、`payloads/`（13 份）、`logs/`、
 `env.txt`、`check.txt`、`native-tests.txt`、`result.md`、`collect-env.sh`）。
 
+### P09.3（2026-10-22）— Docker 只读查询、容器日志与现有受支持容器的启停
+
+**范围**（STAGES §11 第 3 条）：容器/镜像/网络/数据卷/部署的只读查询、容器日志（分页与实时流）、
+以及**现有受支持容器**的 start/stop/restart。危险容器只显示不接管；外部 Compose YAML 不执行、
+不解析、不落盘，只按 `com.docker.compose.project` 标签归并出一个只读视图。这一轮不做应用级的
+启停联动（P09.4），也不做前端（P09.5）。
+
+**做了什么**
+
+- `internal/containers/`：`types.go`（视图 DTO 与风险闭集）、`parse.go`（inspect 格式串与解析）、
+  `docker.go`（固定的 docker 子命令、不可用分类）、`logs.go`（时间键集分页与实时流）、
+  `control.go`（预检判决、执行前复核）、`http.go`（判决 → HTTP 的唯一映射）、`fetch.go`
+  （Web 侧读取端，进程内不碰 `docker.sock`）。
+- `internal/agent/containerquery.go`（7 个查询：清单/详情/镜像/网络/卷/部署/部署详情）、
+  `containeraction.go`（`container.control`）、`streams.go`（流许可与每账号 4 条并发额度）、
+  `registry.go`（能力由注册表推导，不手写）。
+- `internal/api/containers.go`：7 个 GET + 1 个 SSE（`/containers/:id/logs/stream`），**整组 admin**
+  ——容器清单等于“这台机器跑了什么”，属于侦察材料。
+- `api/openapi.yaml` 八个路径与对应 schema；`docs/CONTRACTS.md` §8.3；`docs/DECISIONS.md`
+  Q261—Q272。
+
+**几个当时必须定下来的取舍**
+
+- **容器身份只认完整 64 位小写十六进制**：全 ID 猜不出来，短 ID 可以。ID 是这个模块里**唯一**
+  会进入 argv 的可写字符串，Web 与代理各校验一次；名字只在输出里出现。
+- **风险是一个闭集，不是启发式**：privileged、host 网络/pid/ipc、危险 capability、挂
+  `docker.sock`、挂宿主 `/`。命中即 `risk.level=high` + `managed=false` + 三项能力全 false，
+  并在**两处**拒绝（预检 + 执行前复核）——只在预检拒绝，等于相信“预检之后世界不变”。
+- **不该要的东西不请求**：inspect 的格式串里没有 `Config.Env`、没有完整标签表（只取六个
+  `com.docker.compose.*`）、不取 raw inspect。环境变量里通常就是数据库口令与令牌，
+  “先取回来再过滤”是迟早会漏的做法。真机上放了唯一口令验证：清单、详情、日志、SSE 的响应体
+  和代理日志里都搜不到它。
+- **两种“不可用”必须分开**：代理不可用（503 `AGENT_UNAVAILABLE`）与这台机器上的 Docker 不可用
+  （列表 200 + `available=false` + `notice`；详情与日志 503 `DOCKER_UNAVAILABLE`；预检
+  `allowed=false` + 阻塞码）——合成一句“容器不可用”会让人去修错的东西（Q271/Q272）
+- **日志往回翻不能靠 `--tail`**：docker 先取整个流的最后 N 行、再按 `--until` 过滤，于是
+  比游标早的行在过滤前就被丢光（Q270）。往回翻用时间窗，窗口能加宽也能缩窄。
+- **compose 项目是派生身份**：`id = "dep_"+sha256("compose:"+项目名)[:32]`，不带项目名原文；
+  只做精确匹配的 GET，按名字模糊查是 404。
+
+**验收**
+
+- 真机脚本 `tests/integration/p09-3-container-acceptance.sh`，最终一遍（第五遍）
+  **PASS=217 / FAIL=0 / NOT RUN=1**。13 节：环境守卫 10、启动身份 9、夹具 5、容器清单 44、
+  身份 14、日志 14、镜像/网络/卷 13、部署 12、启停 24、拒绝 37、SSE 5、两种不可用 19、权限审计 11。
+- 唯一 NOT RUN 是「执行前复核（受理之后再变）」：受理时的复核已经把变化挡在 202 之前，
+  要在受理与执行之间改状态需要可重复的竞态，真机构造不出来；由
+  `internal/agent/containers_test.go` 的 `TestContainerControlExecuteStaleState` 覆盖。
+- 启停三条（stop/start/restart）每条都“预检 → 任务 → 读回”，并与 `docker inspect` 现场对照：
+  **退出码 0 不算成功，读回状态一致才算**。四类危险容器各自起真容器，预检被拒后现场确认它
+  **真的没被动过**。
+- 宿主：`scripts/check.sh` PASS 13 / FAIL 0 / NOT RUN 0；`go test ./...` 全部包 ok；
+  容器相关单测 57 个用例。
+
+**真机抓出并修掉 3 个产品缺陷**
+
+1. **Q270 日志往回翻页永远只能拿到边界一条**：`docker logs --tail N --until <游标>` 里
+   `--tail` 先作用于**整个流**、`--until` 之后才过滤，所以比游标早的行在过滤前就被丢光了，
+   第二页只剩游标那条本身（再被去重掉就成了空页）。这不是参数写错，是组合语义的缺陷。
+   改成时间窗 `--since … --until 游标`：初始 15 分钟、没凑满放大 8 倍、铺到**容器创建时间**
+   （`docker inspect --format {{.Created}}`）为止或 30 天上限；撞 8 MiB 上限就缩窗 4 倍（丢的是
+   最接近游标那段，缩窗才对）。`truncated` 的语义同时钉死：铺到创建时间就是 `false`，
+   不让“可能还有”冒充“确实没有了”。
+2. **Q271 套接字还在、守护进程死了**：产品只按套接字文件判断可用性，于是 `systemctl stop docker`
+   / OOM / 升级重启这三种最常见的状况下，列表回 503（契约要 200 + `available=false`），预检直接 500。
+   判据改成 **docker 自己那句** `Cannot connect to the Docker daemon`；清单类接口降级为
+   200 + `available=false` + `notice`，预检写成 `allowed=false` + `DOCKER_UNAVAILABLE`
+   （那是**拒绝理由**，不是“预检算错了”）。
+3. **Q272 代理说“Docker 不可用”，Web 改写成“代理不可用”**：Web 侧 `mapError` 只按状态码分类，
+   把代理的任何 5xx 都当成“代理自己不可用”，于是详情/日志的 503 带着 `AGENT_UNAVAILABLE` 出去。
+   带域内码的 5xx 现在原样透出，只有通用码（空 / `AGENT_UNAVAILABLE` / `INTERNAL_ERROR`）与连不上
+   才翻成 `AGENT_UNAVAILABLE`。这一条最值得记：它不会让任何测试变红，只会让页面把用户指错方向。
+
+**验收脚本自身的问题（6 条，与产品代码无关）**：RFC3339Nano 按字符串比大小（`.5Z` > `.55Z`
+数值上却更小）、`${_bad:0:14}` 是 bash 专有写法而脚本跑在 dash 上、一条断言的极性写反、
+“陈旧预检”误以为是执行期失败（契约是**受理时**复核 → 409 + `PREFLIGHT_STALE` + 一条 `failed`
+作业）、SSE 用例给的 5 秒不够开流的三步开销、§11.2 等的是 socket 文件消失而不是 `docker info` 失败。
+逐条见 `result.md` §5。
+
+**未验证**：前端页面（P09.5）；除 apt 的 `docker.io` 29.1.3 之外的 Docker 版本；“docker 返回 0
+但状态没变”（需要一个人为骗人的 docker，正常 daemon 上做不到，由 `internal/containers` 的 fake
+覆盖）；危险容器的执行前复核拒绝（预检就拒了，单测覆盖）。**受阻**：无。
+
+**已知限制**：往回翻页是按时间窗猜的，安静的容器可能要多问 docker 几次（上限 8 次），这是
+docker 没有游标的直接后果；`docker ps` 的输出格式是解析约定（`|` 分隔、端口列在最后），
+CLI 改格式时会在 `ErrDockerOutput` 上明确报错，不会静默给出半份清单。
+
+证据：`docs/evidence/P09/2026-10-22-p09.3/`（`run.log`、`payloads/`（48 份）、`logs/`
+（agent/web + 9 份 docker 夹具输出）、`env.txt`、`check.txt`、`native-tests.txt`、`result.md`、
+`collect-env.sh`）。
+
 ## 6. 未决问题与范围变更
 
 未批准任何范围变更。DECISIONS.md 第 8 节记录 Q1—Q80；P03.3 新增六条：Q67（阶段与事件必须同事务，
@@ -4133,6 +4243,15 @@ Q103（`cmd/upanel-web` 的用例会读机器上的 `/etc/upanel/upanel.json`，
 | P09.2-HOST | P09 | 已执行通过（`check.sh` PASS 13 / FAIL 0 / NOT RUN 0，含 gofmt、Linux 交叉编译、前端四项、openapi lint） | docs/evidence/P09/2026-10-22-p09.2/check.txt |
 | P09.2-UNIT | P09 | 已执行通过（`go test ./...` 全部包 ok；本轮新增 `internal/discovery`、`internal/apphealth`、`internal/api/apps_discovery_test.go`，含 `TestProbeMissingTargetVerdict` / `TestCollectDropsShadowedSocketActivation` / `TestCollectDropsDockerProxyInsideDockerUnit` / `TestAppDiscoverySkipsIssuesWhenSourceFailed`） | docs/evidence/P09/2026-10-22-p09.2/native-tests.txt |
 | P09.2-RESULT | P09 | 已产出（逐节断言表、3 个产品缺陷与 1 条语义修正的根因、5 处验收脚本缺陷、NOT RUN 清单与原因、systemd 首轮采集窗口的观察记录、复现步骤、下一子任务 P09.3） | docs/evidence/P09/2026-10-22-p09.2/{result.md,env.txt,collect-env.sh} |
+| P09.3-VM | P09 | **已执行并通过（24.04.5 一次性 VM，13 节 217 项断言，`FAIL=0 / NOT RUN=1`；第五遍为最终一遍，四遍 197/6 → 214/1 → 217/0 收敛；唯一 NOT RUN 是“执行前复核（受理之后再变）”，需毫秒级可重复竞态，由 `TestContainerControlExecuteStaleState` 覆盖）** | docs/evidence/P09/2026-10-22-p09.3/{run.log,payloads/,logs/} |
+| P09.3-READONLY | P09 | 已执行通过（容器/镜像/网络/数据卷/部署五类只读视图；Web 账号不在 docker 组、`docker ps` 被拒、Web 进程 `/proc/<pid>/fd` 里没有 docker.sock；inspect 从不请求 `Config.Env` 与完整标签表，唯一口令 `vm-p093-env-secret-7c41` 在全部响应体与日志里命中 0） | docs/evidence/P09/2026-10-22-p09.3/{run.log 第 3、6、7 节,payloads/containers.json,payloads/container-detail.json} |
+| P09.3-RISK | P09 | 已执行通过（四类危险容器各起真容器：privileged / host 网络 / 危险 capability / 挂 docker.sock，全部 `risk.level=high` + `managed=false` + 三项能力 false + 对应原因码；预检 `CONTAINER_NOT_MANAGED`；提交被拒的预检 409 + `DEPENDENCY_BLOCKED`，现场确认 privileged 容器**没被停掉**） | docs/evidence/P09/2026-10-22-p09.3/{run.log 第 3、9 节,payloads/preflight-stop-{priv,hostnet,sock,cap}.json} |
+| P09.3-CONTROL | P09 | 已执行通过（stop/start/restart 各一轮：预检含目标指纹（只由 ID 决定）、影响说明、`COMPOSE_MEMBER` 告警、锁=容器自身、规范化参数只有 ID 与操作；任务终态 + `observed_state.verified` + 读回状态 + `docker inspect` 现场对照；状态冲突是 `CONTAINER_STATE_CONFLICT`，陈旧预检 409 `PREFLIGHT_STALE` 且作业表留一条 `failed`） | docs/evidence/P09/2026-10-22-p09.3/{run.log 第 8、9 节,payloads/preflight-*,payloads/job-*} |
+| P09.3-LOGS | P09 | 已执行通过（一页从新到旧、`next_cursor`=最旧时间戳、往回翻页每条严格早于游标且非空、游标被篡改/`since` 形状错/`until` 在未来 全部 400、不存在容器 404、口令 `vm-p093-log-secret-2b93` 脱敏成 `[redacted]`；SSE 收到 entry 事件且事件 id 是时间戳、不存在的容器开流是 404 不是 error 帧） | docs/evidence/P09/2026-10-22-p09.3/{run.log 第 5、10 节,payloads/logs-*.json,payloads/stream.sse} |
+| P09.3-UNAVAIL | P09 | 已执行通过（代理停掉 → 503 `AGENT_UNAVAILABLE`；dockerd 停掉 → 列表 200 + `available=false` + `notice`（提到 Docker）+ 空数组，详情与日志 503 `DOCKER_UNAVAILABLE`，预检 200 + `allowed=false` + 阻塞码 `DOCKER_UNAVAILABLE`，提交 409；恢复后 `docker info` 正常） | docs/evidence/P09/2026-10-22-p09.3/{run.log 第 11 节,payloads/containers-agentdown.json,payloads/containers-dockerdown.json,payloads/container-dockerdown.json,payloads/container-logs-dockerdown.json} |
+| P09.3-HOST | P09 | 已执行通过（`check.sh` PASS 13 / FAIL 0 / NOT RUN 0，含 gofmt、Linux 交叉编译、前端四项、openapi lint 7 warning） | docs/evidence/P09/2026-10-22-p09.3/check.txt |
+| P09.3-UNIT | P09 | 已执行通过（`go test ./...` 全部包 ok；本轮新增 `internal/containers`（types/parse/docker/logs/control/http/fetch）、`internal/agent/containers_test.go`、`internal/api/containers_test.go`，容器相关 57 个用例，含 `TestLogsOlderPageUsesWindowWithoutTail` / `TestLogsOlderPageWidensWhenWindowIsTooQuiet` / `TestLogsOlderPageShrinksWhenOutputTruncated` / `TestDaemonDownIsUnavailable` / `TestListDegradesWhenDaemonDies` / `TestAssessControlDaemonDiesMidwayIsBlocked` / `TestFetchKeepsDockerUnavailable` / `TestContainerControlExecuteStaleState`） | docs/evidence/P09/2026-10-22-p09.3/native-tests.txt |
+| P09.3-RESULT | P09 | 已产出（逐节断言表、3 个产品缺陷（Q270/Q271/Q272）的根因与复现、6 处验收脚本缺陷、NOT RUN 清单与原因、已知限制、下一子任务 P09.4） | docs/evidence/P09/2026-10-22-p09.3/{result.md,env.txt,collect-env.sh} |
 | P00-VM-C（LVM 根） | P00/P04 | **NOT RUN**（未创建） | 需在 P04 前补齐 |
 | P00-VM-D（SMB 客户端） | P00/P08 | **NOT RUN**（未创建；P08.2 用同机真实 `smbclient` + netns 客户端替代，跨机器网络路径仍缺） | 需在 P08 前补齐 |
 

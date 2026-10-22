@@ -24,6 +24,7 @@ import (
 	"upanel/internal/audit"
 	"upanel/internal/auth"
 	"upanel/internal/config"
+	"upanel/internal/containers"
 	"upanel/internal/discovery"
 	"upanel/internal/files"
 	"upanel/internal/logging"
@@ -291,6 +292,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// 应用发现与健康探测读取端（P09.2）。演示模式下保持 nil：那时 /apps/discovery
 	// 明确回 503，而不是给一份空候选列表——空列表会被读成“没有一个服务在监听”。
 	var discoveryReader api.DiscoveryReader
+	// 容器、镜像、网络、卷与部署读取端（P09.3）。演示模式下保持 nil：那时
+	// /containers*、/images、/container-networks、/container-volumes、/deployments*
+	// 明确回 503，而不是给一份空容器清单——空清单会被读成“没有容器在跑”。
+	var containersReader api.ContainersReader
 	// 健康检查目标的存在性检查（P09.2 的写入期约束）与探测执行端。
 	// 这两个都只在生产模式接上：演示模式没有代理，写入带健康检查的应用会明确回 503，
 	// 而不是存下一个面板根本探不到的目标。
@@ -357,6 +362,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 			logger.Error("初始化应用发现读取端失败，拒绝启动", "error", err)
 			return 1
 		}
+		containersFetcher, err := containers.NewFetcher(client, logger)
+		if err != nil {
+			logger.Error("初始化容器读取端失败，拒绝启动", "error", err)
+			return 1
+		}
+		containersReader = containersFetcher
 		discoveryReader = discoveryFetcher
 		healthTargetChecker = discoveryFetcher
 		healthProber = discoveryFetcher
@@ -428,6 +439,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Shares:          sharesReader,
 		Apps:            appsService,
 		Discovery:       discoveryReader,
+		Containers:      containersReader,
 		AllowedOrigins:  allowedOrigins,
 	})
 	if err != nil {

@@ -407,6 +407,24 @@ func RegisterProductionQueries(reg *Registry, deps ProductionDeps) error {
 			return fmt.Errorf("代理登记共享查询失败: %w", err)
 		}
 	}
+	if deps.Containers != nil {
+		// 七条只读查询一起登记（CONTRACTS.md 第 8.3 节）：容器详情、镜像、网络、
+		// 卷、compose 项目共用同一个 docker 客户端与同一套可用性判决，
+		// 只登记其中几条会让 capabilities 报告一个点开就 503 的入口。
+		for _, q := range []Query{
+			newContainersListQuery(deps.Containers),
+			newContainersGetQuery(deps.Containers),
+			newContainersLogsQuery(deps.Containers),
+			newContainersImagesQuery(deps.Containers),
+			newContainersNetworksQuery(deps.Containers),
+			newContainersVolumesQuery(deps.Containers),
+			newContainersProjectsQuery(deps.Containers),
+		} {
+			if err := reg.RegisterQuery(q); err != nil {
+				return fmt.Errorf("代理登记 %s 失败: %w", q.Name, err)
+			}
+		}
+	}
 	if deps.Discovery != nil {
 		// 两条一起登记：发现与探测是一对。只有 apps.discovery 的结果里能找到的
 		// target_id，apps.probe 才可能解析成功；少任何一条，健康检查就只能显示
@@ -466,6 +484,13 @@ func RegisterProductionActions(reg *Registry, deps ProductionDeps) error {
 			if err := RegisterVolumeActions(reg, deps.Storage); err != nil {
 				return err
 			}
+		}
+	}
+	if deps.Containers != nil {
+		// 启停与查询成对登记：没有 containers.get 的 container.control 无法给出
+		// “这个容器现在长什么样、有什么风险”，预检就只剩一个盲操作。
+		if err := reg.RegisterAction(newContainerControlAction(deps.Containers)); err != nil {
+			return fmt.Errorf("代理登记 container.control 失败: %w", err)
 		}
 	}
 	if deps.Shares != nil {

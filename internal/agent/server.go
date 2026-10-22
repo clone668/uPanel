@@ -71,6 +71,9 @@ type Options struct {
 	// Terminal 是受限终端的会话层（P06.3）。为 nil 时不提供 terminal.io 流与
 	// 会话关闭入口，也不登记 terminal.create / terminal.sessions。
 	Terminal TerminalManager
+	// Containers 是容器读取端（P09.3）。为 nil 时不提供容器日志流：查询与启停
+	// 由登记表报告，流用途由这里决定，两者都不允许“登记了却走不通”。
+	Containers ContainersSource
 	// ShareWatch 是运行时卷监视（P08.3）。为 nil 时不起循环：没有共享模块就没有
 	// “共享所在的卷脱盘”这件事要处理，而不是起一个什么都不做的循环去占锁。
 	ShareWatch sharesReconciler

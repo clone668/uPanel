@@ -27,6 +27,7 @@ import (
 	"sync"
 	"time"
 
+	"upanel/internal/containers"
 	"upanel/internal/files"
 	"upanel/internal/httpx"
 	"upanel/internal/journal"
@@ -282,6 +283,20 @@ func (s *Server) decodeStreamParams(purpose string, raw json.RawMessage) (any, e
 			return nil, err
 		}
 		return params, nil
+	case StreamPurposeContainerLogs:
+		if s.opts.Containers == nil {
+			return nil, fmt.Errorf("%w: %q", ErrStreamPurposeUnknown, purpose)
+		}
+		var params containers.LogParams
+		if err := DecodeParams(raw, &params); err != nil {
+			return nil, err
+		}
+		// 与 containers.logs 查询用同一套校验：跟随流只是“不设终止行”的一页，
+		// 参数形状（完整 ID、时间窗口、tail 范围）没有理由不同。
+		if err := params.Validate(time.Now().UTC()); err != nil {
+			return nil, &containers.ValidationError{Message: err.Error()}
+		}
+		return params, nil
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrStreamPurposeUnknown, purpose)
 	}
@@ -315,6 +330,8 @@ func (s *Server) handleStreamByID(w http.ResponseWriter, r *http.Request) {
 		s.serveDownloadStream(w, r, permit)
 	case StreamPurposeTerminal:
 		s.serveTerminalStream(w, r, permit)
+	case StreamPurposeContainerLogs:
+		s.serveContainerLogStream(w, r, permit)
 	default:
 		// 用途在白名单里才会被创建，走到这里说明登记与分发不一致，属于编程错误。
 		s.opts.Logger.Error("流许可的用途没有对应的分发实现", "purpose", permit.Purpose, "stream_id", permit.ID)
@@ -327,11 +344,14 @@ func (s *Server) handleStreamByID(w http.ResponseWriter, r *http.Request) {
 // 三种 type：entry（一条日志）、end（流正常结束，带原因）、error（流出错）。
 // 用 NDJSON 而不是 JSON 数组：数组必须等到结束才能闭合，而流的价值就是“边到边看”。
 type streamEvent struct {
-	Type    string         `json:"type"`
-	Entry   *journal.Entry `json:"entry,omitempty"`
-	Reason  string         `json:"reason,omitempty"`
-	Code    string         `json:"code,omitempty"`
-	Message string         `json:"message,omitempty"`
+	Type string `json:"type"`
+	// Entry 是用途自己的条目形状：日志流是 journal.Entry，容器日志流是
+	// containers.LogEntry。用 any 而不是某一个具体类型，是因为这条通道按用途抽象
+	// （P05.3 的设计），加一条用途不该改动流事件的结构。
+	Entry   any    `json:"entry,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+	Code    string `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
 // serveDownloadStream 把一个已核验的文件句柄写成“首行 JSON + 原始字节”。
@@ -423,40 +443,55 @@ func (s *Server) writeFilesError(w http.ResponseWriter, r *http.Request, err err
 	httpx.WriteError(w, r, http.StatusInternalServerError, httpx.CodeInternalError, what)
 }
 
-// serveLogStream 把 journal 跟随流写成 NDJSON。
-func (s *Server) serveLogStream(w http.ResponseWriter, r *http.Request, permit streamPermit) {
+// beginNDJSON 写出 NDJSON 流的响应头并立刻 flush。
+//
+// 立刻 flush 是必需的：流在安静系统上可能几十秒没有第一条日志，不推的话
+// 调用方的“等待响应头”计时器会先把连接掐掉（实测：Web 侧报
+// “timeout awaiting response headers”，空闲上限根本没机会生效）。
+func beginNDJSON(w http.ResponseWriter) (http.ResponseWriter, *http.ResponseController) {
 	rc := http.NewResponseController(w)
 	h := w.Header()
 	h.Set("Content-Type", "application/x-ndjson; charset=utf-8")
 	h.Set("Cache-Control", "no-store")
 	h.Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
-	// 立刻把响应头推出去：流在安静系统上可能几十秒没有第一条日志，
-	// 不 flush 的话调用方的 “等待响应头” 计时器会先把连接掐掉
-	// （实测：Web 侧报 “timeout awaiting response headers”，空闲上限根本没机会生效）。
 	if rc != nil {
 		_ = rc.Flush()
 	}
+	return w, rc
+}
 
-	write := func(ev streamEvent) bool {
-		body, err := json.Marshal(ev)
-		if err != nil {
-			return false
-		}
-		body = append(body, '\n')
-		if rc != nil {
-			// 每次写都往后推截止时间：代理的 WriteTimeout 是绝对的，
-			// 不推的话一条长流会在 15 秒时被整体砍断。
-			_ = rc.SetWriteDeadline(time.Now().Add(streamWriteTimeout))
-		}
-		if _, err := w.Write(body); err != nil {
-			return false
-		}
-		if f, ok := w.(http.Flusher); ok {
-			f.Flush()
-		}
-		return true
+// eventWriter 逐行写 streamEvent，每次写之前把写截止时间往后推。
+//
+// 代理的 http.Server 有 15 秒的绝对 WriteTimeout，不推的话一条长流会在第 15 秒
+// 被整体砍断——而“长期开着不关”正是流的正常形态。
+type eventWriter struct {
+	w  http.ResponseWriter
+	rc *http.ResponseController
+}
+
+func (e eventWriter) write(ev streamEvent) bool {
+	body, err := json.Marshal(ev)
+	if err != nil {
+		return false
 	}
+	body = append(body, byte(10))
+	if e.rc != nil {
+		_ = e.rc.SetWriteDeadline(time.Now().Add(streamWriteTimeout))
+	}
+	if _, err := e.w.Write(body); err != nil {
+		return false
+	}
+	if f, ok := e.w.(http.Flusher); ok {
+		f.Flush()
+	}
+	return true
+}
+
+// serveLogStream 把 journal 跟随流写成 NDJSON。
+func (s *Server) serveLogStream(w http.ResponseWriter, r *http.Request, permit streamPermit) {
+	out, rc := beginNDJSON(w)
+	write := eventWriter{w: out, rc: rc}.write
 
 	params, ok := permit.Params.(journal.Params)
 	if !ok {
@@ -486,6 +521,77 @@ func (s *Server) serveLogStream(w http.ResponseWriter, r *http.Request, permit s
 	s.opts.Logger.Info("日志流结束",
 		"stream_id", permit.ID,
 		"reason", string(end),
+		"duration_ms", time.Since(started).Milliseconds(),
+		"request_id", httpx.RequestID(r))
+}
+
+// serveContainerLogStream 把 docker logs --follow 写成 NDJSON（P09.3）。
+//
+// 与日志流共用同一条许可通道、同一套事件形状和同一套限额，区别只在数据和
+// 结束原因的取值域：journal 给 client_closed / idle_timeout / …，容器日志给
+// containers.StreamEnd* 那一组。两边都只有闭集里的字符串，Web 侧按用途查表。
+func (s *Server) serveContainerLogStream(w http.ResponseWriter, r *http.Request, permit streamPermit) {
+	params, ok := permit.Params.(containers.LogParams)
+	if !ok {
+		s.opts.Logger.Error("容器日志流许可的参数类型不对", "stream_id", permit.ID)
+		httpx.WriteError(w, r, http.StatusInternalServerError,
+			httpx.CodeInternalError, "流许可参数与用途不一致")
+		return
+	}
+
+	// 开流前先确认容器确实存在、日志驱动确实可读：这两类判决必须走正常错误响应
+	// 带着准确状态码回到 Web（404 / 422），而不是先返回 200 再说一句 error 事件——
+	// 后者会让“容器不存在”看起来像一条断掉的流。
+	if _, err := s.opts.Containers.Get(r.Context(), params.ContainerID); err != nil {
+		if carrier, ok := statusCarrierOf(err); ok {
+			status, code := carrier.HTTPStatus()
+			s.opts.Logger.Warn("容器日志流被拒绝",
+				"container_id", params.ContainerID, "error", err, "request_id", httpx.RequestID(r))
+			httpx.WriteError(w, r, status, code, err.Error())
+			return
+		}
+		s.opts.Logger.Error("容器日志流开流失败",
+			"container_id", params.ContainerID, "error", err, "request_id", httpx.RequestID(r))
+		httpx.WriteError(w, r, http.StatusInternalServerError, httpx.CodeInternalError, "开流失败")
+		return
+	}
+
+	out, rc := beginNDJSON(w)
+	write := eventWriter{w: out, rc: rc}.write
+
+	started := time.Now()
+	var emitted int
+	end, err := s.opts.Containers.Stream(r.Context(), params, containers.StreamOptions{},
+		func(entry containers.LogEntry) error {
+			if !write(streamEvent{Type: "entry", Entry: &entry}) {
+				return errStreamWriteFailed
+			}
+			emitted++
+			return nil
+		})
+	if err != nil {
+		if carrier, ok := statusCarrierOf(err); ok && r.Context().Err() == nil && emitted == 0 {
+			// 一条都还没发出去时仍然可以给准确状态码（日志驱动不支持读 422）。
+			status, code := carrier.HTTPStatus()
+			s.opts.Logger.Warn("容器日志流被拒绝",
+				"container_id", params.ContainerID, "error", err, "request_id", httpx.RequestID(r))
+			httpx.WriteError(w, r, status, code, err.Error())
+			return
+		}
+		if !errors.Is(err, errStreamWriteFailed) && r.Context().Err() == nil {
+			s.opts.Logger.Warn("容器日志流异常结束",
+				"container_id", params.ContainerID, "error", err, "request_id", httpx.RequestID(r))
+			write(streamEvent{Type: "error", Code: "STREAM_FAILED", Message: err.Error()})
+			return
+		}
+		end = containers.StreamEndClientClosed
+	}
+	write(streamEvent{Type: "end", Reason: end})
+	s.opts.Logger.Info("容器日志流结束",
+		"stream_id", permit.ID,
+		"container_id", params.ContainerID,
+		"reason", end,
+		"entries", emitted,
 		"duration_ms", time.Since(started).Milliseconds(),
 		"request_id", httpx.RequestID(r))
 }

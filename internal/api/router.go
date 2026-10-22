@@ -222,6 +222,40 @@ func (s *Server) routes() *gin.Engine {
 		tmClose.Use(s.requireSession(), s.requireAdmin())
 		tmClose.DELETE("/sessions/:id", s.requireCSRF(), s.handleTerminalClose)
 
+		// 容器与部署（P09.3）：整组 admin（CONTRACTS.md 第 8 节）。容器清单等于
+		// “这台机器上跑了什么、发布了哪些端口、挂了哪些目录”，与日志同理属于侦察
+		// 情报，viewer 得到 403。
+		//
+		// 这里只有读：启停在 /operations/preflight + /jobs（action=container.control）。
+		// 危险容器（privileged、host 网络/PID、危险 capability、挂 docker.sock 或
+		// 宿主根）的 risk 与 capabilities 由代理给出，界面据此显示“不接管”，
+		// Web 侧不自己算一遍。
+		//
+		// /containers/:id/logs/stream 与 /logs/stream 一样是 GET + SSE：没有 requireCSRF。
+		cn := v1.Group("/containers")
+		cn.Use(s.requireSession(), s.requireAdmin())
+		cn.GET("", s.handleListContainers)
+		cn.GET("/:id", s.handleGetContainer)
+		cn.GET("/:id/logs", s.handleContainerLogs)
+		cn.GET("/:id/logs/stream", s.handleContainerLogsStream)
+
+		im := v1.Group("/images")
+		im.Use(s.requireSession(), s.requireAdmin())
+		im.GET("", s.handleListImages)
+
+		cnn := v1.Group("/container-networks")
+		cnn.Use(s.requireSession(), s.requireAdmin())
+		cnn.GET("", s.handleListContainerNetworks)
+
+		cnv := v1.Group("/container-volumes")
+		cnv.Use(s.requireSession(), s.requireAdmin())
+		cnv.GET("", s.handleListContainerVolumes)
+
+		dp := v1.Group("/deployments")
+		dp.Use(s.requireSession(), s.requireAdmin())
+		dp.GET("", s.handleListDeployments)
+		dp.GET("/:id", s.handleGetDeployment)
+
 		// 系统写操作的统一入口（P03.1）：先预检，再由 POST /jobs 创建任务（P03.2）。
 		// 预检只读不写系统；再认证在**提交任务**时校验（按动作登记策略），不在预检阶段。
 		ops := v1.Group("/operations", s.auditRoute(audit.ActionOperationPreflight))

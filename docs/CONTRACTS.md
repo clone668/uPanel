@@ -1162,6 +1162,127 @@ mounts 仅允许 source_root_id、relative_path、container_path、read_only；�
 
 环境变量名称按 POSIX 标识符校验；secret_ref 只能用于 app_env。渲染配置 root 独占、0600，读取 API 返回“已设置”。禁用 Docker restart，生命周期经包装 systemd 单元管理。
 
+### 8.3 P09.3 已实现范围：容器只读查询、日志与受支持容器的启停
+
+P09.3 补上 §8 表里的六行：`GET /containers`、`GET /containers/:id`、`GET /containers/:id/logs`
+（含 `/containers/:id/logs/stream`）、`GET /images`、`GET /container-networks`、
+`GET /container-volumes`、`GET /deployments`、`GET /deployments/:id`，外加一个写动作
+`container.control`（走预检 → 任务，见 §5）。
+
+仍未实现：`/apps/:id/logs`（P09.4）、任何 Compose 写操作与 `DeploymentDefinition` 的落地
+（1.0）。`/deployments*` 是**只读观测**，不是项目管理。
+
+**（1）只认完整容器 ID，因为它是 argv 的一部分。** 容器 ID 必须是 64 位小写十六进制。
+名字、12 位短 ID、大写、缺位一律 400，在 Web 与代理两层各拒一次。理由不是格式洁癖：代理
+真正执行的是 `docker <verb> <id>`，而 argv 里每多一个可写的字符串就多一条把 docker 变成
+“任意命令执行器”的路。名字还会随重建变化（§8.1 已按同一理由只认 ID）。
+
+**（2）Web 进程永不接触 `docker.sock`。** Web 侧没有 docker 客户端、没有 socket 路径、
+没有命令行拼接；它只把结构化查询与参数交给代理。代理侧的 docker 调用是**固定 argv**：
+
+| 用途 | argv（除了被校验过的容器 ID） |
+|---|---|
+| 列容器 | `ps -a --no-trunc --format <固定格式串>` |
+| 详情 | `inspect --type container --format <固定格式串> <id...>`（每批最多 200 个 ID） |
+| 日志 | `logs --timestamps --tail N [--since] [--until] <id>` |
+| 跟随 | `logs --follow --tail 0 --timestamps --since <t> <id>` |
+| 启停 | `start <id>` / `stop --time 10 <id>` / `restart --time 10 <id>` |
+| 镜像/网络 | `images --format`、`network ls --format` |
+| 卷/项目 | `volume ls`、`docker compose version`（只探“有没有插件”，不用它做管理） |
+
+docker 可执行文件走绝对路径探测（`/usr/bin/docker`、`/snap/bin/docker`），套接字固定
+`/var/run/docker.sock`。没有“把任意 docker 子命令转发过去”的接口。
+
+**（3）危险容器显示风险，不接管。** 风险是**闭集**，命中任意一条即 `risk.level=high`、
+`capabilities.managed=false`、三项能力全 false：
+
+| 码 | 判据 |
+|---|---|
+| `privileged` | `HostConfig.Privileged` |
+| `host_network` / `host_pid` / `host_ipc` | `NetworkMode=host` / `PidMode=host` / `IpcMode=host` |
+| `docker_sock_mount` | 有 bind 挂载的源是 `docker.sock` |
+| `host_root_mount` | 有 bind 挂载的源是 `/` |
+| `dangerous_capability` | `CapAdd` 含 `CAP_SYS_ADMIN`、`CAP_SYS_MODULE`、`CAP_SYS_PTRACE`、`CAP_SYS_RAWIO`、`CAP_NET_ADMIN`、`CAP_DAC_READ_SEARCH`（带不带 `CAP_` 前缀都算） |
+
+拒绝发生在**代理里两处**：预检（`allowed=false` + `CONTAINER_NOT_MANAGED` 阻塞项）与
+执行前的复核（不再允许就拒绝，理由同样是 `PREFLIGHT_STALE` 那一类——对调用方来说结局都是
+“重来一次预检”）。界面隐藏按钮不是保证，代理的判决才是。
+
+状态不适用的操作是 `CONTAINER_STATE_CONFLICT`（对 stopped 容器 stop、对 running 容器
+start）。属于 compose 项目的容器**不阻塞**，但带 `COMPOSE_MEMBER` 告警：单独启停它会让
+项目状态与标签和你看到的不一致。
+
+**（4）不请求的东西，就不存在泄漏的可能。** 容器的 `Config.Env`、完整标签表、原始
+`inspect` 输出**从未被读取**：`inspect --format` 的格式串里只有 ID、名字、镜像、状态、
+时间、重启次数、重启策略、端口、挂载、Resources、Risk 判定所需的几项，以及**六个**
+`com.docker.compose.*` 标签。环境变量里通常就是数据库口令与令牌；其余标签是第三方自己写的，
+也可能含秘密。日志内容走与 §10.3 同一套 `logging.Redact` 脱敏。
+
+**（5）两种“不可用”必须分开说。**
+
+| 状况 | 表现 |
+|---|---|
+| 代理连不上 / 超时 / 响应不合法 | 503 `AGENT_UNAVAILABLE`（等一会儿会好） |
+| 本机没有 docker 命令，或守护进程没在跑 | 列表类接口 200 + `available=false` + `notice`；`/containers/:id` 与日志 503 `DOCKER_UNAVAILABLE` |
+| 套接字还在、守护进程没应答（dockerd 被杀/被停，socket 文件残留） | 同上：列表类接口 200 + `available=false` + `notice`；详情与日志 503 `DOCKER_UNAVAILABLE`。判据不是“套接字在不在”，而是 docker 自己那句 `Cannot connect to the Docker daemon` |
+| 同上，发生在 `container.control` 预检 | 200 + `allowed=false` + 阻塞码 `DOCKER_UNAVAILABLE`（见下） |
+
+把两者合成一句“容器不可用”会让人去修错的东西（面板/代理 vs Docker）。
+
+这条边界在 Web 侧也必须守住：代理回的 5xx **不能只按状态码分类**。带域内码的 5xx
+（`503 DOCKER_UNAVAILABLE`、`409 PREFLIGHT_STALE`…）原样透出，只有通用码
+（空、`AGENT_UNAVAILABLE`、`INTERNAL_ERROR`）和连不上才翻成 `AGENT_UNAVAILABLE`。
+真机上就是这里漏的：dockerd 停掉后读详情，状态码 503 是对的，码却被改写成了
+`AGENT_UNAVAILABLE`，页面于是说“等代理一会儿”，而用户该做的是把 dockerd 起起来。
+
+预检不返回 503：`DOCKER_UNAVAILABLE` 是**拒绝理由**而不是“预检算错了”。预检层把 Plan 的
+error 当实现失败（500），所以代理在 `AssessControl` 里把它写成 `allowed=false` + 阻塞项，
+文案说清是“没有 docker 命令”还是“守护进程没在跑”。提交这种预检得到 409（预检结果为不允许）。
+
+**（6）日志翻页是时间键集，不是游标。** docker 没有游标。`next_cursor` 是本页**最旧**一条
+的时间戳，下一页把它当 `cursor` 传回，语义是“看比它更早的”。
+
+往回翻**不能**用 `docker logs --tail N --until <游标>`：docker 先取整个流的最后 N 行，
+再按 `--until` 过滤，比游标早的行在过滤前就被 tail 丢光了（真机上第二页只剩边界那一条，
+再被去重掉就成了空页）。往回翻用时间窗 `--since … --until 游标`：
+
+- 窗口初始 15 分钟；一页没凑满就把窗口放大 8 倍，直到窗口铺到**容器创建时间**
+  （容器创建时间由一次 `docker inspect --format {{.Created}}` 取得，作为“更早的确实没有了”
+  的可靠下限），或放大到 30 天上限；
+- 单次 `docker` 的输出有 8 MiB 上限，撞上就说明窗口太大，于是把窗口缩小 4 倍重试
+  ——被截掉的正是窗口末尾（最接近游标）的行，缺了它们的页没有意义；
+- `truncated` 只在“满一页”或“单页 1 MiB 上限到了”时为 true；窗口覆盖到容器创建时间时
+  是 false（更早的确实不存在，而不是含糊地说“可能还有”）。
+
+同一时间戳可能同时落在两页边界，服务端丢掉“不比游标更新”的条目。限额沿用 §10.3：
+单页 1000 行 / 1 MiB、单行 8 KiB 截断；跟随流 10 分钟 / 60 秒空闲 / 5000 条 / 8 MiB，
+与日志流共用“每账号 4 条同时流”的额度。
+
+结束原因是闭集：`duration_limit`、`idle_timeout`、`entry_limit`、`byte_limit`、
+`container_exit`（容器停了）、`client_closed`。**开流前**先确认容器存在（否则 404）与日志
+驱动可读（否则 422）——先回 200 再发一条 error 帧，会让“容器不存在”看起来像一条断掉的流。
+
+**（7）数据卷只读清单，不做 `volume inspect`。** 卷名是用户字符串（不进 argv），而
+`mountpoint` 是宿主路径。`in_use_by` 由容器的 `Mounts` 归并而来，这比再跑一次 inspect 更
+贴近“谁在用”这个问题，也少一条把用户字符串送进命令行的路。
+
+**（8）compose 项目是观测结果。** `GET /deployments` 不从磁盘读 compose 文件、不执行
+`docker compose`，只按容器标签归并。`id` = `dep_` + `sha256("compose:" + 项目名)` 前 32 位
+十六进制——由名字派生，因此项目被整体删除后不会突然指向另一个项目；`GET /deployments/:id`
+按这个 id 精确匹配，拿不到就是 404，**不按项目名模糊匹配**（那会把“名字改过”说成“找到了”）。
+`capabilities` 的 `apply`/`update`/`remove` 三项固定为 `false`，这不是占位：0.1 确实不会去
+执行外部 Compose YAML。
+
+**（9）权限与写操作边界。** 整组 admin：容器清单等于“这台机器上跑了什么、发布了哪些端口、
+挂了哪些目录”，与日志同理属于侦察材料，不给 viewer。这里**没有**“直接启停”的路由：写操作
+只有 `container.control`，经 `POST /operations/preflight` → `POST /jobs`。该动作不要求再认证
+（与 `service.control` 同一个判断：高频运维动作每次都输密码会让人习惯性跳过验证）、不可取消。
+不删除容器、不删除镜像、不清理卷数据、不接管危险容器、不执行外部 Compose。
+
+**（10）验收状态。** docker 语义（启动竞态、日志驱动差异、compose 标签形状）的真实证据只在
+独立 Ubuntu 测试虚拟机上取得（`tests/integration/p09-3-container-acceptance.sh`）；单测证明的
+是参数、判决与映射，不能当成“真机上的容器功能已验收”。
+
 ## 9. 反向代理与证书契约
 
 GET /proxies、GET /proxies/:id、GET /certificates：admin。
