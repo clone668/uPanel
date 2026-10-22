@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: uPanel API
-  version: 0.0.0-p09.3
+  version: 0.0.0-p09.4
   summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
   description: |
     uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。
@@ -23,7 +23,7 @@ info:
     name: Proprietary
     identifier: LicenseRef-Proprietary
 x-upanel-contract-status:
-  stage: P09.3
+  stage: P09.4
   implemented_paths:
     - get /api/v1/health/live
     - head /api/v1/health/live
@@ -84,6 +84,7 @@ x-upanel-contract-status:
     - delete /api/v1/app-groups/{id}
     - get /api/v1/apps/discovery
     - get /api/v1/apps/{id}/health
+    - get /api/v1/apps/{id}/logs
     - get /api/v1/containers
     - get /api/v1/containers/{id}
     - get /api/v1/containers/{id}/logs
@@ -2024,6 +2025,113 @@ paths:
           $ref: '#/components/responses/Unauthenticated'
         '404':
           $ref: '#/components/responses/NotFound'
+
+  /api/v1/apps/{id}/logs:
+    parameters:
+      - $ref: '#/components/parameters/AppID'
+    get:
+      operationId: getAppLogs
+      summary: 应用所绑定对象的日志（仅 admin）
+      description: |
+        CONTRACTS.md 第 8.4 节（P09.4）。按应用的**绑定**判别来源：systemd 应用读
+        journal（与 `/logs` 同一条读取链），docker 应用读容器日志（与
+        `/containers/{id}/logs` 同一条链）。它不产生新的读取能力，价值在于页面拿着
+        一个应用标识就能看到背后那个东西的日志。
+
+        **对象来自绑定，不来自请求。** `unit`、`source` 一律 400：否则这个接口就是
+        “按任意单元名读日志”的通用入口，绕过 `/logs` 自己的边界。两个来源的参数集合
+        也不互相串味——journal 只收 `level`/`from`/`to`/`cursor`/`limit`，docker 只收
+        `since`/`until`/`tail`/`cursor`；传错集合得到 400，而不是被静默忽略。
+
+        权限 admin：日志里什么都可能有（口令形态的字符串、内网地址）。
+
+        状态码：`link` → 422（没有运行时就没有日志）；`compose` → 501（部署能力 1.0
+        才有，不返回空 page 冒充成功）；绑定的容器已不存在 → 404 `CONTAINER_NOT_FOUND`
+        （原样带出代理的判决，页面据此要求重新确认绑定）；代理不可用 → 503。
+      tags: [apps]
+      security:
+        - upanelSession: []
+      parameters:
+        - name: level
+          in: query
+          required: false
+          description: 仅 journal。级别下限。
+          schema:
+            type: string
+            enum: [emergency, alert, critical, error, warning, notice, info, debug]
+        - name: from
+          in: query
+          required: false
+          description: 仅 journal。窗口起点（含）。
+          schema:
+            $ref: '#/components/schemas/Rfc3339Utc'
+        - name: to
+          in: query
+          required: false
+          description: 仅 journal。窗口终点（含）。
+          schema:
+            $ref: '#/components/schemas/Rfc3339Utc'
+        - name: since
+          in: query
+          required: false
+          description: 仅 docker。相对时长（例如 10m）或 RFC 3339 时间。
+          schema:
+            type: string
+        - name: until
+          in: query
+          required: false
+          description: 仅 docker。窗口终点，形状同 since。
+          schema:
+            type: string
+        - name: tail
+          in: query
+          required: false
+          description: 仅 docker。最多读多少行，1—1000；不传时用默认值。
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+        - name: cursor
+          in: query
+          required: false
+          description: 向更早翻页的游标；形状由来源决定，不透明。
+          schema:
+            type: string
+            maxLength: 512
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 一页日志；`source` 判别 `page` 的形状。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    oneOf:
+                      - $ref: '#/components/schemas/AppJournalLogsData'
+                      - $ref: '#/components/schemas/AppContainerLogsData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /api/v1/app-groups:
     get:
@@ -7953,8 +8061,12 @@ components:
       type: object
       additionalProperties: false
       description: |
-        此刻真的能做到的动作。除 `open` 之外，P09.1 全为 false：元数据层还没有任何
-        启停、重启或日志动作，前端据此隐藏按钮，而不是先渲染再让点击失败。
+        此刻真的能做到的动作，取自底层对象的能力而不是应用类型：systemd 应用来自该
+        单元的 `capabilities`，docker 应用来自该容器的 `capabilities`。`link` 与应用
+        类型 `compose` 在 P09.4 仍全为 false（前者没有运行时，后者部署能力要到 1.0）。
+
+        前端据此隐藏按钮，而不是先渲染再让点击失败。`logs` 与三项生命周期能力分开
+        判定：读日志不是写操作，受保护的单元与判定为高风险的容器都允许读日志。
       required: [open, start, stop, restart, logs]
       properties:
         open:
@@ -7962,12 +8074,14 @@ components:
           description: 有 public_url 时为真（浏览器能打开入口）。
         start:
           type: boolean
+          description: 该单元/容器此刻允许启动（受保护单元、高风险容器为 false）。
         stop:
           type: boolean
         restart:
           type: boolean
         logs:
           type: boolean
+          description: 能读到日志（绑定对象找不到或单元文件读不出来时为 false）。
 
     App:
       type: object
@@ -7975,8 +8089,13 @@ components:
       description: |
         应用元数据与摘要（AppDefinition + AppSummary）。
 
-        `runtime_state` / `http_state` / `last_checked_at` 在还没有探测器时是
-        `unknown` / `null`：没探测过就说不知道，不猜一个 `running` 让首页好看。
+        `runtime_state` / `capabilities` / `dependency_protection` 都是观测结果，不是
+        类型的属性：P09.4 之前它们分别是 `unknown` / 全 false / `unmanaged`，现在按
+        绑定的单元或容器此刻的状态计算。`runtime_note` 与 `dependency_protection_note`
+        说明“为什么是这个值”，`null` 表示没有话要说。
+
+        `http_state` / `last_checked_at` 只在启用健康检查后才有结论：没探测过就说
+        不知道，不猜一个 `ok` 让首页好看。
 
         `public_url` 是给浏览器用的入口地址；健康检查的 `target_id` 是给面板自己用的
         探测目标。两者刻意分开：入口可能是反代后的域名，探测必须走本机或容器内部。
@@ -7996,9 +8115,11 @@ components:
         - created_at
         - updated_at
         - runtime_state
+        - runtime_note
         - http_state
         - last_checked_at
         - dependency_protection
+        - dependency_protection_note
         - capabilities
       properties:
         id:
@@ -8048,7 +8169,16 @@ components:
         runtime_state:
           type: string
           enum: [running, stopped, failed, unknown, not_applicable]
-          description: link 恒为 not_applicable；其余类型在 P09.1 恒为 unknown（没有探测器）。
+          description: |
+            link 恒为 not_applicable；compose 恒为 unknown（部署能力 1.0 才有）。
+            systemd 按单元的 active_state、docker 按容器的 state 映射，过渡态与读不到
+            都是 unknown。docker 侧不会出现 failed：判据是退出码，容器 DTO 里没有它，
+            崩退的容器显示为 stopped，原始状态串在 /containers/{id} 的 state_text。
+        runtime_note:
+          type: [string, 'null']
+          description: |
+            为什么是现在这个 runtime_state，尤其 unknown 的来由（这一轮没读到 / 对象
+            不在本机列表里 / 过渡态 / compose 未落地）。null 表示没有话要说。
         http_state:
           type: string
           enum: [ok, error, unknown, not_applicable]
@@ -8061,10 +8191,60 @@ components:
           type: string
           enum: [managed, unmanaged, not_applicable]
           description: |
-            依赖卷的接管状态。link 或没有依赖卷时是 not_applicable；有依赖卷但还没有
-            任何接管动作时是 unmanaged——绝不能写成 managed。
+            依赖卷的接管状态。link 或没有依赖卷时是 not_applicable。
+
+            managed 的含义被刻意限死：**面板是受管理启动路径上唯一的自动启动者，而且
+            那条路径上有实测的依赖卷门禁**。目前只有一种情形成立——docker 容器的
+            restart_policy 是 no 或空（Docker 默认，容器不会自己启动）。它不声称能
+            阻止管理员在 shell 里手工 docker start。
+
+            systemd 应用一律 unmanaged：P09.4 不改写单元文件，enabled 的单元开机会被
+            systemd 直接拉起，被别的单元拉起时同样不经过面板。restart_policy 是
+            always/unless-stopped/on-failure 的容器同样 unmanaged。判断不了（状态这一
+            轮没读到）时也是 unmanaged——不能写成 managed。
+        dependency_protection_note:
+          type: [string, 'null']
+          description: |
+            绕开面板的那条自动启动路径具体是什么（开机、崩溃重启、被别的单元拉起）。
+            null 表示没有话要说（not_applicable 时）。
         capabilities:
           $ref: '#/components/schemas/AppCapabilities'
+
+    AppJournalLogsData:
+      type: object
+      additionalProperties: false
+      description: |
+        `GET /apps/{id}/logs` 的 data，systemd 来源（P09.4）。`page` 就是 `/logs` 返回
+        的同一页，字段不再包装一层——两处各定义一套形状，迟早会分叉。
+      required: [source, unit, page]
+      properties:
+        source:
+          type: string
+          const: journal
+          description: 判别式：这是 journal 来源。
+        unit:
+          type: string
+          description: 生效的单元名，等于应用的绑定值。
+        page:
+          $ref: '#/components/schemas/LogPage'
+
+    AppContainerLogsData:
+      type: object
+      additionalProperties: false
+      description: |
+        `GET /apps/{id}/logs` 的 data，docker 来源（P09.4）。`page` 就是
+        `/containers/{id}/logs` 返回的同一页。
+      required: [source, container_id, page]
+      properties:
+        source:
+          type: string
+          const: docker
+          description: 判别式：这是 docker 来源。
+        container_id:
+          type: string
+          description: 生效的容器 ID，等于应用的绑定值。
+        page:
+          $ref: '#/components/schemas/ContainerLogPage'
 
     AppDefinitionRequest:
       type: object

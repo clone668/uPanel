@@ -140,6 +140,10 @@ func (s *Server) routes() *gin.Engine {
 		// 最近一次健康探测结论（P09.2）：V。探测本身由 Web 进程的调度器按
 		// interval_seconds 触发，这里只读库里那一行。
 		ap.GET("/:id/health", s.handleGetAppHealth)
+		// 关联对象的日志（P09.4）：admin。日志对象由应用的绑定决定（systemd 单元或
+		// 容器 ID），请求里不能指定——否则这个接口就变成“读任意单元/任意容器的日志
+		// 的通用入口”，绕过 /logs 与 /containers/:id/logs 各自的边界。
+		ap.GET("/:id/logs", s.requireAdmin(), s.handleGetAppLogs)
 		ap.POST("", s.requireAdmin(), s.requireCSRF(), s.handleCreateApp)
 		ap.PATCH("/:id", s.requireAdmin(), s.requireCSRF(), s.handleUpdateApp)
 		ap.DELETE("/:id", s.requireAdmin(), s.requireCSRF(), s.handleDeleteApp)

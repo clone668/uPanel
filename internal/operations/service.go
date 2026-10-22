@@ -84,6 +84,27 @@ type Agent interface {
 type Options struct {
 	// Now 覆盖时钟；nil 表示 time.Now。只有测试会改它。
 	Now func() time.Time
+	// Gate 是 Web 侧的额外判决（P09.4 的启动依赖门禁）。
+	//
+	// 它在代理**已经**给出计划之后被调用，而且只能收紧：Gate 返回任何阻塞项，
+	// 这条预检就落库为 allowed=0，POST /jobs 随即得到 409 DEPENDENCY_BLOCKED。
+	// 反过来永远不成立——Gate 说没事不能让一条代理拒绝过的预检变成可执行。
+	//
+	// 为什么需要它：依赖卷和应用之间的绑定关系只存在 Web 库里，代理根本不知道
+	// “这个容器吃哪个卷”，也就没法在自己的预检里算这条。允许为 nil（没有应用模块
+	// 的部署）：那时没有依赖关系可守，门禁不介入。
+	Gate Gate
+}
+
+// Gate 是 Web 侧对预检的追加判决。
+//
+// 参数是代理规范化之后的动作名与参数（不是前端原样上传的那份）：门禁按代理
+// 实际要执行的那份参数判断，避免“代理执行 A、门禁检查 B”。
+type Gate interface {
+	// Blockers 返回要追加的阻塞项。空切片表示放行。
+	// 返回 error 只用于内部故障（数据库），不用于“读不到依赖卷状态”——
+	// 后者是一种要如实告知的判决，不是 500。
+	Blockers(ctx context.Context, action string, params json.RawMessage) ([]Notice, error)
 }
 
 // Service 生成并保存预检记录。
@@ -92,6 +113,7 @@ type Service struct {
 	agent  Agent
 	logger *slog.Logger
 	now    func() time.Time
+	gate   Gate
 
 	// sweepMu 让对账扫描串行化：后台循环与显式调用不能同时扫，否则两条路径
 	// 会各自向代理要一遍同样的操作，还会互相把对方刚写的 updated_at 当成新变化。
@@ -122,6 +144,7 @@ func New(db *store.DB, agent Agent, logger *slog.Logger, opts Options) (*Service
 		agent:    agent,
 		logger:   logger,
 		now:      now,
+		gate:     opts.Gate,
 		inflight: make(map[string]int),
 	}, nil
 }
@@ -248,6 +271,25 @@ func (s *Service) CreatePreflight(ctx context.Context, in CreateInput) (Prefligh
 		return Preflight{}, fmt.Errorf("%w: 目标信息无法序列化: %v", ErrInvalidPlan, err)
 	}
 
+	// Web 侧门禁（P09.4）：代理不知道应用与依赖卷的关系，那半边由这里补。
+	// 它只能收紧——这一点写死在下面：只有 extra 非空时才改 allowed，永远不会把它翻回 true。
+	allowed := plan.Allowed
+	blockers := notices(plan.Blockers)
+	gated := false
+	if s.gate != nil {
+		extra, err := s.gate.Blockers(ctx, plan.Action, canonical)
+		if err != nil {
+			// 门禁自己坏了（数据库读不出依赖关系）：不做“当它没拦”的处理，
+			// 否则一次内部故障就会让本该被拦的启动悄悄放行。
+			return Preflight{}, fmt.Errorf("operations: 预检门禁失败: %w", err)
+		}
+		if len(extra) > 0 {
+			gated = true
+			allowed = false
+			blockers = mergeNotices(blockers, extra)
+		}
+	}
+
 	id, err := newPreflightID()
 	if err != nil {
 		return Preflight{}, err
@@ -261,7 +303,7 @@ func (s *Service) CreatePreflight(ctx context.Context, in CreateInput) (Prefligh
 		   created_at, expires_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, in.UserID, in.SessionHash, plan.Action, paramsHash, string(canonical), string(targetBytes),
-		plan.Target.StateVersion, plan.Ref, boolInt(plan.Allowed), boolInt(plan.RequiresReauth),
+		plan.Target.StateVersion, plan.Ref, boolInt(allowed), boolInt(plan.RequiresReauth),
 		boolInt(plan.RequiresPhrase), boolInt(plan.Cancellable), formatTime(createdAt), formatTime(expiresAt))
 	if err != nil {
 		return Preflight{}, fmt.Errorf("operations: 保存预检记录失败: %w", err)
@@ -272,7 +314,8 @@ func (s *Service) CreatePreflight(ctx context.Context, in CreateInput) (Prefligh
 		"agent_ref", plan.Ref,
 		"action", plan.Action,
 		"user_id", in.UserID,
-		"allowed", plan.Allowed,
+		"allowed", allowed,
+		"gated", gated,
 		"requires_reauth", plan.RequiresReauth,
 		"requires_phrase", plan.RequiresPhrase,
 		"params_hash", paramsHash,
@@ -285,8 +328,8 @@ func (s *Service) CreatePreflight(ctx context.Context, in CreateInput) (Prefligh
 		Target:             Target(plan.Target),
 		ExpiresAt:          expiresAt,
 		CreatedAt:          createdAt,
-		Allowed:            plan.Allowed,
-		Blockers:           notices(plan.Blockers),
+		Allowed:            allowed,
+		Blockers:           blockers,
 		Warnings:           notices(plan.Warnings),
 		Impacts:            impacts(plan.Impacts),
 		RequiresReauth:     plan.RequiresReauth,
@@ -368,6 +411,24 @@ func notices(in []agentclient.PreflightNotice) []Notice {
 	out := make([]Notice, 0, len(in))
 	for _, n := range in {
 		out = append(out, Notice{Code: n.Code, Message: n.Message})
+	}
+	return out
+}
+
+// mergeNotices 把门禁追加的阻塞项接在代理给的阻塞项后面，按 (code, message) 去重。
+//
+// 去重不是洁癖：代理与门禁对同一件事各说一句时（比如都提到卷没挂），两句一字不差的
+// 重复提示只会让人以为有两个问题。
+func mergeNotices(base, extra []Notice) []Notice {
+	out := make([]Notice, 0, len(base)+len(extra))
+	seen := make(map[string]struct{}, len(base)+len(extra))
+	for _, n := range append(append([]Notice{}, base...), extra...) {
+		key := n.Code + "\x00" + n.Message
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, n)
 	}
 	return out
 }

@@ -1,0 +1,193 @@
+== 0. 环境与安全守卫 ==
+      系统：Ubuntu 24.04.5 LTS
+PASS  以 root 运行
+PASS  Web 运行身份存在（upanel-web）
+PASS  Web 身份不在 docker 组
+PASS  python3 可用（解析 JSON 与读库）
+      docker 版本：29.1.3
+PASS  夹具镜像已在本机（alpine:3.20）
+PASS  端口 19494 空闲
+PASS  端口 18894 空闲
+
+== 1. 配置与启动（代理 root、Web 非 root） ==
+      沿用已有的代理数据库（保留受管理卷登记）
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19494 启动
+PASS  监听 19494 的 Web 进程不是 root（pid=85430 uid=999）
+PASS  数据库迁移到第 8 版（P09.4 无新迁移）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+
+== 2. 夹具：容器与受管理卷 ==
+PASS  ok 容器 running
+PASS  500 容器 running
+PASS  always 容器的重启策略由 docker 自己报告
+PASS  ok 容器的重启策略是默认值（no）
+PASS  500 容器直接给出 500（独立证据：curl 不打产品）
+PASS  gated 容器已停止（门禁夹具）
+PASS  夹具单元 upn-p094-svc.service 已 enabled 并启动
+PASS  独立证据：systemctl 报告夹具单元 active
+PASS  …独立证据：systemctl 报告夹具单元 enabled
+PASS  服务快照里已经能看到夹具单元（等采集跟上）
+      依赖卷夹具用分区：sdc1
+PASS  导入卷的预检
+PASS  …预检允许
+PASS  导入卷任务终态
+PASS  …结果经过核验（verified）
+PASS  …卷标识是 vol_ 形状
+PASS  …核验来源里有 fstab 读回
+PASS  …登记之后它确实未挂载（这就是门禁夹具）
+PASS  …独立证据：内核挂载表里没有它的挂载点
+
+== 3. 摘要是观测结果，不是类型的属性 ==
+PASS  link 应用创建
+PASS  link 的 runtime_state
+PASS  link 的 runtime_note 是 null（没有话要说）
+PASS  link 的 dependency_protection
+PASS  link 的 dependency_protection_note 是 null
+PASS  link 没有启停与日志能力
+PASS  systemd 应用（绑在 running 的单元上）创建
+PASS  systemd(running) 的 runtime_state
+PASS  systemd(running) 的 runtime_note 是 null
+PASS  运行中的单元不出现 start 能力
+PASS  运行中的单元出现 stop 能力
+PASS  运行中的单元出现 restart 能力
+PASS  systemd 应用能读日志
+PASS  systemd 应用没有依赖卷时 protection
+PASS  受保护单元（ssh.service）建应用
+PASS  受保护单元的 runtime_state 照样是 running
+PASS  受保护单元三项生命周期能力全 false
+PASS  但受保护单元仍能读日志（读日志不是写操作）
+PASS  systemd 应用（绑在不存在的单元上）创建
+PASS  绑定不存在的单元 → runtime_state=unknown（不是 stopped）
+PASS  …note 要求重新确认绑定
+PASS  …三项生命周期能力全 false
+PASS  docker 应用（绑在 running 的容器上）创建
+PASS  docker(running) 的 runtime_state
+PASS  docker(running) 不出现 start 能力
+PASS  docker(running) 出现 stop 能力
+PASS  docker(running) 能读日志
+PASS  docker 应用（绑在 stopped 的容器上）创建
+PASS  docker(stopped) 的 runtime_state
+PASS  docker(stopped) 出现 start 能力
+PASS  docker(stopped) 不出现 stop 能力
+PASS  独立证据：apps.binding_json 里是完整容器 ID
+
+== 4. 容器 running 但 HTTP 500：明确异常，而不是二选一 ==
+PASS  发现结果里找到了 500 容器的目标标识（cntr_upn-p094-500，建议端口 18894）
+PASS  发现出来的宿主端口就是夹具发布的那个
+PASS  docker 应用（带健康检查）创建
+PASS  健康探测得出结论：error
+PASS  …拿到的状态码是 500（不是 0，也不是 null）
+PASS  …同时 runtime_state 仍是 running（在跑，但不健康）
+PASS  …http_state 在应用摘要里也是 error
+PASS  …last_checked_at 有值
+
+== 5. 依赖保护：受管理 / 未接管，每种都说清理由 ==
+PASS  docker(无依赖卷) 的 protection
+PASS  …note 是 null
+PASS  给 stopped 容器加上依赖卷
+PASS  docker(restart=no) + 依赖卷 → managed
+PASS  …note 说明容器不会自己启动
+PASS  …runtime_state 与 protection 是两件事（stopped + managed）
+PASS  always 容器建应用
+PASS  docker(restart=always) + 依赖卷 → unmanaged
+PASS  …note 点明是 restart 策略绕开了面板
+PASS  systemd 应用带依赖卷
+PASS  systemd + 依赖卷 → unmanaged
+PASS  …note 说明面板没有改写单元的开机依赖
+
+== 6. 启动门禁：拦启动、不拦停机、只收紧 ==
+PASS  卷此刻确实未挂载（独立证据）
+PASS  start 预检仍返回 200（判决在 allowed 里，不是 HTTP 错误）
+PASS  …allowed=false
+PASS  …阻塞码是 VOLUME_OFFLINE
+PASS  …阻塞项里写着卷标识
+PASS  预检标识存在
+PASS  提交被门禁拦住的预检 → 409
+PASS  …错误码 DEPENDENCY_BLOCKED
+PASS  …容器没有被启动（独立证据：docker 报告 exited）
+PASS  给 running 容器加上同一个依赖卷
+PASS  stop 预检
+PASS  …stop 不被门禁拦住（allowed=true）
+PASS  …也没有 VOLUME_ 开头的阻塞项
+PASS  未绑定为应用的容器 stop 预检
+PASS  …没有 VOLUME_ 阻塞项
+PASS  挂载夹具卷：任务终态
+PASS  …卷现在挂着（observed_state）
+PASS  …独立证据：内核挂载表里有它
+PASS  正对照：预检返回 200
+PASS  正对照：卷挂着时 allowed=true（门禁没拦）
+PASS  正对照：没有任何 VOLUME_ 阻塞项
+PASS  卷挂着时 protection 仍是 managed
+PASS  卸载夹具卷：任务终态
+PASS  …卷回到未挂载（门禁重新生效）
+
+== 7. 容器重建：ID 变了就是看不见，要求重新确认绑定 ==
+PASS  重建前的容器应用创建
+PASS  重建前 runtime_state
+PASS  重建出来的容器 ID 与旧的不同（独立证据）
+PASS  旧绑定 → runtime_state=unknown
+PASS  …note 说明容器可能已被重建、要重新确认绑定
+PASS  …不出现 start 能力（看不见的容器没有按钮）
+PASS  …也不给日志能力
+PASS  …名字相同但不自动接手（库里仍是旧 ID）
+
+== 8. /apps/:id/logs：只判别，不开新口子 ==
+PASS  systemd 应用日志
+PASS  …source=journal
+PASS  …unit 来自绑定
+PASS  …page 是 /logs 的同一套形状（带 source）
+PASS  …page 里没有 container_id 这套字段
+PASS  …条目是数组（没有日志也是 []，不是 null）
+PASS  docker 应用日志
+PASS  …source=docker
+PASS  …container_id 来自绑定
+PASS  …page 是 /containers/:id/logs 的同一套形状
+PASS  …page 里没有 unit/level 这套字段
+PASS  journal 应用带 unit 参数 → 400
+PASS  …错误码 VALIDATION_ERROR
+PASS  …说明绑定决定对象
+PASS  journal 应用带 source 参数 → 400
+PASS  journal 应用带 docker 的 tail → 400
+PASS  docker 应用带 level → 400
+PASS  docker 应用带 from → 400
+PASS  docker 应用带 unit → 400
+PASS  journal 应用带 level 与 limit
+PASS  …limit 生效（条目数不超过 5）
+PASS  docker 应用带 tail
+PASS  link 应用日志 → 422
+PASS  …错误码 VALIDATION_ERROR
+PASS  compose 应用创建
+PASS  compose 的 runtime_state 是 unknown（部署能力 1.0 才有）
+PASS  …note 说明部署能力未落地
+PASS  compose 应用日志 → 501
+PASS  …错误码 NOT_IMPLEMENTED
+PASS  compose 项目标识与独立计算一致
+PASS  建 viewer 账号
+PASS  viewer 登录
+PASS  viewer 读应用列表（摘要可见）
+PASS  viewer 读应用日志 → 403
+PASS  匿名读应用日志 → 401
+
+== 9. 代理停掉：说“没读到”，不说“停了” ==
+PASS  代理停掉后 /apps 仍是 200（不因代理不可用而 503）
+PASS  docker 应用的 runtime_state 变成 unknown
+PASS  …note 说明这一轮没读到
+PASS  …依赖保护同时降级成 unmanaged（判断不了就不能说接管了）
+PASS  link 应用不受影响（本来就不需要代理）
+PASS  应用日志在代理停掉时是 503
+PASS  代理重新启动（收尾用）
+
+== 10. 收尾：把登记的夹具卷退出管理（还原机器） ==
+PASS  退出管理：预检
+PASS  …预检允许
+PASS  …任务终态
+PASS  …独立证据：fstab 里不再有它的 UUID
+PASS  …独立证据：卷列表里不再有它
+
+== 汇总 ==
+PASS 165 / FAIL 0 / NOT RUN 0

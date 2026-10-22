@@ -17,6 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"upanel/internal/appruntime"
 	"upanel/internal/apps"
 	"upanel/internal/audit"
 	"upanel/internal/auth"
@@ -110,6 +111,11 @@ type Options struct {
 	// /container-volumes、/deployments* 明确回 503 AGENT_UNAVAILABLE，
 	// 而不是给一份空容器清单——空清单会被读成“这台机器上没有容器在跑”。
 	Containers ContainersReader
+	// AppRuntime 把应用元数据与主机运行事实拼成 AppSummary（P09.4）。允许为 nil
+	// （演示模式不连代理）：那时每条应用的 runtime_state 都是 unknown、能力全为
+	// false，并写明“未配置代理连接”。/apps 本身是纯数据库元数据，不会因为代理
+	// 不在就变成 503——那会把“这台机器上有哪些入口”一起弄丢。
+	AppRuntime *appruntime.Resolver
 }
 
 // Server 是 Web HTTP 服务。

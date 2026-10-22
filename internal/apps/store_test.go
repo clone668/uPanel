@@ -644,52 +644,15 @@ func TestVolumeDependenciesNeedChecker(t *testing.T) {
 	}
 }
 
-// TestProtectionAndStateEnums 确认摘要字段的诚实取值。
-func TestProtectionAndStateEnums(t *testing.T) {
-	if got := RuntimeStateOf(TypeLink); got != RuntimeNotApplicable {
-		t.Fatalf("link 运行时状态 = %q", got)
-	}
-	for _, typ := range []Type{TypeSystemd, TypeDocker, TypeCompose} {
-		// 没有探测就只能是“不知道”，绝不能写成 stopped——那会把人骗去点启动。
-		if got := RuntimeStateOf(typ); got != RuntimeUnknown {
-			t.Fatalf("%s 运行时状态 = %q", typ, got)
-		}
-	}
+// TestHTTPStateEnums 确认 HTTP 摘要字段的诚实取值。
+//
+// 运行时状态、依赖保护与能力三项在 P09.4 之后由 internal/appruntime 产出
+// （那里有真实的观测来源），本包只定义枚举形状，因此不再有它们的纯函数。
+func TestHTTPStateEnums(t *testing.T) {
 	if got := HTTPStateOf(HealthCheck{}); got != HTTPNotApplicable {
 		t.Fatalf("未启用健康检查 HTTP 状态 = %q", got)
 	}
 	if got := HTTPStateOf(HealthCheck{Enabled: true}); got != HTTPUnknown {
 		t.Fatalf("启用但未探测 HTTP 状态 = %q", got)
-	}
-	if got := ProtectionOf(Definition{Type: TypeLink, VolumeDependencies: []string{testVolumeID}}); got != ProtectionNotApplicable {
-		t.Fatalf("link 依赖保护 = %q", got)
-	}
-	if got := ProtectionOf(Definition{Type: TypeSystemd}); got != ProtectionNotApplicable {
-		t.Fatalf("没有依赖卷时依赖保护 = %q", got)
-	}
-	// P09.1 还没有任何接管动作：有依赖卷的非 link 应用一律是“未接管”，
-	// 不能显示成“已保护”。
-	if got := ProtectionOf(Definition{Type: TypeSystemd, VolumeDependencies: []string{testVolumeID}}); got != ProtectionUnmanaged {
-		t.Fatalf("有依赖卷时依赖保护 = %q", got)
-	}
-}
-
-// TestCapabilitiesDoNotAdvertiseUnimplementedActions 确认能力字段不吹牛。
-func TestCapabilitiesDoNotAdvertiseUnimplementedActions(t *testing.T) {
-	for _, typ := range []Type{TypeLink, TypeSystemd, TypeDocker, TypeCompose} {
-		caps := CapabilitiesFor(Definition{Type: typ, PublicURL: "https://example.com"})
-		if !caps.Open {
-			t.Fatalf("%s 有入口地址时 open 应为真", typ)
-		}
-		if typ == TypeLink && (caps.Start || caps.Stop || caps.Restart || caps.Logs) {
-			t.Fatalf("link 不允许有启停或日志能力: %+v", caps)
-		}
-		// P09.1 只做元数据：启停与日志的能力一律为假，等 P09.3/P09.4 接上动作再说。
-		if caps.Start || caps.Stop || caps.Restart || caps.Logs {
-			t.Fatalf("%s 的生命周期能力此刻必须为假: %+v", typ, caps)
-		}
-	}
-	if caps := CapabilitiesFor(Definition{Type: TypeLink}); caps.Open {
-		t.Fatal("没有入口地址时 open 必须为假")
 	}
 }

@@ -20,6 +20,7 @@ import (
 	"upanel/internal/agentclient"
 	"upanel/internal/api"
 	"upanel/internal/apphealth"
+	"upanel/internal/appruntime"
 	"upanel/internal/apps"
 	"upanel/internal/audit"
 	"upanel/internal/auth"
@@ -408,7 +409,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		go scheduler.Run(ctx)
 		logger.Info("健康探测调度已启动", "tick", apphealth.DefaultTick.String())
 	}
-	opsService, err := operations.New(db, preflightAgent, logger, operations.Options{})
+	opsService, err := operations.New(db, preflightAgent, logger, operations.Options{
+		// 启动依赖门禁（P09.4）：应用与依赖卷的关系只存在 Web 库里，代理算不出来，
+		// 所以这半边由 Web 补在预检之后。它只能收紧——代理拒绝过的预检不会因此放行。
+		Gate: &appruntime.Gate{Apps: appsService, Volumes: storageReader},
+	})
 	if err != nil {
 		logger.Error("初始化预检服务失败，拒绝启动", "error", err)
 		return 1
@@ -440,7 +445,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Apps:            appsService,
 		Discovery:       discoveryReader,
 		Containers:      containersReader,
-		AllowedOrigins:  allowedOrigins,
+		// 应用运行摘要（P09.4）：元数据来自库里，运行事实来自服务与容器读取端。
+		// 演示模式下两个来源都是 nil，Resolver 会给每条应用 unknown + 理由。
+		AppRuntime:     &appruntime.Resolver{Services: servicesReader, Containers: containersReader},
+		AllowedOrigins: allowedOrigins,
 	})
 	if err != nil {
 		logger.Error("初始化 Web 服务失败", "error", err)

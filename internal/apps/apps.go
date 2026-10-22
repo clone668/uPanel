@@ -212,9 +212,10 @@ type Group struct {
 
 // Capabilities 描述“此刻真的能做到的事”（CONTRACTS.md 第 8 节 AppSummary）。
 //
-// 语义是能力，不是类型特性：P09.1 只落地了元数据，所以 systemd/docker/compose 的
-// 启停与日志此刻都是 false——按钮要等 P09.3/P09.4 把动作接上之后才允许亮起来。
-// 用“类型允许什么”填这一组字段会直接产出点不动的按钮，那是假功能。
+// 语义是能力，不是类型特性：systemd 应用的启停能力来自单元此刻的状态与保护判定，
+// docker 应用的能力来自容器此刻的状态（高风险容器三项全 false）。这些事实由
+// internal/appruntime 产生（P09.4），本包只定义形状——元数据层不知道“它跑没跑”，
+// 也就不可能用“类型允许什么”填出一组点不动的按钮。
 type Capabilities struct {
 	// Open 表示可以一键打开：有 public_url，且协议是 http/https（写入时已校验）。
 	Open bool
@@ -224,11 +225,6 @@ type Capabilities struct {
 	Restart bool
 	// Logs 表示能看关联对象的日志。
 	Logs bool
-}
-
-// CapabilitiesFor 返回当前已实现的运行时能力。
-func CapabilitiesFor(def Definition) Capabilities {
-	return Capabilities{Open: def.PublicURL != ""}
 }
 
 // 运行时状态枚举（CONTRACTS.md 第 8 节 AppSummary）。
@@ -259,24 +255,15 @@ const (
 
 // 依赖保护状态枚举（PLAN.md 第 11 节关键依赖规则 5）。
 const (
-	// ProtectionManaged 表示依赖保护由面板接管（P09.4 起才可能出现）。
+	// ProtectionManaged 表示面板是受管理启动路径上唯一的自动启动者，且那条路径上
+	// 有实测的依赖卷门禁（P09.4）。它不声称能阻止管理员在 shell 里手工启动——
+	// 那是一个面板既看不到、也无法保证的外部动作，写在 managed 里就是撒谎。
 	ProtectionManaged = "managed"
 	// ProtectionUnmanaged 表示面板不能保证这个应用的启动依赖——必须如实标出来。
 	ProtectionUnmanaged = "unmanaged"
 	// ProtectionNotApplicable 表示没有依赖卷，或不涉及生命周期（link）。
 	ProtectionNotApplicable = "not_applicable"
 )
-
-// RuntimeStateOf 返回此刻能给出的运行时状态。
-//
-// P09.1 没有任何探测，所以只有两种诚实答案：link 没有运行时；其余类型是“不知道”。
-// 这里不返回 stopped——“不知道”和“停了”是两件事，混用会让页面把人骗去点启动。
-func RuntimeStateOf(t Type) string {
-	if t == TypeLink {
-		return RuntimeNotApplicable
-	}
-	return RuntimeUnknown
-}
 
 // HTTPStateOf 返回此刻能给出的 HTTP 状态。
 func HTTPStateOf(h HealthCheck) string {
@@ -312,15 +299,4 @@ func LastCheckedAt(h HealthCheck, r *HealthResult) *time.Time {
 	}
 	checked := r.CheckedAt
 	return &checked
-}
-
-// ProtectionOf 返回依赖保护状态。
-//
-// P09.1 还没有任何接管动作（RequiresMountsFor / BindsTo / 包装单元都在 P09.4），
-// 因此有依赖卷的非 link 应用一律是 unmanaged：不是“已保护”的另一种说法。
-func ProtectionOf(def Definition) string {
-	if def.Type == TypeLink || len(def.VolumeDependencies) == 0 {
-		return ProtectionNotApplicable
-	}
-	return ProtectionUnmanaged
 }

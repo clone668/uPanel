@@ -1,5 +1,7 @@
 # 构建产物与本地文件
 /web/node_modules/
+# 仓库根的 node_modules：openapi lint（redocly）装在仓库根时用的，不入库
+/node_modules/
 /web/dist/
 /web/dist-mock/
 /internal/webui/dist/*

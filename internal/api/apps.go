@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"upanel/internal/appruntime"
 	"upanel/internal/apps"
 	"upanel/internal/audit"
 	"upanel/internal/auth"
@@ -60,9 +61,13 @@ type appCapabilitiesDTO struct {
 
 // appDTO 是应用的公开形态（CONTRACTS.md 第 8 节 AppDefinition + AppSummary）。
 //
-// runtime_state / http_state / last_checked_at / dependency_protection 四个摘要字段
-// 在 P09.1 里只有诚实的“不知道”可填：没有任何探测器，也没有任何依赖接管动作。
-// 它们的枚举值就在 apps 包里定死，前端按枚举渲染，不猜。
+// runtime_state / runtime_note / http_state / last_checked_at / dependency_protection
+// 五个摘要字段都来自观测，没有一个由类型推出来：
+//   - runtime_* 与 capabilities 来自 systemd 的单元状态或 docker 的容器状态（P09.4）；
+//   - http_state 与 last_checked_at 来自健康探测结论（P09.2）；
+//   - dependency_protection 说明依赖卷的启动顺序有没有被面板接管。
+//
+// 观测不到时给 unknown 并在 note 里写清原因，不猜一个 running 让首页好看。
 type appDTO struct {
 	ID          string        `json:"id"`
 	Name        string        `json:"name"`
@@ -79,11 +84,13 @@ type appDTO struct {
 	CreatedAt   string        `json:"created_at"`
 	UpdatedAt   string        `json:"updated_at"`
 
-	RuntimeState         string             `json:"runtime_state"`
-	HTTPState            string             `json:"http_state"`
-	LastCheckedAt        *string            `json:"last_checked_at"`
-	DependencyProtection string             `json:"dependency_protection"`
-	Capabilities         appCapabilitiesDTO `json:"capabilities"`
+	RuntimeState             string             `json:"runtime_state"`
+	RuntimeNote              *string            `json:"runtime_note"`
+	HTTPState                string             `json:"http_state"`
+	LastCheckedAt            *string            `json:"last_checked_at"`
+	DependencyProtection     string             `json:"dependency_protection"`
+	DependencyProtectionNote *string            `json:"dependency_protection_note"`
+	Capabilities             appCapabilitiesDTO `json:"capabilities"`
 }
 
 // appListResponse 是 GET /apps 的响应体。
@@ -172,8 +179,11 @@ func (s *Server) handleListApps(c *gin.Context) {
 		return
 	}
 	resp := appListResponse{Items: make([]appDTO, 0, len(items))}
+	// 一轮运行事实给整页应用共用：逐个去问 systemctl / docker 既慢，
+	// 又会让同一页里两条应用因为读取时刻不同而互相矛盾。
+	facts := s.appFacts(c.Request.Context())
 	for _, a := range items {
-		resp.Items = append(resp.Items, appDTOOf(a))
+		resp.Items = append(resp.Items, appDTOOf(a, facts.App(a)))
 	}
 	if next != "" {
 		resp.NextCursor = &next
@@ -188,7 +198,7 @@ func (s *Server) handleGetApp(c *gin.Context) {
 		s.writeAppError(c, "读取应用失败", err)
 		return
 	}
-	httpx.WriteData(c.Writer, c.Request, http.StatusOK, appDTOOf(app))
+	httpx.WriteData(c.Writer, c.Request, http.StatusOK, s.appDTOFor(c.Request.Context(), app))
 }
 
 // handleCreateApp 处理 POST /api/v1/apps（admin + CSRF）。
@@ -241,7 +251,7 @@ func (s *Server) handleCreateApp(c *gin.Context) {
 		s.failAppAction(c, &sess, action, "app", err)
 		return
 	}
-	httpx.WriteData(c.Writer, c.Request, http.StatusCreated, appDTOOf(created))
+	httpx.WriteData(c.Writer, c.Request, http.StatusCreated, s.appDTOFor(c.Request.Context(), created))
 }
 
 // handleUpdateApp 处理 PATCH /api/v1/apps/:id（admin + CSRF，version 必填）。
@@ -339,7 +349,7 @@ func (s *Server) handleUpdateApp(c *gin.Context) {
 		s.failAppAction(c, &sess, action, target, err)
 		return
 	}
-	httpx.WriteData(c.Writer, c.Request, http.StatusOK, appDTOOf(updated))
+	httpx.WriteData(c.Writer, c.Request, http.StatusOK, s.appDTOFor(c.Request.Context(), updated))
 }
 
 // handleDeleteApp 处理 DELETE /api/v1/apps/:id（admin + CSRF，version 必填）。
@@ -522,8 +532,27 @@ func (s *Server) handleDeleteAppGroup(c *gin.Context) {
 	httpx.WriteData(c.Writer, c.Request, http.StatusOK, struct{}{})
 }
 
-// appDTOOf 把业务对象转成公开 DTO。
-func appDTOOf(a apps.App) appDTO {
+// appDTOFor 读一轮运行事实，把一条应用转成公开 DTO。
+func (s *Server) appDTOFor(ctx context.Context, a apps.App) appDTO {
+	return appDTOOf(a, s.appFacts(ctx).App(a))
+}
+
+// appFacts 读本轮的应用运行事实。
+//
+// AppRuntime 为 nil 表示这个部署没有接运行事实来源（演示模式）：那时每一条应用都
+// 得到 unknown + 一句“未配置代理连接”。这不是降级成假数据，而是把“不知道”如实说出来。
+func (s *Server) appFacts(ctx context.Context) *appruntime.Facts {
+	if s.opts.AppRuntime == nil {
+		return appruntime.NoFacts("未配置代理连接")
+	}
+	return s.opts.AppRuntime.Snapshot(ctx)
+}
+
+// appDTOOf 把业务对象与运行摘要转成公开 DTO。
+//
+// info 来自 appruntime：它是这条应用**此刻**的运行事实（或诚实的“不知道”）。
+// 元数据层（internal/apps）不产生这些字段，也就不可能把它们写进库里。
+func appDTOOf(a apps.App, info appruntime.Info) appDTO {
 	dto := appDTO{
 		ID:                   a.ID,
 		Name:                 a.Name,
@@ -537,9 +566,17 @@ func appDTOOf(a apps.App) appDTO {
 		Version:              a.Version,
 		CreatedAt:            a.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:            a.UpdatedAt.UTC().Format(time.RFC3339),
-		RuntimeState:         apps.RuntimeStateOf(a.Type),
+		RuntimeState:         info.RuntimeState,
 		HTTPState:            apps.ObservedHTTPState(a.Health, a.HealthResult),
-		DependencyProtection: apps.ProtectionOf(a.Definition),
+		DependencyProtection: info.Protection,
+	}
+	if info.RuntimeNote != "" {
+		note := info.RuntimeNote
+		dto.RuntimeNote = &note
+	}
+	if info.ProtectionNote != "" {
+		note := info.ProtectionNote
+		dto.DependencyProtectionNote = &note
 	}
 	if checked := apps.LastCheckedAt(a.Health, a.HealthResult); checked != nil {
 		ts := checked.UTC().Format(time.RFC3339)
@@ -558,13 +595,12 @@ func appDTOOf(a apps.App) appDTO {
 		// 而“没有依赖卷”是一个确定的事实（CONTRACTS.md 第 1 节）。
 		dto.VolumeDeps = []string{}
 	}
-	caps := apps.CapabilitiesFor(a.Definition)
 	dto.Capabilities = appCapabilitiesDTO{
-		Open:    caps.Open,
-		Start:   caps.Start,
-		Stop:    caps.Stop,
-		Restart: caps.Restart,
-		Logs:    caps.Logs,
+		Open:    info.Capabilities.Open,
+		Start:   info.Capabilities.Start,
+		Stop:    info.Capabilities.Stop,
+		Restart: info.Capabilities.Restart,
+		Logs:    info.Capabilities.Logs,
 	}
 	return dto
 }

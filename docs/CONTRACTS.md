@@ -1283,6 +1283,116 @@ error 当实现失败（500），所以代理在 `AssessControl` 里把它写成
 独立 Ubuntu 测试虚拟机上取得（`tests/integration/p09-3-container-acceptance.sh`）；单测证明的
 是参数、判决与映射，不能当成“真机上的容器功能已验收”。
 
+### 8.4 P09.4 已实现范围：运行状态、关联日志与依赖卷门禁
+
+P09.4 补上 §8 表里的最后一行 `GET /apps/:id/logs`，并把 `/apps`、`/apps/:id` 里四个
+“还没有观测”的摘要字段真正接上观测：
+
+- `runtime_state` 不再恒为 `unknown`：systemd 读单元状态，docker 读容器状态；
+- `capabilities` 的 `start`/`stop`/`restart`/`logs` 来自底层对象此刻的能力，不再恒为 `false`；
+- `dependency_protection` 可以真的是 `managed`；
+- 新增两个**可空**字段 `runtime_note` 与 `dependency_protection_note`，把“为什么是这个值”
+  写在同一行里。可空而不是空串：`null` 是“没有话要说”，空串会让页面显示一行空白。
+
+**（1）摘要来自观测，不来自类型。** 三个来源、三套映射：
+
+| 类型 | 运行状态来源 | 映射 |
+|---|---|---|
+| link | 无运行时 | 恒 `not_applicable` |
+| systemd | 服务快照里该单元的 `active_state` | `active`/`reloading` → `running`；`failed` → `failed`；`activating`/`deactivating` → `unknown`（过渡态说成任何一头都是撒谎）；`inactive` 等 → `stopped` |
+| docker | 容器清单里该 ID 的 `state` | `running` → `running`；`stopped` → `stopped`；`unknown`（restarting/paused）→ `unknown` |
+| compose | —— | `unknown`（部署能力 1.0 才有） |
+
+`unknown` 有五种来由，每一种都必须写进 `runtime_note`，因为它们要人做的事完全不同：这一轮
+没读到（代理不可用 / 服务快照采集失败 / Docker 不可用）、单元或容器不在本机列表里、
+`load_state=not-found`、过渡态、`compose` 未落地。“读不到”永远不会被写成 `stopped`——
+那会把人骗去点一个本来在跑的东西的启动按钮。
+
+docker 的 `failed` 在这一版不出现：判据是退出码，而 `Container` DTO 里没有它。崩退的容器
+显示为 `stopped`，`state_text`（Docker 原始状态串，形如 `Exited (1) 2 minutes ago`）
+仍然在 `/containers/:id` 里可读。这一点写在这里而不是含糊过去：`runtime_state` 的闭集
+里有 `failed`，但在 docker 一侧它此刻取不到。
+
+**（2）能力来自底层对象，不来自类型。** systemd 的三项取自 `services.Unit.capabilities`
+（已包含状态与保护判定：active 不出现 start、受保护单元为空数组），docker 的三项取自
+`containers.Container.capabilities`（高风险容器三项全 false）。Web 侧不重算一遍——两份规则
+迟早会分叉，分叉之后按钮就会亮在代理必定拒绝的动作上。
+
+`logs` 与三项生命周期能力**分开判定**，因为读日志不是写操作：受保护的单元（面板自己、
+SSH、核心服务）和判定为高风险的容器都允许读日志，`/logs` 与 `/containers/:id/logs`
+本来就是 admin 只读。反过来，单元文件读不出来（`not-found`/`error`）或绑定的容器 ID 不在
+本机列表里时不给 `logs`：那时点下去只会得到空页或 404。
+
+**（3）绑定对象消失要求重新确认，不做名字匹配。** 容器 ID 不在本机容器列表里 →
+`runtime_state=unknown` + `runtime_note` 写明“容器可能已被重建，请重新确认绑定”；
+单元不在服务列表里 → 同一形状的说法（可能改名或被卸载，不说“已删除”）。面板**不会**
+因为新容器的名字和旧的一样就把应用接过去——那是一个没人确认过的绑定，与 §8.2（6）同一个判断。
+
+**（4）`dependency_protection` 的准确含义。** `managed` 说的是：
+**面板是受管理启动路径上唯一的自动启动者，而且那条路径上有实测的依赖卷门禁。** 它不声称
+能阻止管理员在 shell 里手工 `docker start` 或 `systemctl start`——面板看不到那些动作，
+把它们算进 `managed` 就是撒谎。
+
+| 情形 | 值 | note 说什么 |
+|---|---|---|
+| link，或没有依赖卷 | `not_applicable` | （无） |
+| docker，`restart_policy` 是 `no` 或空（Docker 默认） | `managed` | 容器不会自己启动，经面板发起的启动会被依赖卷门禁拦住 |
+| docker，`restart_policy` 是 `always`/`unless-stopped`/`on-failure` | `unmanaged` | 开机或崩溃后由 Docker 自行拉起，不经过面板的检查 |
+| systemd（任何情况） | `unmanaged` | P09.4 没有改写单元文件：`enabled` 的单元开机会被 systemd 直接拉起；被别的单元拉起时同样不经过面板 |
+| compose | `unmanaged` | 部署未落地，接管不了启动顺序 |
+| 单元/容器状态这一轮没读到 | `unmanaged` | 判断不了它会不会在卷挂载之前自己起来 |
+
+**（5）启动门禁：Web 补代理看不到的那半边。** 依赖是“哪个应用吃哪个卷”，只存在 Web 库里；
+代理那边只有共享的依赖，它不知道也不能知道应用元数据。所以门禁加在 Web 的预检之后：
+
+- 只对 `service.control` 与 `container.control` 且 `operation` 是 `start`/`restart` 生效；
+- 按**绑定**反查应用（`type` + 规范化 `binding_json`），查不到就不拦——面板不认识的
+  单元/容器没有依赖关系要守，拦它等于“不认识的一律不许动”；
+- 逐个核对依赖卷的 `observed_state`，命中即追加阻塞项；
+- **只能收紧**：代理说 `allowed=false` 的预检不会因为门禁没意见而变成可执行；门禁自己故障
+  （数据库读不出依赖关系）时预检整体失败（500），不做“当它没拦”；
+- 落库的是收紧后的 `allowed=0`，于是 `POST /jobs` 得到 **409 `DEPENDENCY_BLOCKED`**。
+
+追加的闭集阻塞码（与 §7.1、§7.3 的表同一个口径）：
+
+| 码 | 级别 | 含义 |
+|---|---|---|
+| `VOLUME_OFFLINE` | 阻塞 | 依赖卷当前未挂载（含 `observed_state` 与卷自己的 `observed_error`） |
+| `VOLUME_MISSING` | 阻塞 | 依赖卷不在受管理卷列表里（已删除或退出管理） |
+| `VOLUME_IDENTITY_CHANGED` | 阻塞 | 卷在，但文件系统 UUID 与登记的不一致（可能换了一块盘） |
+| `VOLUME_CHECK_UNAVAILABLE` | 阻塞 | 无法确认依赖卷状态（代理不可用）——**没检查不等于检查通过** |
+
+`stop` 不在门禁范围内：停机在任何状态下都安全，拦它只会让一个起在空目录上的应用没法被停下来。
+
+**（6）`GET /apps/:id/logs` 只做判别，不新增读取能力。** systemd 应用走与 `/logs` 同一条
+读取链（`journalctl -u <绑定单元>`），docker 应用走与 `/containers/:id/logs` 同一条链。
+响应带判别式 `source`（`journal`/`docker`）与对应的 `unit`/`container_id`，`page` 的字段就是
+那两个接口的同一套。
+
+**对象来自绑定，不来自请求。** 请求里的 `unit`、`source` 一律 400——否则这个接口就是
+“按任意单元名读日志”的通用入口，绕过 `/logs` 自己的边界；两个来源的参数集合也不互相串味
+（journal 只收 `level`/`from`/`to`/`cursor`/`limit`，docker 只收 `since`/`until`/`tail`/`cursor`），
+传错集合得到 400 而不是被静默忽略。
+
+状态码：admin（日志里什么都可能有）；`link` → 422（没有运行时就没有日志）；`compose` → 501
+`NOT_IMPLEMENTED`（不返回空 page 冒充成功）；绑定的容器已不存在 → 404 `CONTAINER_NOT_FOUND`
+（原样带出代理的判决）；代理不可用 → 503 `AGENT_UNAVAILABLE`。
+
+**（7）仍未实现，也没有用别的东西假装实现。**
+
+- **运行时卷失联自动停止受管理服务/容器**（PLAN.md 第 11 节关键依赖规则 5 的后半句）。
+  那需要在代理侧起一个常驻协调器并给它停机权限；P09.4 交付的是启动门禁与状态显示。
+  在它落地之前，“卷在运行中被拔掉”这件事的表现是：应用页面上的依赖卷变成 `unmounted`，
+  下一次经面板发起的启动被拦；已经在跑的服务不会被面板自动停掉。
+- **写入 `RequiresMountsFor`/`BindsTo`、包装 systemd 单元、改容器 restart 策略**。
+  这三件事都会改写宿主上已有的单元文件或容器配置，属于比“显示”重得多的动作，
+  没有在 P09.4 的范围内，因此 systemd 应用的保护状态一律是 `unmanaged`。
+- **compose 部署的生命周期**（1.0）。`/deployments*` 仍然只是只读观测。
+
+**（8）验收状态。** 运行状态映射、门禁判决与日志判别的真实证据来自独立 Ubuntu 测试虚拟机
+（`tests/integration/p09-4-app-runtime-acceptance.sh`）；单测证明的是映射、门禁与参数边界，
+不能当成“真机上依赖保护已验收”。
+
 ## 9. 反向代理与证书契约
 
 GET /proxies、GET /proxies/:id、GET /certificates：admin。

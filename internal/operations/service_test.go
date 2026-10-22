@@ -445,3 +445,124 @@ func TestNewRequiresDatabaseAndLogger(t *testing.T) {
 		t.Fatal("缺少数据库必须报错")
 	}
 }
+
+// --- Web 侧门禁（P09.4）---
+
+// fakeGate 是可控的门禁：记录收到的动作与规范化参数，返回预设的阻塞项。
+type fakeGate struct {
+	blockers []Notice
+	err      error
+
+	gotAction string
+	gotParams string
+	calls     int
+}
+
+func (g *fakeGate) Blockers(_ context.Context, action string, params json.RawMessage) ([]Notice, error) {
+	g.calls++
+	g.gotAction = action
+	g.gotParams = string(params)
+	return g.blockers, g.err
+}
+
+// TestGateTightensAllowedPreflight 确认门禁能把“代理说可以”变成“不允许执行”。
+func TestGateTightensAllowedPreflight(t *testing.T) {
+	nowFn, now := fixedNow()
+	agent := &fakeAgent{plan: samplePlan(now)}
+	svc, db := newTestService(t, agent, nowFn)
+	gate := &fakeGate{blockers: []Notice{{Code: "VOLUME_OFFLINE", Message: "依赖卷当前未挂载"}}}
+	svc.gate = gate
+
+	got, err := svc.CreatePreflight(context.Background(), CreateInput{
+		UserID:      7,
+		SessionHash: testSessionHash,
+		Action:      "service.control",
+		Params:      json.RawMessage(`{ "operation" : "start", "unit" : "nginx.service" }`),
+	})
+	if err != nil {
+		t.Fatalf("创建预检失败: %v", err)
+	}
+	if got.Allowed {
+		t.Fatal("门禁命中后 allowed 必须为假")
+	}
+	if len(got.Blockers) != 1 || got.Blockers[0].Code != "VOLUME_OFFLINE" {
+		t.Fatalf("阻塞项 = %+v", got.Blockers)
+	}
+	// 门禁必须看到**规范化**后的参数与动作名：它判断的东西要和代理执行的东西是同一份。
+	if gate.gotAction != got.Action {
+		t.Fatalf("门禁收到的动作 = %q，预检动作 = %q", gate.gotAction, got.Action)
+	}
+	if gate.gotParams != string(got.NormalizedParams) {
+		t.Fatalf("门禁收到的参数 = %s，规范化参数 = %s", gate.gotParams, got.NormalizedParams)
+	}
+
+	// 落库的必须是收紧后的结论：POST /jobs 读的是这一列。
+	var allowed int
+	if err := db.SQL().QueryRowContext(context.Background(),
+		`SELECT allowed FROM preflights WHERE id = ?`, got.ID).Scan(&allowed); err != nil {
+		t.Fatalf("读预检记录失败: %v", err)
+	}
+	if allowed != 0 {
+		t.Fatalf("库里的 allowed = %d，门禁命中后必须是 0", allowed)
+	}
+
+	// 提交这一步必须真的被拦住，而不是只把 allowed 写在响应里。
+	if _, err := svc.SubmitJob(context.Background(), SubmitInput{
+		UserID:         7,
+		SessionHash:    testSessionHash,
+		PreflightID:    got.ID,
+		IdempotencyKey: "idem-gate-1",
+		ReauthAt:       now.Add(-time.Minute),
+	}); !errors.Is(err, ErrPreflightBlocked) {
+		t.Fatalf("提交被门禁拦下的预检应返回 ErrPreflightBlocked，实际 %v", err)
+	}
+}
+
+// TestGateCannotRelaxBlockedPreflight 确认门禁永远不能把拒绝翻成放行。
+func TestGateCannotRelaxBlockedPreflight(t *testing.T) {
+	nowFn, now := fixedNow()
+	plan := samplePlan(now)
+	plan.Allowed = false
+	plan.Blockers = []agentclient.PreflightNotice{{Code: "SERVICE_PROTECTED", Message: "单元受保护"}}
+	svc, _ := newTestService(t, &fakeAgent{plan: plan}, nowFn)
+	gate := &fakeGate{} // 门禁无话可说
+	svc.gate = gate
+
+	got, err := svc.CreatePreflight(context.Background(), CreateInput{
+		UserID:      7,
+		SessionHash: testSessionHash,
+		Action:      "service.control",
+	})
+	if err != nil {
+		t.Fatalf("创建预检失败: %v", err)
+	}
+	if got.Allowed {
+		t.Fatal("代理拒绝过的预检不能因为门禁没意见就变成可执行")
+	}
+	if len(got.Blockers) != 1 || got.Blockers[0].Code != "SERVICE_PROTECTED" {
+		t.Fatalf("阻塞项 = %+v", got.Blockers)
+	}
+}
+
+// TestGateErrorFailsPreflight 确认门禁自身故障时不做“当它没拦”。
+func TestGateErrorFailsPreflight(t *testing.T) {
+	nowFn, now := fixedNow()
+	svc, db := newTestService(t, &fakeAgent{plan: samplePlan(now)}, nowFn)
+	svc.gate = &fakeGate{err: errors.New("数据库读不出依赖关系")}
+
+	if _, err := svc.CreatePreflight(context.Background(), CreateInput{
+		UserID:      7,
+		SessionHash: testSessionHash,
+		Action:      "service.control",
+	}); err == nil {
+		t.Fatal("门禁故障时预检必须失败")
+	}
+	var n int
+	if err := db.SQL().QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM preflights`).Scan(&n); err != nil {
+		t.Fatalf("读预检记录失败: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("门禁故障时不该落库任何预检，实际 %d 行", n)
+	}
+}
