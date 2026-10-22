@@ -1,0 +1,1 @@
+{"data":{"app_id":"app_9d4e9b7615c5e2e64620e648206a6b55","enabled":false,"http_state":"not_applicable","checked_at":null,"status_code":null,"duration_ms":null,"target_id":"","scheme":"http","port":0,"path":"/","address":null,"url":null,"last_error":"","expected_status_codes":[],"note":"这个应用没有启用健康检查：面板不会向它发起任何请求"},"request_id":"e409794cbf49bba68527b92b95614062"}

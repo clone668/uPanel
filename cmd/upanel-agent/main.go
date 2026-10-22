@@ -19,6 +19,7 @@ import (
 	"upanel/internal/agent"
 	"upanel/internal/agentstore"
 	"upanel/internal/config"
+	"upanel/internal/discovery"
 	"upanel/internal/files"
 	"upanel/internal/journal"
 	"upanel/internal/logging"
@@ -456,6 +457,22 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
+	// 应用发现与健康探测（P09.2）。三个来源各自独立：
+	//   - 监听端口：读 /proc/net/tcp{,6}，再按 socket inode 反查持有进程；
+	//   - systemd：复用 P05.1 的单元快照（不另开一条 systemctl 通道）；
+	//   - 容器：docker ps（命令与参数都是常量，缺命令/缺套接字如实降级）。
+	// 采集结果缓存 15 秒：候选列表给人确认，不是每次刷新都换一批。
+	// 探测只走 127.0.0.1，地址由代理自己从发现结果里解析，调用方给不了 host。
+	discoveryCollector := discovery.NewCollector(discovery.Deps{
+		Units:  discoveryUnits{collector: servicesCollector},
+		Docker: &discovery.DockerClient{},
+		Logger: logger,
+	})
+	logger.Info("已启用应用发现",
+		"ttl", discovery.DefaultTTL.String(),
+		"docker_candidates", "/usr/bin/docker, /snap/bin/docker",
+		"probe", "只探测 127.0.0.1，TLS 校验保持开启")
+
 	// 动作登记表：生产表自 P05.1 起有 service.control，P05.2 起有 process.signal（受保护名单与读回验证见 internal/services）。
 	// 验收表只能靠显式参数启用，且动作全部以 acceptance. 开头、不读写任何系统资源。
 	registry := agent.NewRegistry()
@@ -475,6 +492,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// 写端与读端是同一个 Manager：根登记表、句柄级边界、错误判决都只有一份。
 		FileWrites: filesManager,
 		Shares:     sharesEngine,
+		Discovery:  discoveryCollector,
 	}
 	// 只在真的有时才赋给接口：把一个 nil 的 *terminal.Manager 塞进接口会得到
 	// 一个非 nil 的接口值，登记表于是多出一个调用就 panic 的能力。
@@ -609,8 +627,38 @@ func fileRoots(configured []config.FileRoot) []files.Root {
 	return out
 }
 
-// filesCapacity 把存储模块的容量读取器接到文件模块上。
+// discoveryUnits 把 P05.1 的服务单元快照接到发现模块上。
 //
+// 一条独立的 systemctl 通道会得到与「服务」页面不同的单元集合与不同的时间点，
+// 于是同一台机器在两个页面里说着两种话。这里只读同一份快照。
+//
+// 快照失败时返回 ok=false：此时监听照常被发现，但不会出现 systemd 候选——
+// 把裸监听归到一个单元名下就是在编造。
+type discoveryUnits struct {
+	collector *services.Collector
+}
+
+func (d discoveryUnits) Units() ([]discovery.UnitInfo, bool, string) {
+	if d.collector == nil {
+		return nil, false, "本机没有可用的 systemctl，无法把监听关联到服务单元"
+	}
+	snap := d.collector.Snapshot()
+	if snap.Status != services.StatusOK {
+		return nil, false, snap.Error
+	}
+	out := make([]discovery.UnitInfo, 0, len(snap.Units))
+	for _, u := range snap.Units {
+		out = append(out, discovery.UnitInfo{
+			Unit:        u.Unit,
+			Description: u.Description,
+			ActiveState: u.ActiveState,
+			MainPID:     u.MainPID,
+		})
+	}
+	return out, true, ""
+}
+
+// filesCapacity 把存储模块的容量读取器接到文件模块上。
 // 两边的容量字段相同，这里只是类型转换：不重新 statfs、不另起通道，
 // 因此网络挂载的“隔离子进程 + 超时后隔离 5 分钟”策略与存储页完全一致。
 type filesCapacity struct {

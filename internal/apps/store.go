@@ -65,6 +65,9 @@ type Options struct {
 	// Volumes 是受管理卷的存在性检查端。允许为 nil（不连代理的部署）：
 	// 那时**带依赖卷**的写入会被拒绝并回 503，而不是存下未经验证的引用。
 	Volumes VolumeChecker
+	// Targets 是健康检查目标的存在性检查端（P09.2）。允许为 nil（不连代理的部署）：
+	// 那时**启用健康检查**的写入会被拒绝并回 503，而不是存下一个面板根本探不到的目标。
+	Targets HealthTargetChecker
 	// Normalize 是校验环境（是否允许回环入口地址）。
 	Normalize NormalizeOptions
 }
@@ -75,6 +78,7 @@ type Service struct {
 	now       func() time.Time
 	volumes   VolumeChecker
 	normalize NormalizeOptions
+	targets   HealthTargetChecker
 }
 
 // New 构造 Service。db 为必需依赖。
@@ -82,7 +86,7 @@ func New(db *store.DB, opts Options) (*Service, error) {
 	if db == nil {
 		return nil, errors.New("apps: 数据库句柄不能为空")
 	}
-	s := &Service{db: db, now: opts.Now, volumes: opts.Volumes, normalize: opts.Normalize}
+	s := &Service{db: db, now: opts.Now, volumes: opts.Volumes, normalize: opts.Normalize, targets: opts.Targets}
 	if s.now == nil {
 		s.now = time.Now
 	}
@@ -152,6 +156,9 @@ func (s *Service) Create(ctx context.Context, def Definition) (App, error) {
 		return App{}, err
 	}
 	if err := s.checkVolumes(ctx, norm.VolumeDependencies); err != nil {
+		return App{}, err
+	}
+	if err := s.checkHealthTarget(ctx, norm.Health.TargetID, norm.Health); err != nil {
 		return App{}, err
 	}
 	id, err := NewAppID()
@@ -278,6 +285,13 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (App, error) {
 			return App{}, err
 		}
 	}
+	// 只有本次修改真的动了健康检查时才去代理确认目标：一次改名不该因为目标恰好
+	// 在这一刻重启而失败。
+	if in.Patch.Health != nil {
+		if err := s.checkHealthTarget(ctx, norm.Health.TargetID, norm.Health); err != nil {
+			return App{}, err
+		}
+	}
 
 	binding, err := bindingJSON(norm.Type, norm.Binding)
 	if err != nil {
@@ -362,6 +376,14 @@ func (s *Service) Get(ctx context.Context, userID int64, id string) (App, error)
 		return App{}, err
 	}
 	app.VolumeDependencies = deps[app.ID]
+	// 最近一次探测结论（可能没有：从没探过 → 保持 nil，接口层据此说 unknown）。
+	results, err := s.healthResults(ctx, []string{app.ID})
+	if err != nil {
+		return App{}, err
+	}
+	if r, ok := results[app.ID]; ok {
+		app.HealthResult = &r
+	}
 	return app, nil
 }
 
@@ -442,6 +464,15 @@ func (s *Service) List(ctx context.Context, opts ListOptions) ([]App, string, er
 	}
 	for i := range out {
 		out[i].VolumeDependencies = deps[out[i].ID]
+	}
+	results, err := s.healthResults(ctx, appIDs(out))
+	if err != nil {
+		return nil, "", err
+	}
+	for i := range out {
+		if r, ok := results[out[i].ID]; ok {
+			out[i].HealthResult = &r
+		}
 	}
 	return out, next, nil
 }

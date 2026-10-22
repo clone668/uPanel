@@ -60,13 +60,34 @@ func newTestOperations(t *testing.T, db *store.DB, agent operations.Agent) *oper
 	return svc
 }
 
+// fakeHealthTargets 是一份固定的“代理发现出来的目标”清单。
+//
+// 它不是“什么都接受”的桩：只承认列出来的标识，因此“形状合法但发现结果里没有”
+// 这条路径（422）仍然可以被用例覆盖到。
+type fakeHealthTargets struct {
+	ids map[string]bool
+	err error
+}
+
+func (f fakeHealthTargets) TargetExists(_ context.Context, id string) (bool, error) {
+	if f.err != nil {
+		return false, f.err
+	}
+	return f.ids[id], nil
+}
+
 // newTestApps 构造应用元数据服务。
 //
 // 卷检查器默认是 nil：带依赖卷的写入会回 503（“无法确认依赖卷是否存在”）。
 // 需要验证依赖卷行为的用例调用 newTestAppsWithVolumes 给一份明确的卷列表。
+//
+// 健康检查目标同理：默认只承认用例里用到的那两个标识（local_1 / cntr_web），
+// 其它标识在接口层是 422——那是“代理看过了，没有这个东西”，不是形状错误。
 func newTestApps(t *testing.T, db *store.DB) *apps.Service {
 	t.Helper()
-	svc, err := apps.New(db, apps.Options{})
+	svc, err := apps.New(db, apps.Options{
+		Targets: fakeHealthTargets{ids: map[string]bool{"local_1": true, "cntr_web": true}},
+	})
 	if err != nil {
 		t.Fatalf("构造应用元数据服务失败: %v", err)
 	}

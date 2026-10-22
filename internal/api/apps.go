@@ -538,8 +538,12 @@ func appDTOOf(a apps.App) appDTO {
 		CreatedAt:            a.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:            a.UpdatedAt.UTC().Format(time.RFC3339),
 		RuntimeState:         apps.RuntimeStateOf(a.Type),
-		HTTPState:            apps.HTTPStateOf(a.Health),
+		HTTPState:            apps.ObservedHTTPState(a.Health, a.HealthResult),
 		DependencyProtection: apps.ProtectionOf(a.Definition),
+	}
+	if checked := apps.LastCheckedAt(a.Health, a.HealthResult); checked != nil {
+		ts := checked.UTC().Format(time.RFC3339)
+		dto.LastCheckedAt = &ts
 	}
 	if a.GroupID != "" {
 		groupID := a.GroupID
@@ -693,10 +697,15 @@ func mapAppError(err error) (status int, code httpx.Code, message string, detail
 		validation *apps.ValidationError
 		volumeMiss *apps.VolumeMissingError
 		groupMiss  *apps.GroupMissingError
+		targetMiss *apps.HealthTargetMissingError
 	)
 	switch {
 	case errors.As(err, &validation):
 		return http.StatusBadRequest, httpx.CodeValidationError, validation.Message, nil, false
+	case errors.As(err, &targetMiss):
+		return http.StatusUnprocessableEntity, httpx.CodeValidationError,
+			"健康检查目标不在代理当前的发现结果里：" + targetMiss.TargetID,
+			gin.H{"target_id": targetMiss.TargetID}, false
 	case errors.As(err, &volumeMiss):
 		return http.StatusUnprocessableEntity, httpx.CodeDependencyMissing,
 			"依赖卷不存在：" + volumeMiss.VolumeID,
@@ -708,6 +717,9 @@ func mapAppError(err error) (status int, code httpx.Code, message string, detail
 	case errors.Is(err, apps.ErrVolumeCheckUnavailable):
 		return http.StatusServiceUnavailable, httpx.CodeAgentUnavailable,
 			"无法确认依赖卷是否存在：代理不可用，本次没有保存", nil, false
+	case errors.Is(err, apps.ErrHealthTargetCheckUnavailable):
+		return http.StatusServiceUnavailable, httpx.CodeAgentUnavailable,
+			"无法确认健康检查目标是否存在：代理不可用，本次没有保存", nil, false
 	case errors.Is(err, apps.ErrInvalidLimit), errors.Is(err, apps.ErrInvalidCursor):
 		return http.StatusBadRequest, httpx.CodeValidationError, err.Error(), nil, false
 	case errors.Is(err, apps.ErrNotFound):

@@ -1,0 +1,155 @@
+== 0. 环境与安全守卫 ==
+      系统：Ubuntu 24.04.5 LTS
+PASS  以 root 运行
+PASS  Web 运行身份存在（upanel-web）
+PASS  Web 身份没有登录 shell
+PASS  python3 可用（解析 JSON 与读库）
+PASS  端口 19482/19483/19484/19485/19486/19487/19488 空闲
+      本机有 docker：Docker version 29.1.3, build 29.1.3-0ubuntu3~24.04.2
+
+== 1. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19482 启动
+PASS  监听 19482 的 Web 进程不是 root（pid=40862 uid=999）
+PASS  数据库迁移到第 8 版（0008_app_health）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+
+== 2. 三个只绑回环的被测服务（发现与探测的对象） ==
+PASS  三个被测服务都在监听（19483/19484/19485）
+PASS  200 服务的真实响应码
+PASS  500 服务的真实响应码
+PASS  两个容器都起来了（p092-cnt-bad → 500，p092-cnt-ok → 200）
+
+== 3. 发现：候选来自本机，权限与代理边界都成立 ==
+PASS  未登录读候选
+PASS  发现状态是 ok/partial（实际 ok）
+PASS  候选不是空列表（空列表会被读成“本机什么都没有”）
+PASS  200 服务出现在候选里（19483）
+PASS  500 服务出现在候选里（19484）
+PASS  不回应的服务出现在候选里（19485）
+PASS  没人监听的端口不在候选里（19486）
+      候选标识：ok=local_python3-19483 500=local_python3-19484 slow=local_python3-19485
+PASS  候选之间没有重复的监听（地址+端口+协议）
+PASS  所有候选的 target_id 形状合法（表达不出主机或 URL）
+PASS  回环监听被标成可探测
+PASS  候选里有 loopback 监听（面板才敢探）
+PASS  发现结果里没有已绑定应用（还没建）
+PASS  没有失效绑定（还没建）
+PASS  建 viewer 账号
+PASS  viewer 登录
+PASS  viewer 拿到 CSRF 令牌
+PASS  viewer 读候选列表
+
+== 3b. 容器候选（真 docker） ==
+PASS  docker 来源这一轮采集成功
+PASS  HTTP 500 的容器出现在候选里（19487）
+PASS  HTTP 200 的容器出现在候选里（19488）
+PASS  容器候选的身份是完整 64 位容器 ID（不是名字、不是短 ID）
+PASS  容器候选的 target_id 以 cntr_ 开头（容器无法被说成任意主机）
+PASS  容器候选的建议端口就是它发布的宿主机端口
+PASS  容器候选能探测（端口发布在回环上）
+PASS  容器发布端口没有额外生出一条 local_ 候选
+
+== 4. 确认候选 = 创建应用（没有第二个“确认”接口） ==
+PASS  建一个 link 应用
+PASS  link 的能力里没有启停按钮
+PASS  link 的 http_state 是 not_applicable
+PASS  未发现的 target_id 被拒
+PASS  422 的 details 指出是哪个 target
+PASS  未发现的 target 没有落库
+PASS  非 target 形状被拒（169.254.169.254）
+PASS  非 target 形状被拒（localhost:8080）
+PASS  非 target 形状被拒（http://127.0.0.1:8080/）
+PASS  非 target 形状被拒（Local_1）
+PASS  非 target 形状被拒（host_1）
+PASS  坏目标一条都没落库
+
+== 5. 健康探测：三种 unknown 分得开 ==
+PASS  未启用时 http_state
+PASS  未启用时 checked_at 是 null
+PASS  未启用时必须说明原因
+PASS  带健康检查的应用创建成功
+PASS  从没探过时 http_state 是 unknown
+PASS  从没探过时必须说明原因
+
+== 6. 真实结论：200 → ok，500 → error（带状态码），不回应 → error（带超时） ==
+PASS  200 服务的探测结论
+PASS  ok 记录里的状态码
+PASS  探测地址是回环
+PASS  探测 URL 指向 127.0.0.1 的同一端口
+PASS  500 服务的探测结论
+PASS  error 记录带真实状态码 500（不是含糊的“不可用”）
+PASS  500 必须说明原因
+PASS  不回应的服务探测结论
+PASS  超时要说明白（原因里提到超时）
+PASS  没拿到状态码时 status_code 是 null（不是 0）
+PASS  库里的探测地址全是 127.0.0.1
+PASS  库里的 URL 只有 http(s)://127.0.0.1 前缀
+PASS  探测记录里没有云元数据地址
+PASS  app_health_results 一行一个应用
+PASS  viewer 读健康结论
+
+== 7. 服务停掉之后：结论必须变成 error，而不是停在 ok ==
+PASS  停服务之前结论是 ok
+PASS  服务停掉后结论变成 error
+PASS  checked_at 前进了（是新的观测，不是旧结论）
+PASS  连不上时 status_code 是 null
+PASS  连不上必须说明原因
+
+== 8. 代理不可用：503 而不是空列表，unknown 而不是 error ==
+PASS  代理停掉后读候选
+PASS  503 的错误码
+PASS  503 的响应里没有空候选列表
+PASS  代理不可用时带健康检查的写入
+PASS  503 的错误码是 AGENT_UNAVAILABLE
+PASS  代理不可用时一行都没写
+PASS  不带健康检查的写入不受代理影响
+PASS  代理恢复启动
+PASS  建一个指向 500 服务的应用（此时代理在线）
+      代理在线时的首轮结论：checked
+PASS  代理不可用时的结论是 unknown（不是 error）
+PASS  unknown 必须说明是代理不可用
+PASS  没有发出请求时 address 留空
+PASS  没有发出请求时 url 留空
+PASS  没有发出请求时 status_code 是 null
+PASS  库里的 unknown 记录 address 是空串而不是 127.0.0.1
+PASS  代理再次启动
+
+== 8b. 容器：running 但 HTTP 500 明确异常；重建后旧绑定要求重新确认 ==
+PASS  用容器候选建应用（确认候选就是 POST /apps）
+PASS  应用类型是 docker
+PASS  容器 running 但回 500：结论是 error（不是 ok、不是 unknown）
+PASS  容器 500 带真实状态码 500
+PASS  容器 500 要说明原因
+PASS  容器探测地址仍然是回环
+PASS  容器探测 URL 指向 127.0.0.1 的发布端口
+PASS  重建后容器 ID 真的变了（名字照旧）
+PASS  重建后旧绑定进 missing_bindings
+PASS  旧绑定要求重新确认（而不是自动接到新容器上）
+PASS  应用记录里的绑定仍是旧容器 ID（没有被偷偷改绑）
+PASS  新容器是一个独立的候选，没有自动绑到那个应用上
+PASS  旧容器 ID 已经不是候选（它真的没了）
+PASS  docker 采不到时来源状态如实是 error（不是 ok）
+PASS  docker 采不到时，容器应用不被报成“容器不在了”
+PASS  一个来源失败时总状态是 partial（失败要说出来）
+PASS  失败原因写在快照上，而不是伪装成“容器不存在”
+
+== 9. 本轮不验的（明确标出来） ==
+NOT RUN  卷离线禁止启动受管理依赖应用：P09.2 没有启停接口（capabilities.start=false），属于 P09.4
+PASS  P09.2 里 start/stop/restart/logs 全为 false
+
+== 10. 收尾不变量 ==
+PASS  监听 19482 的 Web 进程到最后都不是 root（uid=999）
+PASS  代理进程仍是 root
+PASS  应用表与健康表都在
+PASS  日志里没有 panic/fatal
+PASS  日志里没有云元数据地址的请求
+
+=========================== 汇总 ===========================
+PASS 120 / FAIL 0 / NOT RUN 1
+NOT RUN 不等于通过。
+============================================================

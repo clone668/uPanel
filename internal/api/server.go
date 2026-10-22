@@ -101,6 +101,10 @@ type Options struct {
 	// 不连代理也能工作；缺了它 /apps 与 /app-groups 就没有落脚点，
 	// 而“回 503 的空实现”会让人以为功能已经做好了。
 	Apps *apps.Service
+	// Discovery 是应用发现与健康探测的读取端（P09.2）。允许为 nil（演示模式不连代理）：
+	// 那时 /apps/discovery 明确回 503 AGENT_UNAVAILABLE，而不是给一份空候选列表——
+	// 空列表会被读成“这台机器上没有任何服务在监听”。
+	Discovery DiscoveryReader
 }
 
 // Server 是 Web HTTP 服务。

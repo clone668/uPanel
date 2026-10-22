@@ -1032,8 +1032,132 @@ P09.3/P09.4 真正接上预检 + 任务之后再逐个放开。这条机制存�
 就产生一条审计，真正的管理事件会被淹掉。它也**不需要** `version`（幂等）。
 
 
-DeploymentDefinition：name、image_reference、container_port、host_bind_address、host_port、environment（公开值或 secret_ref）、mounts、resource_limits、health_check、volume_dependencies。
+### 8.2 P09.2 已实现范围：本机发现、候选与健康探测
 
+P09.2 补上 §8 表里的两行：`GET /apps/discovery`（admin）与 `GET /apps/:id/health`（V）。
+**候选的“确认”不是一个新接口**——确认就是 §8.1 的 `POST /apps`，用候选的 `target_id` /
+`unit` / `container_id` 当绑定。再开一个 `/apps/discovery/:id/confirm` 等于让“创建一个应用”
+有两条代码路径，而其中一条迟早会和另一条不一致。
+
+仍未实现：`/apps/:id/logs`、`/containers*`、`/images`、`/container-networks`、
+`/container-volumes`、`/deployments*`（P09.3 起）。openapi 里没有它们。
+
+**（1）发现发生在代理里，Web 只做合并。** 三路来源：
+
+| 来源 | 依据 | 失败时怎么说 |
+|---|---|---|
+| `systemd` | `/proc/net/tcp{,6}` 中 `st=0A` 的监听 → inode → 持有进程 → cgroup v2 `0::` 路径 → `.service` 单元；与 P05.1 的服务快照同一个采集者 | “systemctl 读不出来” |
+| `local_listen` | 同样的监听表，但背后没有能认出来的单元（脚本、screen/tmux、cgroup 里没单元名） | 归入上一条 |
+| `docker` | `docker ps -a --no-trunc --format` | 分开说“没装 docker”/“docker 没在跑” |
+
+快照在代理侧缓存 15 秒（多个页面同时打开不等于每 15 秒采一次）。`status` 是
+`ok`/`partial`/`error`：全部来源失败时是 `error`——这份结果**不能**被读成“本机什么都没有”。
+单个来源失败不影响其它来源，各自带 `status` 与 `error`。
+
+**（2）`target_id` 由代理分配，地址由代理计算。** `local_<slug>` / `cntr_<slug>`，形状与
+§8.1 的 `health_check.target_id` 完全一致。slug 只是给人看的提示（重名时加序号），**不是
+身份**：真正的身份是候选出现在这次发现结果里。
+
+探测地址永远是 `http(s)://127.0.0.1:<port><path>`，由代理自己拼。调用方能给的只有
+`target_id`、`scheme`、`port`、`path`、`expected_status_codes`、`timeout_seconds`——**没有
+host 这个字段**。于是 `169.254.169.254`（云元数据）、内网其它主机、任意域名在这条路径上
+没有出现的位置：不是被过滤掉，是结构上不存在（与 §3、Q21 的同一原则）。
+
+探测客户端：`Proxy: nil`（不吃环境代理，否则 `127.0.0.1` 会被转发出去）、不跟随重定向
+（3xx 就是 3xx，`Location` 指向哪儿与结论无关）、TLS 验证保持系统根证书、响应体最多读
+64 KiB 后丢弃（健康检查只看状态码）。
+
+容器的 `port` 必须是**这次发现里它真的发布出来的宿主机端口**：`docker ps` 没显示
+`0.0.0.0:9000->80/tcp` 之类的映射时，探测被拒并说明已发布的是哪些——而不是去连一个
+容器网络的地址（那等于绕过上面的结构性约束）。docker-proxy 在已发布端口上的监听不会额外
+产出一个 `local_…` 候选：那是同一个服务的第二次曝光，不是第二个服务。判定发生在**单元分类
+之前**——docker-proxy 跑在 `docker.service` 的 cgroup 里，先分类的话它会变成“docker.service
+在监听 19487”，于是同一个容器在候选里出现两次（容器 + 那个单元）。摘的时候只摘发布端口上
+的那几条监听：`dockerd` 自己的 2375/2376 仍然会作为单元候选留下。
+
+同一条道理用在 pid 1 上：`.socket` 单元（`ssh.socket`、`rpcbind` 的 111 等）的监听套接字
+由 systemd 代持，守护进程起来后自己也持有同一个端口，套接字表里因此出现两个 pid。候选里
+**同一个监听（地址 + 端口 + 协议）只归属那个有人认领的进程**；pid 1 **独占**的端口仍然是
+候选，原因写“systemd（pid 1）正在这个端口上等待连接，背后是一个还没被激活的 socket 单元”
+——那是真实状态，不是噪音。否则确认候选的列表里会并排出现两条“端口 22”，而哪个是 sshd
+只能靠猜。
+
+`ProbeResult.Valid()` 兜住“半条结论”（缺 target/scheme/port/path）：调度器把它记为
+`unknown` 而不是拿定义里的值补齐——补齐会把“不知道探的是哪儿”写成“探过了”。
+
+**（3）探测的三种结局，`unknown` 不是 `error`。**
+
+| `http_state` | 含义 | `address`/`url` |
+|---|---|---|
+| `ok` | 拿到期望集合里的状态码（空集合 = 默认 200—399） | 有 |
+| `error` | 连不上、超时、TLS 失败、状态码不在期望集合里；或**看成了但目标不在**（服务停了、容器没了、单元不再监听） | 前三种有；目标缺席时为空（没有发出请求） |
+| `unknown` | 这一轮没有得出可用结论：代理不可达、发现本身没成功、或装着这个目标的来源这一轮没采成 | **空** |
+
+“我看不到”和“它坏了”是两件事：前者等一会儿就好，后者要人去修。没有发出请求时
+`address`、`url` 是空串、`status_code` 是 `null`（不是 0——0 不是状态码），落库与接口
+都照此输出。
+
+**目标缺席按快照状态分开记**，因为同一个物理状态（服务停了）不能因为缓存新鲜度不同
+而一会儿 `error` 一会儿 `unknown`：
+
+- 快照 `status=error`（一个来源都没采成）→ `unknown`：这一轮**没有看成本机**，不能据
+  此说目标不在。
+- 快照 `status=partial` 且**装着这个目标的来源**失败（`cntr_…` 看 docker、`local_…` 看
+  systemd 与裸监听）→ `unknown`，原因里点名是哪个来源。
+- 其余情况（看成了，目标就是不在）→ `error`，原因写“不在本机当前的监听/容器列表里”。
+  写成 `unknown` 会让一个已经挂掉的站点永远显示“暂不确定”。
+
+**（4）调度在 Web，执行在代理。** `app_health_results`（迁移 `0008`）一行一个应用，只存
+**结论**；定义仍在 `apps.health_json`。分开的理由：定义是用户写的，结论是面板观测到的，
+混在一行里会出现“定义被改成 8080 而结论还写着 200 OK，其实是上一个端口的结果”。
+
+调度节拍：每 5 秒扫一次“到点的应用”（从没探过，或距 `checked_at` 已过该应用自己的
+`interval_seconds`，下限 5 秒）；一轮总时限 60 秒。代理不可用时的处理是**写一条
+`unknown` 并结束本轮**，而不是把剩余应用逐个写一遍同样的原因——日志里如实写明“剩余 N 个
+目标本轮未探测”，因为它们的 `checked_at` 没有前进，界面读到的仍是上一次结论。
+
+Web 进程**不发**任何 HTTP 请求。它要是能出站，那它就成了一个能访问任意地址的东西，而
+“不能访问任意地址”正是这一层的安全边界。
+
+**（5）写入时确认目标存在（与 §8.1 的卷检查同一形状）。** 带 `enabled=true` 的
+`health_check` 写入时（创建总是；`PATCH` 仅当请求体里带了 `health_check`）：
+
+- 代理不可达 → **503 `AGENT_UNAVAILABLE`**，本次一个字都不写；
+- 目标不在代理当前的发现结果里 → **422**，`details.target_id` 指出是哪一个。
+
+只做形状校验会让一个手写的 `local_foo` 被存下去，然后每次探测都报“目标不存在”；只问存在
+性而不校验形状，则没法解释为什么 `169.254.169.254` 从来不被接受。两步缺一不可。
+
+`PATCH` 只在带了 `health_check` 时才检查：否则一次改名会因为这个目标恰好在那一刻重启而
+失败——那是把一个与本次修改无关的瞬时状态，变成了保存失败的理由。
+
+**（6）候选与绑定合并：只看身份，不做名字匹配。** `candidates[].bound_app_id` 非空表示
+该目标已被某个应用登记（`uq_apps_binding` 保证至多一个）。systemd 用单元名、docker 用
+**完整容器 ID** 匹配。
+
+`missing_bindings` 列出现在还绑着、但发现结果里已经没有的对象，原因分开写：
+
+- 容器 ID 不在本机容器列表里 → “容器可能被重建过；重建出来的是新记录，需要重新确认后再绑定”。
+  面板**不会**因为容器名相同就自动把旧应用接到新容器上——那是一个没人确认过的绑定。
+- 单元没有出现在候选里 → “这个单元当前没有在监听任何端口”。它可能只是被停用，也可能改名了，
+  所以这里只说“看不到候选”，不说“已删除”。
+
+**这个判断以“对应来源这一轮真的采到了”为前提。** `sources` 里 `docker`（或 `systemd`）不是
+`ok` 时——没装 docker、守护进程没跑、`docker ps` 失败、服务状态还没完成第一次采集——绑定
+**不进** `missing_bindings`：没看成本机就等于没说，`partial` 与来源自己的 `error` 已经写在
+快照上，那里才是该看的地方。反过来说，把一个没做的检查写成“这个容器不在了”，用户会照着
+这句话去删一条其实好好的应用。这一条与探测侧 `unknown`/`error` 的分法（§8.2（3））是同一条
+道理，两处必须一致。
+
+**（7）权限与“确认”的动作边界。** 候选列表是 admin（暴露本机全部监听端口与容器，是侦察
+材料）；健康结论是 V（只说明这个入口通不通）。`link` 类型没有启停按钮（§8.1 的
+`capabilities`），`start`/`stop`/`restart`/`logs` 仍然全为 `false`，等 P09.3/P09.4 接上
+预检 + 任务后再逐个放开。
+
+没有发现读取端的部署（演示模式）与代理不可达一样回 **503 `AGENT_UNAVAILABLE`**：空候选
+列表会被读成“这台机器上没有任何服务”，那是一句假话。
+
+DeploymentDefinition：name、image_reference、container_port、host_bind_address、host_port、environment（公开值或 secret_ref）、mounts、resource_limits、health_check、volume_dependencies。
 mounts 仅允许 source_root_id、relative_path、container_path、read_only；禁止 .. 和 /proc、/sys、/dev 等目标敏感路径。镜像引用允许 tag 或 digest，执行后记录实际 digest。资源限制初期必填 memory_limit_bytes、cpu_limit；端口 1—65535，冲突检测和锁必须同时存在。definition 不含原始 compose_yaml 字段。
 
 环境变量名称按 POSIX 标识符校验；secret_ref 只能用于 app_env。渲染配置 root 独占、0600，读取 API 返回“已设置”。禁用 Docker restart，生命周期经包装 systemd 单元管理。

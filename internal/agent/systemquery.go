@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"upanel/internal/discovery"
 	"upanel/internal/monitoring"
 	"upanel/internal/processes"
 	"upanel/internal/services"
@@ -42,6 +43,10 @@ type ProductionDeps struct {
 	// Shares 是共享与受管理账号的模块（P08.1）。为 nil 时不登记 share.* 动作与查询：
 	// 没有 Samba 判决与执行端的接线不该报告一个点开就报错的入口。
 	Shares sharesSource
+	// Discovery 是应用发现与健康探测（P09.2）。为 nil 时不登记 apps.discovery /
+	// apps.probe：没有 /proc 与容器读取的接线时，一个“空候选列表”会被读成
+	// “这台机器上什么都没有”，那是假话。
+	Discovery *discovery.Collector
 }
 
 // newSystemSummaryQuery 登记 system.summary：无参数，返回采集器最近一次快照。

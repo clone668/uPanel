@@ -133,7 +133,13 @@ func (s *Server) routes() *gin.Engine {
 		ap := v1.Group("/apps", s.auditRoute(audit.ActionAppManage))
 		ap.Use(s.requireSession())
 		ap.GET("", s.handleListApps)
+		// 发现候选（P09.2）：admin。静态段必须与 /:id 并存——gin 的树会先匹配静态段，
+		// 因此 /apps/discovery 不会被当成 id=discovery 的应用详情。
+		ap.GET("/discovery", s.requireAdmin(), s.handleAppDiscovery)
 		ap.GET("/:id", s.handleGetApp)
+		// 最近一次健康探测结论（P09.2）：V。探测本身由 Web 进程的调度器按
+		// interval_seconds 触发，这里只读库里那一行。
+		ap.GET("/:id/health", s.handleGetAppHealth)
 		ap.POST("", s.requireAdmin(), s.requireCSRF(), s.handleCreateApp)
 		ap.PATCH("/:id", s.requireAdmin(), s.requireCSRF(), s.handleUpdateApp)
 		ap.DELETE("/:id", s.requireAdmin(), s.requireCSRF(), s.handleDeleteApp)

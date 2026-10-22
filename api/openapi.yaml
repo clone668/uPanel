@@ -1715,6 +1715,58 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/v1/apps/discovery:
+    get:
+      operationId: getAppDiscovery
+      summary: 本机候选列表（仅 admin）
+      description: |
+        CONTRACTS.md 第 8.2 节、STAGES.md 第 11 节（P09.2）。候选来自代理：监听中的
+        端口、持有套接字的 systemd 单元、Docker 容器。这一层只回答“本机有什么”，不是
+        应用记录——**确认候选就是 `POST /apps`**，没有第二个“确认”接口。
+
+        权限 A：列表暴露本机所有监听端口与容器，是侦察材料，不给只读用户看。
+
+        `candidates[].bound_app_id` 非空表示该目标已被某个应用登记（一个目标只能属于
+        一个应用）。`missing_bindings` 列出“绑定对象已经不在了”的应用：容器重建后 ID
+        会变，旧绑定在这里被点名要求重新确认——面板不会因为名字相同就自动接上去。
+
+        来源全部失败时 `status=error`，部分失败是 `partial` 且各来源自带 `error`。
+        代理不可用时整个接口是 503，而不是一份空候选列表：空列表会被读成“这台机器上
+        没有任何服务”。
+      tags: [apps]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 候选列表与失效绑定。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AppDiscoveryData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: 代理不可用（或本部署没有发现读取端），读不到本机候选。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/apps/{id}:
     parameters:
       - $ref: '#/components/parameters/AppID'
@@ -1910,6 +1962,51 @@ paths:
                     $ref: '#/components/schemas/RequestId'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/apps/{id}/health:
+    parameters:
+      - $ref: '#/components/parameters/AppID'
+    get:
+      operationId: getAppHealth
+      summary: 一次应用的健康探测结论（登录可读）
+      description: |
+        CONTRACTS.md 第 8.2 节（P09.2）。返回最近一次探测的结论，只读——探测由 Web
+        进程里的调度器按 `interval_seconds` 触发，代理执行，结果落在 `app_health_results`。
+
+        权限 V：它只说明“这个入口通不通”，不含侦察材料（本机端口、容器列表在
+        `/apps/discovery`，那里是 admin）。
+
+        `http_state` 的四种取值对应三件不同的事：`not_applicable`（没启用健康检查）、
+        `unknown` + `checked_at: null`（启用了但从没探过）、`unknown` + `checked_at`
+        非空（探过但没得出结论，原因见 `last_error`）、`error`/`ok`（拿到了结论）。
+        `note` 把这几件事说成人话。
+
+        `address` / `url` 只在**真的发出过请求**时非空：代理不可用那一轮写的是
+        `unknown`，地址留空，而不是填一个 127.0.0.1 让人以为探测过。
+      tags: [apps]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 最近一次探测结论（或“还没探过”的说明）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AppHealthState'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '404':
@@ -6619,6 +6716,256 @@ components:
           type: integer
           minimum: 1
           maximum: 10
+
+    AppDiscoveryListener:
+      type: object
+      additionalProperties: false
+      description: 一个监听套接字。地址是内核里的原样（127.0.0.1 / 0.0.0.0 / ::1）。
+      required: [address, port, protocol, loopback]
+      properties:
+        address:
+          type: string
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        protocol:
+          type: string
+          enum: [tcp, tcp6]
+        loopback:
+          type: boolean
+          description: |
+            这个监听能不能从 127.0.0.1 连到。0.0.0.0 与 :: 算能（它们包含回环）；
+            只绑在某个具体外网地址上的不算。
+
+    AppDiscoverySource:
+      type: object
+      additionalProperties: false
+      description: 一个发现来源的结果。失败要说清是哪一类失败，前端要能分别告诉管理员。
+      required: [source, status, count]
+      properties:
+        source:
+          type: string
+          enum: [systemd, local_listen, docker]
+        status:
+          type: string
+          enum: [ok, error]
+        error:
+          type: string
+          description: 只在 status=error 时出现（例如“没装 docker”或“docker 没在跑”）。
+        count:
+          type: integer
+          minimum: 0
+
+    AppDiscoveryCandidate:
+      type: object
+      additionalProperties: false
+      description: |
+        一个候选：本机上看起来能访问的东西，加上“面板里已经有谁登记过它”。
+
+        候选不是应用记录——它没有 id、没有版本，也不能被直接操作。登记一个候选就是
+        创建应用（`POST /apps`），用 `target_id` / `unit` / `container_id` 作为绑定。
+      required:
+        - target_id
+        - kind
+        - source
+        - name
+        - title
+        - reason
+        - observed_state
+        - listeners
+        - suggested_scheme
+        - suggested_port
+        - probe_available
+        - probe_note
+        - bound_app_id
+        - bound_app_name
+      properties:
+        target_id:
+          type: string
+          pattern: '^(local|cntr)_[a-z0-9][a-z0-9_-]{0,47}$'
+          description: 探测目标标识；可原样填进应用的 `health_check.target_id`。
+        kind:
+          type: string
+          enum: [systemd, docker, local]
+        source:
+          type: string
+          enum: [systemd, local_listen, docker]
+        name:
+          type: string
+          description: 对象名（单元名、容器名；裸监听为进程名，读不到时为空串）。
+        title:
+          type: string
+          description: 给人看的建议名称。
+        reason:
+          type: string
+          description: 凭什么把它列出来（一句话）。
+        observed_state:
+          type: string
+          enum: [running, stopped, failed, unknown]
+        listeners:
+          type: array
+          maxItems: 16
+          items:
+            $ref: '#/components/schemas/AppDiscoveryListener'
+        suggested_scheme:
+          type: string
+          enum: [http, https]
+        suggested_port:
+          type: integer
+          minimum: 0
+          maximum: 65535
+        probe_available:
+          type: boolean
+          description: 为 false 时候选照样列出（发现是真的），但不能一键配健康检查。
+        probe_note:
+          type: string
+          description: probe_available=false 的原因；为 true 时为空串。
+        unit:
+          type: string
+          description: systemd 单元名（kind=systemd 时出现）。
+        container_id:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: 容器完整 ID（kind=docker 时出现）。容器名会随重建变化，不能作为绑定依据。
+        bound_app_id:
+          type: [string, 'null']
+          pattern: '^app_[0-9a-f]{32}$'
+          description: 已登记这个目标的应用；没有就是 null。
+        bound_app_name:
+          type: [string, 'null']
+
+    AppBindingIssue:
+      type: object
+      additionalProperties: false
+      description: |
+        一条“绑定对象已经不在了”的记录。容器重建（ID 变了）只能要求重新确认，
+        面板不会因为名字相同就自动把旧应用接到新容器上。
+      required: [app_id, name, type, binding, reason]
+      properties:
+        app_id:
+          type: string
+          pattern: '^app_[0-9a-f]{32}$'
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/AppType'
+        binding:
+          type: string
+          description: 应用里记着的绑定值（单元名或容器 ID）。
+        reason:
+          type: string
+
+    AppDiscoveryData:
+      type: object
+      additionalProperties: false
+      required: [status, sources, candidates, missing_bindings, truncated]
+      properties:
+        status:
+          type: string
+          enum: [ok, partial, error]
+          description: error 表示没有任何来源成功——这份结果不能当作“本机什么都没有”。
+        error:
+          type: string
+        collected_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/AppDiscoverySource'
+        candidates:
+          type: array
+          maxItems: 500
+          description: 没有候选时是空数组，不是 null。
+          items:
+            $ref: '#/components/schemas/AppDiscoveryCandidate'
+        missing_bindings:
+          type: array
+          description: 没有失效绑定（或本机根本没有应用）时是空数组，不是 null。
+          items:
+            $ref: '#/components/schemas/AppBindingIssue'
+        truncated:
+          type: boolean
+          description: 候选超过 500 个时为 true（只列了前 500 个）。
+
+    AppHealthState:
+      type: object
+      additionalProperties: false
+      description: |
+        一次健康探测的结论（或“还没有结论”的说明）。字段集合固定，缺的是 null 而不是
+        整个键没了。
+
+        `target_id` / `scheme` / `port` / `path` 在**有结论时**是上次实际探测用的值：
+        如果之后有人改了定义，这里显示的仍是历史事实，定义在 `app.health_check` 里。
+      required:
+        - app_id
+        - enabled
+        - http_state
+        - checked_at
+        - status_code
+        - duration_ms
+        - target_id
+        - scheme
+        - port
+        - path
+        - address
+        - url
+        - last_error
+        - expected_status_codes
+        - note
+      properties:
+        app_id:
+          type: string
+          pattern: '^app_[0-9a-f]{32}$'
+        enabled:
+          type: boolean
+        http_state:
+          type: string
+          enum: [ok, error, unknown, not_applicable]
+        checked_at:
+          type: [string, 'null']
+          format: date-time
+          description: 最近一次探测时间；没启用或从没探过是 null。
+        status_code:
+          type: [integer, 'null']
+          minimum: 100
+          maximum: 599
+          description: 拿到的状态码；没拿到（连不上、超时、没发出去）是 null，不是 0。
+        duration_ms:
+          type: [integer, 'null']
+          minimum: 0
+        target_id:
+          type: string
+          description: 上次实际探测用的目标标识；从没探过时是定义里的值。
+        scheme:
+          type: string
+          enum: [http, https]
+        port:
+          type: integer
+          minimum: 0
+          maximum: 65535
+        path:
+          type: string
+        address:
+          type: [string, 'null']
+          description: 实际请求的地址（恒为 127.0.0.1）；没有发出请求时是 null。
+        url:
+          type: [string, 'null']
+          description: 实际请求的完整地址；没有发出请求时是 null。
+        last_error:
+          type: string
+          description: 失败或没有结论的原因；成功时为空串。
+        expected_status_codes:
+          type: array
+          maxItems: 8
+          description: 定义里的期望集合；空数组表示默认 200—399（不会是 null）。
+          items:
+            type: integer
+            minimum: 100
+            maximum: 599
+        note:
+          type: string
+          description: 为什么现在是这个状态（尤其是 unknown 的三种来由）。
 
     AppCapabilities:
       type: object

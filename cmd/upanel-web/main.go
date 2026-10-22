@@ -19,10 +19,12 @@ import (
 
 	"upanel/internal/agentclient"
 	"upanel/internal/api"
+	"upanel/internal/apphealth"
 	"upanel/internal/apps"
 	"upanel/internal/audit"
 	"upanel/internal/auth"
 	"upanel/internal/config"
+	"upanel/internal/discovery"
 	"upanel/internal/files"
 	"upanel/internal/logging"
 	"upanel/internal/logs"
@@ -286,6 +288,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// /share-accounts 与 /secrets 明确回 503，而不是给一份空共享列表——
 	// 空列表会被读成“这台机器上没有共享”。
 	var sharesReader api.SharesReader
+	// 应用发现与健康探测读取端（P09.2）。演示模式下保持 nil：那时 /apps/discovery
+	// 明确回 503，而不是给一份空候选列表——空列表会被读成“没有一个服务在监听”。
+	var discoveryReader api.DiscoveryReader
+	// 健康检查目标的存在性检查（P09.2 的写入期约束）与探测执行端。
+	// 这两个都只在生产模式接上：演示模式没有代理，写入带健康检查的应用会明确回 503，
+	// 而不是存下一个面板根本探不到的目标。
+	var healthTargetChecker apps.HealthTargetChecker
+	var healthProber apphealth.Prober
 	if mode == platform.ModeProduction {
 		client, err := agentclient.New(cfg.Agent.SocketPath)
 		if err != nil {
@@ -342,6 +352,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		sharesReader = sharesFetcher
+		discoveryFetcher, err := discovery.NewFetcher(client, logger)
+		if err != nil {
+			logger.Error("初始化应用发现读取端失败，拒绝启动", "error", err)
+			return 1
+		}
+		discoveryReader = discoveryFetcher
+		healthTargetChecker = discoveryFetcher
+		healthProber = discoveryFetcher
 		logger.Info("代理客户端已配置", "socket", cfg.Agent.SocketPath)
 	} else {
 		// 明确说明原因：演示模式下预检与系统信息会返回 503，而不是给一份假的数据。
@@ -355,6 +373,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// 回环入口地址只在演示模式放开：那时浏览器和面板在同一台机器上，127.0.0.1 真的能打开。
 	appsService, err := apps.New(db, apps.Options{
 		Volumes: apps.NewVolumeChecker(storageReader),
+		// 健康检查的目标必须真的是代理发现出来的东西：形状校验（local_/cntr_）挡的是
+		// 任意 host，存在性校验挡的是“一个看起来合法、其实探不到的标识”。
+		Targets: healthTargetChecker,
 		Normalize: apps.NormalizeOptions{
 			AllowLoopbackPublicURL: mode == platform.ModeMock,
 		},
@@ -362,6 +383,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		logger.Error("初始化应用元数据服务失败，拒绝启动", "error", err)
 		return 1
+	}
+
+	// 健康探测调度（P09.2）：按每个应用自己的 interval_seconds 让代理探一次，
+	// 结论落库（app_health_results）。探测只在生产模式启动——演示模式没有代理，
+	// 起一个每 5 秒空转并在库里写 unknown 的循环，只会造出一堆假结论。
+	if healthProber != nil {
+		scheduler, err := apphealth.New(appsService, healthProber, logger)
+		if err != nil {
+			logger.Error("初始化健康探测调度失败，拒绝启动", "error", err)
+			return 1
+		}
+		go scheduler.Run(ctx)
+		logger.Info("健康探测调度已启动", "tick", apphealth.DefaultTick.String())
 	}
 	opsService, err := operations.New(db, preflightAgent, logger, operations.Options{})
 	if err != nil {
@@ -393,6 +427,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Terminal:        terminalReader,
 		Shares:          sharesReader,
 		Apps:            appsService,
+		Discovery:       discoveryReader,
 		AllowedOrigins:  allowedOrigins,
 	})
 	if err != nil {

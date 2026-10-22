@@ -194,6 +194,10 @@ type App struct {
 	// Favorite 是**当前请求者**是否收藏了这个应用。它不是应用本身的属性，
 	// 读取时按用户 join 出来；没有请求者上下文时一律 false。
 	Favorite bool
+	// HealthResult 是最近一次健康探测的结论（P09.2）。为 nil 表示**从没探过**，
+	// 与“探过、结论是 unknown”不是同一件事：前者是“还没看”，后者是“看了但没结论”。
+	// 它不是元数据，删应用时随库级外键一起删掉。
+	HealthResult *HealthResult
 }
 
 // Group 是应用分组。
@@ -280,6 +284,34 @@ func HTTPStateOf(h HealthCheck) string {
 		return HTTPNotApplicable
 	}
 	return HTTPUnknown
+}
+
+// ObservedHTTPState 返回应用此刻应当显示的 HTTP 状态（P09.2）。
+//
+// 三种“不知道”要分开：
+//   - 没启用健康检查 → not_applicable（这件事不适用，不是缺数据）；
+//   - 启用了但还没探过 → unknown + last_checked_at 为 null（“还没看”）；
+//   - 探过了 → 上一次的结论（ok / error / unknown）。
+//
+// 结论可能是 error 而不是“现在一定坏了”——它说的是“上一次探测时不通”。
+// 这个字段从不假装比它知道的更多。
+func ObservedHTTPState(h HealthCheck, r *HealthResult) string {
+	if !h.Enabled {
+		return HTTPNotApplicable
+	}
+	if r == nil {
+		return HTTPUnknown
+	}
+	return r.HTTPState
+}
+
+// LastCheckedAt 返回最近一次探测时间；没探过时为 nil。
+func LastCheckedAt(h HealthCheck, r *HealthResult) *time.Time {
+	if !h.Enabled || r == nil || r.CheckedAt.IsZero() {
+		return nil
+	}
+	checked := r.CheckedAt
+	return &checked
 }
 
 // ProtectionOf 返回依赖保护状态。

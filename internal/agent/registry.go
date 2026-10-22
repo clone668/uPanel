@@ -407,6 +407,19 @@ func RegisterProductionQueries(reg *Registry, deps ProductionDeps) error {
 			return fmt.Errorf("代理登记共享查询失败: %w", err)
 		}
 	}
+	if deps.Discovery != nil {
+		// 两条一起登记：发现与探测是一对。只有 apps.discovery 的结果里能找到的
+		// target_id，apps.probe 才可能解析成功；少任何一条，健康检查就只能显示
+		// “不知道”而没有任何解释。
+		for _, q := range []Query{
+			newDiscoveryQuery(deps.Discovery),
+			newProbeQuery(deps.Discovery),
+		} {
+			if err := reg.RegisterQuery(q); err != nil {
+				return fmt.Errorf("代理登记 %s 失败: %w", q.Name, err)
+			}
+		}
+	}
 	return nil
 }
 

@@ -1,0 +1,37 @@
+== P09.2 单元测试（宿主，go test ./... -count=1）
+运行时间：2026-10-22T19:20:45Z UTC
+Go：go version go1.27.3 windows/amd64
+
+ok  	upanel/cmd/upanel-agent	2.358s
+ok  	upanel/cmd/upanel-web	4.676s
+ok  	upanel/cmd/upanelctl	4.666s
+ok  	upanel/internal/agent	43.856s
+ok  	upanel/internal/agentclient	0.985s
+ok  	upanel/internal/agentstore	9.660s
+ok  	upanel/internal/api	173.696s
+ok  	upanel/internal/apphealth	2.149s
+ok  	upanel/internal/apps	3.706s
+ok  	upanel/internal/audit	2.825s
+ok  	upanel/internal/auth	55.297s
+ok  	upanel/internal/config	1.746s
+ok  	upanel/internal/discovery	0.974s
+ok  	upanel/internal/files	0.632s
+ok  	upanel/internal/httpx	0.638s
+ok  	upanel/internal/journal	0.969s
+ok  	upanel/internal/logging	1.634s
+ok  	upanel/internal/logs	1.042s
+ok  	upanel/internal/monitoring	1.858s
+ok  	upanel/internal/operations	7.824s
+ok  	upanel/internal/platform	0.452s
+ok  	upanel/internal/processes	0.609s
+ok  	upanel/internal/services	1.129s
+ok  	upanel/internal/shares	2.468s
+ok  	upanel/internal/storage	22.860s
+ok  	upanel/internal/store	1.555s
+ok  	upanel/internal/syscmd	10.823s
+ok  	upanel/internal/terminal	0.450s
+?   	upanel/internal/testsupport	[no test files]
+ok  	upanel/internal/version	0.286s
+ok  	upanel/internal/webui	0.537s
+?   	upanel/migrations	[no test files]
+?   	upanel/migrations/agentdb	[no test files]
