@@ -14,6 +14,7 @@ import { NButton, NCard, NTag } from 'naive-ui'
 import { RouterLink } from 'vue-router'
 
 import { ApiError, get } from '@/api/client'
+import { frequentEntries, getApps, openTarget, type App } from '@/api/apps'
 import { fetchSystemSummary, type SystemSummary } from '@/api/system'
 import { attentionDevices, type StorageDeviceList } from '@/api/storage'
 import ApiErrorPanel from '@/components/ApiErrorPanel.vue'
@@ -46,6 +47,10 @@ const storagePhase = ref<Phase>('loading')
 const storageError = ref<ApiError | null>(null)
 const storage = ref<StorageDeviceList | null>(null)
 
+const appsPhase = ref<Phase>('loading')
+const appsError = ref<ApiError | null>(null)
+const apps = ref<App[]>([])
+
 const DEFAULT_INTERVAL_MS = 5000
 
 const summaryPanelState = computed(() =>
@@ -56,6 +61,16 @@ const summaryPanelState = computed(() =>
       : null,
 )
 const storagePanelState = computed(() => (storageError.value ? apiPanelState(storageError.value) : null))
+const appsPanelState = computed(() => (appsError.value ? apiPanelState(appsError.value) : null))
+
+/**
+ * 常用入口：只放**能打开**的应用（有 http/https 入口）。
+ *
+ * 首页是概览，不是应用页：把点不动的入口放上来，等于把“打不开”当成“入口”。
+ */
+const entries = computed(() => frequentEntries(apps.value, 8))
+/** 入口异常的条数：只有真的探测过并拿到结论的才算，unknown 不算异常。 */
+const httpErrors = computed(() => apps.value.filter((item) => item.http_state === 'error').length)
 
 const diskCount = computed(() => storage.value?.devices.filter((d) => d.kind === 'disk').length ?? 0)
 const needsAttention = computed(() => attentionDevices(storage.value?.devices ?? []).length)
@@ -126,9 +141,26 @@ async function loadStorage(): Promise<void> {
   }
 }
 
+/** 常用入口与应用异常摘要。读不到应用不该让概览整页失败，所以它有自己的状态。 */
+async function loadApps(): Promise<void> {
+  try {
+    const result = await getApps({ limit: 200 })
+    apps.value = result.data.items
+    appsPhase.value = 'ready'
+    appsError.value = null
+  } catch (caught) {
+    if (caught instanceof ApiError) {
+      appsError.value = caught
+      appsPhase.value = 'error'
+      return
+    }
+    throw caught
+  }
+}
+
 /** 两份快照并行取，互不阻塞；各自的失败各自显示。 */
 async function refreshAll(): Promise<void> {
-  await Promise.all([loadSummary(), loadStorage()])
+  await Promise.all([loadSummary(), loadStorage(), loadApps()])
 }
 
 const poller: Poller = createPoller(refreshAll, {
@@ -226,10 +258,61 @@ onBeforeUnmount(() => {
       </div>
     </NCard>
 
+    <NCard title="常用入口" size="small">
+      <template #header-extra>
+        <RouterLink to="/apps">全部应用 →</RouterLink>
+      </template>
+
+      <StatePanel v-if="appsPhase === 'loading'" state="loading" title="正在读取应用列表" />
+      <StatePanel
+        v-else-if="appsPanelState && appsError"
+        :state="appsPanelState"
+        :description="appsError.message"
+        :code="appsError.code"
+        :request-id="appsError.requestId"
+        :retryable="retryablePanelState(appsPanelState)"
+        @retry="loadApps"
+      />
+      <div v-else class="overview__apps">
+        <p class="overview__line">
+          共 <strong>{{ apps.length }}</strong> 个应用，其中
+          <strong>{{ entries.length }}</strong> 个能一键打开。
+          <span v-if="httpErrors > 0" class="overview__meta">
+            （{{ httpErrors }} 个入口探测异常，详情见应用页）
+          </span>
+        </p>
+
+        <StatePanel
+          v-if="entries.length === 0"
+          state="empty"
+          title="还没有能打开的入口"
+          description="应用页可以把本机发现到的服务确认成应用，或者手动登记一条带入口地址的应用。"
+        />
+        <div v-else class="overview__entries" data-testid="overview-app-entries">
+          <a
+            v-for="app in entries"
+            :key="app.id"
+            class="overview__entry"
+            :href="openTarget(app).href"
+            target="_blank"
+            rel="noopener noreferrer"
+            :data-app="app.id"
+          >
+            <span class="overview__entry-name">{{ app.name }}</span>
+            <span class="overview__entry-url">{{ app.public_url }}</span>
+          </a>
+        </div>
+
+        <p class="overview__meta">
+          收藏过的应用排在前面；入口地址是登记时的 public_url，可能与面板本身不在同一个域名。
+        </p>
+      </div>
+    </NCard>
+
     <NCard title="尚未接入" size="small">
       <p class="overview__line">
-        异常服务、应用状态、待更新与最近任务在后续阶段接入；没有接入之前，
-        它们不出现在导航里，这里也不显示任何示例数字。
+        异常服务汇总、待更新与最近任务在后续阶段接入；没有接入之前，它们不出现在导航里，
+        这里也不显示任何示例数字。
       </p>
     </NCard>
   </section>
@@ -256,10 +339,40 @@ onBeforeUnmount(() => {
 }
 
 .overview__health,
-.overview__storage {
+.overview__storage,
+.overview__apps {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.overview__entries {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+  margin: 6px 0;
+}
+
+.overview__entry {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid rgba(128, 128, 128, 0.28);
+  border-radius: 9px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.overview__entry-name {
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.overview__entry-url {
+  font-size: 12px;
+  opacity: 0.75;
+  word-break: break-all;
 }
 
 .overview__line {

@@ -29,7 +29,14 @@ export const MODULES: readonly ModuleDef[] = [
     implementedIn: 'P04.4',
     summary: '主机、CPU、内存、负载、网络与磁盘概要；服务、应用与更新在后续阶段接入。',
   },
-  { key: 'apps', label: '应用', path: '/apps', implementedIn: null, summary: 'Web 应用与部署管理' },
+  {
+    key: 'apps',
+    label: '应用',
+    path: '/apps',
+    implementedIn: 'P09.5',
+    summary:
+      '应用卡片与一键打开：运行时状态与入口状态分开显示，按分组与搜索整理，启停走预检与任务；本机候选确认成应用，依赖卷接管情况逐条写明。',
+  },
   {
     key: 'storage',
     label: '存储',

@@ -1,0 +1,246 @@
+== 0. 环境与安全守卫 ==
+      系统：Ubuntu 24.04.5 LTS
+PASS  以 root 运行
+PASS  Web 运行身份存在（upanel-web）
+PASS  Web 身份不在 docker 组
+PASS  python3 可用（解析 JSON）
+      docker 版本：29.1.3
+PASS  夹具镜像已在本机（alpine:3.20）
+PASS  端口 19495 空闲
+PASS  端口 18895 空闲
+PASS  端口 18896 空闲
+PASS  端口 18897 空闲
+      服务器非回环地址：10.0.2.15（入口地址用它，不用 127.0.0.1）
+
+== 1. 配置与启动（代理 root、Web 非 root） ==
+      沿用已有的代理数据库（保留受管理卷登记）
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19495 启动
+PASS  监听 19495 的 Web 进程不是 root（pid=103385 uid=999）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+
+== 2. 夹具：容器与 systemd 单元 ==
+PASS  日志容器 running
+PASS  200 容器直接给出 200（独立证据：curl 不打产品）
+PASS  500 容器直接给出 500（独立证据）
+PASS  gated 容器已停止（门禁夹具）
+PASS  站点容器在服务器地址上作答（入口地址指向它）
+PASS  …同一端口在回环上没有东西（证明入口不是回环）
+PASS  夹具单元 upn-p095-svc.service 已 enabled 并启动
+PASS  独立证据：systemctl 报告夹具单元 active
+PASS  服务快照里已经能看到夹具单元（等采集跟上）
+
+== 3. 应用矩阵：能力来自底层对象，不是来自类型 ==
+PASS  入口（link）应用创建
+PASS  link 的 public_url 就是服务器地址
+PASS  link 的 runtime_state
+PASS  link 的 runtime_note 是 null（没有话要说）
+PASS  link 的 dependency_protection
+PASS  link 的 http_state
+PASS  link 只有 open 能力（启停日志全 false → 卡片上没有启停按钮）
+PASS  入口（link）应用创建：下载站
+PASS  …它的入口地址此刻真的作答 200（独立证据：curl 打服务器地址）
+PASS  入口（link）应用创建：图库
+PASS  …它的入口地址此刻真的作答 200
+PASS  systemd 应用（绑在 running 的单元上）创建
+PASS  systemd(running) 的 runtime_state
+PASS  运行中的单元不出现 start 能力
+PASS  运行中的单元出现 stop 能力
+PASS  运行中的单元出现 restart 能力
+PASS  systemd 应用能读日志
+PASS  没有 public_url 时 open 能力是 false（卡片上不是锚点）
+PASS  受保护单元（ssh.service）建应用
+PASS  受保护单元的 runtime_state 照样是 running
+PASS  受保护单元三项生命周期能力全 false
+PASS  但受保护单元仍能读日志（读日志不是写操作）
+PASS  绑定不存在的单元创建
+PASS  绑定不存在的单元 → runtime_state=unknown（不是 stopped）
+PASS  …note 要求重新确认绑定
+PASS  …三项生命周期能力全 false
+PASS  docker 应用（日志容器）创建
+PASS  docker(running) 的 runtime_state
+PASS  docker(running) 不出现 start 能力
+PASS  docker(running) 出现 stop 能力
+PASS  docker(running) 能读日志
+PASS  docker 应用（stopped 的容器）创建
+PASS  docker(stopped) 的 runtime_state
+PASS  docker(stopped) 出现 start 能力
+PASS  docker(stopped) 不出现 stop 能力
+PASS  独立证据：apps.binding_json 里是完整容器 ID
+
+== 4. 状态区分：运行时与 HTTP 各说各的 ==
+PASS  发现结果里找到了 200 容器的目标标识（cntr_upn-p095-ok，建议端口 18896）
+PASS  发现出来的宿主端口就是夹具发布的那个
+PASS  docker 应用（带健康检查，指向 200 容器）创建
+PASS  健康探测得出结论：ok
+PASS  …状态码 200
+PASS  …探测实际请求的地址恒为 127.0.0.1
+PASS  …完整 URL 在回环上
+PASS  …http_state 在应用摘要里也是 ok
+PASS  发现结果里找到了 500 容器的目标标识（cntr_upn-p095-500，建议端口 18895）
+PASS  docker 应用（带健康检查，指向 500 容器）创建
+PASS  健康探测得出结论：error
+PASS  …拿到的状态码是 500（不是 0，也不是 null）
+PASS  …同时 runtime_state 仍是 running（在跑，但不健康）
+PASS  …http_state 在应用摘要里是 error
+PASS  …last_checked_at 有值
+PASS  …卡片照旧给得出 stop（能停一个不健康的服务）
+
+== 5. 重建：ID 变了就是看不见，要求重新确认 ==
+PASS  重建前的容器应用创建
+PASS  重建前 runtime_state
+PASS  重建出来的容器 ID 与旧的不同（独立证据）
+PASS  旧绑定 → runtime_state=unknown
+PASS  …note 说明容器可能已被重建、要重新确认绑定
+PASS  …不出现 start 能力（看不见的容器没有按钮）
+PASS  …也不给日志能力
+PASS  …名字相同但不自动接手（库里仍是旧 ID）
+PASS  …发现结果把它列进 missing_bindings（页面据此点名要求重新确认）
+
+== 6. 入口是服务器地址，探测只走回环（SSRF 是结构性的） ==
+PASS  入口地址是回环 → 400
+PASS  …错误码 VALIDATION_ERROR
+PASS  …说明回环入口会被打开成访问者自己的机器
+PASS  入口地址是 localhost → 400
+PASS  入口地址带用户名密码 → 400
+PASS  入口地址是 javascript: → 400
+PASS  把云元数据地址填进 target_id → 400
+PASS  …错误码 VALIDATION_ERROR
+PASS  把主机名填进 target_id → 400
+PASS  把完整 URL 填进 target_id → 400
+PASS  形状对但目标不在发现结果里 → 422
+PASS  …错误码 VALIDATION_ERROR（明确说目标不在发现结果里）
+PASS  …消息里点名 target_id
+PASS  path 里塞完整 URL → 400
+PASS  …错误码 VALIDATION_ERROR
+
+== 7. 分组与收藏：页面分桶的输入 ==
+PASS  建分组「基础设施」
+PASS  建分组「媒体」
+PASS  重名分组 → 422
+PASS  …错误码 VALIDATION_ERROR
+PASS  把 systemd 应用放进「基础设施」
+PASS  把日志容器应用放进「基础设施」
+PASS  把媒体库放进「媒体」
+PASS  把图库放进「媒体」（这个分组里就有两条了）
+PASS  列表载荷是 {items, next_cursor}
+PASS  按分组过滤 → 200
+PASS  …只有这个分组的两条
+PASS  …每一条的 group_id 都是它
+PASS  形状对但不存在分组 → 200 且空（不报错）
+PASS  …空列表
+PASS  形状不对的 group_id → 400（不静默变成空）
+PASS  …错误码 VALIDATION_ERROR，说清是 group_id
+PASS  …消息点名出问题的是分组标识（不缩写成一个“参数错误”）
+PASS  GET /apps?q=… 仍返回 200（服务端没有搜索参数）
+PASS  …结果集与不带 q 时一样大（搜索是页面的事）
+PASS  收藏入口应用
+PASS  …返回 {favorite:true}
+PASS  收藏媒体库
+PASS  取消收藏再收藏是幂等的（不报冲突、不需要 version）
+PASS  两条应用在 admin 的列表里是收藏
+PASS  删除非空分组 → 422
+PASS  …错误码 DEPENDENCY_BLOCKED
+PASS  …说明先把应用移出去
+PASS  …分组里的应用没有被顺手移走
+PASS  建临时分组
+PASS  删空分组 → 200
+PASS  …列表里不再有它
+PASS  重命名「媒体」并调前排序
+PASS  分组列表按 sort_order 升序（影音在前）
+PASS  …分组名是改后的
+PASS  …排序值都 >= 0（契约的最小值）
+
+== 8. 启停真的走预检与任务（service.control） ==
+PASS  stop 预检
+PASS  …预检允许（受保护名单里没有它）
+PASS  …任务终态
+PASS  …结果经过核验（verified）
+PASS  …独立证据：systemctl 报告单元 inactive
+PASS  …任务结果里的操作是 stop
+PASS  …执行后读数里的 active_state 是 inactive
+PASS  停机之后卡片上应该出现 start、不出现 stop
+PASS  start 预检
+PASS  …预检允许
+PASS  …任务终态
+PASS  …独立证据：systemctl 报告单元 active
+PASS  启动之后卡片上应该出现 stop、不出现 start
+PASS  对受保护单元 stop：预检仍 200（判决在 allowed 里）
+PASS  …allowed=false
+PASS  …没有提交出任务
+PASS  …独立证据：ssh.service 还在跑
+
+== 9. 依赖卷离线：受管理应用不许启动 ==
+      依赖卷夹具用分区：sdc1
+PASS  导入卷的预检
+PASS  …预检允许
+PASS  导入卷任务终态
+PASS  …卷标识是 vol_ 形状
+PASS  …登记之后它确实未挂载（这就是门禁夹具）
+PASS  给 stopped 容器加上依赖卷
+PASS  docker(restart=no) + 依赖卷 → managed
+PASS  …note 说明容器不会自己启动
+PASS  …runtime_state 与 protection 是两件事（stopped + managed）
+PASS  always 容器建应用（带依赖卷）
+PASS  docker(restart=always) + 依赖卷 → unmanaged
+PASS  …note 点明是 restart 策略绕开了面板
+PASS  start 预检仍返回 200（判决在 allowed 里，不是 HTTP 错误）
+PASS  …allowed=false
+PASS  …阻塞码是 VOLUME_OFFLINE
+PASS  …阻塞项里写着卷标识
+PASS  提交被门禁拦住的预检 → 409
+PASS  …错误码 DEPENDENCY_BLOCKED
+PASS  …容器没有被启动（独立证据：docker 报告 exited）
+PASS  给 running 的日志容器也加上同一个依赖卷
+PASS  stop 预检
+PASS  …stop 不被门禁拦住（allowed=true）
+PASS  …也没有 VOLUME_ 开头的阻塞项
+PASS  挂载夹具卷：任务终态
+PASS  …卷现在挂着（observed_state）
+PASS  正对照：卷挂着时 allowed=true（门禁没拦）
+PASS  正对照：没有任何 VOLUME_ 阻塞项
+PASS  卷挂着时 protection 仍是 managed（看的是重启策略）
+PASS  卸载夹具卷：任务终态
+
+== 10. 权限：viewer 能看能收藏，不能改 ==
+PASS  建 viewer 账号
+PASS  viewer 登录
+PASS  viewer 读应用列表（摘要可见）
+PASS  viewer 读分组列表
+PASS  viewer 读发现结果 → 403（本机监听与容器是侦察材料）
+PASS  viewer 建应用 → 403
+PASS  viewer 建分组 → 403
+PASS  viewer 读应用日志 → 403
+PASS  viewer 收藏媒体库 → 200
+PASS  …viewer 自己的列表里它是收藏
+PASS  …admin 的列表里它仍是未收藏（收藏按用户存）
+PASS  匿名读应用列表 → 401
+PASS  匿名收藏 → 401
+
+== 11. 抓取页面载荷（供 vitest 回放） ==
+PASS  systemd 应用日志
+PASS  …source=journal
+PASS  …unit 来自绑定
+PASS  …有条目（夹具单元每 5 秒写一行）
+PASS  docker 应用日志
+PASS  …source=docker
+PASS  …container_id 来自绑定
+PASS  …有条目（夹具容器每 5 秒写一行）
+PASS  应用列表（全量）
+      夹具落在 /var/tmp/upanel-accept-p09-5/fixtures：app-docker-500.json app-docker-always.json app-docker-gated-dep.json app-docker-gated.json app-docker-logs-dep.json app-docker-logs-grouped.json app-docker-logs.json app-docker-ok-grouped.json app-docker-ok.json app-docker-rebuild.json app-groups.json app-link-files.json app-link-media-grouped.json app-link-media.json app-link.json app-logs-docker.json app-logs-journal.json app-sysd-grouped.json app-sysd-missing.json app-sysd-ssh.json app-sysd-started.json app-sysd-stopped.json app-sysd.json apps.json discovery-rebuild.json discovery.json health-error.json health-ok.json job-appstart.json job-appstop.json job-volimport.json job-volmount.json job-volunmount.json preflight-appstart.json preflight-appstop.json preflight-sshstop.json preflight-start-gated.json preflight-start-mounted.json preflight-stop-running.json preflight-volimport.json preflight-volmount.json preflight-volunmount.json 
+
+== 12. 收尾：把登记的夹具卷退出管理，删夹具应用 ==
+PASS  退出管理：预检
+PASS  …任务终态
+PASS  …独立证据：fstab 里不再有它的 UUID
+PASS  …独立证据：卷列表里不再有它
+PASS  夹具应用已全部删除
+PASS  夹具分组已全部删除
+      容器与 systemd 夹具单元由 trap cleanup 删除（含重建过的那个）
+
+== 汇总 ==
+PASS 211 / FAIL 0 / NOT RUN 0

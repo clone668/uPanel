@@ -307,3 +307,84 @@ export function summarizeShareJob(job: Pick<JobDTO, 'status' | 'result' | 'error
       : '任务已成功，下面是执行后的现场读数'
   return { ok: true, headline, lines, hint }
 }
+
+// ---------------------------------------------------------------- 应用启停
+
+/**
+ * 一次应用启停的结果翻译（P09.5）。
+ *
+ * 与应用页其它地方同一个口径：**运行状态与入口状态是两件事**。所以这里只报运行时那一侧
+ * 的读数（单元/容器的状态、期望值、有没有读回来核对过），绝不说“应用已恢复”——
+ * 入口通不通要看下一次健康探测，不在这条任务里。
+ *
+ * 两个动作（service.control / container.control）的字段名不同但语义一致：
+ * `active_state` ↔ `state`，`enablement` 只在单元上有。按存在性读，不按动作名分叉。
+ */
+const APP_CONTROL_OUTCOME_LABELS: Record<string, string> = {
+  verified: '执行后读回来的状态与期望一致',
+  unknown: '执行完了，但读回来的状态与期望不一致',
+}
+
+export function summarizeAppJob(
+  job: Pick<JobDTO, 'status' | 'result' | 'error'>,
+): JobOutcomeSummary {
+  const error = asRecord(job.error)
+  const errorMessage = readString(error, 'message')
+  const hint = readString(error, 'recovery_hint')
+
+  if (job.status !== 'succeeded') {
+    const headline =
+      job.status === 'interrupted'
+        ? '任务被中断，结果未知：先刷新应用状态再决定，不要盲目再点一次'
+        : job.status === 'canceled'
+          ? '任务已取消'
+          : '任务失败'
+    return { ok: false, headline, lines: errorMessage === null ? [] : [errorMessage], hint }
+  }
+
+  const result = asRecord(job.result) ?? {}
+  const observed = asRecord(result['observed_state'])
+  const data = asRecord(result['data'])
+  const lines: string[] = []
+
+  const outcome = readString(result, 'outcome')
+  if (outcome !== null) lines.push(APP_CONTROL_OUTCOME_LABELS[outcome] ?? `服务端结论：${outcome}`)
+
+  const unit = readString(observed, 'unit')
+  if (unit !== null) lines.push(`单元：${unit}`)
+  const containerId = readString(observed, 'container_id')
+  if (containerId !== null) lines.push(`容器：${containerId.slice(0, 12)}…`)
+
+  const operation = readString(observed, 'operation')
+  if (operation !== null) lines.push(`执行的动作：${operation}`)
+
+  const previous = readString(observed, 'previous_state')
+  const after = readString(observed, 'active_state') ?? readString(observed, 'state')
+  if (after !== null) {
+    lines.push(previous === null ? `现在：${after}` : `状态：${previous} → ${after}`)
+  }
+  const subState = readString(observed, 'sub_state')
+  if (subState !== null) lines.push(`子状态：${subState}`)
+  const enablement = readString(observed, 'enablement')
+  if (enablement !== null) lines.push(`开机启动：${enablement}`)
+  const expected = readString(observed, 'expected')
+  if (expected !== null) lines.push(`期望的状态：${expected}`)
+
+  const verified = readBool(observed, 'verified')
+  if (verified !== null) {
+    lines.push(verified ? '执行后重新读了一遍，状态与期望一致' : '执行后重新读了一遍，状态与期望不一致')
+  }
+
+  const exitCode = data?.['exit_code']
+  if (typeof exitCode === 'number') lines.push(`外部命令退出码：${exitCode}`)
+  const stderr = readString(data, 'stderr')
+  if (stderr !== null) lines.push(`命令输出（stderr）：${stderr}`)
+  const stdout = readString(data, 'stdout')
+  if (stdout !== null) lines.push(`命令输出：${stdout}`)
+
+  const headline =
+    lines.length === 0
+      ? '任务已成功，但代理没有返回可展示的现场读数；请刷新应用列表确认'
+      : '任务已成功，下面是执行后的现场读数（入口通不通要看下一次健康探测）'
+  return { ok: true, headline, lines, hint }
+}

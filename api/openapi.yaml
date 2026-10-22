@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: uPanel API
-  version: 0.0.0-p09.4
+  version: 0.0.0-p09.5
   summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
   description: |
     uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。
@@ -1637,7 +1637,11 @@ paths:
         - name: group_id
           in: query
           required: false
-          description: 只返回该分组下的应用；形状不对按“没有这个分组”过滤，不报错。
+          description: |
+            只返回该分组下的应用。形状对但分组不存在 → 200 + 空数组（“这个分组里没有应用”，
+            与“分组被清空了”是同一件事，不报错）；形状不对（不是 `grp_` 加 32 位小写十六进制）
+            → 400 `VALIDATION_ERROR`。被默默忽略的过滤器比报错更危险：调用方会以为自己在看
+            某个分组，实际看的是全部——这与 §3“读不到不能变成没有”是同一条纪律。
           schema:
             type: string
             pattern: '^grp_[0-9a-f]{32}$'

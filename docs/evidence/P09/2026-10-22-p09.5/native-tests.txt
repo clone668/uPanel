@@ -1,0 +1,98 @@
+--- go test (count=1，不吃缓存)
+ok  	upanel/cmd/upanel-agent	1.612s
+ok  	upanel/cmd/upanel-web	2.442s
+ok  	upanel/cmd/upanelctl	2.190s
+ok  	upanel/internal/agent	25.309s
+ok  	upanel/internal/agentclient	1.640s
+ok  	upanel/internal/agentstore	4.124s
+ok  	upanel/internal/api	105.360s
+ok  	upanel/internal/apphealth	1.347s
+ok  	upanel/internal/appruntime	1.025s
+ok  	upanel/internal/apps	1.973s
+ok  	upanel/internal/audit	1.122s
+ok  	upanel/internal/auth	31.545s
+ok  	upanel/internal/config	0.806s
+ok  	upanel/internal/containers	0.810s
+ok  	upanel/internal/discovery	1.250s
+ok  	upanel/internal/files	0.684s
+ok  	upanel/internal/httpx	0.783s
+ok  	upanel/internal/journal	0.878s
+ok  	upanel/internal/logging	0.617s
+ok  	upanel/internal/logs	1.245s
+ok  	upanel/internal/monitoring	0.866s
+ok  	upanel/internal/operations	3.599s
+ok  	upanel/internal/platform	0.502s
+ok  	upanel/internal/processes	0.863s
+ok  	upanel/internal/services	1.448s
+ok  	upanel/internal/shares	1.465s
+ok  	upanel/internal/storage	11.632s
+ok  	upanel/internal/store	1.202s
+ok  	upanel/internal/syscmd	11.235s
+ok  	upanel/internal/terminal	0.814s
+?   	upanel/internal/testsupport	[no test files]
+ok  	upanel/internal/version	0.509s
+ok  	upanel/internal/webui	0.909s
+?   	upanel/migrations	[no test files]
+?   	upanel/migrations/agentdb	[no test files]
+
+--- go vet
+exit=0
+
+--- node v22.23.3 / npm 10.9.9
+--- web: npm run test
+
+> upanel-web@0.0.0 test
+> vitest run
+
+
+ RUN  v5.0.5 H:/Code/uPanel/web
+
+ ✓ src/api/files.test.ts (39 tests) 108ms
+ ✓ src/api/services.test.ts (13 tests) 55ms
+ ✓ src/components/realdata-logs.test.ts (24 tests) 103ms
+ ✓ src/api/volumes.test.ts (22 tests) 66ms
+ ✓ src/components/realdata-p08-4.test.ts (27 tests) 81ms
+ ✓ src/components/realdata-storage-write.test.ts (5 tests) 78ms
+ ✓ src/components/shares.test.ts (23 tests) 104ms
+ ✓ src/components/realdata-p07-5.test.ts (16 tests) 94ms
+ ✓ src/components/realdata-files.test.ts (27 tests) 133ms
+ ✓ src/components/files.test.ts (15 tests) 111ms
+ ✓ src/components/realdata-p09-5.test.ts (51 tests) 148ms
+ ✓ src/components/storage-write.test.ts (24 tests) 140ms
+ ✓ src/api/terminal.test.ts (17 tests) 79ms
+ ✓ src/api/system.test.ts (5 tests) 46ms
+ ✓ src/api/preflights.test.ts (10 tests) 81ms
+ ✓ src/api/shares.test.ts (27 tests) 47ms
+ ✓ src/api/storage.test.ts (16 tests) 76ms
+ ✓ src/api/processes.test.ts (12 tests) 51ms
+ ✓ src/api/client.test.ts (12 tests) 88ms
+ ✓ src/utils/format.test.ts (27 tests) 59ms
+ ✓ src/api/apps.test.ts (32 tests) 52ms
+ ✓ src/utils/polling.test.ts (5 tests) 20ms
+ ✓ src/api/logs.test.ts (21 tests) 22ms
+ ✓ src/utils/jobresult.test.ts (21 tests) 18ms
+ ✓ src/api/storage-write.test.ts (27 tests) 18ms
+ ✓ src/router/redirect.test.ts (4 tests) 7ms
+ ✓ src/api/jobs.test.ts (17 tests) 16ms
+ ✓ src/components/logs.test.ts (7 tests) 47ms
+ ✓ src/api/jobstream.test.ts (19 tests) 17ms
+ ✓ src/modules/registry.test.ts (7 tests) 13ms
+ ✓ src/router/routes.test.ts (6 tests) 8ms
+ ✓ src/utils/viewstate.test.ts (7 tests) 9ms
+ ✓ src/api/errors.test.ts (5 tests) 8ms
+ ✓ src/stores/mode.test.ts (5 tests) 8ms
+ ✓ src/components/storage.test.ts (24 tests) 161ms
+ ✓ src/components/realdata-processes.test.ts (31 tests) 191ms
+ ✓ src/components/realdata.test.ts (17 tests) 177ms
+ ✓ src/components/services.test.ts (14 tests) 76ms
+ ✓ src/components/realdata-services.test.ts (22 tests) 82ms
+ ✓ src/components/panels.test.ts (17 tests) 45ms
+
+ Test Files  40 passed (40)
+      Tests  720 passed (720)
+   Start at  06:55:25
+   Duration  3.16s (import 76%, tests 13%, transform 9%, worker 1%)
+
+    Isolate  40 workers spawned · ~355ms startup each (spawn + environment, per file)
+             at least ~591ms faster with isolate: false — reuses workers across files instead of one per file
+
