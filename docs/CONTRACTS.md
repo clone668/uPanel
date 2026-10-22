@@ -504,7 +504,8 @@ POSIX ACL 的准备与核验、共享定义与配置版本（渲染块的 sha256
 代价远小于两个只差一个过滤条件的入口各自演化。能力报告与列表一起返回，是因为分成两次请求时
 中间会出现一小段时间界面显示“已启用、已生效”，而 Samba 那边还没有这一段。
 
-未实现（P08.2/P08.3）：`GET /shares/:id/connections`、配置写入与重载、连接状态、运行时脱盘撤销。
+未实现（P08.3 起）：运行时脱盘撤销、启动依赖、共享与卷的绑定检查。配置写入、最小 include、
+testparm 校验、重载与连接状态在 §7.2（P08.2）。
 
 五个动作的 P08.1 执行结果：
 
@@ -560,6 +561,8 @@ PLAN.md 第 10 节是明确禁止的。`read_only` 为真时每个账号的 ACL 
 | `SHARE_PATH_ESCAPES_VOLUME` | 阻塞 | 规范化后的真实路径不在卷挂载点里面 |
 | `SHARE_PATH_SYMLINK` | 阻塞 | 路径上有符号链接；初期一律拒绝跟随 |
 | `SHARE_PATH_NOT_DIRECTORY` | 阻塞 | 目标存在但不是目录 |
+| `SHARE_PATH_NOT_TRAVERSABLE` | 告警 | 共享路径上有一级上级目录缺 other 的 `x` 位，共享账号进不去；应用时会补成 `0711`（只加穿越，不加读取与列出） |
+| `SHARE_HOSTS_ALLOW_LOOPBACK` | 告警 | `allowed_cidrs` 里没有 `127.0.0.0/8`：Samba 仍然放行本机，这份名单管不住本机连进来的访问 |
 | `SHARE_NO_USERS` | 阻塞 | `smb_users` 为空（会退化成 guest） |
 | `ACCOUNT_MISSING` | 阻塞 | 定义引用了不存在的账号 |
 | `ACCOUNT_NOT_MANAGED` | 阻塞 | 同名账号在系统上存在但不是面板创建的；拒绝静默接管 |
@@ -610,6 +613,118 @@ has_password、uid、gid、shell、home、secret_ref、version、时间戳）都
 描述的是**这台主机**的状态；Web 侧的 SQLite 保存的是人、会话与任务。两张表**没有密码列、没有
 哈希列**，将来也不会加：明文只在秘密通道里流动一次，之后以密文存在代理秘密表里。`shares.volume_id`
 是外键，因此一个被共享引用的卷无法被删除（P08.3 会把它变成一句人话的阻塞项，而不是数据库错误）。
+
+### 7.2 P08.2 已实现范围：托管配置、重载与连接状态
+
+P08.2 补上“写入与生效”这一半：面板把共享写进**自己独占的一份托管配置文件**，在主配置末尾
+接一行 include，用 testparm 校验候选与合并结果，原子替换并重载，然后读回核对。本阶段新增
+一个端点：
+
+| 端点 | 代理查询 | 说明 |
+|---|---|---|
+| `GET /shares/:id/connections` | `share.connections` | 这条共享此刻的连接状态；形状不对 400、不存在 404 |
+
+**托管配置的架构**（这是本阶段唯一允许改动 Samba 配置的方式）：
+
+- 面板独占的文件是 `/etc/samba/upanel.d/upanel.conf`。所有共享段都写在里面，**整份重写**，
+  不做局部编辑——局部编辑要靠文本定位，而文本定位在“别人的文件里”是错的。
+- `smb.conf` 只被追加**一行** `include = /etc/samba/upanel.d/upanel.conf`（另加一行说明注释），
+  且只追加在**末尾**。Samba 里靠后的 `[global]` 胜出，所以接在末尾能覆盖前面遗留的全局设置；
+  接在开头则可能被后面的段落反覆盖。
+- 已有的第三方共享与全局设置**一律保留**：面板不改、不删、不移动任何既有行。诊断上提供
+  `SHARE_NAME_TAKEN_BY_SYSTEM`（同名段已在既有配置里）与 `SHARE_CONFIG_DRIFT`（托管文件与
+  登记表不一致）两条告警，但都不会自动去改别人的配置。
+
+**写入流水线**（每一步都是可断言的，顺序固定）：
+
+1. 渲染托管文件内容（禁用/未登记的共享不渲染）；
+2. 写候选文件 `upanel.conf.upanel-new`（`fsync` 到磁盘）；
+3. `testparm -s <候选>` —— 候选自己先得过；
+4. 备份现行托管文件与主配置（`/var/lib/upanel-agent/smb-backups/`，`<时间戳>-<hash12>.<原名>`）；
+5. `rename` 换上去，然后 `fsync` 目录（掉电后 rename 是否持久取决于这一步）；
+6. 若主配置还没有 include 行，在同一次文件序列里追加它（备份在前）；
+7. `testparm -s <smb.conf>`——**合并后**的主配置还得过（本阶段无条件执行）；
+8. `smbcontrol all reload-config`（仅在 smbd 为 active 时）；
+9. 读回：托管文件里每个段的 `path` 与 `valid users` 用
+   `testparm -s --section-name=X --parameter-name=Y` 核对，而不是回头读我们自己写的文本。
+
+任何一步失败都回滚到备份（配置与 include 一起回滚），并返回闭集里的失败码，不会留下半份配置。
+
+**幂等与重载**。渲染结果与文件里已有的字节完全相同时**不写、不备份、不重载**：报告里是
+`file=unchanged`、`reload=skipped_unchanged`。它与 `skipped_service_inactive` 分开记——一个是
+“不需要做”，一个是“做不了”；混成一个值，页面就解释不了一次幂等重放为什么没有重载。
+
+**缺 testparm 时仍允许“只删不增”**。检测不到 testparm/smbcontrol 时 `config_write=unsupported`，
+但那不等于什么都做不了：如果这次渲染的结果是“只从现有内容里删掉若干段”（前缀与空内容完全
+相同、且每一段都逐字出现在旧文件里），就允许写入。理由是不能让一台缺工具的机器**失去停掉
+暴露面的能力**，而删行不可能引入语法错误。任何新增或改动都必须照常过 testparm。
+
+**`served` 的定义**（`observed.served`、任务 `data.served`）：托管段写进去了（或本来就在）、
+include 接上了、合并后 testparm 通过、smbd 为 active、重载 `done` 或 `skipped_unchanged`。
+四条都成立才是 `true`。同时 `config_applied` 只说“这一条共享的段在托管文件里”——它**不等于**
+可用：服务没在跑、或重载失败时，配置写对了也提供不了任何访问。
+
+因此执行结果的 `outcome`：`served=true` 时是 `verified`，否则是 `accepted`（配置写下去了、但
+此刻没有对外提供访问）。smbd 没在运行时**不**回滚：配置是对的，等它起来就生效，回滚反而会
+把一份正确的配置丢掉；报告里用 `reload=skipped_service_inactive`、`served=false` 加一条
+`SMB_SERVICE_INACTIVE` 告警说清楚。
+
+**目录权限的两种语义**（真机抓出的缺陷，见 DECISIONS Q233）。共享目录自己按 `0700` 创建，
+再由 `setfacl` 把具体账号放进去（先紧后松）；它**上级**的每一级按 `0711` 创建——只有 `x`，
+没有 `r`/`w`。原因：共享账号不是上级目录的属主、也不在它的属组里，能不能穿过去只看 other 的
+`x` 位；`0700` 的上级会让客户端在 `put` 时拿到 `NT_STATUS_ACCESS_DENIED`，而目标目录的 ACL
+一条不差、`testparm` 读回的 `path` 一字不差。早于这条规则建出来的 `0700` 上级在下次应用时被
+补成 `0711`，修过哪几级写在 `observed.path_traversal_repaired` 里；预检则以
+`SHARE_PATH_NOT_TRAVERSABLE` 告警事先说明，且**不阻塞**——这些目录是面板自己建的，挡住的是
+面板自己创建的账号，属于面板该修的东西。
+
+**`allowed_cidrs` 的真实边界**（真机验证，见 DECISIONS Q234）。`allowed_cidrs` 渲染成
+Samba 的 `hosts allow`，按来源地址过滤，**但挡不住本机**：`man 5 smb.conf` 的 `hosts allow`
+一节写着 "the localhost address 127.0.0.1 will always be allowed access unless specifically
+denied by a hosts deny option"。真机上 `allowed_cidrs=["10.0.0.0/24"]` 的共享，本机
+`smbclient` 照样列得出目录，而从 `10.99.0.2` 连进来是 `NT_STATUS_ACCESS_DENIED`。
+面板不偷偷补 `hosts deny = 127.0.0.1`：那会把面板自己依赖的本地通道一并关掉，是一次没人
+要求的语义改变。做法是**说出来**——名单不覆盖环回时给一条 `SHARE_HOSTS_ALLOW_LOOPBACK` 告警。
+
+**并发**：托管文件是整份重写的，因此所有写共享的动作都额外取一把全局锁 `samba:config`
+（与 `share:<id>`、`volume:<id>` 一起）。没有这把锁，两个并发的应用会互相擦掉对方的段。
+
+**连接状态**。`GET /shares/:id/connections` 读 `smbstatus --json`，按共享名过滤树连接，
+与会话靠 `session_id` 关联（树连接说共享与机器，会话说账号、方言与签名），打开文件数按
+`service_path` 归并。返回体：`share_id`、`share_name`、`service`（`active`/`inactive`/`unknown`）、
+`connections[]`（`share`、`machine`、`username`、`dialect`、`signing`、`connected_at`、
+`open_files`）、`collected_at`、`notices`。
+
+**为什么 `service` 必须和列表一起返回**：真机验证（Samba 4.19.5）——smbd 停掉之后
+`smbstatus --json` 仍以退出码 0 返回 `{"sessions":{},"tcons":{},"open_files":{}}`，“没人连着”
+与“服务没在跑”在输出上一模一样。只给列表，页面就会把“服务停了”显示成“一切正常”。同理，
+smbstatus 缺失时列表为空但带一条 `CONNECTION_STATUS_UNAVAILABLE`，那也不是“没人连”。
+字段里所有 id 都是字符串（`"1879008955"`），一律按字符串解析：按整数解析会在换版本时静默
+变成零值，而零值会让所有会话关联到同一条连接上。
+
+**能力报告新增字段**（`ShareCapability`）：`service_state`、`service_units`、`managed_config`、
+`managed_config_present`、`managed_config_hash`（整份文件的 sha256，与单条 `config_hash` 不同）、
+`managed_shares`；`tools` 增加 `smbcontrol`、`smbstatus`。`config_write` 不再恒为 `unsupported`。
+
+**P08.2 追加的闭集码**（与 §7.1 的表同一个闭集，测试按码断言）：
+
+| 码 | 类别 | 含义 |
+|---|---|---|
+| `CONFIG_NOT_WRITABLE` | 告警 | 配置写不下去：缺 testparm、缺 smbcontrol，或 `smb.conf` 读不到（只能“只删不增”） |
+| `TESTPARM_MISSING` | 告警 | 没找到 testparm，新配置无法校验 |
+| `SMB_SERVICE_INACTIVE` | 告警 | smbd 没在运行：配置写得对也提供不了访问 |
+| `SMB_SERVICE_UNKNOWN` | 告警 | 问不出 smbd 状态，重载因此没做 |
+| `CONFIG_GLOBAL_OVERRIDE` | 告警 | 托管文件会覆盖既有的全局设置（`key`/`current`/`desired` 逐项列出） |
+| `CONFIG_INCLUDE_UNRESOLVED` | 告警 | 主配置里有指向 include 目录的符号链接或解析不到的路径 |
+| `SHARE_CONFIG_DRIFT` | 告警 | 托管文件与登记表不一致（有人手工改过，或上次没走到最后） |
+| `SHARE_NAME_TAKEN_BY_SYSTEM` | 告警 | 同名段已存在于既有 Samba 配置里；不允许靠重名覆盖 |
+| `CONNECTION_STATUS_UNAVAILABLE` | 告警 | 没有 smbstatus：读不到连接状态，配置与共享本身不受影响 |
+| `CONNECTION_STATUS_FAILED` | 告警 | smbstatus 跑了但没给出可用结果 |
+| `CONNECTION_STATUS_PARTIAL` | 告警 | 连接列表可信，但打开文件数归并不了 |
+
+执行期失败码（只出现在错误消息与任务里，不进预检阻塞项）：`CONFIG_VALIDATION_FAILED`、
+`CONFIG_WRITE_FAILED`、`CONFIG_RELOAD_FAILED`、`CONFIG_READBACK_MISMATCH`、
+`CONNECTIONS_READ_FAILED`。
 
 ## 8. 应用、容器与部署契约
 

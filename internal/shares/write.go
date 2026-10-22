@@ -14,6 +14,11 @@ package shares
 //
 // P08.1 的边界写在返回值里：share.apply 的 observed_state 恒有
 // samba_config=not_written 与 served=false，outcome 是 accepted 而不是 verified。
+//
+// P08.2 起配置写入是真的：apply 会写托管配置、接 include、校验、重载、读回；
+// disable/delete 会把段从配置里摘掉再收回 ACL（先停止暴露，再收权限）。
+// served 仍然只有在 smbd 正在运行且重载被接受时才是 true，“写好了”与“在提供服务”
+// 是两件不同的事，这一点没有因为多了写配置的能力而放松。
 
 import (
 	"context"
@@ -90,7 +95,8 @@ func blockerError(a Assessment) error {
 		switch b.Code {
 		case NoticeVolumeNotMounted, NoticeVolumeNotFound, NoticeVolumeUUIDMismatch,
 			NoticeSMBUnavailable, NoticeACLToolsMissing, NoticeSecretInvalid,
-			NoticeAccountMissing, NoticeAccountNotManaged, NoticeAccountHasShares:
+			NoticeAccountMissing, NoticeAccountNotManaged, NoticeAccountHasShares,
+			NoticeTestparmMissing, NoticeConfigNotWritable, NoticeConfigNotReadable:
 			dependency = true
 		}
 	}
@@ -119,8 +125,9 @@ func (e *Engine) executeShareApply(ctx context.Context, p ShareApplyParams, req 
 			blockers[0].Message)
 	}
 
-	// 1. 目录。权限先给 0700：先紧后松，任何中间状态下都不会对 world 开放。
-	if err := e.ensureShareDir(dctx.MountPath, dctx.Dir); err != nil {
+	// 1. 目录。目标目录 0700（先紧后松），上级只要 x（能穿过去）；见 ensureShareDir。
+	repaired, err := e.ensureShareDir(dctx.MountPath, dctx.Dir)
+	if err != nil {
 		return WriteReport{}, err
 	}
 	if req.Progress != nil {
@@ -164,7 +171,25 @@ func (e *Engine) executeShareApply(ctx context.Context, p ShareApplyParams, req 
 	}
 	hash := ConfigHashOf(rendered)
 
-	// 5. 落库。新建时生成 id；更新时沿用 id 并把版本自增。
+	// 5. 写 Samba 配置。
+	//
+	// 托管文件由面板独占，因此“加一份共享”从来不是往文件末尾追加一段，而是把
+	// **当前应有的全集**整份渲染出来写下去。顺序也是刻意的：目录与 ACL 在前
+	// （目录还不存在时把共享暴露出去没有意义），配置在后；配置写不成功时目录与 ACL
+	// 保持已准备状态，登记表不动——下一步重试会从同一个地方继续。
+	wantShares, err := e.desiredShares(ctx, def, p.ShareID)
+	if err != nil {
+		return WriteReport{}, err
+	}
+	cfg, err := e.applyManagedConfig(ctx, wantShares, req.Progress)
+	if err != nil {
+		return WriteReport{}, err
+	}
+	// 能力探针的缓存里还存着“include 还没接入”“托管文件不存在”，必须立刻作废，
+	// 否则紧随其后的读取会看到一份已经过时的结论。
+	e.opts.Prober.Invalidate()
+
+	// 6. 落库。新建时生成 id；更新时沿用 id 并把版本自增。
 	now := e.opts.Now().UTC()
 	var rec ShareRecord
 	if p.ShareID == nil {
@@ -187,9 +212,9 @@ func (e *Engine) executeShareApply(ctx context.Context, p ShareApplyParams, req 
 	rec.Definition = def
 	rec.ConfigHash = hash
 	rec.DirectoryPrepared = true
-	// P08.1 没有写 Samba 配置的代码路径，这一项只能是 false。
-	// 保留字段而不是删掉它：P08.2 要把它置真，页面也要按它显示“已生效/未生效”。
-	rec.ConfigApplied = false
+	// ConfigApplied 说的是“托管配置里现在有这一段”，不是“此刻在对客户端提供服务”。
+	// 禁用的共享不在配置里，所以它是 false；smbd 没运行属于 served=false，不影响这一项。
+	rec.ConfigApplied = def.Enabled
 	rec.LastOperationID = req.OperationID
 	rec.UpdatedAt = now
 	if err := e.opts.Store.SaveShare(ctx, rec); err != nil {
@@ -202,34 +227,48 @@ func (e *Engine) executeShareApply(ctx context.Context, p ShareApplyParams, req 
 		aclLines = append(aclLines, aclUserPrefix+en.Name+":"+en.Perms)
 	}
 
+	outcome := OutcomeAccepted
+	if cfg.Report.Served {
+		outcome = OutcomeVerified
+	}
+	observed := baseConfigObserved(cfg)
+	for k, v := range map[string]any{
+		"share_id":           rec.ID,
+		"share_name":         def.Name,
+		"version":            rec.Version,
+		"volume_id":          def.VolumeID,
+		"mount_path":         dctx.MountPath,
+		"directory":          dctx.Dir,
+		"directory_created":  true,
+		"directory_prepared": true,
+		"acl":                aclLines,
+		"acl_mask":           mask,
+		"acl_verified":       true,
+		"config_hash":        hash,
+	} {
+		observed[k] = v
+	}
+	// 修过哪些上级目录的权限，一律说出来。空列表不进 observed（结论里不留没意义的键）。
+	if len(repaired) > 0 {
+		observed["path_traversal_repaired"] = repaired
+	}
 	return WriteReport{
-		Outcome: OutcomeAccepted,
-		Observed: map[string]any{
-			"share_id":           rec.ID,
-			"share_name":         def.Name,
-			"version":            rec.Version,
-			"volume_id":          def.VolumeID,
-			"mount_path":         dctx.MountPath,
-			"directory":          dctx.Dir,
-			"directory_created":  true,
-			"directory_prepared": true,
-			"acl":                aclLines,
-			"acl_mask":           mask,
-			"acl_verified":       true,
-			"config_hash":        hash,
-			// 下面两条是这一阶段最重要的事实：定义准备好了，但共享还没有被提供。
-			"samba_config": "not_written",
-			"served":       false,
-		},
+		Outcome:  outcome,
+		Observed: observed,
 		Data: map[string]any{
 			"share_id":    rec.ID,
 			"version":     rec.Version,
 			"config_hash": hash,
 			// 渲染出来的共享段：这是“配置版本”背后的实际内容，界面上可以直接展示。
-			"config_preview": rendered,
+			"config_preview":   rendered,
+			"managed_config":   cfg.Report.Path,
+			"managed_sections": cfg.Report.Sections,
+			"served":           cfg.Report.Served,
+			"include":          cfg.Report.Include,
+			"reload":           cfg.Report.Reload,
+			"service":          cfg.Report.Service,
 		},
-		RecoveryHint: "本阶段（P08.1）不写 Samba 配置：定义、目录与 ACL 都已准备并核验，" +
-			"但共享此刻不对外提供访问，P08.2 才会写入配置并重载",
+		RecoveryHint: recoveryHint(cfg.Report, def),
 	}, nil
 }
 
@@ -250,6 +289,22 @@ func (e *Engine) executeShareRef(ctx context.Context, action string, p ShareRefP
 		return WriteReport{}, notFound("共享 %s 已不存在", p.ShareID)
 	}
 
+	// 1. 先把这份共享从配置里摘掉。
+	//
+	// 顺序与 apply 相反，理由是同一条：**先停止暴露，再收回权限**。反过来的话，
+	// 在“ACL 已收回、配置还没重载”的那几毫秒里，共享还在，只是谁都进不去——
+	// 客户端会看到“权限被拒”而不是“共享不存在”，排障时完全是两条线索。
+	remaining, err := e.sharesExcept(ctx, rec.ID)
+	if err != nil {
+		return WriteReport{}, err
+	}
+	cfg, err := e.applyManagedConfig(ctx, remaining, req.Progress)
+	if err != nil {
+		return WriteReport{}, err
+	}
+	e.opts.Prober.Invalidate()
+
+	// 2. 收回目录 ACL。
 	cleared, note, err := e.revokeACL(ctx, rec)
 	if err != nil {
 		return WriteReport{}, err
@@ -259,6 +314,7 @@ func (e *Engine) executeShareRef(ctx context.Context, action string, p ShareRefP
 	if action == ActionShareDisable {
 		rec.Definition.Enabled = false
 		rec.DirectoryPrepared = false
+		rec.ConfigApplied = false
 		rec.Version = nextVersion(rec.Version)
 		rec.LastOperationID = req.OperationID
 		rec.UpdatedAt = now
@@ -271,14 +327,15 @@ func (e *Engine) executeShareRef(ctx context.Context, action string, p ShareRefP
 		}
 	}
 
-	observed := map[string]any{
+	observed := baseConfigObserved(cfg)
+	for k, v := range map[string]any{
 		"share_id":         rec.ID,
 		"share_name":       rec.Definition.Name,
 		"acl_revoked":      cleared,
 		"directory_kept":   true,
-		"samba_config":     "not_written",
-		"served":           false,
 		"record_retrained": action == ActionShareDisable,
+	} {
+		observed[k] = v
 	}
 	if note != "" {
 		observed["acl_note"] = note
@@ -286,14 +343,22 @@ func (e *Engine) executeShareRef(ctx context.Context, action string, p ShareRefP
 	if action == ActionShareDisable {
 		observed["version"] = rec.Version
 	}
+	outcome := OutcomeAccepted
+	// 摘掉配置之后 “served” 必须是 false：它不是“服务在不在”，而是“这份共享还在不在
+	// 提供服务”。把 report 里那个值直接抄过来会把停用的共享显示成仍在提供服务。
+	observed["served"] = false
 	return WriteReport{
-		Outcome:  OutcomeAccepted,
+		Outcome:  outcome,
 		Observed: observed,
 		Data: map[string]any{
 			"share_id":  rec.ID,
 			"directory": "",
+			"service":   cfg.Report.Service,
+			"reload":    cfg.Report.Reload,
+			"served":    false,
 		},
-		RecoveryHint: "目录与里面的文件没有被删除；ACL 已清空（除属主之外谁都进不去）",
+		RecoveryHint: "目录与里面的文件没有被删除；ACL 已清空（除属主之外谁都进不去）；" +
+			"配置里的这一段已经被移除" + revokeHint(cfg.Report),
 	}, nil
 }
 
@@ -638,29 +703,99 @@ func (e *Engine) executeAccountDelete(ctx context.Context, p AccountRefParams, r
 	}, nil
 }
 
-// ensureShareDir 建共享目录。
+// ancestorTraverseMode 是共享目录**上级**目录的权限：0711。
 //
-// 权限先给 0700：先紧后松。任何中间状态下目录都不对 world 开放，
-// 后面的 setfacl 再把具体账号的权限放进去。
-func (e *Engine) ensureShareDir(mountPath, dir string) error {
-	if !sameOrInside(path.Clean(mountPath), path.Clean(dir)) {
-		return dependencyBlocked("共享目录 %s 不在卷挂载点 %s 之内", dir, mountPath)
+// 共享账号不是这些目录的属主、也不在属组里，能不能穿过去只看 other 的 x 位；
+// 没有 x 时 SMB 客户端连目录都进不去（真机上表现为 put 时
+// `NT_STATUS_ACCESS_DENIED opening remote file`，而目录自身的 ACL 一条不差）。
+// 只给 x 不给 r/w：能穿过去，看不到里面有什么。
+const ancestorTraverseMode = 0o711
+
+// shareDirMode 是共享目录**自己**的初始权限。
+const shareDirMode = 0o700
+
+// ensureShareDir 建共享目录，并保证上级目录可穿越。
+//
+// 两件事分开做，因为它们的权限语义不同：目标是 0700（先紧后松——任何中间状态下
+// 目录都不对 world 开放，后面的 setfacl 再把具体账号的权限放进去），而上级只要 x。
+// 返回被修正过权限的上级目录（空表示没有需要修的），由调用方写进 observed：
+// “我改了这台机器上哪些目录的权限”是必须能回答的问题。
+func (e *Engine) ensureShareDir(mountPath, dir string) ([]string, error) {
+	cleanMount, cleanDir := path.Clean(mountPath), path.Clean(dir)
+	if !sameOrInside(cleanMount, cleanDir) {
+		return nil, dependencyBlocked("共享目录 %s 不在卷挂载点 %s 之内", dir, mountPath)
 	}
-	if fi, err := e.opts.Lstat(dir); err == nil {
+
+	// 1. 目标目录：已存在就只做形状检查。
+	if fi, err := e.opts.Lstat(cleanDir); err == nil {
 		if fi.Mode()&os.ModeSymlink != 0 {
-			return dependencyBlocked("共享目录 %s 是符号链接", dir)
+			return nil, dependencyBlocked("共享目录 %s 是符号链接", dir)
 		}
 		if !fi.IsDir() {
-			return dependencyBlocked("共享目录 %s 已存在且不是目录", dir)
+			return nil, dependencyBlocked("共享目录 %s 已存在且不是目录", dir)
 		}
-		return nil
+		return e.ensureAncestorsTraversable(cleanMount, cleanDir)
 	} else if !os.IsNotExist(err) {
-		return commandFailed("读取共享目录 %s 失败：%v", dir, err)
+		return nil, commandFailed("读取共享目录 %s 失败：%v", dir, err)
 	}
-	if err := e.opts.Mkdir(dir, 0o700); err != nil {
-		return commandFailed("创建共享目录 %s 失败：%v", dir, err)
+
+	// 2. 上级先建（0711），再建目标（0700）。顺序反过来会让 MkdirAll 用 0700 把
+	//    缺的上级一起造出来——那正是“目录 ACK 全对、客户端却进不去”的成因。
+	parent := path.Dir(cleanDir)
+	if parent != cleanMount {
+		if err := e.opts.Mkdir(parent, ancestorTraverseMode); err != nil {
+			return nil, commandFailed("创建共享目录的上级 %s 失败：%v", parent, err)
+		}
 	}
-	return nil
+	if err := e.opts.Mkdir(cleanDir, shareDirMode); err != nil {
+		return nil, commandFailed("创建共享目录 %s 失败：%v", dir, err)
+	}
+	return e.ensureAncestorsTraversable(cleanMount, cleanDir)
+}
+
+// ensureAncestorsTraversable 让挂载点与共享目录之间的每一级都可穿越。
+//
+// 只加 other 的 x 位，其余位原样保留。只处理**挂载点之内**的目录：挂载点本身归存储
+// 模块（导入卷时按 0755 建），不在这里改；挂载点之外的路径不是面板的地盘。
+//
+// 为什么不干脆报错让人去改：这些目录是面板自己建的，一个由面板造出来、又挡住面板
+// 自己创建的共享账号的目录，是面板的产品缺陷，不是运维配置。修好它，并且说出来。
+func (e *Engine) ensureAncestorsTraversable(mountPath, dir string) ([]string, error) {
+	rel := strings.TrimPrefix(dir, mountPath+"/")
+	if rel == dir || rel == "" {
+		return nil, nil
+	}
+	segs := strings.Split(rel, "/")
+	var repaired []string
+	cur := mountPath
+	for i := 0; i < len(segs)-1; i++ {
+		cur = path.Join(cur, segs[i])
+		fi, err := e.opts.Lstat(cur)
+		if err != nil {
+			if os.IsNotExist(err) {
+				// 上级不存在意味着目标也建不出来（上面已经 Mkdir 过），走到这里说明
+				// 有人在两步之间动过目录树：如实报错，不在看不见的地方猜。
+				return repaired, commandFailed("共享目录的上级 %s 不存在", cur)
+			}
+			return repaired, commandFailed("读取共享目录的上级 %s 失败：%v", cur, err)
+		}
+		if fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
+			// 形状问题由 checkSharePath 判，这里只负责权限。
+			return repaired, dependencyBlocked("共享目录的上级 %s 不再是目录", cur)
+		}
+		perm := fi.Mode().Perm()
+		if perm&0o001 != 0 {
+			continue
+		}
+		// 补的是 group 与 other 的 x：other 的 x 才是共享账号真正需要的（它们不在这个
+		// 目录的属组里），group 的 x 一起补是为了让“修好的目录”与“新建的目录”长得一样
+		// （0711），否则同一台机器上会出现两种形状，下次排查又要重新想一遍。
+		if err := e.opts.Chmod(cur, perm|0o011); err != nil {
+			return repaired, commandFailed("给 %s 补上穿越权限失败：%v", cur, err)
+		}
+		repaired = append(repaired, cur)
+	}
+	return repaired, nil
 }
 
 // revokeACL 清空共享目录上的授权。
@@ -822,4 +957,116 @@ func formatObservedTime(t time.Time) string {
 		return ""
 	}
 	return t.UTC().Format(time.RFC3339)
+}
+
+// desiredShares 算出托管配置应有的**全集**：登记表里所有记录，其中目标共享
+// 用 newDef 替换（新建时追加）。
+//
+// 为什么是全集而不是“这一段”：托管文件由面板独占且整份重写，所以“这份定义该长什么样”
+// 与“这个文件该长什么样”是同一个问题。分两次写（先追加这一段、以后再整理）会让文件里
+// 出现半份状态，而半份状态正是“有些人能用、有些人不能用”这种故障的来源。
+func (e *Engine) desiredShares(ctx context.Context, newDef ShareDefinition, shareID *string) ([]ManagedShare, error) {
+	records, err := e.opts.Store.ListShares(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ShareRecord, 0, len(records)+1)
+	replaced := false
+	for _, rec := range records {
+		if shareID != nil && rec.ID == *shareID {
+			rec.Definition = newDef
+			replaced = true
+		}
+		out = append(out, rec)
+	}
+	if !replaced {
+		out = append(out, ShareRecord{Definition: newDef})
+	}
+	return e.renderManagedShares(ctx, out)
+}
+
+// sharesExcept 算出“摘掉某条共享之后”的全集。
+func (e *Engine) sharesExcept(ctx context.Context, shareID string) ([]ManagedShare, error) {
+	records, err := e.opts.Store.ListShares(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ShareRecord, 0, len(records))
+	for _, rec := range records {
+		if rec.ID == shareID {
+			continue
+		}
+		out = append(out, rec)
+	}
+	return e.renderManagedShares(ctx, out)
+}
+
+// baseConfigObserved 把配置写入报告摊平成 observed_state 里的键。
+//
+// 键名与 P08.1 保持同名（samba_config / served），值从“恒为 not_written/false”
+// 变成真实结果：改名会让已经写进审计日志的历史记录失去可比性。
+func baseConfigObserved(cfg configApplyResult) map[string]any {
+	r := cfg.Report
+	out := map[string]any{
+		"managed_config":  r.Path,
+		"managed_hash":    r.Hash,
+		"samba_config":    r.File,
+		"config_testparm": r.Testparm,
+		"include":         r.Include,
+		"reload":          r.Reload,
+		"service":         r.Service,
+		"served":          r.Served,
+	}
+	if len(r.Backups) > 0 {
+		out["config_backups"] = r.Backups
+	}
+	if len(r.Overrides) > 0 {
+		out["config_overrides"] = r.Overrides
+	}
+	if len(r.Notes) > 0 {
+		codes := make([]string, 0, len(r.Notes))
+		for _, n := range r.Notes {
+			codes = append(codes, n.Code)
+		}
+		out["config_notices"] = codes
+	}
+	return out
+}
+
+// recoveryHint 生成“现状是什么、下一步该干什么”的一句话。
+//
+// 它替代了 P08.1 那句“本阶段不写配置”：现在每一条分支都要说清到底还差什么，
+// 因为差的东西各不相同，用户能做的事也各不相同。
+func recoveryHint(r ManagedConfigReport, def ShareDefinition) string {
+	if !def.Enabled {
+		return "共享已按禁用状态写入配置（配置里不会有这一段），目录与 ACL 已按禁用处理"
+	}
+	switch {
+	case r.Served:
+		return "配置已写入并通过 Samba 自身校验与重载，smbd 正在提供这份共享"
+	case r.Service == ServiceStateInactive:
+		return "配置已写好并通过校验，但 smbd 不在运行，这份共享此刻不对外提供访问；" +
+			"启动 Samba 服务与开机依赖属于 P08.3"
+	case r.Reload == ReloadFailed:
+		return "配置已写好并通过校验，但重载没有成功：Samba 仍在使用旧配置，" +
+			"需要重启或由人工重新执行重载"
+	case r.Service == ServiceStateUnknown:
+		return "配置已写好并通过校验，但问不出 smbd 的运行状态，无法确认它是否已经在提供访问"
+	default:
+		return "配置已写入，但尚未确认是否在提供服务（见 config_notices）"
+	}
+}
+
+// revokeHint 补充说明摘除配置之后服务侧的状态。
+func revokeHint(r ManagedConfigReport) string {
+	switch {
+	case r.Service == ServiceStateInactive:
+		return "；smbd 不在运行，重载无从谈起，配置改动会在下次启动时生效"
+	case r.Reload == ReloadFailed:
+		return "；重载失败，Samba 仍在使用旧配置，这段共享可能仍然可达，需要重新重载或重启 smbd"
+	case r.Service == ServiceStateUnknown:
+		return "；问不出 smbd 的运行状态，无法确认这段共享是否已经不可达"
+	default:
+		return "；重载已被接受，Samba 已按新配置服务"
+	}
 }

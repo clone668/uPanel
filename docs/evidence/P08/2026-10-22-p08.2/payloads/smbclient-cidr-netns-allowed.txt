@@ -1,0 +1,4 @@
+  .                                   D        0  Thu Oct 22 14:05:40 2026
+  ..                                  D        0  Thu Oct 22 14:05:40 2026
+
+		1992552 blocks of size 1024. 1871272 blocks available

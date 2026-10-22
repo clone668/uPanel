@@ -1,22 +1,22 @@
 package shares
 
-// SMB 共享与受管理共享账号（P08.1）。
+// SMB 共享与受管理共享账号。
 //
-// 这一包只做 P08.1 界定的四件事：
-//   - Samba 能力检测（只读探针，不安装、不改配置）；
-//   - 受管理共享账号的生命周期（Linux 账号 + Samba passdb，只用受管理记录里的账号）；
-//   - 密码秘密通道的**消费端**（参数里只有 secret_ref，明文经标准输入交给 smbpasswd）；
-//   - 共享定义、配置版本（渲染块的 sha256）、目录准备与 POSIX ACL。
+// P08.1 做了“定义与准备”这一半：Samba 能力检测（只读探针，不安装、不改配置）、
+// 受管理共享账号的生命周期（Linux 账号 + Samba passdb）、密码秘密通道的**消费端**
+// （参数里只有 secret_ref，明文经标准输入交给 smbpasswd）、共享定义与配置版本、
+// 目录准备与 POSIX ACL。
 //
-// 明确**不做**（属于 P08.2/P08.3，见 docs/STAGES.md 第 10 节）：
-//   - 写 Samba 配置文件、最小 include、testparm、原子替换、重载；
-//   - 共享连接状态；
-//   - 启动依赖与运行时脱盘撤销。
+// P08.2 补上“配置写入”这一半：托管 include 目录与文件、最小改动地给 smb.conf
+// 接一行 include、testparm 校验、原子替换（带备份）、smbcontrol 重载、连接状态。
 //
-// 因此 share.apply 的执行结果是 `accepted` 而不是 `verified`：定义、目录与 ACL 都是
-// **真的**做出并核验过的，但这份共享此刻还没有被任何 Samba 进程提供。observed_state
-// 里 `samba_config` 恒为 not_written、`served` 恒为 false，预检也带一条同名的告警。
-// 把“定义准备好了”说成“共享可用”是这一阶段最容易犯的谎，所以它被写死在返回结构里。
+// 仍然**不做**（属于 P08.3/P08.4，见 docs/STAGES.md 第 10 节）：
+//   - 共享与 volume_id 的启动依赖、运行时脱盘撤销、卸载/格式化依赖阻断；
+//   - 共享 UI 与客户端连接说明。
+//
+// 诚实性仍然是这一包最要紧的属性：`served` 只在“配置已就位 + include 在 + smbd
+// 在运行 + 重载被接受”时才是 true；smbd 没运行时执行结果只能是 accepted。
+// “配置写好了”与“客户端连得上”是两件事，返回结构里分别有字段，谁也不能替另一个说话。
 
 import (
 	"context"
@@ -41,6 +41,8 @@ const (
 	QueryCapability = "share.capability"
 	QueryShares     = "share.list"
 	QueryAccounts   = "share.accounts"
+	// QueryConnections 是 P08.2 新增的连接状态查询（按共享名过滤 smbstatus 的树连接）。
+	QueryConnections = "share.connections"
 )
 
 // 协议闭集。P08 只实现 smb；nfs 在定义里认得出来，但判决层会以
@@ -105,6 +107,15 @@ const (
 	NoticeSharePathSymlink = "SHARE_PATH_SYMLINK"
 	// NoticeSharePathNotDirectory 表示目标存在但不是目录。
 	NoticeSharePathNotDirectory = "SHARE_PATH_NOT_DIRECTORY"
+	// NoticeSharePathNotTraversable 是告警：共享路径上有一级上级目录没有 other 的 x 位，
+	// 共享账号进不去。应用时会给它补上 x（只加穿越，不加读取与列出）。
+	//
+	// 为什么是告警不是阻塞：这些目录是面板自己建的，挡住的是面板自己创建的账号，
+	// 属于面板该修的东西；拒绝执行只会把修复推迟到下一次。
+	NoticeSharePathNotTraversable = "SHARE_PATH_NOT_TRAVERSABLE"
+	// NoticeHostsAllowLoopback 是告警：allowed_cidrs 里没有 127.0.0.0/8，但 Samba 对
+	// 本机（127.0.0.1）永远放行，这份名单管不住本机连进来的访问。
+	NoticeHostsAllowLoopback = "SHARE_HOSTS_ALLOW_LOOPBACK"
 	// NoticeShareNoUsers 表示 smb_users 为空。空名单会退化成 guest，必须硬拒。
 	NoticeShareNoUsers = "SHARE_NO_USERS"
 	// NoticeAccountMissing 表示定义引用了一个不存在的账号。
@@ -151,6 +162,99 @@ const (
 	NoticeShareAccountPasswordKept = "ACCOUNT_PASSWORD_KEPT"
 	// NoticeShareACLReplaced 是告警：目录上原有的扩展 ACL 会被整份替换。
 	NoticeShareACLReplaced = "SHARE_ACL_REPLACED"
+
+	// ---- P08.2 起的配置写入相关码 ----
+	//
+	// 这些码描述“写 Samba 配置”这一半。执行期的失败码（CONFIG_VALIDATION_FAILED 等）
+	// 不出现在预检的阻塞项里：它们描述的是“真的去写的时候失败了”，而不是
+	// “现在不该做”。
+
+	// NoticeConfigNotWritable 表示“配置写不下去”：缺 testparm 或 smbcontrol，
+	// 或 smb.conf 读不到。它由能力探针给出，不是对目录做的写探测——预检时去试写
+	// 就等于提前改动机器。真正的写失败在执行期以 CONFIG_WRITE_FAILED 出现。
+	NoticeConfigNotWritable = "CONFIG_NOT_WRITABLE"
+	// NoticeTestparmMissing 表示没有 testparm：配置校验工具缺失时不允许写配置。
+	//
+	// 没有它就没有“先校验再重载”这条纪律可依——写完直接重载等于拿一个语法没验过的
+	// 文件去换掉正在服务的配置。
+	NoticeTestparmMissing = "TESTPARM_MISSING"
+	// NoticeSMBServiceInactive 是告警：smbd 没在运行。配置会照写、照校验，
+	// 但**共享此刻不对外提供访问**，执行结果因此只能是 accepted。
+	NoticeSMBServiceInactive = "SMB_SERVICE_INACTIVE"
+	// NoticeSMBServiceUnknown 是告警：问不出 smbd 的运行状态。
+	NoticeSMBServiceUnknown = "SMB_SERVICE_UNKNOWN"
+	// NoticeConfigGlobalOverride 是告警：托管文件的 [global] 段会覆盖现有配置里的取值。
+	// 消息里逐项列出“现在是什么 → 会变成什么”。
+	NoticeConfigGlobalOverride = "CONFIG_GLOBAL_OVERRIDE"
+	// NoticeConfigIncludeUnresolved 是告警：现有配置里有解析不了的 include
+	// （含 % 变量或通配符），于是“有没有同名段”这件事无法完全确认。
+	NoticeConfigIncludeUnresolved = "CONFIG_INCLUDE_UNRESOLVED"
+	// NoticeShareConfigDrift 是告警：托管配置文件与登记表不一致（有人手工改过，
+	// 或者上一次写入没走到最后）。应用这条共享会把它整份重写回去。
+	NoticeShareConfigDrift = "SHARE_CONFIG_DRIFT"
+	// NoticeShareNameTakenBySystem 表示同名段已经存在于现有 Samba 配置里
+	// （不在面板登记表里）。不允许靠重名覆盖别人的段。
+	//
+	// 它与 SHARE_NAME_TAKEN 的区别只在“在哪发现的”：一个是面板自己的登记表，
+	// 一个是 /etc/samba 里的既有配置。两者都是“不许覆盖”。
+	NoticeShareNameTakenBySystem = "SHARE_NAME_TAKEN_BY_SYSTEM"
+
+	// ---- 连接状态（share.connections）相关码 ----
+
+	// NoticeConnectionStatusUnavailable 表示没有 smbstatus，读不到连接状态。
+	// 它不影响配置与共享：只是“谁连着”这个问题回答不了。
+	NoticeConnectionStatusUnavailable = "CONNECTION_STATUS_UNAVAILABLE"
+	// NoticeConnectionStatusFailed 表示 smbstatus 跑了但没给出可用结果
+	// （非 root、smbd 已退出但 socket 还在……）。
+	NoticeConnectionStatusFailed = "CONNECTION_STATUS_FAILED"
+	// NoticeConnectionStatusPartial 是告警：连接列表可信，但打开文件数归并不了
+	// （算不出这份共享的目录）。
+	NoticeConnectionStatusPartial = "CONNECTION_STATUS_PARTIAL"
+)
+
+// 执行期的配置失败码。它们只出现在错误消息里（以及 DECISIONS/文档），不进预检阻塞项。
+const (
+	// FailConfigValidation 表示候选配置没有通过 testparm。
+	FailConfigValidation = "CONFIG_VALIDATION_FAILED"
+	// FailConfigWrite 表示写文件这一步失败（磁盘、权限、fsync）。
+	FailConfigWrite = "CONFIG_WRITE_FAILED"
+	// FailConfigReload 表示重载被拒绝。
+	FailConfigReload = "CONFIG_RELOAD_FAILED"
+	// FailConfigReadback 表示写完之后 Samba 读回来的东西不是我们要的那份。
+	FailConfigReadback = "CONFIG_READBACK_MISMATCH"
+	// FailConnectionsRead 表示 smbstatus 的输出读不懂（格式变了、被截断）。
+	//
+	// 这是“解析失败”，不是“有权限问题”：权限问题会以一条 notice 说明，
+	// 因为那种情况下答案“不知道”比答案“空”更接近事实。
+	FailConnectionsRead = "CONNECTIONS_READ_FAILED"
+)
+
+// 配置写入与重载的结果闭集。
+const (
+	// ConfigFileWritten 表示内容变了，文件被重写。
+	ConfigFileWritten = "written"
+	// ConfigFileUnchanged 表示内容与文件里已有的一模一样，没有写、没有重载。
+	ConfigFileUnchanged = "unchanged"
+	// IncludeInstalled 表示这次往 smb.conf 里加了 include 行。
+	IncludeInstalled = "installed"
+	// IncludePresent 表示 include 行本来就在。
+	IncludePresent = "present"
+	// ReloadDone 表示 smbd 在运行且接受了重载请求。
+	ReloadDone = "done"
+	// ReloadSkippedInactive 表示 smbd 没运行，重载无从谈起（不是“失败”，是“没做”）。
+	ReloadSkippedInactive = "skipped_service_inactive"
+	// ReloadFailed 表示 smbd 在运行但重载请求失败或之后不再活跃。
+	ReloadFailed = "failed"
+	// ReloadSkippedUnchanged 表示文件内容与已有的完全相同，没有重载的必要。
+	//
+	// 它与 skipped_service_inactive 分开记：一个是“不需要做”，一个是“做不了”。
+	// 混成同一个值，页面就没法解释为什么一次幂等重放没有重载。
+	ReloadSkippedUnchanged = "skipped_unchanged"
+
+	// ServiceStateActive / Inactive / Unknown 是 smbd 的运行状态闭集。
+	ServiceStateActive   = "active"
+	ServiceStateInactive = "inactive"
+	ServiceStateUnknown  = "unknown"
 )
 
 // ImpactConfigChange 表示这次动作会改写这台主机上的持久配置。
@@ -347,6 +451,100 @@ const (
 	OutcomeVerified = "verified"
 	OutcomeAccepted = "accepted"
 )
+
+// ManagedShare 是一条**已经渲染好**、准备写进托管配置的共享。
+//
+// 它是渲染层的输入单位：Block 是 [名字] 开头的那一段，Dir 与 ValidUsers 是写完之后
+// 要拿 testparm 读回核对的两件事（“文件里写了什么”不等于“Samba 读出来是什么”）。
+type ManagedShare struct {
+	// Name 是段名（共享名，原样保留大小写；Samba 内部按小写比较）。
+	Name string `json:"name"`
+	// Dir 是共享目录的绝对路径。
+	Dir string `json:"dir"`
+	// ValidUsers 是授权名单（已解析成系统用户名，按名字排序）。
+	ValidUsers []string `json:"valid_users"`
+	// Block 是渲染出来的配置段（首行是 [Name]）。
+	Block string `json:"-"`
+}
+
+// ConfigOverride 是一项会被托管文件覆盖的全局设置。
+//
+// Current 是**现在** samba 读出来的有效值（由 testparm 读回，不是从文件里猜的），
+// Desired 是托管文件会把它改成什么。两者不同才出现在报告里。
+type ConfigOverride struct {
+	Key     string `json:"key"`
+	Current string `json:"current"`
+	Desired string `json:"desired"`
+}
+
+// ManagedConfigReport 是一次配置写入的结果。
+//
+// 每一个字段都是“真的做了什么”，不是“打算做什么”：
+//   - File 是 written / unchanged（内容没变就不写、不重载）；
+//   - Include 是 installed / present；
+//   - Reload 是 done / skipped_service_inactive / failed；
+//   - Served 只有在前三项都对且 smbd 在运行时才是 true。
+type ManagedConfigReport struct {
+	Path    string `json:"path"`
+	Hash    string `json:"hash"`
+	File    string `json:"file"`
+	Include string `json:"include"`
+	Reload  string `json:"reload"`
+	// Service 是 smbd 的运行状态（active/inactive/unknown）。
+	Service string `json:"service"`
+	// Served 是“这份配置此刻真的在被 Samba 提供”的结论。
+	Served bool `json:"served"`
+	// Testparm 是校验结果（候选文件一次、合并后的主配置一次）。
+	Testparm string `json:"testparm"`
+	// Sections 是写完之后托管文件里的段名（不含 global）。
+	Sections []string `json:"sections"`
+	// Overrides 是这次覆盖掉的全局设置。
+	Overrides []ConfigOverride `json:"overrides"`
+	// Backups 是这次产生的备份文件路径（没有写就没有）。
+	Backups []string `json:"backups"`
+	// Notes 是给人看的补充说明。
+	Notes []Blocker `json:"notes"`
+}
+
+// Connection 是一条 SMB 树连接（一个客户端连到一份共享）。
+//
+// 字段取自 smbstatus --json 的 tcons 与 sessions：树连接说“连到哪份共享”，
+// 会话说“谁连的、用什么方言、有没有签名”。
+type Connection struct {
+	// Share 是树连接指向的服务名（Samba 里是小写的段名）。
+	Share string `json:"share"`
+	// Machine 是客户端地址。
+	Machine string `json:"machine"`
+	// Username 是认证通过的账号名；匿名会话里会是空串。
+	Username string `json:"username"`
+	// Dialect 是协商出来的 SMB 方言（例如 SMB3_11）。
+	Dialect string `json:"dialect"`
+	// Signing 是签名状态（例如 partial(AES-128-GMAC) 或 none）。
+	Signing string `json:"signing"`
+	// ConnectedAt 是这条树连接建立的时间（smbstatus 给的原样字符串）。
+	ConnectedAt string `json:"connected_at"`
+	// OpenFiles 是这条连接所在共享上打开着的文件数（按 service_path 归并）。
+	OpenFiles int `json:"open_files"`
+}
+
+// ConnectionsReport 是 share.connections 的返回体。
+//
+// ServiceActive 单独给出来，因为**空连接列表有两种完全不同的含义**：
+// “没有人连着”与“smbd 根本没在跑”。真机验证过：smbd 停掉之后 smbstatus 仍然以
+// 退出码 0 返回空的 sessions/tcons，两种状态在输出上一模一样。把服务状态一起报，
+// 页面才不会把“服务停了”显示成“一切正常，只是没人用”。
+type ConnectionsReport struct {
+	ShareID   string `json:"share_id"`
+	ShareName string `json:"share_name"`
+	// Service 是 active / inactive / unknown。
+	Service string `json:"service"`
+	// Connections 按发起时间排序；没有连接时是 []，不是 null。
+	Connections []Connection `json:"connections"`
+	// CollectedAt 是这次读取 smbstatus 的时间。
+	CollectedAt time.Time `json:"collected_at"`
+	// Notices 说明读不到或读不全的原因（例如 smbstatus 缺失、服务没在运行）。
+	Notices []Blocker `json:"notices"`
+}
 
 var (
 	// ErrStoreUnavailable 表示没有接上登记表：共享能力因此不可用。

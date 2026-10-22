@@ -43,6 +43,9 @@ type SharesReader interface {
 	Shares(ctx context.Context) (shares.Capability, []shares.ShareRecord, error)
 	Share(ctx context.Context, id string) (shares.Capability, shares.ShareRecord, bool, error)
 	Accounts(ctx context.Context) (shares.Capability, []shares.AccountRecord, error)
+	// Connections 读的是这台机器此刻的会话（smbstatus），不是登记表的配置。
+	// 它不加 Capability：报告里自带 service 状态，服务没在跑时说清楚为什么列表是空的。
+	Connections(ctx context.Context, id string) (shares.ConnectionsReport, error)
 	PutSecret(ctx context.Context, in agentclient.PutSecretInput) (agentclient.SecretRef, error)
 }
 
@@ -113,6 +116,41 @@ func (s *Server) handleGetShare(c *gin.Context) {
 	}
 	httpx.WriteData(c.Writer, c.Request, http.StatusOK,
 		shareDetailResponse{Capability: capability, Share: record})
+}
+
+// handleGetShareConnections 返回某条共享此刻的连接状态（admin）。
+//
+// 为什么是子路径而不是塞进 GET /shares/:id：连接每秒都可能变，定义不会。塞在一起
+// 就得让详情页跟着连接一起刷新，或者接受一份永远慢半拍的“详情”。
+//
+// 空列表不是“一切正常”：smbd 停掉之后 smbstatus 照样以退出码 0 返回空表，两者在
+// 输出上一模一样。所以响应里必带 service，页面据此说“服务没在运行”而不是“没人连”。
+func (s *Server) handleGetShareConnections(c *gin.Context) {
+	reader := s.opts.Shares
+	if reader == nil {
+		writeError(c, http.StatusServiceUnavailable, httpx.CodeAgentUnavailable,
+			"共享连接状态不可用：未配置代理连接")
+		return
+	}
+	id := c.Param("id")
+	if !shares.ValidShareID(id) {
+		writeError(c, http.StatusBadRequest, httpx.CodeValidationError,
+			"共享标识必须是 shr_ 加 32 位小写十六进制")
+		return
+	}
+	report, err := reader.Connections(c.Request.Context(), id)
+	if err != nil {
+		// “没有这条共享”由代理以 404 拒绝，这里原样转出。
+		s.writeSharesError(c, err, "读取共享连接状态失败")
+		return
+	}
+	if report.Connections == nil {
+		report.Connections = []shares.Connection{}
+	}
+	if report.Notices == nil {
+		report.Notices = []shares.Blocker{}
+	}
+	httpx.WriteData(c.Writer, c.Request, http.StatusOK, report)
 }
 
 // handleListShareAccounts 返回受管理账号列表（admin）。

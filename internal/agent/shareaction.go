@@ -37,6 +37,8 @@ type sharesSource interface {
 	Capability(ctx context.Context) shares.Capability
 	Shares(ctx context.Context) ([]shares.ShareRecord, error)
 	Accounts(ctx context.Context) ([]shares.AccountRecord, error)
+	// Connections 读的是 smbstatus（这台机器此刻的会话表），不是登记表。
+	Connections(ctx context.Context, shareID string) (shares.ConnectionsReport, error)
 }
 
 // RegisterShareActions 登记五个共享与账号动作。

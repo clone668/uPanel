@@ -16,6 +16,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -274,16 +276,22 @@ func (r *fakeRunner) count() int {
 	return len(r.calls)
 }
 
-// fakeFS 是 Lstat / ReadDir 的假实现：只认识列出来的路径。
+// fakeFS 是 Lstat / ReadDir / Mkdir / Chmod 的假实现：只认识列出来的路径。
 type fakeFS struct {
 	files map[string]fakeFile
 	dirs  map[string][]os.DirEntry
 	made  []string
+	// madePerm 记的是每个被创建目录**要求的**权限位。只记路径的话，
+	// “上级 0711、目标 0700”这条区分在测试里就消失了。
+	madePerm map[string]os.FileMode
+	chmods   []string
 }
 
 type fakeFile struct {
 	isDir   bool
 	symlink bool
+	// perm 为 0 表示用默认权限（目录 0755、文件 0644）。非 0 时按它来。
+	perm os.FileMode
 }
 
 func (f *fakeFile) Name() string       { return "" }
@@ -298,16 +306,31 @@ func (f *fakeFile) mode() os.FileMode {
 		return os.ModeSymlink | 0o777
 	}
 	if f.isDir {
+		if f.perm != 0 {
+			return os.ModeDir | f.perm
+		}
 		return os.ModeDir | 0o755
+	}
+	if f.perm != 0 {
+		return f.perm
 	}
 	return 0o644
 }
 
 func newFakeFS() *fakeFS {
-	return &fakeFS{files: map[string]fakeFile{}, dirs: map[string][]os.DirEntry{}}
+	return &fakeFS{
+		files:    map[string]fakeFile{},
+		dirs:     map[string][]os.DirEntry{},
+		madePerm: map[string]os.FileMode{},
+	}
 }
 
 func (f *fakeFS) addDir(path string) { f.files[path] = fakeFile{isDir: true} }
+
+// addDirMode 造一个存在且带指定权限的目录（用来复现“上一版建出来的 0700 上级”）。
+func (f *fakeFS) addDirMode(path string, perm os.FileMode) {
+	f.files[path] = fakeFile{isDir: true, perm: perm}
+}
 
 func (f *fakeFS) lstat(name string) (os.FileInfo, error) {
 	if fi, ok := f.files[name]; ok {
@@ -323,9 +346,33 @@ func (f *fakeFS) readDir(name string) ([]os.DirEntry, error) {
 	return nil, &os.PathError{Op: "readdir", Path: name, Err: os.ErrNotExist}
 }
 
-func (f *fakeFS) mkdir(name string, _ os.FileMode) error {
+// mkdir 与 os.MkdirAll 一样：已经存在的目录不报错、不改权限；缺的上级一起建出来，
+// 而且都用同一个 perm。少了“一起建”这条，测试会让“上级被一起造出来”这件事看起来没发生。
+func (f *fakeFS) mkdir(name string, perm os.FileMode) error {
+	if _, ok := f.files[name]; ok {
+		return nil
+	}
+	if parent := path.Dir(name); parent != name && parent != "." {
+		if _, ok := f.files[parent]; !ok {
+			if err := f.mkdir(parent, perm); err != nil {
+				return err
+			}
+		}
+	}
 	f.made = append(f.made, name)
-	f.files[name] = fakeFile{isDir: true}
+	f.madePerm[name] = perm.Perm()
+	f.files[name] = fakeFile{isDir: true, perm: perm.Perm()}
+	return nil
+}
+
+func (f *fakeFS) chmod(name string, mode os.FileMode) error {
+	fi, ok := f.files[name]
+	if !ok {
+		return &os.PathError{Op: "chmod", Path: name, Err: os.ErrNotExist}
+	}
+	fi.perm = mode.Perm()
+	f.files[name] = fi
+	f.chmods = append(f.chmods, name+" "+mode.Perm().String())
 	return nil
 }
 
@@ -347,12 +394,14 @@ const (
 
 // 生产环境里这些绝对路径由能力探针找到；测试里直接给定，避免依赖开发机装了什么。
 var testTools = ToolPaths{
-	Smbd:      "/usr/sbin/smbd",
-	Smbpasswd: "/usr/bin/smbpasswd",
-	Pdbedit:   "/usr/bin/pdbedit",
-	Testparm:  "/usr/bin/testparm",
-	Setfacl:   "/usr/bin/setfacl",
-	Getfacl:   "/usr/bin/getfacl",
+	Smbd:       "/usr/sbin/smbd",
+	Smbpasswd:  "/usr/bin/smbpasswd",
+	Pdbedit:    "/usr/bin/pdbedit",
+	Testparm:   "/usr/bin/testparm",
+	Smbcontrol: "/usr/bin/smbcontrol",
+	Smbstatus:  "/usr/bin/smbstatus",
+	Setfacl:    "/usr/bin/setfacl",
+	Getfacl:    "/usr/bin/getfacl",
 }
 
 type harness struct {
@@ -364,6 +413,24 @@ type harness struct {
 	fs     *fakeFS
 	sys    *fakeSystem
 	now    time.Time
+	// cfg 是这台“小机器”上的 Samba 配置路径。
+	//
+	// 它们是 t.TempDir() 下的真实文件，配的是真实的 os 实现：写入、fsync、rename、
+	// 备份、回滚都是真的在做，只有 testparm/smbcontrol/systemctl 是假程序。
+	// 用内存假文件系统会让“候选不合格时正式文件一个字节都没动”这条断言失去意义。
+	cfg ConfigPaths
+	// reloads 记录 smbcontrol 被调了几次（幂等重放不该重载，靠它断言）。
+	reloads int
+	// serviceState 是 systemctl is-active 的答案（active/inactive/unknown）。
+	serviceState string
+	// testparmBroken 让整份配置校验失败（模拟合并后不合格）。
+	testparmBroken bool
+	// rejectCandidate 让候选文件校验失败（模拟渲染出来的段本身不合法）。
+	rejectCandidate bool
+	// statusJSON 是 smbstatus --json 的答案。
+	statusJSON string
+	// fsyncs 记录目录 fsync 被调了几次。
+	fsyncs int
 }
 
 // fakeSystem 是 getent/passwd/useradd/userdel/smbpasswd/pdbedit 的一台“小系统”。
@@ -529,13 +596,40 @@ func newHarness(t *testing.T) *harness {
 	h.sys = newFakeSystem()
 	h.sys.install(h.runner)
 
+	// 配置写入的真实落点：一个临时目录，结构和 /etc/samba 一样。
+	dir := t.TempDir()
+	h.cfg = ConfigPaths{
+		Main:       filepath.Join(dir, "smb.conf"),
+		Managed:    filepath.Join(dir, "upanel.d", "upanel.conf"),
+		IncludeDir: filepath.Join(dir, "upanel.d"),
+		BackupDir:  filepath.Join(dir, "backups"),
+	}
+	if err := os.WriteFile(h.cfg.Main, []byte("[global]\n   workgroup = WORKGROUP\n"), 0o644); err != nil {
+		t.Fatalf("准备 smb.conf 失败: %v", err)
+	}
+	h.serviceState = ServiceStateActive
+	h.statusJSON = `{"timestamp":"2026-10-22T12:55:52.192073+0000","version":"4.19.5-Ubuntu",` +
+		`"sessions":{},"tcons":{},"open_files":{}}`
+	h.installConfigPrograms()
+
 	prober := NewProber(ProberOptions{
+		// 能力探针问的是固定常量路径，测试里把它们映射到临时目录：
+		// 这样“include 接没接”“托管文件里有什么”都由真实文件回答，而不是常量。
 		Stat: func(name string) (os.FileInfo, error) {
+			if name == DefaultIncludeDir {
+				return os.Stat(h.cfg.IncludeDir)
+			}
 			fi := fakeFile{isDir: true}
 			return &fi, nil
 		},
 		ReadFile: func(name string) ([]byte, error) {
-			return []byte("[global]\n   workgroup = WORKGROUP\n"), nil
+			switch name {
+			case DefaultConfigPath:
+				return os.ReadFile(h.cfg.Main)
+			case ManagedConfigPath:
+				return os.ReadFile(h.cfg.Managed)
+			}
+			return nil, os.ErrNotExist
 		},
 		Runner: h.runner,
 		Now:    func() time.Time { return h.now },
@@ -555,6 +649,21 @@ func newHarness(t *testing.T) *harness {
 		Lstat:   h.fs.lstat,
 		ReadDir: h.fs.readDir,
 		Mkdir:   h.fs.mkdir,
+		Chmod:   h.fs.chmod,
+
+		ConfigPaths: h.cfg,
+		// 真实的写、改名、备份、回滚；只有目录 fsync 换成计数桩——Windows 上对
+		// 目录句柄做 sync 会直接 Access denied，那是宿主平台的限制，不是被测代码的问题。
+		// “有没有在正确的位置 fsync”由 h.fsyncs 断言，“fsync 真的落了盘”由虚拟机上
+		// 的验收脚本负责（docs/evidence/P08/2026-10-22-p08.2/）。
+		ConfigFS: func() ConfigFS {
+			fs := SystemConfigFS()
+			fs.FsyncDir = func(dir string) error {
+				h.fsyncs++
+				return nil
+			}
+			return fs
+		}(),
 	})
 	if err != nil {
 		t.Fatalf("构造 Engine 失败: %v", err)
@@ -622,9 +731,15 @@ func TestAssessShareApplyAllowedWithFullFacts(t *testing.T) {
 	if a.DisplayName != "team-data" {
 		t.Errorf("显示名是 %q", a.DisplayName)
 	}
-	// 锁必须覆盖共享名与卷，且排序稳定（并发取锁时顺序不一致会死锁）。
-	if len(a.Locks) != 2 || a.Locks[0] != "share:team-data" || a.Locks[1] != "volume:"+testVolID {
-		t.Errorf("锁是 %v", a.Locks)
+	// 锁必须覆盖共享名、卷与整份托管配置，且排序稳定（并发取锁时顺序不一致会死锁）。
+	wantLocks := []string{configLockName, "share:team-data", "volume:" + testVolID}
+	if len(a.Locks) != len(wantLocks) {
+		t.Fatalf("锁是 %v，期望 %v", a.Locks, wantLocks)
+	}
+	for i := range wantLocks {
+		if a.Locks[i] != wantLocks[i] {
+			t.Fatalf("锁是 %v，期望 %v", a.Locks, wantLocks)
+		}
 	}
 	// P08.1 的固定告警：定义准备好了但共享还没被提供。
 	if !hasBlockerCode(a.Warnings, NoticeShareConfigNotApplied) {
@@ -1054,7 +1169,7 @@ func TestAssessAccountApplyRejectsRename(t *testing.T) {
 
 // ---------- 执行 ----------
 
-func TestExecuteShareApplyPreparesButDoesNotServe(t *testing.T) {
+func TestExecuteShareApplyWritesConfigAndServes(t *testing.T) {
 	h := newHarness(t)
 	h.putManagedAccount(testAcctA, "alice", false)
 	h.putManagedAccount(testAcctB, "bob", false)
@@ -1076,22 +1191,42 @@ func TestExecuteShareApplyPreparesButDoesNotServe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("执行失败: %v", err)
 	}
-	// P08.1 的诚实性：目录与 ACL 准备好了，但共享还没被提供，因此只能是 accepted。
-	if report.Outcome != OutcomeAccepted {
-		t.Fatalf("结果状态是 %q，期望 %q（P08.1 没有写配置的代码路径）", report.Outcome, OutcomeAccepted)
+	// P08.2：配置写下去了，testparm 两次都过，smbd 在跑，重载被接受——所以是 verified。
+	if report.Outcome != OutcomeVerified {
+		t.Fatalf("结果状态是 %q，期望 %q（错误=%v）", report.Outcome, OutcomeVerified, report.Observed)
 	}
-	if report.Observed["served"] != false {
-		t.Errorf("served = %v，P08.1 必须为 false", report.Observed["served"])
+	if report.Observed["served"] != true {
+		t.Errorf("served = %v，期望 true", report.Observed["served"])
 	}
-	if report.Observed["samba_config"] != "not_written" {
-		t.Errorf("samba_config = %v", report.Observed["samba_config"])
+	if report.Observed["samba_config"] != ConfigFileWritten {
+		t.Errorf("samba_config = %v，期望 %q", report.Observed["samba_config"], ConfigFileWritten)
+	}
+	if report.Observed["include"] != IncludeInstalled {
+		t.Errorf("include = %v，期望 %q", report.Observed["include"], IncludeInstalled)
 	}
 	if report.Observed["acl_verified"] != true {
 		t.Errorf("acl_verified = %v", report.Observed["acl_verified"])
 	}
-	// 目录必须真的建了，而且权限是先紧后松（0700）。
+	if h.reloads != 1 {
+		t.Errorf("smbcontrol 被调了 %d 次，期望 1 次", h.reloads)
+	}
+	if h.fsyncs == 0 {
+		t.Error("没有对目录做 fsync：rename 掉电后可能回退")
+	}
+
+	// 目录必须真的建了，而且两种权限分开：目标 0700（先紧后松）。
+	//
+	// 这条断言的第一版只要求“建了一个目录、权限 0700”，于是它把缺陷一起钉住了：
+	// MkdirAll 用 0700 把缺的上级一起造出来，共享账号连目标目录都进不去（Q233）。
+	// 这里的上级 projects 是夹具里本来就有的 0755，够穿越，不该被动。
 	if len(h.fs.made) != 1 || h.fs.made[0] != testDir {
 		t.Fatalf("创建的目录是 %v，期望 [%s]", h.fs.made, testDir)
+	}
+	if perm := h.fs.madePerm[testDir]; perm != 0o700 {
+		t.Errorf("共享目录 %s 的权限是 %04o，期望 0700", testDir, perm)
+	}
+	if len(h.fs.chmods) != 0 {
+		t.Errorf("不该改已有上级目录的权限，实际改了：%v", h.fs.chmods)
 	}
 	// setfacl 的参数必须是一份完整 ACL，且只含定义里的两个账号。
 	setc, found := h.runner.find("/usr/bin/setfacl")
@@ -1103,7 +1238,25 @@ func TestExecuteShareApplyPreparesButDoesNotServe(t *testing.T) {
 	if spec != want {
 		t.Fatalf("setfacl 的 ACL 是\n%s\n期望\n%s", spec, want)
 	}
-	// 落库的记录：目录准备好了、配置没应用、配置哈希与渲染结果一致。
+
+	// 托管文件里必须有这一段（而且是按定义渲染出来的那一段）。
+	managed := h.readManaged()
+	if !strings.Contains(managed, "[team-data]") {
+		t.Fatalf("托管配置里没有 [team-data]：\n%s", managed)
+	}
+	if !strings.Contains(managed, "path = "+testDir) {
+		t.Errorf("托管配置里的 path 不是 %s：\n%s", testDir, managed)
+	}
+	// 主配置里只加了两行：注释 + include。别的字节一个都没动。
+	main := h.readMain()
+	if !strings.HasPrefix(main, "[global]\n   workgroup = WORKGROUP\n") {
+		t.Errorf("主配置原有内容被改动了：\n%s", main)
+	}
+	if strings.Count(main, "include = ") != 1 {
+		t.Errorf("include 行数不是 1：\n%s", main)
+	}
+
+	// 落库的记录：目录准备好了、配置已应用、配置哈希与渲染结果一致。
 	recs, err := h.store.ListShares(context.Background())
 	if err != nil || len(recs) != 1 {
 		t.Fatalf("登记表里有 %d 条共享（err=%v）", len(recs), err)
@@ -1112,8 +1265,8 @@ func TestExecuteShareApplyPreparesButDoesNotServe(t *testing.T) {
 	if !rec.DirectoryPrepared {
 		t.Error("directory_prepared 是 false")
 	}
-	if rec.ConfigApplied {
-		t.Error("config_applied 是 true：P08.1 不会写 Samba 配置")
+	if !rec.ConfigApplied {
+		t.Error("config_applied 是 false：配置已经写进托管文件了")
 	}
 	if rec.ConfigHash == "" {
 		t.Error("配置哈希是空的")
@@ -1123,6 +1276,104 @@ func TestExecuteShareApplyPreparesButDoesNotServe(t *testing.T) {
 	}
 	if rec.LastOperationID != "op_test_apply" {
 		t.Errorf("last_operation_id 是 %q", rec.LastOperationID)
+	}
+}
+
+// TestExecuteShareApplyIdempotentReload 验证幂等重放：内容没变就不重载。
+func TestExecuteShareApplyIdempotentReload(t *testing.T) {
+	h := newHarness(t)
+	h.putManagedAccount(testAcctA, "alice", false)
+	h.putManagedAccount(testAcctB, "bob", false)
+	h.setfaclOK()
+	h.getfaclReturns(wantedGetfacl)
+
+	apply := func(version *string, id *string) WriteReport {
+		p := h.applyParams()
+		p.ShareID = id
+		p.Version = version
+		a, err := h.engine.Assess(context.Background(), ActionShareApply, p)
+		if err != nil {
+			t.Fatalf("判决失败: %v", err)
+		}
+		report, err := h.engine.ExecuteWrite(context.Background(), WriteRequest{
+			Action:               ActionShareApply,
+			Params:               a.NormalizedParams,
+			ExpectedIdentity:     a.IdentityFingerprint,
+			ExpectedStateVersion: a.StateVersion,
+		})
+		if err != nil {
+			t.Fatalf("执行失败: %v", err)
+		}
+		return report
+	}
+
+	first := apply(nil, nil)
+	if first.Observed["samba_config"] != ConfigFileWritten {
+		t.Fatalf("第一次 samba_config = %v", first.Observed["samba_config"])
+	}
+	if h.reloads != 1 {
+		t.Fatalf("第一次重载了 %d 次，期望 1 次", h.reloads)
+	}
+
+	// 同一个共享再应用一次：内容一模一样，文件不写、也不重载。
+	recs, _ := h.store.ListShares(context.Background())
+	rec := recs[0]
+	version := rec.Version
+	id := rec.ID
+	second := apply(&version, &id)
+	if second.Observed["samba_config"] != ConfigFileUnchanged {
+		t.Errorf("第二次 samba_config = %v，期望 %q", second.Observed["samba_config"], ConfigFileUnchanged)
+	}
+	if second.Observed["reload"] != ReloadSkippedUnchanged {
+		t.Errorf("第二次 reload = %v，期望 %q", second.Observed["reload"], ReloadSkippedUnchanged)
+	}
+	if h.reloads != 1 {
+		t.Errorf("幂等重放又重载了（共 %d 次）：内容没变就不该重载", h.reloads)
+	}
+	if second.Observed["served"] != true {
+		t.Errorf("第二次 served = %v，期望 true（配置仍然在提供服务）", second.Observed["served"])
+	}
+}
+
+// TestExecuteShareApplyServiceInactiveIsAccepted 验证“配置写好了但服务没跑”时
+// 只能是 accepted —— 这时共享不对外提供访问，说 verified 就是造假。
+func TestExecuteShareApplyServiceInactiveIsAccepted(t *testing.T) {
+	h := newHarness(t)
+	h.serviceState = ServiceStateInactive
+	h.putManagedAccount(testAcctA, "alice", false)
+	h.putManagedAccount(testAcctB, "bob", false)
+	h.setfaclOK()
+	h.getfaclReturns(wantedGetfacl)
+
+	p := h.applyParams()
+	a, err := h.engine.Assess(context.Background(), ActionShareApply, p)
+	if err != nil {
+		t.Fatalf("判决失败: %v", err)
+	}
+	report, err := h.engine.ExecuteWrite(context.Background(), WriteRequest{
+		Action:               ActionShareApply,
+		Params:               a.NormalizedParams,
+		ExpectedIdentity:     a.IdentityFingerprint,
+		ExpectedStateVersion: a.StateVersion,
+	})
+	if err != nil {
+		t.Fatalf("执行失败: %v", err)
+	}
+	if report.Outcome != OutcomeAccepted {
+		t.Fatalf("结果状态是 %q，期望 %q", report.Outcome, OutcomeAccepted)
+	}
+	if report.Observed["served"] != false {
+		t.Errorf("served = %v，smbd 没在跑时必须为 false", report.Observed["served"])
+	}
+	if report.Observed["reload"] != ReloadSkippedInactive {
+		t.Errorf("reload = %v，期望 %q", report.Observed["reload"], ReloadSkippedInactive)
+	}
+	if h.reloads != 0 {
+		t.Errorf("smbd 没在跑却调用了 %d 次 smbcontrol", h.reloads)
+	}
+	// 配置本身仍然要写下去：服务没跑是运维状态，不是拒绝写配置的理由。
+	if !strings.Contains(h.readManaged(), "[team-data]") {
+		t.Error("配置没有写进托管文件")
 	}
 }
 
@@ -1548,4 +1799,347 @@ func findBlocker(bs []Blocker, code string) *Blocker {
 		}
 	}
 	return nil
+}
+
+// ---------- 配置写入的失败路径（P08.2） ----------
+
+// applyOnce 走一遍完整链路：预检 → 执行。失败时返回错误。
+func (h *harness) applyOnce(t *testing.T) (WriteReport, error) {
+	t.Helper()
+	p := h.applyParams()
+	a, err := h.engine.Assess(context.Background(), ActionShareApply, p)
+	if err != nil {
+		t.Fatalf("判决失败: %v", err)
+	}
+	if !a.Allowed {
+		return WriteReport{}, blockerError(a)
+	}
+	return h.engine.ExecuteWrite(context.Background(), WriteRequest{
+		Action:               ActionShareApply,
+		Params:               a.NormalizedParams,
+		ExpectedIdentity:     a.IdentityFingerprint,
+		ExpectedStateVersion: a.StateVersion,
+	})
+}
+
+// ---------- 上级目录的穿越权限（Q233，真机抓出来的缺陷） ----------
+
+// 缺的上级目录要按 0711 建：能穿过去，看不到里面有什么。
+func TestExecuteShareApplyCreatesAncestorsTraversable(t *testing.T) {
+	h := newHarness(t)
+	h.putManagedAccount(testAcctA, "alice", false)
+	h.putManagedAccount(testAcctB, "bob", false)
+	h.setfaclOK()
+	h.getfaclReturns(wantedGetfacl)
+
+	// 三级相对路径：projects 已有，a 与 a/b 都得现建。
+	def := baseDefinition()
+	def.RelativePath = "projects/a/b/team"
+	def.SMBUsers = []ShareUser{
+		{AccountID: testAcctA, Access: AccessRead},
+		{AccountID: testAcctB, Access: AccessWrite},
+	}
+	dir := testMount + "/projects/a/b/team"
+	p := ShareApplyParams{Definition: &def}
+	a, err := h.engine.Assess(context.Background(), ActionShareApply, p)
+	if err != nil {
+		t.Fatalf("判决失败: %v", err)
+	}
+	if !a.Allowed {
+		t.Fatalf("预检不允许：%+v", a.Blockers)
+	}
+	if _, err := h.engine.ExecuteWrite(context.Background(), WriteRequest{
+		Action:               ActionShareApply,
+		Params:               a.NormalizedParams,
+		ExpectedIdentity:     a.IdentityFingerprint,
+		ExpectedStateVersion: a.StateVersion,
+	}); err != nil {
+		t.Fatalf("执行失败: %v", err)
+	}
+
+	for _, want := range []struct {
+		path string
+		perm os.FileMode
+	}{
+		{testMount + "/projects/a", 0o711},
+		{testMount + "/projects/a/b", 0o711},
+		{dir, 0o700},
+	} {
+		got, ok := h.fs.madePerm[want.path]
+		if !ok {
+			t.Fatalf("%s 没有被创建，创建了 %v", want.path, h.fs.made)
+		}
+		if got != want.perm {
+			t.Errorf("%s 的权限是 %04o，期望 %04o", want.path, got, want.perm)
+		}
+	}
+	if len(h.fs.chmods) != 0 {
+		t.Errorf("新目录不该走到 chmod，实际改了：%v", h.fs.chmods)
+	}
+}
+
+// 上一版建出来的 0700 上级要能被修好，并且修了什么要说出来。
+func TestExecuteShareApplyRepairsTightAncestor(t *testing.T) {
+	h := newHarness(t)
+	h.putManagedAccount(testAcctA, "alice", false)
+	h.putManagedAccount(testAcctB, "bob", false)
+	h.setfaclOK()
+	h.getfaclReturns(wantedGetfacl)
+	// 真机上的实际形状：share 路径是 mounted_vol/team/docs，team 由上一版建成了 0700。
+	parentDir := testMount + "/projects"
+	h.fs.addDirMode(parentDir, 0o700)
+
+	report, err := h.applyOnce(t)
+	if err != nil {
+		t.Fatalf("执行失败: %v", err)
+	}
+	if len(h.fs.chmods) != 1 || !strings.HasPrefix(h.fs.chmods[0], parentDir+" ") {
+		t.Fatalf("chmod 调用是 %v，期望只修 %s", h.fs.chmods, parentDir)
+	}
+	if got := h.fs.files[parentDir].perm; got != 0o711 {
+		t.Errorf("上级目录修完之后是 %04o，期望 0711", got)
+	}
+	// 只加 x，其余位原样：0700 → 0711 而不是 0755。
+	if got := h.fs.chmods[0]; !strings.Contains(got, "-rwx--x--x") {
+		t.Errorf("chmod 用的是 %q，期望 -rwx--x--x（只补 other 的 x）", got)
+	}
+	repaired, ok := report.Observed["path_traversal_repaired"].([]string)
+	if !ok || len(repaired) != 1 || repaired[0] != parentDir {
+		t.Errorf("observed.path_traversal_repaired = %v，期望 [%s]",
+			report.Observed["path_traversal_repaired"], parentDir)
+	}
+}
+
+// 预检要把“这一级挡人”说出来：不阻塞（面板自己会修），但用户得知道。
+func TestAssessShareApplyWarnsNotTraversableAncestor(t *testing.T) {
+	h := newHarness(t)
+	h.putManagedAccount(testAcctA, "alice", false)
+	h.putManagedAccount(testAcctB, "bob", false)
+	parentDir := testMount + "/projects"
+	h.fs.addDirMode(parentDir, 0o700)
+
+	a, err := h.engine.Assess(context.Background(), ActionShareApply, h.applyParams())
+	if err != nil {
+		t.Fatalf("判决失败: %v", err)
+	}
+	if !a.Allowed {
+		t.Fatalf("上级不可穿越不该阻塞，实际阻塞项 %+v", a.Blockers)
+	}
+	b := findBlocker(a.Warnings, NoticeSharePathNotTraversable)
+	if b == nil {
+		t.Fatalf("没有 %s 告警：%+v", NoticeSharePathNotTraversable, a.Warnings)
+	}
+	if !strings.Contains(b.Message, parentDir) {
+		t.Errorf("告警没有点名哪一级：%q", b.Message)
+	}
+}
+
+// 允许网段挡不住本机：Samba 的 hosts allow 永远放行 127.0.0.1（man 5 smb.conf）。
+// 这条是告警，不阻塞——但必须说出来，否则界面会让人以为“只允许 10.0.0.0/24”连本机也挡住了。
+func TestAssessShareApplyWarnsHostsAllowLoopback(t *testing.T) {
+	h := newHarness(t)
+	h.putManagedAccount(testAcctA, "alice", false)
+	h.putManagedAccount(testAcctB, "bob", false)
+
+	assess := func(cidrs []string) Assessment {
+		t.Helper()
+		def := baseDefinition()
+		def.AllowedCIDRs = cidrs
+		a, err := h.engine.Assess(context.Background(), ActionShareApply, ShareApplyParams{Definition: &def})
+		if err != nil {
+			t.Fatalf("判决失败: %v", err)
+		}
+		return a
+	}
+
+	a := assess([]string{"10.0.0.0/24"})
+	if !a.Allowed {
+		t.Fatalf("名单不覆盖环回不该阻塞：%+v", a.Blockers)
+	}
+	b := findBlocker(a.Warnings, NoticeHostsAllowLoopback)
+	if b == nil {
+		t.Fatalf("没有 %s 告警：%+v", NoticeHostsAllowLoopback, a.Warnings)
+	}
+	if !strings.Contains(b.Message, "127.0.0.1") {
+		t.Errorf("告警没说清是哪个地址被放行：%q", b.Message)
+	}
+
+	// 名单覆盖环回（或干脆不限）时不该有这条告警：说多了等于没说。
+	for _, cidrs := range [][]string{{"127.0.0.0/8"}, {"0.0.0.0/0"}, nil} {
+		if got := findBlocker(assess(cidrs).Warnings, NoticeHostsAllowLoopback); got != nil {
+			t.Errorf("allowed_cidrs=%v 时不该有 %s：%q", cidrs, NoticeHostsAllowLoopback, got.Message)
+		}
+	}
+}
+
+// 候选配置不合格时：正式文件一个字节都不能动。
+func TestExecuteShareApplyRejectsBadCandidate(t *testing.T) {
+	h := newHarness(t)
+	h.putManagedAccount(testAcctA, "alice", false)
+	h.putManagedAccount(testAcctB, "bob", false)
+	h.setfaclOK()
+	h.getfaclReturns(wantedGetfacl)
+	h.rejectCandidate = true
+
+	before := h.readMain()
+	if _, err := h.applyOnce(t); err == nil {
+		t.Fatal("候选不合格却执行成功了")
+	} else if !strings.Contains(err.Error(), FailConfigValidation) {
+		t.Fatalf("错误没有提到校验失败：%v", err)
+	}
+	if h.readMain() != before {
+		t.Error("主配置被改动了：校验失败时不应该碰它")
+	}
+	if h.readManaged() != "" {
+		t.Error("托管文件被写下了：候选不合格时不该落盘")
+	}
+	if h.reloads != 0 {
+		t.Errorf("调用了 %d 次 smbcontrol：校验没过就不该重载", h.reloads)
+	}
+	if recs, _ := h.store.ListShares(context.Background()); len(recs) != 0 {
+		t.Errorf("登记表里有 %d 条记录：失败的动作不该落库", len(recs))
+	}
+}
+
+// 合并后不合格时回滚：两份文件都回到写之前的样子。
+func TestExecuteShareApplyRollsBackOnMergedFailure(t *testing.T) {
+	h := newHarness(t)
+	h.putManagedAccount(testAcctA, "alice", false)
+	h.putManagedAccount(testAcctB, "bob", false)
+	h.setfaclOK()
+	h.getfaclReturns(wantedGetfacl)
+	mainBefore := h.readMain()
+	h.testparmBroken = true
+
+	_, err := h.applyOnce(t)
+	if err == nil {
+		t.Fatal("合并后不合格却执行成功了")
+	}
+	if !strings.Contains(err.Error(), "已回滚") {
+		t.Fatalf("错误里没有回滚说明：%v", err)
+	}
+	if h.readMain() != mainBefore {
+		t.Errorf("主配置没有回到写之前：\n%s", h.readMain())
+	}
+	// 托管文件原本不存在：回滚之后也不该存在。
+	if h.readManaged() != "" {
+		t.Errorf("托管文件没有被撤回：\n%s", h.readManaged())
+	}
+	if h.reloads != 0 {
+		t.Errorf("调用了 %d 次 smbcontrol", h.reloads)
+	}
+}
+
+// 重写已有托管文件时先备份，备份内容是上一份。
+func TestExecuteShareApplyBacksUpBeforeRewrite(t *testing.T) {
+	h := newHarness(t)
+	h.putManagedAccount(testAcctA, "alice", false)
+	h.putManagedAccount(testAcctB, "bob", false)
+	h.setfaclOK()
+	h.getfaclReturns(wantedGetfacl)
+	if _, err := h.applyOnce(t); err != nil {
+		t.Fatalf("第一次执行失败: %v", err)
+	}
+	first := h.readManaged()
+
+	// 改一份定义（加一条来源网段：配置文本变了，ACL 不变），再应用一次
+	// → 文件内容变了 → 必须先备份旧内容。
+	recs, _ := h.store.ListShares(context.Background())
+	rec := recs[0]
+	version := rec.Version
+	id := rec.ID
+	def := baseDefinition()
+	def.SMBUsers = []ShareUser{
+		{AccountID: testAcctA, Access: AccessRead},
+		{AccountID: testAcctB, Access: AccessWrite},
+	}
+	def.AllowedCIDRs = []string{"10.0.0.0/24"}
+	p := ShareApplyParams{Definition: &def, ShareID: &id, Version: &version}
+	a, err := h.engine.Assess(context.Background(), ActionShareApply, p)
+	if err != nil {
+		t.Fatalf("判决失败: %v", err)
+	}
+	report, err := h.engine.ExecuteWrite(context.Background(), WriteRequest{
+		Action:               ActionShareApply,
+		Params:               a.NormalizedParams,
+		ExpectedIdentity:     a.IdentityFingerprint,
+		ExpectedStateVersion: a.StateVersion,
+	})
+	if err != nil {
+		t.Fatalf("第二次执行失败: %v", err)
+	}
+	backups, ok := report.Observed["config_backups"].([]string)
+	if !ok || len(backups) == 0 {
+		t.Fatalf("没有记录备份：%v", report.Observed["config_backups"])
+	}
+	entries, err := os.ReadDir(h.cfg.BackupDir)
+	if err != nil || len(entries) == 0 {
+		t.Fatalf("备份目录里没有文件（err=%v）", err)
+	}
+	// 备份里必须真的能读到上一份托管配置。
+	found := false
+	for _, en := range entries {
+		body, err := os.ReadFile(h.cfg.BackupDir + string(os.PathSeparator) + en.Name())
+		if err != nil {
+			continue
+		}
+		if string(body) == first {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("备份里没有上一份托管配置的内容：这样的备份在出问题时救不了人")
+	}
+	if h.readManaged() == first {
+		t.Error("托管配置没有被更新成新内容")
+	}
+	if h.reloads != 2 {
+		t.Errorf("重载了 %d 次，期望 2 次（内容变化了）", h.reloads)
+	}
+}
+
+// 现有配置里已有同名段时，预检就要挡住：不许靠重名覆盖别人的共享。
+func TestAssessRejectsNameTakenBySystemConfig(t *testing.T) {
+	h := newHarness(t)
+	h.putManagedAccount(testAcctA, "alice", false)
+	h.putManagedAccount(testAcctB, "bob", false)
+	// 主配置里已经有 [team-data]（不在面板登记表里）。
+	if err := os.WriteFile(h.cfg.Main,
+		[]byte("[global]\n   workgroup = WORKGROUP\n\n[team-data]\n   path = /srv/other\n"), 0o644); err != nil {
+		t.Fatalf("写 smb.conf 失败: %v", err)
+	}
+	a, err := h.engine.Assess(context.Background(), ActionShareApply, h.applyParams())
+	if err != nil {
+		t.Fatalf("判决失败: %v", err)
+	}
+	if a.Allowed {
+		t.Fatal("重名被放行了")
+	}
+	if !hasBlockerCode(a.Blockers, NoticeShareNameTakenBySystem) {
+		t.Errorf("阻塞项里没有 %s：%v", NoticeShareNameTakenBySystem, a.Blockers)
+	}
+}
+
+// 全局项会被改写时必须给出“现在 → 之后”的告警。
+func TestAssessWarnsGlobalOverrides(t *testing.T) {
+	h := newHarness(t)
+	h.putManagedAccount(testAcctA, "alice", false)
+	h.putManagedAccount("sac_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "bob", false)
+	a, err := h.engine.Assess(context.Background(), ActionShareApply, h.applyParams())
+	if err != nil {
+		t.Fatalf("判决失败: %v", err)
+	}
+	var found string
+	for _, w := range a.Warnings {
+		if w.Code == NoticeConfigGlobalOverride {
+			found = w.Message
+		}
+	}
+	if found == "" {
+		t.Fatalf("没有 %s 告警：%v", NoticeConfigGlobalOverride, a.Warnings)
+	}
+	// 默认值是 Bad User，托管文件会把它改成 never：这条差别必须出现在消息里。
+	if !strings.Contains(found, "Bad User") || !strings.Contains(found, "never") {
+		t.Errorf("告警没有说清现在是什么、会变成什么：%s", found)
+	}
 }

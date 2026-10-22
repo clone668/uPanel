@@ -1,0 +1,6 @@
+  .                                   D        0  Thu Oct 22 14:07:12 2026
+  ..                                  D        0  Thu Oct 22 14:07:12 2026
+  probe-write.txt                     A       57  Thu Oct 22 14:05:23 2026
+  probe-write-repaired.txt            A       57  Thu Oct 22 14:07:12 2026
+
+		1992552 blocks of size 1024. 1871268 blocks available

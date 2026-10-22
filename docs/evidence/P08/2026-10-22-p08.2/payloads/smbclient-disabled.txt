@@ -1,0 +1,1 @@
+tree connect failed: NT_STATUS_BAD_NETWORK_NAME

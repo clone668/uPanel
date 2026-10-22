@@ -85,6 +85,21 @@ type Options struct {
 	ReadDir func(name string) ([]os.DirEntry, error)
 	// Mkdir 创建共享目录（生产实现 os.MkdirAll + 固定权限）。
 	Mkdir func(name string, perm os.FileMode) error
+	// Chmod 修正共享目录上级的穿越权限（生产实现 os.Chmod）。
+	//
+	// 为什么要有这一步：共享账号既不是这些上级目录的属主、也不在它们的属组里，
+	// 能不能穿过去只看 other 的 x 位。目录是面板自己建的，所以面板也负责让它可穿越；
+	// 早于这条规则建出来的目录（0700）需要在下次应用时被修好，而不是一直挡着。
+	Chmod func(name string, mode os.FileMode) error
+
+	// ConfigPaths / ConfigFS 是写 Samba 配置用的路径与文件系统接缝。
+	//
+	// 零值即生产行为（/etc/samba/smb.conf、/etc/samba/upanel.d、真实 os 调用）。
+	// 它存在不是为了“让生产可配置”——面板执行哪个路径、怎么落盘依然是常量决定的事，
+	// 而是为了让“候选配置不合格时正式文件一个字节都没动”这类不变量能在单元测试里
+	// 反复验证，而不是只靠一次虚拟机运行来担保。
+	ConfigPaths ConfigPaths
+	ConfigFS    ConfigFS
 }
 
 // Engine 是共享模块的总入口。
@@ -119,6 +134,9 @@ func New(opts Options) (*Engine, error) {
 	}
 	if opts.Mkdir == nil {
 		opts.Mkdir = func(name string, perm os.FileMode) error { return os.MkdirAll(name, perm) }
+	}
+	if opts.Chmod == nil {
+		opts.Chmod = os.Chmod
 	}
 	return &Engine{opts: opts}, nil
 }

@@ -1,0 +1,25 @@
+=== env -i systemctl is-active
+active
+inactive
+rc=0
+=== env -i systemctl 单 unit
+active
+rc=0
+=== section 名大小写（候选文件里是 [MixedCase]）
+[global]
+[MixedCase]
+--按原样查--
+
+/tmp
+rc=0
+--按小写查--
+
+/tmp
+rc=0
+=== 同一段名在 include 前后各出现一次时，谁生效
+
+/tmp/second
+=== 合并后 map to guest（候选文件写 Never，主文件写 Bad User，候选在后面）
+Bad User
+=== 主文件里 include 一行写成注释时会被当成已接入吗
+Bad User

@@ -188,14 +188,35 @@ func (e *Engine) resolveDefinition(ctx context.Context, def ShareDefinition) (de
 		blockers = append(blockers, Blocker{Code: NoticeSMBUnavailable, Message: msg})
 	}
 
-	// 这一条告警在 P08.1 永远出现，而且是**刻意**的：定义、目录与 ACL 都会准备好，
-	// 但配置不会写进 Samba，共享因此不对外提供访问。把它做成告警而不是阻塞，
-	// 是因为这一阶段的目标正是把定义与权限准备好（P08.2 才接入配置与重载）。
-	warnings = append(warnings, Blocker{
-		Code: NoticeShareConfigNotApplied,
-		Message: "本阶段（P08.1）只保存共享定义、准备目录并应用 POSIX ACL；" +
-			"不会写入 Samba 配置、也不会重载服务，这条共享此刻还不对外提供访问",
-	})
+	// 允许网段挡不住本机：Samba 的 hosts allow **永远放行** 127.0.0.1，除非在
+	// hosts deny 里点名（man 5 smb.conf, hosts allow 一节原文：
+	// "the localhost address 127.0.0.1 will always be allowed access unless
+	// specifically denied by a hosts deny option"）。真机验证过：一份
+	// allowed_cidrs=["10.0.0.0/24"] 的共享，本机 smbclient 照样列得出目录。
+	//
+	// 不阻塞、也不偷偷加 hosts deny：加 deny 会把面板自己依赖的本地通道（smbpasswd、
+	// smbclient 自检）一起关掉，那是一次没人要求的语义改变。说清楚就够了。
+	if len(def.AllowedCIDRs) > 0 && !cidrsCoverLoopback(def.AllowedCIDRs) {
+		warnings = append(warnings, Blocker{
+			Code: NoticeHostsAllowLoopback,
+			Message: "allowed_cidrs 里没有 127.0.0.0/8：Samba 仍然会放行本机（127.0.0.1）——" +
+				"这是 Samba 的文档行为，这条名单管不住本机连进来的访问",
+		})
+	}
+
+	// 现状说明：这条共享**此刻**在不在 Samba 配置里。
+	//
+	// P08.1 这里是无条件告警（那时配置永远写不进去）；P08.2 起它变成对真实状态的
+	// 描述——新建或改名的共享此刻确实还不在配置里，改完之后才在。它不阻塞，
+	// 因为 apply 这个动作本身就是为了改变这个状态；说清楚是为了让人在确认页上
+	// 分得清“现在”与“做完之后”。
+	if !e.shareCurrentlyApplied(ctx, def.Name) {
+		warnings = append(warnings, Blocker{
+			Code: NoticeShareConfigNotApplied,
+			Message: "这条共享此刻不在 Samba 配置里：应用会写入托管配置并重载，" +
+				"之后才对外提供访问",
+		})
+	}
 
 	return out, blockers, warnings, nil
 }
@@ -296,6 +317,17 @@ func (e *Engine) checkSharePath(mountPath, dir string) ([]Blocker, []Blocker) {
 						" 个条目：这次只会改目录自身的 ACL，不会递归改动里面已有内容的权限",
 				})
 			}
+			continue
+		}
+		// 上级目录：共享账号不是它的属主、也不在它的属组里，能不能穿过去只看 other 的 x 位。
+		// 缺 x 时客户端连目标目录都到不了（真机上是 put 的 ACCESS_DENIED，而目标目录的
+		// ACL 一条不差——这种“每条证据都对、就是不通”最费时间）。
+		if info.Mode().Perm()&0o001 == 0 {
+			warnings = append(warnings, Blocker{
+				Code: NoticeSharePathNotTraversable,
+				Message: "上级目录 " + cur + " 没有 other 的 x 位，共享账号会被挡在这一级；" +
+					"应用时会补上 x（只加穿越，不加读取与列出）",
+			})
 		}
 	}
 	return blockers, warnings
@@ -378,6 +410,13 @@ func (e *Engine) assessShareApply(ctx context.Context, p ShareApplyParams) (Asse
 	}
 	out.Blockers = append(out.Blockers, blockers...)
 	out.Warnings = append(out.Warnings, warnings...)
+
+	// 配置侧的判决：现有 smb.conf 里有没有同名段、工具齐不齐、全局项会不会被改写。
+	// 它只看、不写：预检做的每一个观察都必须是可重复的。
+	configBlockers, configWarnings := e.configAssessment(ctx, def)
+	out.Blockers = append(out.Blockers, configBlockers...)
+	out.Warnings = append(out.Warnings, configWarnings...)
+
 	out.TargetID = def.Name
 	out.DisplayName = def.Name
 	out.IdentityFingerprint = dctx.VolumeUUID
@@ -385,12 +424,17 @@ func (e *Engine) assessShareApply(ctx context.Context, p ShareApplyParams) (Asse
 	out.Impacts = append(out.Impacts,
 		Impact{Kind: ImpactConfigChange,
 			Description: "共享定义会写入代理登记表（配置版本 = 渲染结果的 sha256）"},
+		Impact{Kind: ImpactConfigChange,
+			Description: "托管配置 " + ManagedConfigPath + " 会被整份重写，" +
+				"主配置里会多出一行 include（已接入时不重复添加），随后重载 Samba"},
 		Impact{Kind: ImpactAccessChange,
 			Description: "目录 " + dctx.Dir + " 的 POSIX ACL 会被整份替换成这份定义的授权"},
 	)
-	// 锁按“共享名 + 卷”取：两个人同时改同一个名字或同一个卷上的共享时必须串行。
+	// 锁按“共享名 + 卷 + 全局配置”取：两个人同时改同一个名字或同一个卷上的共享、
+	// 或者同时改任何两份共享，都必须串行——托管配置文件是整份重写的，
+	// 并发写入会让后一个把前一个的段覆盖掉（它读到的“现状”里还没有前一个）。
 	// 用名字而不是 id：新建时还没有 id。
-	out.Locks = []string{"share:" + def.Name, "volume:" + def.VolumeID}
+	out.Locks = []string{"share:" + def.Name, "volume:" + def.VolumeID, configLockName}
 	sort.Strings(out.Locks)
 
 	out.Allowed = len(out.Blockers) == 0
@@ -456,7 +500,24 @@ func (e *Engine) assessShareRef(ctx context.Context, action string, p ShareRefPa
 			})
 		}
 	}
-	out.Locks = []string{"share:" + rec.Definition.Name, "volume:" + rec.Definition.VolumeID}
+	// 摘除配置需要写文件与重载。工具缺失在这里**不阻塞**：停用一份共享是安全方向的
+	// 操作，先收回 ACL 也能立刻止住访问（目录权限收回到属主）。但必须说清代价：
+	// 配置可能还留在文件里，Samba 也可能还在按旧配置服务。
+	var missingTools []string
+	if capv.Tools.Testparm == "" {
+		missingTools = append(missingTools, "testparm")
+	}
+	if capv.Tools.Smbcontrol == "" {
+		missingTools = append(missingTools, "smbcontrol")
+	}
+	if len(missingTools) > 0 {
+		out.Warnings = append(out.Warnings, Blocker{
+			Code: NoticeConfigNotWritable,
+			Message: "缺少 " + strings.Join(missingTools, "/") + "：摘除仍会执行（先收回目录权限），" +
+				"但配置改动可能无法被 Samba 校验或重载",
+		})
+	}
+	out.Locks = []string{"share:" + rec.Definition.Name, "volume:" + rec.Definition.VolumeID, configLockName}
 	sort.Strings(out.Locks)
 
 	out.Allowed = len(out.Blockers) == 0

@@ -47,8 +47,12 @@ type stubShares struct {
 	records    []shares.ShareRecord
 	accounts   []shares.AccountRecord
 
+	connections shares.ConnectionsReport
+	lastConnID  string
+
 	sharesErr   error
 	accountsErr error
+	connErr     error
 	putErr      error
 
 	calls       int
@@ -86,6 +90,15 @@ func (s *stubShares) Accounts(context.Context) (shares.Capability, []shares.Acco
 		return shares.Capability{}, nil, s.accountsErr
 	}
 	return s.capability, s.accounts, nil
+}
+
+func (s *stubShares) Connections(_ context.Context, id string) (shares.ConnectionsReport, error) {
+	s.calls++
+	s.lastConnID = id
+	if s.connErr != nil {
+		return shares.ConnectionsReport{}, s.connErr
+	}
+	return s.connections, nil
 }
 
 func (s *stubShares) PutSecret(_ context.Context, in agentclient.PutSecretInput) (agentclient.SecretRef, error) {
@@ -161,12 +174,33 @@ func sampleAccount() shares.AccountRecord {
 	}
 }
 
+// sampleConnections 是一份“服务在跑、有一条活动连接”的报告。
+func sampleConnections() shares.ConnectionsReport {
+	return shares.ConnectionsReport{
+		ShareID:   apiShareID,
+		ShareName: "docs",
+		Service:   shares.ServiceStateActive,
+		Connections: []shares.Connection{{
+			Share:       "docs",
+			Machine:     "10.0.0.42",
+			Username:    "upanel-share-docs",
+			Dialect:     "SMB3_11",
+			Signing:     "partial(AES-128-GMAC)",
+			ConnectedAt: "Tue Oct 21 08:12:41 2026 UTC",
+			OpenFiles:   2,
+		}},
+		CollectedAt: time.Date(2026, 11, 4, 9, 6, 0, 0, time.UTC),
+		Notices:     []shares.Blocker{},
+	}
+}
+
 // sharesReader 返回一份预置了共享与账号的替身。
 func sharesReader() *stubShares {
 	return &stubShares{
-		capability: availableCapability(),
-		records:    []shares.ShareRecord{sampleShare()},
-		accounts:   []shares.AccountRecord{sampleAccount()},
+		capability:  availableCapability(),
+		records:     []shares.ShareRecord{sampleShare()},
+		accounts:    []shares.AccountRecord{sampleAccount()},
+		connections: sampleConnections(),
 		putResponse: agentclient.SecretRef{
 			Ref:       "sec_fedcba9876543210fedcba9876543210",
 			Purpose:   "smb_password",
@@ -229,6 +263,7 @@ func TestShareRoutesRequireSessionAndAdmin(t *testing.T) {
 	paths := []string{
 		"/api/v1/shares",
 		"/api/v1/shares/" + apiShareID,
+		"/api/v1/shares/" + apiShareID + "/connections",
 		"/api/v1/share-accounts",
 	}
 	for _, path := range paths {
@@ -383,6 +418,57 @@ func TestGetShareNotFoundAndShape(t *testing.T) {
 		}
 		if reader.calls != before {
 			t.Errorf("%q: 形状不对的标识被透传给了读取端", id)
+		}
+	}
+}
+
+// TestGetShareConnections 连接状态是独立子路径，带服务状态，形状不对先挡住。
+func TestGetShareConnections(t *testing.T) {
+	reader := sharesReader()
+	srv, cookie, csrf, _, _ := sharesFixture(t, reader)
+
+	rec := sharesDo(t, srv, cookie, csrf, http.MethodGet,
+		"/api/v1/shares/"+apiShareID+"/connections", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d（%s）", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Data shares.ConnectionsReport `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("响应不是合法 JSON: %v", err)
+	}
+	if reader.lastConnID != apiShareID {
+		t.Errorf("读取端收到的标识 = %q", reader.lastConnID)
+	}
+	if body.Data.Service != shares.ServiceStateActive {
+		t.Errorf("service = %q：空列表与“服务没在跑”必须能分开", body.Data.Service)
+	}
+	if len(body.Data.Connections) != 1 || body.Data.Connections[0].Machine != "10.0.0.42" {
+		t.Errorf("连接 = %+v", body.Data.Connections)
+	}
+
+	// 代理说“没有这条共享”是 404，不是 500：页面据此删掉这一行，而不是去查面板。
+	reader.connErr = &shares.RemoteError{
+		Status: http.StatusNotFound, Code: httpx.CodeNotFound, Message: "共享不存在",
+	}
+	rec = sharesDo(t, srv, cookie, csrf, http.MethodGet,
+		"/api/v1/shares/"+apiShareID+"/connections", "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("未知共享状态码 = %d，期望 404（%s）", rec.Code, rec.Body.String())
+	}
+	reader.connErr = nil
+
+	// 形状不对的标识在本层就被挡住，不会透传给代理。
+	for _, bad := range []string{"..", "shr_X", "shr_123", "docs"} {
+		before := reader.calls
+		rec = sharesDo(t, srv, cookie, csrf, http.MethodGet,
+			"/api/v1/shares/"+bad+"/connections", "")
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%q: 状态码 = %d，期望 400（%s）", bad, rec.Code, rec.Body.String())
+		}
+		if reader.calls != before {
+			t.Errorf("%q: 形状不对的标识被透传给了读取端", bad)
 		}
 	}
 }

@@ -1,12 +1,13 @@
 package agent
 
-// 共享查询的接线测试（P08.1）：share.capability、share.list、share.accounts。
+// 共享查询的接线测试（P08.1 起）：share.capability、share.list、share.accounts，
+// P08.2 加上 share.connections。
 //
 // 这一层只负责三件事：参数按形状拒绝、把登记表与能力报告原样返回、以及**不在
 // 响应里漏出不该给的东西**（秘密引用、密码形态的字段）。判决与执行在
 // shareaction_test.go 与 internal/shares 里各自有测试，这里不重复。
 //
-// 三条查询都返回能力报告：页面必须同时看到“这条共享的定义是什么”与“它现在有没有
+// 前三条查询都返回能力报告：页面必须同时看到“这条共享的定义是什么”与“它现在有没有
 // 被提供”。definition.enabled 是意图，config_applied 是事实。
 
 import (
@@ -17,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"upanel/internal/httpx"
 	"upanel/internal/shares"
 )
 
@@ -72,6 +74,21 @@ func shareQuerySource() *fakeShares {
 			CreatedAt:   time.Date(2026, 11, 4, 9, 0, 0, 0, time.UTC),
 			UpdatedAt:   time.Date(2026, 11, 4, 9, 3, 0, 0, time.UTC),
 		}},
+		connections: shares.ConnectionsReport{
+			ShareID:   testShareID,
+			ShareName: "docs",
+			Service:   shares.ServiceStateActive,
+			Connections: []shares.Connection{{
+				Share:       "docs",
+				Machine:     "10.0.0.42",
+				Username:    "upanel-share-docs",
+				Dialect:     "SMB3_11",
+				Signing:     "partial(AES-128-GMAC)",
+				ConnectedAt: "Tue Oct 21 08:12:41 2026 UTC",
+				OpenFiles:   2,
+			}},
+			CollectedAt: time.Date(2026, 11, 4, 9, 6, 0, 0, time.UTC),
+		},
 	}
 }
 
@@ -196,12 +213,87 @@ func TestShareAccountsQueryHidesSecretRef(t *testing.T) {
 	}
 }
 
+// TestShareConnectionsQuery 连接状态原样透出，并带上服务状态。
+//
+// service 必须一起返回：空连接列表有两种含义（没人连着 / smbd 没在跑），
+// 只给列表的话页面分不清，会把“服务停了”显示成“一切正常”。
+func TestShareConnectionsQuery(t *testing.T) {
+	src := shareQuerySource()
+	srv := shareQueryServer(t, src)
+	rec := postQuery(t, srv,
+		`{"query":"`+shares.QueryConnections+`","params":{"share_id":"`+testShareID+`"}}`,
+		testWebUID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d，期望 200（%s）", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Data shares.ConnectionsReport `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("响应不是合法 JSON: %v", err)
+	}
+	if len(src.connIDs) != 1 || src.connIDs[0] != testShareID {
+		t.Errorf("引擎收到的共享标识 = %v", src.connIDs)
+	}
+	if body.Data.Service != shares.ServiceStateActive {
+		t.Errorf("service = %q，空列表与“服务没在跑”必须能分开", body.Data.Service)
+	}
+	if len(body.Data.Connections) != 1 {
+		t.Fatalf("连接数 = %d", len(body.Data.Connections))
+	}
+	got := body.Data.Connections[0]
+	if got.Username != "upanel-share-docs" || got.OpenFiles != 2 {
+		t.Errorf("连接字段不对：%+v", got)
+	}
+	if strings.Contains(rec.Body.String(), "secret") || strings.Contains(rec.Body.String(), "password") {
+		t.Errorf("连接状态里出现了不该有的字段：%s", rec.Body.String())
+	}
+}
+
+// TestShareConnectionsQueryRejectsBadID 标识形状不对是 400，而且不会打扰引擎。
+func TestShareConnectionsQueryRejectsBadID(t *testing.T) {
+	src := shareQuerySource()
+	srv := shareQueryServer(t, src)
+	for _, raw := range []string{
+		`{"query":"` + shares.QueryConnections + `","params":{}}`,
+		`{"query":"` + shares.QueryConnections + `","params":{"share_id":""}}`,
+		`{"query":"` + shares.QueryConnections + `","params":{"share_id":"docs"}}`,
+		`{"query":"` + shares.QueryConnections + `","params":{"share_id":"shr_X"}}`,
+	} {
+		rec := postQuery(t, srv, raw, testWebUID)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s: 状态码 = %d，期望 400（%s）", raw, rec.Code, rec.Body.String())
+		}
+	}
+	if len(src.connIDs) != 0 {
+		t.Errorf("形状不对的标识被透传给了引擎：%v", src.connIDs)
+	}
+}
+
+// TestShareConnectionsQueryNotFoundIs404 登记表里没有这条共享是 404，不是 500。
+func TestShareConnectionsQueryNotFoundIs404(t *testing.T) {
+	src := shareQuerySource()
+	src.connErr = &shares.HTTPError{
+		Status:  http.StatusNotFound,
+		Code:    httpx.CodeNotFound,
+		Message: "共享 " + testShareID + " 不存在",
+	}
+	srv := shareQueryServer(t, src)
+	rec := postQuery(t, srv,
+		`{"query":"`+shares.QueryConnections+`","params":{"share_id":"`+testShareID+`"}}`,
+		testWebUID)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("状态码 = %d，期望 404（%s）", rec.Code, rec.Body.String())
+	}
+}
+
 // TestShareQueriesRejectBadParams 三条查询都不接受参数：带了就是 400，不是静默忽略。
 func TestShareQueriesRejectBadParams(t *testing.T) {
 	srv := shareQueryServer(t, shareQuerySource())
 	for _, raw := range []string{
 		`{"query":"` + shares.QueryCapability + `","params":{"refresh":true}}`,
 		`{"query":"` + shares.QueryShares + `","params":{"limit":10}}`,
+		`{"query":"` + shares.QueryConnections + `","params":{"share_id":"` + testShareID + `","all":true}}`,
 		`{"query":"` + shares.QueryAccounts + `","params":{"include_system":true}}`,
 		`{"query":"` + shares.QueryShares + `","params":[]}`,
 	} {

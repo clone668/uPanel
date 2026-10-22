@@ -103,6 +103,9 @@ func (s *Server) routes() *gin.Engine {
 		sh.Use(s.requireSession(), s.requireAdmin())
 		sh.GET("", s.handleListShares)
 		sh.GET("/:id", s.handleGetShare)
+		// 连接状态（P08.2）：读的是 smbstatus 此刻报出的会话表，不是登记表。
+		// 单独一条子路径而不是塞进详情：连接会变，详情不会。
+		sh.GET("/:id/connections", s.handleGetShareConnections)
 
 		// 受管理账号（P08.1）：admin。返回的每一条都没有密码、没有哈希，
 		// 也没有 secret_ref——DTO 上就没有那些字段。

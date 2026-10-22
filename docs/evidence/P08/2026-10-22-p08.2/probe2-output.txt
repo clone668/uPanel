@@ -1,0 +1,89 @@
+Added user p08probe.
+=== 打开一条保持的连接（stdin 不关闭）
+=== smbstatus --json
+{
+    "timestamp": "2026-10-22T12:55:52.192073+0000",
+    "version": "4.19.5-Ubuntu",
+    "smb_conf": "/etc/samba/smb.conf",
+    "sessions": {
+        "1879008955": {
+            "session_id": "1879008955",
+            "server_id": {
+                "pid": "59616",
+                "task_id": "0",
+                "vnn": "4294967295",
+                "unique_id": "2844816275940651167"
+            },
+            "uid": 997,
+            "gid": 987,
+            "username": "p08probe",
+            "groupname": "p08probe",
+            "remote_machine": "127.0.0.1",
+            "hostname": "ipv4:127.0.0.1:33264",
+            "session_dialect": "SMB3_11",
+            "encryption": {
+                "cipher": "-",
+                "degree": "none"
+            },
+            "signing": {
+                "cipher": "AES-128-GMAC",
+                "degree": "partial"
+            }
+        }
+    },
+    "tcons": {
+        "3073206837": {
+            "service": "p08probe",
+            "server_id": {
+                "pid": "59616",
+                "task_id": "0",
+                "vnn": "4294967295",
+                "unique_id": "2844816275940651167"
+            },
+            "tcon_id": "3073206837",
+            "session_id": "1879008955",
+            "machine": "127.0.0.1",
+            "connected_at": "2026-10-22T12:55:49.085662+00:00",
+            "encryption": {
+                "cipher": "-",
+                "degree": "none"
+            },
+            "signing": {
+                "cipher": "-",
+                "degree": "none"
+            }
+        }
+    },
+    "open_files": {}
+}
+
+=== smbstatus --json 原文（不格式化）
+{"timestamp": "2026-10-22T12:55:52.192073+0000", "version": "4.19.5-Ubuntu", "smb_conf": "/etc/samba/smb.conf", "sessions": {"1879008955": {"session_id": "1879008955", "server_id": {"pid": "59616", "task_id": "0", "vnn": "4294967295", "unique_id": "2844816275940651167"}, "uid": 997, "gid": 987, "username": "p08probe", "groupname": "p08probe", "remote_machine": "127.0.0.1", "hostname": "ipv4:127.0.0.1:33264", "session_dialect": "SMB3_11", "encryption": {"cipher": "-", "degree": "none"}, "signing": {"cipher": "AES-128-GMAC", "degree": "partial"}}}, "tcons": {"3073206837": {"service": "p08probe", "server_id": {"pid": "59616", "task_id": "0", "vnn": "4294967295", "unique_id": "2844816275940651167"}, "tcon_id": "3073206837", "session_id": "1879008955", "machine": "127.0.0.1", "connected_at": "2026-10-22T12:55:49.085662+00:00", "encryption": {"cipher": "-", "degree": "none"}, "signing": {"cipher": "-", "degree": "none"}}}, "open_files": {}}
+
+=== smbstatus -S 文本
+
+Service      pid     Machine       Connected at                     Encryption   Signing     
+---------------------------------------------------------------------------------------------
+p08probe     59616   127.0.0.1     Thu Oct 22 12:55:49 2026 UTC     -            -           
+
+=== smbstatus -p 文本
+
+Samba version 4.19.5-Ubuntu
+PID     Username     Group        Machine                                   Protocol Version  Encryption           Signing              
+----------------------------------------------------------------------------------------------------------------------------------------
+59616   p08probe     p08probe     127.0.0.1 (ipv4:127.0.0.1:33264)          SMB3_11           -                    partial(AES-128-GMAC)
+=== smbstatus 默认输出
+
+Samba version 4.19.5-Ubuntu
+PID     Username     Group        Machine                                   Protocol Version  Encryption           Signing              
+----------------------------------------------------------------------------------------------------------------------------------------
+59616   p08probe     p08probe     127.0.0.1 (ipv4:127.0.0.1:33264)          SMB3_11           -                    partial(AES-128-GMAC)
+
+Service      pid     Machine       Connected at                     Encryption   Signing     
+---------------------------------------------------------------------------------------------
+p08probe     59616   127.0.0.1     Thu Oct 22 12:55:49 2026 UTC     -            -           
+
+
+=== 连接关闭后再取一次
+{"timestamp": "2026-10-22T12:56:06.259348+0000", "version": "4.19.5-Ubuntu", "smb_conf": "/etc/samba/smb.conf", "sessions": {}, "tcons": {}, "open_files": {}}
+

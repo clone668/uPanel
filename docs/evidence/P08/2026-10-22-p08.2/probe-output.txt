@@ -1,0 +1,77 @@
+=== 1 prepare user + dir
+Added user p08probe.
+=== 2 probe config
+=== 3 testparm on candidate (valid)
+rc=0
+--out--
+# Global parameters
+[global]
+	server min protocol = SMB2
+	idmap config * : backend = tdb
+
+
+[p08probe]
+	path = /srv/p08probe
+	read only = No
+	valid users = p08probe
+--err--
+Load smb config files from /etc/samba/p08probe.conf
+Loaded services file OK.
+Weak crypto is allowed by GnuTLS (e.g. NTLM as a compatibility fallback)
+
+Server role: ROLE_STANDALONE
+
+=== 4 testparm merged
+rc=0
+--err--
+Load smb config files from /etc/samba/smb.conf
+Loaded services file OK.
+Weak crypto is allowed by GnuTLS (e.g. NTLM as a compatibility fallback)
+
+Server role: ROLE_STANDALONE
+
+--map to guest--
+Never
+--min protocol--
+SMB2
+--path of share--
+/srv/p08probe
+--valid users--
+p08probe
+=== 5 reload
+rc=0
+active
+=== 6 real client: list + write
+  .                                   D        0  Thu Oct 22 12:55:12 2026
+  ..                                  D        0  Thu Oct 22 12:55:12 2026
+
+		39535100 blocks of size 1024. 36320104 blocks available
+rc=0
+putting file /tmp/probe.txt as \probe.txt (0.6 kb/s) (average 0.6 kb/s)
+  .                                   D        0  Thu Oct 22 12:55:15 2026
+  ..                                  D        0  Thu Oct 22 12:55:15 2026
+  probe.txt                           A       23  Thu Oct 22 12:55:15 2026
+
+		39535100 blocks of size 1024. 36320096 blocks available
+rc=0
+=== 7 smbstatus --json with a live tree connection
+--json--
+{"timestamp": "2026-10-22T12:55:20.527682+0000", "version": "4.19.5-Ubuntu", "smb_conf": "/etc/samba/smb.conf", "sessions": {}, "tcons": {}, "open_files": {}}
+
+--text -S--
+
+Service      pid     Machine       Connected at                     Encryption   Signing     
+---------------------------------------------------------------------------------------------
+
+=== 8 remove section from managed file, reload, check client rejected
+tree connect failed: NT_STATUS_BAD_NETWORK_NAME
+rc=0
+--section gone?--
+rc=1
+=== 9 bad candidate exit codes
+unknown-key rc=0
+bad-section rc=1
+--err--
+Load smb config files from /tmp/bad2.conf
+Error loading services.
+=== 10 done

@@ -107,6 +107,29 @@ func (f *Fetcher) Share(ctx context.Context, id string) (Capability, ShareRecord
 	return cap, ShareRecord{}, false, nil
 }
 
+// Connections 读取某一份共享此刻的连接状态。
+//
+// 走 share.connections 查询：它读的是 smbstatus，是**这台机器此刻的事实**，
+// 而不是登记表里的配置。返回体里带着 service 状态，因为空列表有两种含义
+// （没有人连着 / 服务没在跑），只有把服务状态一起看才分得清。
+func (f *Fetcher) Connections(ctx context.Context, id string) (ConnectionsReport, error) {
+	raw, err := f.query(ctx, QueryConnections, map[string]any{"share_id": id})
+	if err != nil {
+		return ConnectionsReport{}, err
+	}
+	var report ConnectionsReport
+	if err := json.Unmarshal(raw, &report); err != nil {
+		return ConnectionsReport{}, fmt.Errorf("shares: 代理返回的连接状态不是合法 JSON: %w", err)
+	}
+	if report.Connections == nil {
+		report.Connections = []Connection{}
+	}
+	if report.Notices == nil {
+		report.Notices = []Blocker{}
+	}
+	return report, nil
+}
+
 // Accounts 读取受管理账号列表与能力报告。
 //
 // 返回的 AccountRecord 里没有密码、没有哈希，也没有 secret_ref（那个字段是 json:"-"）。

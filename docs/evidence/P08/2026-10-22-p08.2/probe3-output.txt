@@ -1,0 +1,124 @@
+Added user p08probe.
+=== 保持一个打开的文件（get 大文件）
+=== open_files 形状
+{
+ "sessions": {
+  "91042768": {
+   "session_id": "91042768",
+   "server_id": {
+    "pid": "59760",
+    "task_id": "0",
+    "vnn": "4294967295",
+    "unique_id": "9983618001503266240"
+   },
+   "uid": 997,
+   "gid": 987,
+   "username": "p08probe",
+   "groupname": "p08probe",
+   "remote_machine": "127.0.0.1",
+   "hostname": "ipv4:127.0.0.1:38070",
+   "session_dialect": "SMB3_11",
+   "encryption": {
+    "cipher": "-",
+    "degree": "none"
+   },
+   "signing": {
+    "cipher": "AES-128-GMAC",
+    "degree": "partial"
+   }
+  }
+ },
+ "tcons": {
+  "4114207148": {
+   "service": "p08probe",
+   "server_id": {
+    "pid": "59760",
+    "task_id": "0",
+    "vnn": "4294967295",
+    "unique_id": "9983618001503266240"
+   },
+   "tcon_id": "4114207148",
+   "session_id": "91042768",
+   "machine": "127.0.0.1",
+   "connected_at": "2026-10-22T12:56:26.574540+00:00",
+   "encryption": {
+    "cipher": "-",
+    "degree": "none"
+   },
+   "signing": {
+    "cipher": "-",
+    "degree": "none"
+   }
+  }
+ },
+ "open_files": {
+  "/srv/p08probe/big.bin": {
+   "service_path": "/srv/p08probe",
+   "filename": "big.bin",
+   "fileid": {
+    "devid": 2049,
+    "inode": 526498,
+    "extid": 0
+   },
+   "num_pending_deletes": 0,
+   "opens": {
+    "59760/3": {
+     "server_id": {
+      "pid": "59760",
+      "task_id": "0",
+      "vnn": "4294967295",
+      "unique_id": "9983618001503266240"
+     },
+     "uid": 997,
+     "share_file_id": "3",
+     "sharemode": {
+      "hex": "0x00000003",
+      "READ": true,
+      "WRITE": true,
+      "DELETE": false,
+      "text": "RW"
+     },
+     "access_mask": {
+      "hex": "0x00120089",
+      "READ_DATA": true,
+      "WRITE_DATA": false,
+      "APPEND_DATA": false,
+      "READ_EA": true,
+      "WRITE_EA": false,
+      "EXECUTE": false,
+      "READ_ATTRIBUTES": true,
+      "WRITE_ATTRIBUTES": false,
+      "DELETE_CHILD": false,
+      "DELETE": false,
+      "READ_CONTROL": true,
+      "WRITE_DAC": false,
+      "SYNCHRONIZE": true,
+      "ACCESS_SYSTEM_SECURITY": false,
+      "text": "R"
+     },
+     "caching": {
+      "READ": false,
+      "WRITE": false,
+      "HANDLE": false,
+      "hex": "0x00000000",
+      "text": ""
+     },
+     "oplock": {},
+     "lease": {},
+     "opened_at": "2026-10-22T12:56:26.581042+00:00"
+    }
+   }
+  }
+ }
+}
+=== 原始 open_files
+"open_files": {"/srv/p08probe/big.bin": {"service_path": "/srv/p08probe", "filename": "big.bin", "fileid": {"devid": 2049, "inode": 526498, "extid": 0}, "num_pending_deletes": 0, "opens": {"59760/3": {"server_id": {"pid": "59760", "task_id": "0", "vnn": "4294967295", "unique_id": "9983618001503266240"}, "uid": 997, "share_file_id": "3", "sharemode": {"hex": "0x00000003", "READ": true, "WRITE": true, "DELETE": false, "text": "RW"}, "access_mask": {"hex": "0x00120089", "READ_DATA": true, "WRITE_DATA": false, "APPEND_DATA": false, "READ_EA": true, "WRITE_EA": false, "EXECUTE": false, "READ_ATTRIBUTES": true, "WRITE_ATTRIBUTES": false, "DELETE_CHILD": false, "DELETE": false, "READ_CONTROL": true, "WRITE_DAC": false, "SYNCHRONIZE": true, "ACCESS_SYSTEM_SECURITY": false, "text": "R"}, "caching": {"READ": false, "WRITE": false, "HANDLE": false, "hex": "0x00000000", "text": ""}, "oplock": {}, "lease": {}, "opened_at": "2026-10-22T12:56:26.581042+00:00"}}}}}
+
+=== smbd 停止后的 smbstatus
+{"timestamp": "2026-10-22T12:56:52.863621+0000", "version": "4.19.5-Ubuntu", "smb_conf": "/etc/samba/smb.conf", "sessions": {}, "tcons": {}, "open_files": {}}
+rc=0
+smbcontrol rc=0
+inactive
+is-active rc=3
+active
+=== end

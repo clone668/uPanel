@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: uPanel API
-  version: 0.0.0-p08.1
+  version: 0.0.0-p08.2
   summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
   description: |
     uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。
@@ -23,7 +23,7 @@ info:
     name: Proprietary
     identifier: LicenseRef-Proprietary
 x-upanel-contract-status:
-  stage: P08.1
+  stage: P08.2
   implemented_paths:
     - get /api/v1/health/live
     - head /api/v1/health/live
@@ -69,6 +69,7 @@ x-upanel-contract-status:
     - delete /api/v1/terminal/sessions/{id}
     - get /api/v1/shares
     - get /api/v1/shares/{id}
+    - get /api/v1/shares/{id}/connections
     - get /api/v1/share-accounts
     - post /api/v1/secrets
   note: 只列出已实现并通过验收的接口；未实现模块不出现在 paths 中。
@@ -1346,9 +1347,14 @@ paths:
         - `definition.enabled` 是意图——这条共享的配置要不要生效；
         - `config_applied` 是事实——这份配置有没有写进 Samba 并被重载。
 
-        P08.1 里 `config_applied` 恒为 `false`，且没有代码路径能把它置真（配置写入、
-        最小 include、testparm 与重载在 P08.2）。此时 `directory_prepared` 可以为真：
-        目录与 POSIX ACL 确实按定义准备好并核验过了，但共享**不对外提供任何访问**。
+        P08.2 起 `config_applied` 可以是真的：配置真的写进了面板独占的托管文件
+        `/etc/samba/upanel.d/upanel.conf`，主配置末尾接了一行 include，候选文件与合并
+        后的配置都过了 testparm，并且 smbd 在跑、重载成功。`directory_prepared` 仍然只
+        说目录与 POSIX ACL 准备好了——它可以为真而 `config_applied` 为假（目录备好了
+        但服务没在跑、或配置还没写）。
+
+        `service_state` 是第三个维度：smbd 没在跑的时候，一份完全正确的配置也提供不了
+        任何访问，能力报告必须能把这件事说出来。
 
         能力报告与列表一起返回，是因为把两者分成两次请求，中间就会出现一小段时间界面
         显示“已启用、已生效”，而 Samba 那边还没有这一段。
@@ -1415,6 +1421,55 @@ paths:
                 properties:
                   data:
                     $ref: '#/components/schemas/ShareDetailData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/shares/{id}/connections:
+    get:
+      operationId: getShareConnections
+      summary: 某一条共享此刻的连接状态（仅 admin）
+      description: |
+        CONTRACTS.md 第 7 节（P08.2 起），权限 admin。
+
+        读的是 `smbstatus --json` 报出的 smbd 会话表，即**这台机器此刻的事实**，而不是
+        登记表里的配置。它单独一条子路径而不是塞进详情，是因为连接每秒都可能变、定义不会：
+        塞在一起就得让详情页跟着连接一起刷新，或者接受一份永远慢半拍的“详情”。
+
+        **空列表不是“一切正常”。** 真机验证过：smbd 停掉之后 `smbstatus --json` 仍然以
+        退出码 0 返回空的 sessions/tcons，与“没人连着”在输出上一模一样。所以响应里必带
+        `service`，页面据此说“服务没在运行”而不是“没人连”。同理，`smbstatus` 缺失时
+        列表为空且带一条 notice，那也不是“没人连”。
+
+        id 的形状是 `shr_` 加 32 位小写十六进制；形状不对在本层 400，不透传任意字符串给
+        代理。不存在的共享是 404，不是空报告。
+      tags: [shares]
+      parameters:
+        - $ref: '#/components/parameters/ShareID'
+      responses:
+        '200':
+          description: 连接状态报告；没有连接时 `connections` 是 `[]`，不是 null。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ShareConnectionsData'
                   request_id:
                     $ref: '#/components/schemas/RequestId'
         '400':
@@ -4276,8 +4331,9 @@ components:
         status 只有两态：`available`（工具齐了、配置可读）与 `blocked`（缺东西，
         reason 说明缺什么）。没有“本机不支持 SMB”这种第三态。
       required: [status, samba_version, tools, config_path, config_readable,
-                 include_dir, include_ready, include_present, config_write, notices,
-                 collected_at]
+                 include_dir, include_ready, include_present, config_write,
+                 service_state, service_units, managed_config, managed_config_present,
+                 managed_config_hash, managed_shares, notices, collected_at]
       properties:
         status:
           type: string
@@ -4300,20 +4356,50 @@ components:
           description: 读不到主配置就不能说“这台机器的 Samba 长什么样”，status 因此是 blocked。
         include_dir:
           type: string
-          description: 面板独占的托管 include 目录（/etc/samba/upanel.d），P08.2 在这里写。
+          description: 面板独占的托管 include 目录（/etc/samba/upanel.d），面板只在这里写。
         include_ready:
           type: boolean
           description: 托管目录是否存在且可写。
         include_present:
           type: boolean
-          description: 主配置里是否已经有一行 include 指到托管目录。P08.1 通常为 false。
+          description: |
+            主配置里是否已经有一行**生效的** include 指到托管目录（注释掉的不算）。
+            这一行是面板唯一会改动 smb.conf 的地方，且只追加在末尾：Samba 里靠后的
+            `[global]` 胜出，因此在末尾接入能覆盖前面遗留的同名配置。
         config_write:
           type: string
           enum: [unsupported, available]
           description: |
-            配置写入能力。P08.1 恒为 `unsupported`：不写配置、不跑 testparm、不重载，
-            因此共享不对外提供访问。放在能力对象里，是因为“能不能写配置”与“共享能不能用”
-            是同一个问题，不该让页面去猜。
+            配置写入能力。P08.2 起由三件事决定：testparm 在、smbcontrol 在、主配置可读。
+            缺任何一件都是 `unsupported`，并附一条 notice 说明缺什么——此时面板仍然可以
+            **移除**已有配置（删行不会引入语法错误），但不会写入新的段。
+        service_state:
+          type: string
+          enum: [active, inactive, unknown]
+          description: |
+            smbd 的运行状态（查 smbd.service 与 smbd.socket）。单列出来是因为配置写对了
+            不等于能用：服务没在跑时连接列表一定是空的，而那个空与“没有人连”长得一样。
+        service_units:
+          type: array
+          description: 这次问了哪几个 systemd unit。
+          items:
+            type: string
+        managed_config:
+          type: string
+          description: 面板独占的托管配置文件绝对路径（/etc/samba/upanel.d/upanel.conf）。
+        managed_config_present:
+          type: boolean
+          description: 那个文件此刻存在不存在。
+        managed_config_hash:
+          type: string
+          description: |
+            托管文件整份内容的 sha256（不存在时是空串）。与每条共享的 `config_hash`
+            不同：那是单条定义的哈希，这是整份文件的。整份变了说明有人在面板之外动过它。
+        managed_shares:
+          type: array
+          description: 托管文件里现有的段名（不含 global）。
+          items:
+            type: string
         notices:
           type: array
           description: 人读的补充说明（缺 include 目录、缺 testparm 等），不改变 status。
@@ -4334,6 +4420,10 @@ components:
         pdbedit:
           type: string
         testparm:
+          type: string
+        smbcontrol:
+          type: string
+        smbstatus:
           type: string
         setfacl:
           type: string
@@ -4429,8 +4519,9 @@ components:
         - `directory_prepared`：目录与 POSIX ACL 是否已经按这份定义准备并核验过；
         - `config_applied`：这份定义是否已经写进 Samba 配置并被重载。
 
-        P08.1 里 `config_applied` 恒为 false。把“定义准备好了”说成“共享可用”是这一
-        阶段最容易犯的谎，所以它固定在返回结构里。
+        `config_applied` 说的是“这一条共享的段在托管文件里”。它仍然不等于“共享可用”：
+        还要 include 接上了、合并后的配置过了 testparm、smbd 在跑、重载成功。把“写进去了”
+        说成“能访问了”是这一阶段最容易犯的谎，所以两者分开报，页面也必须分开显示。
       required: [id, definition, config_hash, version, directory_prepared,
                  config_applied, created_at, updated_at]
       properties:
@@ -4451,7 +4542,10 @@ components:
           description: share.disable 会清回 false（禁用即撤销 ACL）。
         config_applied:
           type: boolean
-          description: P08.2 起才可能为真；P08.1 恒为 false。
+          description: |
+            P08.2 起才可能为真：这一条共享的段已经写进托管配置并被读取回来核验过。
+            share.disable / share.delete 会把它清回 false（禁用即撤销 ACL 并从托管文件
+            里移除这一段）。
         last_operation_id:
           type: string
           description: 最近一次改动这条记录的操作标识；不出现表示没有。
@@ -4483,6 +4577,73 @@ components:
           $ref: '#/components/schemas/ShareCapability'
         share:
           $ref: '#/components/schemas/ShareRecord'
+
+    ShareConnectionsData:
+      type: object
+      additionalProperties: false
+      description: |
+        GET /api/v1/shares/{id}/connections 的响应体。
+
+        `service` 与 `connections` 必须一起看：空列表有两种完全不同的含义（没有人连着 /
+        smbd 根本没在跑），而 smbstatus 在两种情况下给出同样的空表。
+      required: [share_id, share_name, service, connections, collected_at, notices]
+      properties:
+        share_id:
+          type: string
+          pattern: '^shr_[0-9a-f]{32}$'
+        share_name:
+          type: string
+          description: 共享名（Samba 里的段名，匹配时不分大小写）。
+        service:
+          type: string
+          enum: [active, inactive, unknown]
+          description: smbd 此刻的运行状态；inactive 时连接列表为空是“服务没在提供访问”。
+        connections:
+          type: array
+          description: 按连接建立时间排序；没有连接时是 `[]`。
+          items:
+            $ref: '#/components/schemas/ShareConnection'
+        collected_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        notices:
+          type: array
+          description: 读不到或读不全的原因（smbstatus 缺失、服务没在运行等）。
+          items:
+            $ref: '#/components/schemas/PreflightNotice'
+
+    ShareConnection:
+      type: object
+      additionalProperties: false
+      description: |
+        一条树连接（smbstatus 的 tcon）与它对应的会话拼成的一行。
+
+        树连接说“哪个共享、哪台机器、什么时候连上”，会话说“谁认证的、什么方言、签名
+        状态”——两者靠 session_id 关联。所有字段都是 smbstatus 的原样字符串，面板不重新
+        格式化时间：它取的是 Samba 的时钟与格式，改写成 RFC 3339 只会多一个会错的翻译。
+      required: [share, machine, username, dialect, signing, connected_at, open_files]
+      properties:
+        share:
+          type: string
+          description: 这条连接挂载的服务名（Samba 里的小写段名）。
+        machine:
+          type: string
+          description: 客户端地址。
+        username:
+          type: string
+          description: 认证通过的账号名；匿名会话里是空串。
+        dialect:
+          type: string
+          description: 协商出的 SMB 方言（例如 SMB3_11）。
+        signing:
+          type: string
+          description: 签名状态（例如 partial(AES-128-GMAC) 或 none）。
+        connected_at:
+          type: string
+          description: 树连接建立的时间，smbstatus 给的原样字符串。
+        open_files:
+          type: integer
+          minimum: 0
+          description: 这条连接所在共享上开着几个文件（按 service_path 归并）。
 
     ShareAccount:
       type: object

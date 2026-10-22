@@ -36,6 +36,11 @@ type fakeShares struct {
 	accounts   []shares.AccountRecord
 	listErr    error
 
+	// 连接状态（P08.2）：读 smbstatus，与登记表无关。
+	connections shares.ConnectionsReport
+	connErr     error
+	connIDs     []string
+
 	// 记录调用，验证代理层没有偷偷改入参或动作名。
 	actions []string
 	params  []any
@@ -73,6 +78,14 @@ func (f *fakeShares) Accounts(context.Context) ([]shares.AccountRecord, error) {
 		return nil, f.listErr
 	}
 	return f.accounts, nil
+}
+
+func (f *fakeShares) Connections(_ context.Context, shareID string) (shares.ConnectionsReport, error) {
+	f.connIDs = append(f.connIDs, shareID)
+	if f.connErr != nil {
+		return shares.ConnectionsReport{}, f.connErr
+	}
+	return f.connections, nil
 }
 
 const (

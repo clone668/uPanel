@@ -1,0 +1,275 @@
+== 0. 环境与安全守卫 ==
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  依赖命令可用 python3
+PASS  依赖命令可用 curl
+PASS  依赖命令可用 runuser
+PASS  依赖命令可用 sha256sum
+PASS  依赖命令可用 findmnt
+PASS  依赖命令可用 lsblk
+PASS  依赖命令可用 sgdisk
+PASS  依赖命令可用 blkid
+PASS  依赖命令可用 wipefs
+PASS  依赖命令可用 udevadm
+PASS  依赖命令可用 blockdev
+PASS  依赖命令可用 stat
+PASS  依赖命令可用 awk
+PASS  依赖命令可用 diff
+PASS  依赖命令可用 grep
+PASS  依赖命令可用 systemctl
+PASS  夹具：/usr/sbin/smbd 存在
+PASS  夹具：/usr/bin/smbpasswd 存在
+PASS  夹具：/usr/bin/pdbedit 存在
+PASS  夹具：/usr/bin/testparm 存在
+PASS  夹具：/usr/bin/smbcontrol 存在
+PASS  夹具：/usr/bin/smbstatus 存在
+PASS  夹具：/usr/bin/smbclient 存在
+PASS  夹具：/usr/bin/setfacl 存在
+PASS  夹具：/usr/bin/getfacl 存在
+PASS  夹具：/etc/samba/smb.conf 存在
+      smbd 版本（独立读取）：Version 4.19.5-Ubuntu
+PASS  Web 账号 upanel-web 存在
+      卸掉上一轮遗留的挂载 /srv/upanel/volumes/data
+      清掉遗留的托管块（内容留档到 /var/tmp/upanel-accept-p08-2.fstab-before-reset.txt）
+PASS  承载 / 的设备是 /dev/sda1（整盘 sda）
+PASS  一次性盘 /dev/sdb 存在
+      /dev/sdb：8589934592 字节，无挂载
+PASS  起点：smb.conf 的 sha256 已记录（8b519488b5592bfe20bef55634c208979c4d2d6cf47b37895dd15af17be42a39）
+      起点：smb.conf 里有 3 个段，其中既有第三方共享必须保留
+      清掉上一轮遗留的 /etc/samba/upanel.d
+PASS  起点：smb.conf 里没有残留的 include 行
+PASS  起点：备份目录已清空（/var/lib/upanel-agent/smb-backups）
+PASS  一次性盘 /dev/sdb 清成空白
+PASS  起点：受管理账号已清空
+PASS  夹具：smbd 在运行
+
+== 1. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  代理日志声明共享模块已接线
+PASS  代理把 share.apply 登记成可执行动作
+PASS  代理把 share.disable 登记成可执行动作
+PASS  代理把 share.delete 登记成可执行动作
+PASS  代理把 share.account.apply 登记成可执行动作
+PASS  代理把 share.account.delete 登记成可执行动作
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19477 启动
+PASS  监听 19477 的 Web 进程不是 root（pid=70914 uid=999）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+
+== 2. 能力检测：这一阶段起「配置能写」必须是真的 ==
+PASS  共享列表可读
+PASS  能力状态是 available
+PASS  共享列表此刻是空数组（不是 null）
+PASS  能力里的 samba_version 与 smbd --version 一致
+PASS  能力里报的每个工具路径都存在且可执行
+PASS  必需工具 smbd 在能力里（缺了就该 unsupported）
+PASS  必需工具 smbpasswd 在能力里（缺了就该 unsupported）
+PASS  必需工具 pdbedit 在能力里（缺了就该 unsupported）
+PASS  必需工具 testparm 在能力里（缺了就该 unsupported）
+PASS  必需工具 smbcontrol 在能力里（缺了就该 unsupported）
+PASS  必需工具 smbstatus 在能力里（缺了就该 unsupported）
+PASS  必需工具 setfacl 在能力里（缺了就该 unsupported）
+PASS  必需工具 getfacl 在能力里（缺了就该 unsupported）
+PASS  配置写入从本阶段起是 available
+PASS  启动日志记下了托管配置文件路径
+PASS  启动日志不再声称本阶段不写配置
+PASS  service_state 与 systemctl 的判定一致（smbd.service + smbd.socket）
+PASS  service_units 报的是 smbd.service 与 smbd.socket
+PASS  managed_config 指向面板独占的那份文件
+PASS  managed_config_present 与文件是否存在一致
+PASS  include_present 与 smb.conf 里那一行一致
+PASS  起点 include_present 是 false（还没接）
+PASS  notices 都有 message
+PASS  账号列表可读
+PASS  账号列表此刻是空数组
+
+== 3. 夹具：空盘走产品的 GPT → 分区 → ext4 → 导入 → 挂载 ==
+PASS  初始化分区表预检允许
+PASS  初始化分区表任务终态
+PASS  初始化分区表结果 verified
+PASS  建分区任务终态
+PASS  建分区结果 verified
+PASS  独立证据：内核看到了 sdb1
+PASS  格式化任务终态
+PASS  独立证据：blkid 读出的类型是 ext4
+PASS  独立证据：blkid 读出的卷标
+PASS  导入预检允许
+PASS  导入任务终态
+PASS  挂载点由 slug 派生
+PASS  挂载任务终态
+PASS  独立证据：卷真的挂上了
+
+== 4. 受管理账号 + 秘密通道（共享名单要用真实账号） ==
+PASS  存 smbp08rw 的密码走秘密通道
+PASS  存 smbp08ro 的密码走秘密通道
+PASS  拿得到 smbp08rw 的 secret_ref
+PASS  拿得到 smbp08ro 的 secret_ref
+PASS  秘密响应里没有明文
+PASS  建 smbp08rw 任务终态
+PASS  建 smbp08rw 结果 verified
+PASS  建 smbp08ro 任务终态
+PASS  独立证据：两个账号都在 passdb 里
+PASS  独立证据：smbp08ro 已在 passdb 里（它此刻还不在共享名单里）
+
+== 5. share.apply：配置真的写进去，而且 Samba 真的在用 ==
+PASS  应用共享预检允许
+PASS  应用共享任务终态
+PASS  应用共享结果是 verified
+PASS  应用共享带 verified_at
+PASS  应用共享observed.served
+PASS  应用共享recovery_hint 说明已在提供服务
+PASS  拿到共享标识
+PASS  申请写配置这次确实重写了文件
+PASS  include 这一行是这次接上的
+PASS  重载被执行
+PASS  候选与合并都过了 testparm
+PASS  服务状态是 active
+PASS  给了备份路径（改配置前先备份）
+PASS  独立证据：托管文件存在
+PASS  独立证据：托管文件里有这一段
+PASS  独立证据：托管文件里写的是卷内的真实目录
+PASS  独立证据：smb.conf 里指向托管目录的行只有一行
+PASS  独立证据：smb.conf 原有内容逐字节保留（新内容是旧内容的前缀延伸）
+PASS  独立证据：追加的行只有两行（一行说明注释 + 一行 include）
+PASS  独立证据：smb.conf 原有段名全都还在
+PASS  独立证据：Samba 读得出这一段存在
+PASS  独立证据：Samba 读回的 path
+PASS  独立证据：Samba 读回的 valid users
+PASS  独立证据：Samba 读回的 read only
+PASS  独立证据：Samba 读回的 guest ok
+PASS  独立证据：Samba 读回的 hosts allow
+PASS  独立证据：共享账号能走进共享目录
+PASS  独立证据：共享账号能穿过每一级上级目录
+PASS  独立证据：上级目录对 other 只开了 x（可穿越、不可列出）
+PASS  备份目录里产生了备份（1 个）
+PASS  备份文件权限都是 0600
+PASS  改之前的备份里没有这一段（备份的是旧的空配置）
+PASS  共享详情可读
+PASS  记录里 config_applied 是 true
+PASS  记录里 directory_prepared 是 true
+PASS  共享列表里能读到这条
+
+== 6. 真实 SMB 客户端：读写权限、未授权、匿名、来源网段 ==
+PASS  write 用户能上传
+PASS  独立证据：文件真的落在卷里
+PASS  独立证据：落盘内容与源文件一致
+PASS  write 用户能读回内容
+PASS  未授权的账号（在 passdb 里但不在名单里）被拒
+PASS  未授权的账号看不到目录内容
+PASS  匿名（guest）被拒
+PASS  匿名看不到目录内容
+PASS  第二条共享任务终态
+PASS  独立证据：Samba 读回的 hosts allow
+PASS  预检告警：名单管不住本机（Samba 对环回永远放行）
+PASS  本机（127.0.0.1）能连上：Samba 对环回永远放行（文档行为）
+PASS  夹具：netns 客户端地址
+PASS  不在允许网段里的客户端（10.99.0.2）被拒
+PASS  允许网段改成客户端所在网段任务终态
+PASS  允许网段改成客户端所在网段结果是 verified
+PASS  允许网段改成客户端所在网段带 verified_at
+PASS  允许网段改成客户端所在网段observed.served
+PASS  允许网段改成客户端所在网段recovery_hint 说明已在提供服务
+PASS  独立证据：Samba 读回的新 hosts allow
+PASS  网段放行之后同一个客户端能连上
+
+== 7. 共享连接状态：读的是 Samba 自己的会话表 ==
+PASS  连接状态可读
+PASS  报告里的 service 是 active
+PASS  报告里的共享名
+PASS  至少看到一条连接（实际 1）
+PASS  连接里的账号是 write 用户
+PASS  连接里的机器是 127.0.0.1
+PASS  连接里有协商出的方言
+PASS  连接里有签名状态（不是空串）
+PASS  连接里有建立时间
+PASS  面板的连接数与 smbstatus 自己报的一致
+PASS  连接断开后列表回到 0
+PASS  空闲时 service 仍然报 active（空列表不是“服务停了”）
+
+== 8. 幂等重放：内容没变就不写、不重载 ==
+PASS  夹具：上级目录已改成 0700
+PASS  夹具：改回 0700 之后共享账号进不去
+PASS  重放任务终态
+PASS  重放结果仍然是 verified
+PASS  重放时文件内容没变
+PASS  重放时不重载
+PASS  重放时 include 本来就在
+PASS  重放之后托管文件哈希不变
+PASS  重放之后 smb.conf 哈希不变
+PASS  重放没有产生新备份
+PASS  重放之后 served 仍然是 true
+PASS  重放结果点名了修过的上级目录
+PASS  独立证据：上级目录被修成可穿越
+PASS  修好之后 write 用户又能上传
+
+== 9. 名单变更：加一个只读账号，读用户真的能读、不能写 ==
+PASS  加只读账号任务终态
+PASS  加只读账号任务终态
+PASS  加只读账号结果是 verified
+PASS  加只读账号带 verified_at
+PASS  加只读账号observed.served
+PASS  加只读账号recovery_hint 说明已在提供服务
+PASS  独立证据：Samba 读回的 valid users 含两个账号
+PASS  独立证据：write list 只有写用户
+PASS  只读用户能列目录
+PASS  只读用户上传被拒（有 NT_STATUS_ 报错）
+PASS  只读用户上传没有成功（没有 putting file）
+PASS  独立证据：只读用户没在卷里留下文件
+PASS  独立证据：只读账号的 ACL 是 r-x
+PASS  独立证据：写账号的 ACL 是 rwx
+
+== 10. smbd 没在跑的时候：配置照写，但不许说“已生效” ==
+PASS  夹具：smbd 已停
+PASS  服务停着时任务仍然 success
+PASS  服务停着时结果是 accepted（不是 verified）
+PASS  服务停着时不带 verified_at
+PASS  服务停着时 served=false
+PASS  服务停着时不重载（不装作做了）
+PASS  服务停着时说清原因
+PASS  recovery_hint 指向服务没在跑
+PASS  但配置确实写下去了（read only 改成了 yes）
+PASS  连接状态此时报 inactive
+PASS  连接状态为 inactive 时给出 SMB_SERVICE_INACTIVE
+PASS  夹具：smbd 已恢复
+PASS  服务恢复后连接状态报 active
+
+== 11. share.disable：段消失、客户端连不上、ACL 撤销、目录不删 ==
+PASS  禁用任务终态
+PASS  禁用后 served 必须是 false
+PASS  独立证据：Samba 里这一段没了
+PASS  独立证据：托管文件里也没了
+PASS  禁用后客户端连不上
+PASS  独立证据：命名 ACL 已撤销
+PASS  独立证据：目录还在
+PASS  独立证据：目录里的文件一个都没删
+PASS  记录里 config_applied 回到 false
+
+== 12. share.delete：记录没了、段没了、目录内容仍然不删 ==
+PASS  删除任务终态
+PASS  删除后共享详情是 404
+PASS  独立证据：Samba 里没有这一段
+PASS  独立证据：目录与内容都还在
+
+== 13. 第二条共享的收尾：撤掉它，并确认托管文件回到只剩 global ==
+PASS  删除第二条共享任务终态
+PASS  独立证据：Samba 里没有第二条段
+PASS  托管文件里没有残留的段（只剩 global）
+PASS  共享列表回到空
+
+== 14. 收尾不变量 ==
+PASS  整轮下来 include 仍然只有一行
+PASS  整轮下来 smb.conf 原有段名一个都没少
+PASS  托管 include 目录权限是 0755
+PASS  托管文件权限是 0644
+PASS  两个日志里没有共享密码明文
+PASS  两个数据库（含 WAL）里没有共享密码明文
+PASS  任何进程的 argv/environ 里没有共享密码明文
+PASS  代理整轮没有退出
+PASS  socket 仍然在
+
+== 15. 结论 ==
+PASS=237 FAIL=0 NOT RUN=0

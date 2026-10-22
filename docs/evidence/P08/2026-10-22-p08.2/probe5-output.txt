@@ -1,0 +1,21 @@
+
+== 环境
+Version 4.19.5-Ubuntu
+smb.conf: /etc/samba/smb.conf
+
+== 夹具：目录、临时共享段、netns 客户端
+netns 客户端地址：10.99.0.2/24
+testparm 读回的 hosts allow：10.0.0.0/24
+
+== 从 10.99.0.2 连进来（不在 10.0.0.0/24 里）
+tree connect failed: NT_STATUS_ACCESS_DENIED
+
+== 从 127.0.0.1 连进来（Samba 文档说永远放行）
+  .                                   D        0  Thu Oct 22 14:18:11 2026
+  ..                                  D        0  Thu Oct 22 14:18:11 2026
+
+		39535100 blocks of size 1024. 36318856 blocks available
+
+== 还原
+smb.conf 里还有 nstest 吗：0
+0

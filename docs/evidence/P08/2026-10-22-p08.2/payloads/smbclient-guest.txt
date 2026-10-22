@@ -1,0 +1,2 @@
+Anonymous login successful
+tree connect failed: NT_STATUS_ACCESS_DENIED

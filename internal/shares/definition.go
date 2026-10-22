@@ -202,6 +202,25 @@ func ValidateCIDR(c string) error {
 	return nil
 }
 
+// cidrsCoverLoopback 报告这批允许网段里有没有一段**包含** 127.0.0.1。
+//
+// 用途只有一个：判断要不要提醒“Samba 对环回永远放行”。它不参与拦截，也不改变
+// 渲染结果——名单写什么就渲染什么，是 Samba 自己在 hosts allow 里给 127.0.0.1
+// 开了后门（见 man 5 smb.conf）。
+func cidrsCoverLoopback(cidrs []string) bool {
+	loop := netip.MustParseAddr("127.0.0.1")
+	for _, c := range cidrs {
+		p, err := netip.ParsePrefix(strings.TrimSpace(c))
+		if err != nil {
+			continue // 不合法的形状由 ValidateCIDR 报，这里不重复判
+		}
+		if p.Contains(loop) {
+			return true
+		}
+	}
+	return false
+}
+
 // resolvedAccess 是一条已解析名字的访问授权。
 type resolvedAccess struct {
 	Name   string

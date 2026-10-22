@@ -310,9 +310,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	logger.Info("共享模块已接线",
 		"include_dir", shares.DefaultIncludeDir,
 		"config_path", shares.DefaultConfigPath,
-		// 强调一句：P08.1 不写配置。日志里出现这句话，排查时就不会把
-		// “共享建好了客户端连不上”当成 bug。
-		"config_write", "unsupported（P08.1 只准备定义、目录与 ACL）")
+		"managed_config", shares.ManagedConfigPath,
+		// 从 P08.2 起这里会真的写配置，能不能写由能力探针现场判定（缺 testparm、
+		// 缺 smbcontrol 或 smb.conf 读不到都会降到 unsupported）。日志里不写死一个值：
+		// 写死的话，一台缺工具的机器上日志会说“能写”，而实际一按就失败。
+		"config_write", "由能力探针判定（见 capability.config_write）")
 
 	// 服务单元采集（P05.1）：每 10 秒枚举一次 systemctl 状态，services.list 读这份快照；
 	// services.unit 与预检/执行现场读取。找不到 systemctl 时采集如实报依赖缺失，

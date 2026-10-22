@@ -1,0 +1,48 @@
+# 主机侧 Go 测试（P08.2 最终代码，GOOS=windows 原生，-count=1 无缓存）
+# 时间(UTC): 2026-10-22T14:14:27Z
+# go: go version go1.27.3 windows/amd64
+
+## go test ./... -count=1
+ok  	upanel/cmd/upanel-agent	1.396s
+ok  	upanel/cmd/upanel-web	4.034s
+ok  	upanel/cmd/upanelctl	3.805s
+ok  	upanel/internal/agent	31.212s
+ok  	upanel/internal/agentclient	1.919s
+ok  	upanel/internal/agentstore	7.835s
+ok  	upanel/internal/api	118.131s
+ok  	upanel/internal/audit	1.295s
+ok  	upanel/internal/auth	42.280s
+ok  	upanel/internal/config	0.897s
+ok  	upanel/internal/files	0.929s
+ok  	upanel/internal/httpx	0.912s
+ok  	upanel/internal/journal	1.229s
+ok  	upanel/internal/logging	0.801s
+ok  	upanel/internal/logs	1.503s
+ok  	upanel/internal/monitoring	0.881s
+ok  	upanel/internal/operations	6.882s
+ok  	upanel/internal/platform	0.507s
+ok  	upanel/internal/processes	0.895s
+ok  	upanel/internal/services	1.485s
+ok  	upanel/internal/shares	2.101s
+ok  	upanel/internal/storage	15.274s
+ok  	upanel/internal/store	1.859s
+ok  	upanel/internal/syscmd	11.209s
+ok  	upanel/internal/terminal	0.854s
+?   	upanel/internal/testsupport	[no test files]
+ok  	upanel/internal/version	0.562s
+ok  	upanel/internal/webui	1.019s
+?   	upanel/migrations	[no test files]
+?   	upanel/migrations/agentdb	[no test files]
+
+## go test ./internal/shares -run 'CreatesAncestorsTraversable|RepairsTightAncestor|WarnsNotTraversableAncestor|WarnsHostsAllowLoopback' -v -count=1
+# 这四条是 P08.2 本轮新增/重写的测试；-run 收窄只是为了输出可读，全量结果见上一节。
+=== RUN   TestExecuteShareApplyCreatesAncestorsTraversable
+--- PASS: TestExecuteShareApplyCreatesAncestorsTraversable (0.01s)
+=== RUN   TestExecuteShareApplyRepairsTightAncestor
+--- PASS: TestExecuteShareApplyRepairsTightAncestor (0.01s)
+=== RUN   TestAssessShareApplyWarnsNotTraversableAncestor
+--- PASS: TestAssessShareApplyWarnsNotTraversableAncestor (0.00s)
+=== RUN   TestAssessShareApplyWarnsHostsAllowLoopback
+--- PASS: TestAssessShareApplyWarnsHostsAllowLoopback (0.00s)
+PASS
+ok  	upanel/internal/shares	0.778s
