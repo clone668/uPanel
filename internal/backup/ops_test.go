@@ -360,7 +360,7 @@ func TestStateLocalReportsInitialized(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !state.Initialized {
+	if state.Initialized == nil || !*state.Initialized {
 		t.Fatal("有 config 就该报已初始化")
 	}
 	if state.RepoID != testRepoID {
@@ -387,7 +387,11 @@ func TestStateLocalReportsNotInitializedWithoutConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.Initialized {
+	// 读到的事实是 false，不是“读不到”：这两者在界面上必须分得开。
+	if state.Initialized == nil {
+		t.Fatal("目录读得到，就不该报“不知道”")
+	}
+	if *state.Initialized {
 		t.Fatal("空目录不该报已初始化")
 	}
 	if state.RepoID != "" {
@@ -395,6 +399,39 @@ func TestStateLocalReportsNotInitializedWithoutConfig(t *testing.T) {
 	}
 	if state.ResticVersion == "" {
 		t.Fatal("restic 版本应该读得到（假的也会回答）")
+	}
+}
+
+// TestStateReportsUnknownInsteadOfNotInitialized：读不到时 `initialized` 必须是 null，
+// 不是 false；而且“为什么读不到”必须回到调用方，不能被吞掉。
+//
+// 这条来自真机：22.04（TCG）在两台虚机同时跑验收时，一次 SSH 握手超时让现状查询
+// 报出 `initialized=false`——目标位置其实是一个已经建好的仓库，只是那一次没连上。
+// 界面上这会被读成“还没有仓库”，管理员会去点初始化（预检会拦住，所以不会丢数据，
+// 但结论是假的）。同一件事以前还更糟：`stateInvocation` 返回的错误被 `return out, nil`
+// 直接扔掉，连“受管理根不可用”这种话都到不了调用方。
+func TestStateReportsUnknownInsteadOfNotInitialized(t *testing.T) {
+	dir := t.TempDir()
+	ops, _, def := newTestOps(t, dir, &fakeRunner{})
+	def.Location.RootID = "root-ghost" // 这台机器没管这个根
+
+	state, err := ops.State(context.Background(), StateRequest{
+		RepositoryID: "rep_0123456789abcdef0123456789abcdef",
+		Definition:   def,
+		Version:      1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Initialized != nil {
+		t.Fatalf("没探测成功就不许给出布尔结论，实际 %v", *state.Initialized)
+	}
+	if state.ProbeError == "" {
+		t.Fatal("探测失败的原因被吞掉了")
+	}
+	if !strings.Contains(state.ProbeError, "root-ghost") &&
+		!strings.Contains(state.ProbeError, CodeRootUnknown) {
+		t.Fatalf("原因里应点名出问题的根：%q", state.ProbeError)
 	}
 }
 

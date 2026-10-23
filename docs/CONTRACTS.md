@@ -2208,6 +2208,8 @@ query 枚举按模块登记，例如 system.summary、storage.topology、service
 
 `/internal/v1/streams` 自 P05.3 起已实现，但目前只登记一种用途 **logs.stream**：`POST` 建许可（绑定用途与查询参数、单次使用、30 秒过期且到期即回收），`GET /streams/:id` 打开流式响应（`application/x-ndjson`，每行一帧 `{"type":"entry|end|error", ...}`；`entry` 帧的 `entry` 是日志条目本身，`end` 帧带 `reason`，`error` 帧带 `code`/`message`）。未登记的用途回 501，不回一条空流——多报一个用途等于把能力清单变成谎话。许可只用一次：第二次 `GET` 回 404，被放进地址栏或日志里的 URL 因此最多只能被用一次。流式消费端的「帧类型来自事件名」与外层 SSE 不同，是因为 NDJSON 是单条无名字的字节流，类型必须写在帧里。
 
+**`backup.repository.state` 的三态（P12.1）。** 返回里的 `initialized` 是 `true`/`false`/`null` 三者之一：`true`/`false` 是**这次真的探测到了**的事实，`null` 是**没探测到**（SFTP 连不上或主机密钥没核对通过、文件根不可用、秘密取不到、restic 不存在）。原因分别写在 `host_key_error` / `probe_error` / `repo_config_error` / `restic_missing` 里，四个字段各有归属，不许把原因折成一句 `initialized:false`。同一原则早已用在 `capacity.supported` 上（读不到容量不是 0 字节）：**“查不了”与“没有”在界面上必须能分开**，否则管理员会把一次网络超时读成“仓库还没建”。`repo_id` 只在 `initialized:true` 且 `restic cat config` 读成功时出现；口令错时 `initialized:true`（仓库确实在）而 `repo_id` 为空、`repo_config_error` 指向口令——那是**事实 + 原因**，不是“空仓库”。
+
 内置定时任务只可执行已登记且启用的 backup.run、certificate.renew 和 script.run。systemd 调用 root 所有的固定 upanelctl schedule-trigger 命令，代理只在专用 trigger 路由接受 UID=0；普通路由仍只接受 upanel-web。系统身份来自 root 持有的任务配置与本地凭据，不允许公开 /jobs 请求自称 scheduler 来跳过再认证。定时触发须重新预检资源与锁，创建稳定触发 ID 并审计；交互确认由管理员保存计划时的显式授权替代，不能扩展到格式化或网络变更。代理产生的定时 operation 会被 Web 对账导入任务表，不能只存在于 journal。
 
 actor_context 供审计关联，包括 user_id、session_id_hash、request_id、reauth_at。代理信任 Web 完成用户登录认证，但仍独立实施系统安全边界；不能把该设计描述为可抵御已完全控制 Web 进程的管理员身份伪造。

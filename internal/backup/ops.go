@@ -553,16 +553,31 @@ type RepositoryState struct {
 	ResticVersion string  `json:"restic_version,omitempty"`
 	ResticMissing string  `json:"restic_missing,omitempty"`
 	// Initialized 表示目标位置已经是一个 restic 仓库。
-	Initialized     bool     `json:"initialized"`
+	//
+	// 三态：true/false 是**读到的事实**，null 是**没读到**（连不上、探测失败、
+	// 秘密取不到）。这里不用 false 表示“没读到”——那会让界面把“查不了”显示成
+	// “没有仓库”，和把容量写成 0 是同一类谎（DECISIONS Q330/Q333）。
+	Initialized     *bool    `json:"initialized"`
 	RepoID          string   `json:"repo_id,omitempty"`
 	RepoVersion     int      `json:"repo_version,omitempty"`
 	RepoConfigError string   `json:"repo_config_error,omitempty"`
 	Capacity        Capacity `json:"capacity"`
 	// HostKeyVerified 表示这次连接用登记的指纹核对通过（SFTP）。
-	HostKeyVerified bool      `json:"host_key_verified"`
-	HostKey         string    `json:"host_key,omitempty"`
-	HostKeyError    string    `json:"host_key_error,omitempty"`
-	CheckedAt       time.Time `json:"checked_at"`
+	HostKeyVerified bool   `json:"host_key_verified"`
+	HostKey         string `json:"host_key,omitempty"`
+	HostKeyError    string `json:"host_key_error,omitempty"`
+	// ProbeError 是“这条定义本身没法拿来探测”的原因（例如受管理根不可用）。
+	// 它不写进 server 日志就算了，而是回到调用方——原因被吞掉与读不到是两件事。
+	ProbeError string    `json:"probe_error,omitempty"`
+	CheckedAt  time.Time `json:"checked_at"`
+}
+
+// boolPtr 让“读到的事实”能落进三态字段。
+func boolPtr(v bool) *bool { return &v }
+
+// isInitialized 只回答“读到的那个值是不是 true”，没读到一律 false。
+func (s RepositoryState) isInitialized() bool {
+	return s.Initialized != nil && *s.Initialized
 }
 
 // State 读仓库现状（只读，不建、不写）。
@@ -589,6 +604,9 @@ func (o *Ops) State(ctx context.Context, req StateRequest) (RepositoryState, err
 
 	inv, cleanup, err := o.stateInvocation(ctx, &out, def)
 	if err != nil {
+		// 原因回到调用方，不再吞掉：以前这里 `return out, nil` 把“受管理根不可用”
+		// 这句构造好的话直接扔了，界面只会看到 initialized=false。
+		out.ProbeError = err.Error()
 		return out, nil
 	}
 	if cleanup != nil {
@@ -597,7 +615,7 @@ func (o *Ops) State(ctx context.Context, req StateRequest) (RepositoryState, err
 	if inv.Repository == "" {
 		return out, nil
 	}
-	if out.Initialized {
+	if out.isInitialized() {
 		cfg, err := o.opts.Restic.CatConfig(ctx, inv)
 		if err != nil {
 			out.RepoConfigError = failureMessage(err)
@@ -626,7 +644,7 @@ func (o *Ops) stateInvocation(ctx context.Context, out *RepositoryState, def Def
 			return Invocation{}, nil, err
 		}
 		out.Capacity = probe.Capacity
-		out.Initialized = probe.RepoConfig
+		out.Initialized = boolPtr(probe.RepoConfig)
 		password, err := o.opts.Secrets.Resolve(ctx, def.PasswordSecretRef)
 		if err != nil {
 			out.RepoConfigError = CodeSecretUnresolved + "：取不到仓库口令"
@@ -670,7 +688,7 @@ func (o *Ops) stateInvocation(ctx context.Context, out *RepositoryState, def Def
 			return Invocation{}, nil, nil
 		}
 		out.Capacity = probe.Capacity
-		out.Initialized = probe.RepoConfig
+		out.Initialized = boolPtr(probe.RepoConfig)
 
 		password, err := o.opts.Secrets.Resolve(ctx, def.PasswordSecretRef)
 		if err != nil {
@@ -688,7 +706,7 @@ func (o *Ops) stateInvocation(ctx context.Context, out *RepositoryState, def Def
 		// 还没被本机初始化过，此时读不到仓库 id 是事实，不是错误。
 		knownHostsPath := o.opts.Restic.knownHostsPath(def.Location.Host, def.Location.Port)
 		if !o.opts.Stat(knownHostsPath) {
-			if out.Initialized {
+			if out.isInitialized() {
 				out.RepoConfigError = "远端已经是仓库，但本机还没有它的 known_hosts（先做一次初始化预检）"
 			}
 			return Invocation{}, nil, nil

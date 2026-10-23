@@ -129,7 +129,7 @@ func newFakeBackup(t *testing.T) *fakeBackup {
 			Backend:       backup.BackendLocal,
 			Location:      "local:root1:/backups/nightly",
 			Version:       3,
-			Initialized:   true,
+			Initialized:   boolRef(true),
 			RepoID:        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 			ResticVersion: "restic 0.12.1",
 		},
@@ -483,3 +483,6 @@ func TestBackupStateQueryDecodeStrict(t *testing.T) {
 		}
 	}
 }
+
+// boolRef 让测试能给出三态字段里的“读到的事实”。
+func boolRef(v bool) *bool { return &v }

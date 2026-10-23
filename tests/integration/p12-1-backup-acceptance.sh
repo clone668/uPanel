@@ -22,6 +22,9 @@
 #   6) **默认拒绝**：非 upanel-web 的身份（包括 root）碰不到仓库镜像路由。
 #   7) **known_hosts 是我们写的**：初始化之后 StateDir 下出现这次连接的 known_hosts，
 #      内容与 ssh-keyscan 扫到的指纹一致。
+#   8) **“查不了”不等于“没有”**：连不上的主机上，现状查询的 `initialized` 必须是 null
+#      而不是 false，原因写进 host_key_error。口令牌不对时相反——仓库确实在
+#      （initialized=true），读不到 id，原因是口令（repo_config_error）。
 #
 # 用法（root，在验收虚拟机上）：
 #   sudo BIN_DIR=/var/tmp/upanel-bin sh tests/integration/p12-1-backup-acceptance.sh
@@ -460,6 +463,19 @@ print(json.dumps({"name": name, "backend": "sftp",
   "password_secret_ref": pass_ref, "credential_secret_ref": key_ref}))' \
     "$1" "$2" "$3" "$4" "$5" "$SFTP_USER"
 }
+# sftp_def_at <名称> <端口> <指纹> <口令引用> <私钥引用> <路径>
+# 与 sftp_def 相同，但端口可指定——用来造一条“连不上”的定义（端口上没有 sshd）。
+sftp_def_at() {
+  python3 -c '
+import json,sys
+name,port,fp,pass_ref,key_ref,path,user = sys.argv[1:8]
+print(json.dumps({"name": name, "backend": "sftp",
+  "location": {"host":"127.0.0.1","port":int(port),"username":user,
+               "remote_path": path, "host_key_fingerprint": fp},
+  "password_secret_ref": pass_ref, "credential_secret_ref": key_ref}))' \
+    "$1" "$2" "$3" "$4" "$5" "$6" "$SFTP_USER"
+}
+
 # local_def <名称> <口令引用> <相对路径>
 local_def() {
   python3 -c '
@@ -664,6 +680,21 @@ case "$WERR" in
   *口令*|*password*|*Password*) pass "state-wrongpass-says-password-wrong" ;;
   *) fail "state-wrongpass-says-password-wrong" "原因里没有指向口令：$WERR" ;;
 esac
+
+echo
+echo "== 10b. 连不上的主机：现状查询必须说“不知道”，不许说“没有仓库” =="
+# 端口 9 上没有 sshd：这条定义永远连不上。要证明的是“查不了”与“没有”分得开——
+# `initialized` 必须是 null（读不到），而不是 false（没有仓库），且原因写进 host_key_error。
+# 这一条来自真机：22.04 在两台虚机同时跑验收时一次 SSH 握手超时，现状查询报了
+# `initialized=false`，而那个位置其实是一个已经建好的仓库（DECISIONS Q333）。
+expect_eq "mirror-create-unreachable" "201" "$(create_def unreachable "$(sftp_def_at '连不上的仓库' 9 "$HOSTKEY_FP" "$SEC_PASS" "$SEC_KEY" "$REMOTE_DIR")")"
+REP_UNREACHABLE=$(repo_id_of unreachable)
+expect_eq "state-unreachable-200" "200" "$(state_of unreachable "$REP_UNREACHABLE")"
+expect_eq "state-unreachable-initialized-is-null" "None" "$(stget unreachable 'd["data"]["state"]["initialized"]')"
+UNRERR=$(stget unreachable 'd["data"]["state"].get("host_key_error","")')
+if [ -n "$UNRERR" ]; then pass "state-unreachable-reports-error"; else fail "state-unreachable-reports-error" "host_key_error 是空的：读不到却没给原因"; fi
+expect_eq "state-unreachable-no-repo-id" "" "$(stget unreachable 'd["data"]["state"].get("repo_id","")')"
+expect_eq "state-unreachable-capacity-unsupported" "False" "$(stget unreachable 'd["data"]["state"]["capacity"]["supported"]')"
 
 echo
 echo "== 11. 本地后端：受管理根内建仓库 =="
