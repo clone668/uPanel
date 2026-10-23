@@ -305,3 +305,10 @@ func normalizeBasicAuthUsers(in []BasicAuthUser, mode AccessMode) ([]BasicAuthUs
 
 // validSiteID 判断站点标识的形状。
 func validSiteID(id string) bool { return siteIDPattern.MatchString(id) }
+
+// ValidSiteID 是 validSiteID 的对外形式。
+//
+// 接口层要在把标识透传给业务层之前先挡掉形状不对的输入：站点标识会进日志与审计，
+// 也会被拼进托管文件名（`upanel-<domain>.conf` 用的是域名，但 id 同样不能被
+// 任意字符串顶替）。
+func ValidSiteID(id string) bool { return validSiteID(id) }

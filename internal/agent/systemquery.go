@@ -56,6 +56,10 @@ type ProductionDeps struct {
 	// 读不到配置时，一个“没有 server_name”的空结果会被读成“这个域名没人用”，
 	// 而那正是把面板写到别人站点上的前一步。
 	Nginx *nginx.Collector
+	// Proxies 是反向代理的写入路径（P10.2）。为 nil 时不登记 proxy.apply：
+	// 没有 Nginx 现状来源或命令执行器时，“写配置并 reload”这件事根本做不到，
+	// 报告一个一点就报错的入口比不报告更糟。
+	Proxies proxySource
 }
 
 // newSystemSummaryQuery 登记 system.summary：无参数，返回采集器最近一次快照。

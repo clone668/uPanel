@@ -2,6 +2,8 @@ package nginx
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -244,6 +246,7 @@ func (c *Collector) scan(ctx context.Context, facts *Facts) {
 			return
 		}
 		total += int64(len(data))
+		file.SHA256 = sha256Hex(data)
 
 		nodes, perr := parseConfig(string(data))
 		if perr != nil {
@@ -386,6 +389,21 @@ func isFollowedInclude(target string) bool {
 	}
 	return false
 }
+
+// sha256Hex 返回内容的 sha256（小写十六进制）。
+func sha256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// BinaryPath 返回采集器使用的 nginx 可执行文件路径（P10.2 的 nginx -t / reload 用同一个）。
+//
+// 它由采集器给出而不是让调用方自己拼：如果写配置的那一侧用 /usr/bin/nginx 校验、
+// 探针用 /snap/bin/nginx 读版本，两个二进制背后可能是两棵不同的配置树。
+func (c *Collector) BinaryPath() string { return c.opts.NginxPath }
+
+// ConfigRootPath 返回配置根目录（通常是 /etc/nginx）。
+func (c *Collector) ConfigRootPath() string { return c.opts.ConfigRoot }
 
 // ManagedPrefix 是面板自己写的配置文件名前缀。
 const ManagedPrefix = "upanel-"

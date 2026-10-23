@@ -71,8 +71,12 @@ type proxySiteDTO struct {
 	ReadTimeoutSeconds int                     `json:"read_timeout_seconds"`
 	Enabled            bool                    `json:"enabled"`
 	Version            int                     `json:"version"`
-	CreatedAt          string                  `json:"created_at"`
-	UpdatedAt          string                  `json:"updated_at"`
+	// Applied 是"这条记录此刻落地了没有"（P10.2）。它由"渲染出来的字节"与
+	// 配置树里那份文件的字节比对得到，不是库里的列——库里存一份 applied 只会
+	// 多出一个会漂移的事实来源。演示模式（没接代理）时为 unknown，不是 false。
+	Applied   *proxyAppliedDTO `json:"applied,omitempty"`
+	CreatedAt string           `json:"created_at"`
+	UpdatedAt string           `json:"updated_at"`
 }
 
 // proxyNginxStateDTO 是主机 Nginx 现状摘要。
@@ -211,8 +215,13 @@ func (s *Server) handleListProxies(c *gin.Context) {
 		return
 	}
 	resp := proxyListResponse{Items: make([]proxySiteDTO, 0, len(items))}
+	states := s.proxyAppliedStates(c.Request.Context(), items)
 	for _, item := range items {
-		resp.Items = append(resp.Items, proxySiteDTOOf(item))
+		dto := proxySiteDTOOf(item)
+		if state, ok := states[item.ID]; ok {
+			dto.Applied = &state
+		}
+		resp.Items = append(resp.Items, dto)
 	}
 	if next != "" {
 		resp.NextCursor = &next
@@ -228,7 +237,12 @@ func (s *Server) handleGetProxySite(c *gin.Context) {
 		s.writeProxyError(c, "读取代理站点失败", err)
 		return
 	}
-	httpx.WriteData(c.Writer, c.Request, http.StatusOK, proxySiteDTOOf(site))
+	dto := proxySiteDTOOf(site)
+	states := s.proxyAppliedStates(c.Request.Context(), []proxies.Site{site})
+	if state, ok := states[site.ID]; ok {
+		dto.Applied = &state
+	}
+	httpx.WriteData(c.Writer, c.Request, http.StatusOK, dto)
 }
 
 // handleProxyNginxFacts 处理 GET /api/v1/proxies/nginx（admin）：Nginx 现状的完整视图。
@@ -443,7 +457,29 @@ func (s *Server) handleDeleteProxySite(c *gin.Context) {
 		return
 	}
 
-	err := s.opts.Proxies.InTransaction(c.Request.Context(), func(ctx context.Context) error {
+	// 删记录之前先确认托管配置不在了（P10.2）。记录删了而文件还在，就会留下一份
+	// 没有任何界面能解释的 server 块：它还在生效、还在代理流量，但面板上再也找不到它。
+	// 读不到现状时拒绝删除（503），而不是赌一把——赌赢只是这一次没留下孤儿。
+	site, err := s.opts.Proxies.Get(c.Request.Context(), id)
+	if err != nil {
+		s.failProxyAction(c, &sess, action, target, err)
+		return
+	}
+	present, err := s.managedConfigExists(c.Request.Context(), site)
+	if err != nil {
+		s.recordDenied(c, &sess, action, target, "agent", httpx.CodeAgentUnavailable)
+		writeError(c, http.StatusServiceUnavailable, httpx.CodeAgentUnavailable,
+			"无法确认这个站点的托管配置是否还在，本次没有删除：请先确认代理可用")
+		return
+	}
+	if present {
+		s.recordDenied(c, &sess, action, target, "validation", httpx.CodeDependencyBlocked)
+		writeError(c, http.StatusConflict, httpx.CodeDependencyBlocked,
+			"这个站点的托管配置仍在 /etc/nginx/conf.d 里：先把 enabled 改成 false 并应用一次（移除配置），再删记录")
+		return
+	}
+
+	err = s.opts.Proxies.InTransaction(c.Request.Context(), func(ctx context.Context) error {
 		if err := s.opts.Proxies.Delete(ctx, id, version); err != nil {
 			return &errDenied{err}
 		}

@@ -1,0 +1,3 @@
+644 root:root /etc/nginx/conf.d/upanel-p102b.example.test.conf
+644 root:root /etc/nginx/conf.d/upanel-p102c.example.test.conf
+640 root:www-data /etc/nginx/upanel-auth/site_81ec3924082b54440f6692048de24d27.htpasswd

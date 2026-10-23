@@ -123,42 +123,49 @@ func invalid(field, format string, args ...any) error {
 //
 // 密码本身从不进这条记录，也不进日志：库里只有名字与 sec_ 引用。UI 上必须讲清楚
 // 这是**代理层的**账号，与应用自己的登录体系没有关系（PLAN.md 第 13 节）。
+//
+// 字段名带 json tag，因为这个类型有两个外部形态：库里的 basic_auth_json 列，以及
+// proxy.apply 动作参数里随定义一起走的那一份。两者都按契约用 snake_case——没有 tag
+// 时编码出来是 Go 字段名（UpstreamTargetID），面板与代理之间就对不上了。
 type BasicAuthUser struct {
 	// Name 是用户名，1—64 个 [a-z0-9._-]，首字符为字母或数字。
-	Name string
+	Name string `json:"name"`
 	// SecretRef 是密码哈希在安全存储里的引用（sec_ + 32 位小写十六进制）。
-	SecretRef string
+	SecretRef string `json:"secret_ref"`
 }
 
 // Definition 是站点本体（不含 id、version 与时间）。
 //
 // 创建与修改都以它为单位校验：过一次 Normalize 之后才是可入库的形态，默认值、
 // 归一化、去重都在那一步完成，存储层不再二次解释。
+//
+// 字段名与 CONTRACTS.md 第 9 节一致（snake_case）：这个类型会跟着 proxy.apply 的
+// 参数走一趟 HTTP/JSON，编出来就是契约里那张表。Go 字段名不是契约。
 type Definition struct {
 	// AppID 是关联的应用（可空：也可以纯粹给一个目标配代理）。
-	AppID string
+	AppID string `json:"app_id,omitempty"`
 	// Domain 是访问用的域名，归一化后的 A-label。
-	Domain string
+	Domain string `json:"domain"`
 	// UpstreamTargetID 是上游目标标识（local_… / cntr_…）。
-	UpstreamTargetID string
+	UpstreamTargetID string `json:"upstream_target_id"`
 	// UpstreamScheme 只允许 http / https。
-	UpstreamScheme string
+	UpstreamScheme string `json:"upstream_scheme"`
 	// UpstreamPort 是上游端口，1—65535，且不得等于面板端口。
-	UpstreamPort int
+	UpstreamPort int `json:"upstream_port"`
 	// AccessMode 决定谁能访问。
-	AccessMode AccessMode
+	AccessMode AccessMode `json:"access_mode"`
 	// AllowedCIDRs 是 CIDR 白名单（AccessCIDR 时非空，其它模式必须为空）。
-	AllowedCIDRs []string
+	AllowedCIDRs []string `json:"allowed_cidrs"`
 	// BasicAuthUsers 是访问账号（AccessBasicAuth 时非空，其它模式必须为空）。
-	BasicAuthUsers []BasicAuthUser
+	BasicAuthUsers []BasicAuthUser `json:"basic_auth_users"`
 	// WebSocketEnabled 表示放行 Upgrade 头与长连接超时。
-	WebSocketEnabled bool
+	WebSocketEnabled bool `json:"websocket_enabled"`
 	// MaxBodyBytes 是请求体上限。
-	MaxBodyBytes int64
+	MaxBodyBytes int64 `json:"max_body_bytes"`
 	// ReadTimeoutSeconds 是上游读取超时。
-	ReadTimeoutSeconds int
+	ReadTimeoutSeconds int `json:"read_timeout_seconds"`
 	// Enabled 表示这个站点是否生效。P10.1 只存这个意图，写配置是 P10.2。
-	Enabled bool
+	Enabled bool `json:"enabled"`
 }
 
 // Site 是一条站点记录。

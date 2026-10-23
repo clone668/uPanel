@@ -1,0 +1,205 @@
+== 0. 干净起点 ==
+PASS  起点：没有面板的托管配置
+PASS  起点：nginx -t 通过
+      非面板配置摘要（前）：cb5d4fbec0712ab7911dbd4973ca42b3305852d91da33d739e530099dd13670c
+      起始 worker：132746 132747 
+
+== 1. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19497 启动
+PASS  监听 19497 的 Web 进程不是 root（pid=133670 uid=999）
+PASS  数据库迁移到第 9 版（P10.2 不新增表）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+      本次登录耗时：4281ms（密码哈希是一次性成本，属 P02 参数标定范围）
+
+== 2. 测试上游（真实 HTTP 服务） ==
+PASS  上游在 127.0.0.1:18080 提供 HTTP 服务
+
+== 3. 登记站点（P10.1 的路径；此时一个字节都不该写 /etc/nginx） ==
+PASS  登记前托管配置为空
+PASS  登记站点 A
+PASS  拿到站点 A 的 id
+PASS  登记站点 A 之后仍然没有托管配置（登记不写配置）
+
+== 4. 预检：计划说清楚要动什么 ==
+PASS  预检状态码
+PASS  计划放行
+PASS  影响里写明会改配置
+PASS  影响里写明会 reload
+PASS  锁里有全局配置锁
+PASS  要求再认证（改的是对外暴露面）
+PASS  预检没有写任何配置
+PASS  预检拒绝客户端自带的定义（400）
+PASS  …错误码是参数不合法
+
+== 5. 执行 proxy.apply：写入 → nginx -t → reload ==
+PASS  作业终态
+PASS  结果是 verified
+PASS  带 verified_at
+PASS  file_state=written
+PASS  reload=done
+PASS  served=true
+PASS  tested=true
+PASS  config_file 就是托管路径
+PASS  托管配置真的在磁盘上
+PASS  权限是 644（nginx 可读、别的进程不可写）
+PASS  第一行是托管标记（改名清理靠它）
+PASS  server_name 就是登记的域名
+PASS  上游指向本机端口
+PASS  监听 80
+PASS  没有任何一行监听面板端口 19497
+PASS  没有 443（那是 P10.3）
+PASS  脚本自己跑 nginx -t 也通过
+PASS  worker 换过一代（reload 真的发生了）
+PASS  穿过 nginx 拿到上游页面（域名真的在服务）
+PASS  GET /proxies/:id 的 applied.state=applied
+PASS  applied 里带着配置路径
+
+== 6. 幂等：同样内容再应用一次什么都不做 ==
+PASS  重复应用的作业终态
+PASS  file_state=unchanged
+PASS  reload=skipped_unchanged
+PASS  served 仍然是 true
+PASS  文件内容一个字节都没变
+PASS  没有新增备份
+PASS  worker 没有换（没有多余 reload）
+PASS  重复应用之后仍然在提供服务
+
+== 7. 失败恢复（一）：判定能看出来的坏配置 → 预检就拦下 ==
+PASS  夹具（未闭合的 server 块）让 nginx -t 失败
+PASS  改一次读超时（让内容真的要变）
+PASS  nginx 配置坏着的时候面板健康检查仍然 200
+PASS  …而且仍然能登录
+      登录成功即证明：管理端不经过 nginx，配置写坏的最坏结果是站点不可用、面板照常
+PASS  预检状态码
+PASS  配置树坏着的时候预检不放行
+PASS  …拦下的理由是判不了域名冲突
+PASS  …并且说明为什么判不了
+PASS  …托管文件一个字节都没动
+PASS  …worker 也没有换（没有 reload）
+PASS  …站点仍在用旧配置提供服务
+PASS  删掉坏文件后 nginx -t 恢复
+
+== 7b. 失败恢复（二）：判定看不见的坏配置 → 写下去、被门禁拦下、回滚 ==
+PASS  夹具（不认识的指令）确实让 nginx -t 失败
+PASS  预检确实放行了（面板看不出这条指令不存在）
+PASS  作业终态是 failed（不是 succeeded）
+PASS  错误码是 COMMAND_FAILED
+PASS  错误里点明是 nginx -t 没过
+PASS  托管文件逐字节回到旧内容（回滚生效）
+PASS  worker 没有换（失败时绝不 reload）
+PASS  站点仍在用旧配置提供服务
+PASS  面板在失败之后照常健康
+PASS  删掉坏文件后 nginx -t 恢复
+PASS  重试的作业终态
+PASS  重试结果 verified
+PASS  新配置带上了新的读超时
+PASS  这次内容确实变了
+PASS  而且真的 reload 了
+
+== 8. applied 是从事实推导的：手工改动会变成 stale ==
+PASS  手工改过之后 applied.state=stale
+PASS  …说明里有理由
+PASS  重新应用之后作业成功
+PASS  file_state=written（内容被改回来了）
+PASS  applied.state 回到 applied
+PASS  手工改动的那一份进了备份（备份在前）
+PASS  托管文件里不再有手工那一行
+
+== 9. 改名：旧文件被清掉，旧域名不再被代理 ==
+PASS  把域名改成 p102a-renamed.example.test
+PASS  改名后的作业终态
+PASS  旧域名文件被移除
+PASS  新域名文件在
+PASS  恢复提示里提到移除了旧配置
+PASS  这台机器上只剩一份托管配置
+PASS  新域名在服务
+PASS  旧域名不再指向上游
+
+== 10. 停用 → 文件移除；用删除记录证明“孤儿配置”门禁 ==
+PASS  把站点停用
+PASS  停用的作业终态
+PASS  file_state=removed
+PASS  served=false
+PASS  托管配置被移除
+PASS  停用之后 applied.state=not_applied
+PASS  停用之后域名不再被代理
+PASS  停用也留了备份（改主意时文件还在）
+PASS  重新启用
+PASS  重新启用的作业终态
+PASS  文件回来了
+PASS  在服务
+PASS  配置还在时删除记录被拒绝（409）
+PASS  …错误码是依赖阻塞
+PASS  …记录还在（没有被悄悄删掉）
+PASS  再次停用
+PASS  移除配置的作业终态
+PASS  配置移除之后删除记录成功（200）
+PASS  库里没有这条记录了
+
+== 11. 站点 B：新域名从零开始（正对照） ==
+PASS  登记站点 B
+PASS  站点 B 作业终态
+PASS  站点 B 结果 verified
+PASS  WebSocket 开关写进了配置
+PASS  …并与 Connection 成对出现
+PASS  站点 B 在服务
+
+== 12. basic auth：apr1 哈希 nginx 真的认 ==
+PASS  传秘密之前再认证
+PASS  上传代理口令到秘密通道
+PASS  拿到 secret_ref
+PASS  秘密响应里没有明文
+PASS  登记站点 C（basic_auth）
+PASS  站点 C 作业终态
+PASS  站点 C 结果 verified
+PASS  账号文件在 upanel-auth/ 下
+PASS  账号文件是 apr1 哈希
+PASS  账号文件里没有明文口令
+PASS  配置引用账号文件
+PASS  账号文件权限是 640（640 交给 worker 组，或 644 并在报告里点名风险）
+PASS  不带口令访问受保护站点 → 401
+PASS  带正确口令 → 200
+PASS  …并且拿到上游页面
+PASS  错误口令 → 401
+
+== 13. /etc/nginx 里只多了面板自己的文件 ==
+PASS  非面板配置内容摘要前后一致
+PASS  托管配置文件数（只剩站点 B 与站点 C）
+PASS  托管文件名都带 upanel- 前缀
+      托管文件：/etc/nginx/conf.d/upanel-p102b.example.test.conf /etc/nginx/conf.d/upanel-p102c.example.test.conf 
+      账号文件：site_81ec3924082b54440f6692048de24d27.htpasswd 
+PASS  已留存渲染结果、账号文件、权限与 nginx -T 到 payloads/
+
+== 13b. 预检耗时：不许再出现“代理不可用”的假警报 ==
+PASS  代理侧没有把任何一次预检算成慢请求（>500ms）
+      本次运行最慢的一次预检：1698ms（预算 10000ms）
+PASS  最慢预检也在 2 秒以内
+
+== 14. 收尾：停用剩余站点、清掉夹具、机器回到干净状态 ==
+PASS  把站点 B 标为停用
+PASS  停用站点 B
+PASS  …站点 B 的配置被移除
+PASS  把站点 C 标为停用
+PASS  停用站点 C
+PASS  …站点 C 的账号文件被一起清掉
+PASS  托管配置全部移除
+PASS  账号文件目录里没有残留
+PASS  收尾时 nginx -t 通过
+PASS  Web 库已清理（代理库里的卷与秘密是按需的，脚本不动）
+
+== NOT RUN（本阶段不验证的东西，写在这里而不是假装通过） ==
+NOT RUN  443 与证书签发/续期：P10.3。托管站点当前只监听 80，脚本断言了配置里没有 listen 443
+NOT RUN  管理面板 HTTPS 与 SSH 隧道文档：P10.4 的打包内容；本脚本用真实端口 19497 验证“配置写坏不影响面板”
+NOT RUN  代理侧对 panel_port 的二次校验（HTTP 不可达）：Web 总会用真实端口覆盖参数；该规则由 internal/proxies 与 internal/agent 的单元测试覆盖
+NOT RUN  WebSocket 握手实测：测试上游（python http.server）不支持 Upgrade；只验配置里 Upgrade/Connection 成对出现
+NOT RUN  浏览器渲染与交互：VM 上没有浏览器
+NOT RUN  真实 DNS 解析与外部访问：VM 没有域名解析，用 Host 头代替
+NOT RUN  密码哈希参数的跨机器标定：验收机实测 argon2id（m=128 MiB、t=3、p=2）单次 3.7–3.9 秒，与 DECISIONS Q23 记的 100–300ms 不符；属 P02 参数标定，改动会动到安全参数，不在 P10.2 里顺手改
+
+==============================================
+通过 153 项，失败 0 项，未执行 7 项

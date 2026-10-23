@@ -8,6 +8,7 @@ import (
 	"os/user"
 	"strconv"
 	"strings"
+	"time"
 
 	"upanel/internal/httpx"
 )
@@ -141,6 +142,61 @@ func (s *Server) gate(next http.Handler) http.Handler {
 			httpx.WriteError(w, r, http.StatusForbidden, httpx.CodeForbidden, "socket 对端 UID 无权调用该接口")
 			return
 		}
-		next.ServeHTTP(w, r)
+		started := time.Now()
+		tw := &timingWriter{ResponseWriter: w}
+		next.ServeHTTP(tw, r)
+		elapsed := time.Since(started)
+
+		// 耗时记录只在**慢**的时候发声。
+		//
+		// 这不是可选的方便：代理与 Web 之间的调用上限是 10 秒（agentclient.DefaultTimeout），
+		// 而“某次预检用了 8 秒”这件事一度只能从 Web 侧的 curl 计时侧推，代理日志里
+		// 一个字都没有——查一次就得靠猜。（Q290）一条慢请求日志把代理侧的真实成本
+		// 摆在同一行上：路径、状态码、耗时。正常请求（< slowRequestThreshold）不记，
+		// 免得把日志淹没在健康检查里。
+		if elapsed >= slowRequestThreshold {
+			s.opts.Logger.Warn("代理请求耗时偏长",
+				"method", r.Method, "path", r.URL.Path,
+				"status", tw.statusOrOK(), "duration_ms", elapsed.Milliseconds(),
+				"request_id", httpx.RequestID(r))
+		}
 	})
 }
+
+// slowRequestThreshold 是“值得记一笔”的代理请求耗时下限。
+//
+// 取 500 毫秒：本机 socket 上的调用正常都在个位数毫秒，超过半秒说明这一条路上
+// 多了点什么（外部命令、锁等待、大文件），值得留痕迹。
+const slowRequestThreshold = 500 * time.Millisecond
+
+// timingWriter 只记状态码，不改变任何写行为。
+type timingWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (t *timingWriter) WriteHeader(code int) {
+	if t.status == 0 {
+		t.status = code
+	}
+	t.ResponseWriter.WriteHeader(code)
+}
+
+func (t *timingWriter) Write(b []byte) (int, error) {
+	if t.status == 0 {
+		t.status = http.StatusOK
+	}
+	return t.ResponseWriter.Write(b)
+}
+
+// statusOrOK 返回状态码；处理器一个字都没写时按 200 记。
+func (t *timingWriter) statusOrOK() int {
+	if t.status == 0 {
+		return http.StatusOK
+	}
+	return t.status
+}
+
+// Unwrap 让 http.ResponseController（P05.3 的日志流要用它推截止时间）
+// 能穿过这层包装拿到原始 ResponseWriter。
+func (t *timingWriter) Unwrap() http.ResponseWriter { return t.ResponseWriter }

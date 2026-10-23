@@ -1,0 +1,12 @@
+现场问 systemctl    第 1 次：6.785s（available=true files=2 err=<nil>）
+现场问 systemctl    第 2 次：110ms（available=true files=2 err=<nil>）
+现场问 systemctl    第 3 次：169ms（available=true files=2 err=<nil>）
+现场问 systemctl    第 4 次：132ms（available=true files=2 err=<nil>）
+现场问 systemctl    第 5 次：119ms（available=true files=2 err=<nil>）
+现场问 systemctl    平均：1.463s
+读服务快照            第 1 次：172ms（available=true files=2 err=<nil>）
+读服务快照            第 2 次：192ms（available=true files=2 err=<nil>）
+读服务快照            第 3 次：164ms（available=true files=2 err=<nil>）
+读服务快照            第 4 次：214ms（available=true files=2 err=<nil>）
+读服务快照            第 5 次：158ms（available=true files=2 err=<nil>）
+读服务快照            平均：180ms

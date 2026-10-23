@@ -58,6 +58,12 @@ type ConfigFile struct {
 	Managed bool
 	// SizeBytes 是文件字节数。
 	SizeBytes int64
+	// SHA256 是文件内容的 sha256（小写十六进制），读不到内容时为空。
+	//
+	// 它是**事实**，不是判断：面板拿它和自己渲染出来的字节比，就能回答“磁盘上这份
+	// 文件还是我上次写的那一份吗”。没有它，唯一能说的就只有“文件存在”，而“存在”
+	// 与“内容对”之间隔着一次手工编辑。
+	SHA256 string
 	// Error 非空表示这份文件没有解析成功，内容未知。此时 Servers 为空，
 	// 且不能把“没有 server 块”当作“里面没有 server_name”。
 	Error   string

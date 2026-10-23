@@ -1,0 +1,17 @@
+# 宿主静态检查 go version go1.27.3 windows/amd64
+
+## gofmt -l ./cmd ./internal
+(空 = 全部已格式化)
+
+## go vet ./...
+(无输出 = 通过)
+
+## 交叉编译（证据 binary 就是这一份源码编出来的）
+upanel-agent ok
+upanel-web ok
+upanelctl ok
+
+## 三个二进制 sha256（与 VM 上 env.txt 一致）
+b7a355a1a473b3118cde87cfe36c1ced67a1c7f2c88e0ffb76c03a660d1832af *.tmp/xbuild/upanel-agent
+081cfae5691960576146dfa60d203ba4148e116e04be2c157e4d2b604683bd88 *.tmp/xbuild/upanel-web
+57d586ff8f7edf2e347f0d3041525497e038f9504c52507c0ba8b8f2915da0f9 *.tmp/xbuild/upanelctl

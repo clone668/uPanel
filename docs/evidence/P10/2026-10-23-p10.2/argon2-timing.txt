@@ -1,0 +1,11 @@
+GOMAXPROCS 2
+argon2id m=128MiB t=3 p=2: 2.445044814s
+argon2id m=128MiB t=3 p=2: 2.466955652s
+argon2id m=128MiB t=3 p=2: 1.401333826s
+
+# 同一天早些时候（同一台 VM、同一份二进制）第一次跑的结果，一并留在这里：
+#   argon2id m=128MiB t=3 p=2: 3.907442356s
+#   argon2id m=128MiB t=3 p=2: 3.677220038s
+#   argon2id m=128MiB t=3 p=2: 1.753736695s
+# 也就是说这台 2 vCPU 虚机上单次派生在 1.4–3.9 秒之间浮动，不是 DECISIONS Q23
+# 记的 100–300ms。真实登录耗时（含会话写入与审计）见 run.log 的 note：4895ms / 5744ms。

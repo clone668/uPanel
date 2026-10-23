@@ -491,6 +491,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// 读写的行为差别见 internal/api/proxies.go 的文件头说明。
 		Proxies:        proxiesService,
 		NginxFacts:     nginxFactsSource,
+		PanelPort:      panelPort,
 		AllowedOrigins: allowedOrigins,
 	})
 	if err != nil {

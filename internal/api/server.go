@@ -124,6 +124,12 @@ type Options struct {
 	// 那时 /proxies 仍返回站点定义，nginx 那一块写明 ReadError；/proxies/nginx
 	// 与 /proxies/conflict 明确回 503，而不是给一份“没有配置文件”的空表。
 	NginxFacts NginxFactsReader
+	// PanelPort 是面板自己真实监听的端口（P10.2）。
+	//
+	// 它只用于一件事：展开 proxy.apply 的参数时带上 panel_port，让代理能在执行层
+	// 再拒绝一次"把管理面板自己的端口写成上游"。值来自真实的监听地址，不是常量
+	// 9443——面板端口可配，写死的那个数在某台机器上会正好是别的服务的端口。
+	PanelPort int
 }
 
 // Server 是 Web HTTP 服务。

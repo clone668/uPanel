@@ -505,6 +505,13 @@ func RegisterProductionActions(reg *Registry, deps ProductionDeps) error {
 			return err
 		}
 	}
+	if deps.Proxies != nil {
+		// 代理站点的写入路径（P10.2）。登记与否由装配决定：没有 Nginx 现状来源或没有
+		// 命令执行器时不登记，而不是登记一个一点就 501 的动作。
+		if err := RegisterProxyActions(reg, deps.Proxies); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

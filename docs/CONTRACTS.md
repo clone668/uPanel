@@ -154,8 +154,8 @@ SSE 使用持久递增 seq 作为 id，事件类型为 status、progress、log�
 | file.chown | root_id、relative_path、expected_version、managed_account_id、managed_group_id | 仅受管理账号/组，禁止任意 UID | 是 |
 | app.control | app_id、version、operation=start/stop/restart | app+服务/容器+依赖卷 | 否 |
 | container.control | container_id、operation=start/stop/restart | container；受支持普通容器 | 否 |
-| proxy.apply | proxy_id（新建为 null）、version、definition | nginx+domain | 是 |
-| proxy.delete | proxy_id、version | nginx+domain；不删除应用 | 是 |
+| proxy.apply | site_id（Web 展开成 site_id、version、definition、panel_port；见 §9.2） | nginx+domain | 是 |
+| proxy.delete | proxy_id、version | nginx+domain；不删除应用；托管配置还在时 409 | 是 |
 | certificate.issue | proxy_id、email、environment=staging/production | cert+domain；明确签发环境 | 是 |
 | certificate.import | proxy_id、certificate_upload_id、private_key_secret_ref | cert+domain；验证证书与私钥匹配 | 是 |
 | certificate.renew | certificate_id | cert+nginx；允许内置定时身份 | 否 |
@@ -1510,6 +1510,80 @@ domain 为一个不带协议/路径/端口的有效域名；初期不允许通�
 **（8）审计。** `proxy.create` / `proxy.update` / `proxy.delete` 与业务写入同一事务；明细固定带
 `"applied": false`，使“这次只写了库”在事后可查。
 
+### 9.2 P10.2 已实现范围：配置生成、原子写入、`nginx -t` 门禁与 reload
+
+本节覆盖**写**的那一半：一条站点定义变成一个真在提供服务的 Nginx 站点。证书仍是 P10.3；
+管理面板自己的 9443 不在这条流水线上——托管站点只监听 80，两者没有共享配置，所以“把 nginx 配置
+写坏”能弄坏站点，弄不坏面板（P10.2 验收 §7b 就是在坏配置存在的情况下登录面板的）。
+
+**（1）一条记录、一份文件、一个名字。** 托管文件名由域名决定
+（`conf.d/upanel-<domain>.conf`，`internal/nginx.ManagedFileName`），文件头第一行是
+`# 由 uPanel 管理：站点 <domain>`；账号文件在 `nginx/upanel-auth/<domain>.htpasswd`。
+**渲染是纯函数**：同一份定义永远渲染出同样的字节，包括 basic auth 的 apr1 哈希（盐由域名派生，
+不是随机的）。因此“再应用一次”是**幂等重放**——不写文件、不产生备份、不 reload，
+任务里如实写 `file_state=unchanged`、`reload=skipped_unchanged`。
+
+**（2）参数由 Web 展开，不由调用方给。** `proxy.apply` 的请求体只有一个 `site_id`
+（`internal/api/preflightexpand.go`）：定义取自面板库里的那条记录、`version` 取自记录、
+`panel_port` 取自面板真实监听地址。理由是 HTTP 入口对任何 admin 都开着，而唯一该落进 Nginx 的
+东西是“库里已经通过 P10.1 校验的那份定义”。`panel_port` 在执行层**再校验一次**：上游端口等于
+面板端口一律拒绝——记录校验过了不替参数上的值担保。
+
+**（3）先账号文件，后配置；先备份，后改名。** 顺序是固定的，每一步都有理由：
+账号文件先写，因为配置一旦生效就要求它存在（否则 nginx 启动时找不到 `auth_basic_user_file` 会报错）；
+配置先写到同目录的临时文件并 `fsync`，再 `rename` 覆盖目标，最后 `fsync` 目录——中间任何一刻掉电，
+盘上要么是旧文件、要么是新文件，不会是半个文件。被替换或被删除的**托管文件**先备份到
+`/var/lib/upanel-agent/nginx-backups/`（名字里带时间与内容哈希前缀，同一个内容不会被备份两次）。
+非托管文件一个字节都不碰：验收 §13 断言 `/etc/nginx` 里其它文件的内容摘要前后一致。
+账号文件的权限不是写死的：从主配置的 `user <name>;` 读出 nginx 的 worker 用户，写成
+`root:<worker 组> 0640`（只有 root 能改、worker 能读）；读不到 worker 用户时退回 `0644` 并在任务里
+明确报告 `PROXY_AUTH_FILE_WORLD_READABLE`——不猜一个 `www-data`（在一台用 `nobody` 的机器上，
+猜只会多一个读不到的用户，而权限位看起来还很“正确”）。
+
+**（4）门禁是 `nginx -t` 对整棵树，不是对这份文件。** 通过才保留、才 reload；失败就回滚。
+回滚之后**再跑一次** `nginx -t`，把“回滚之后这棵树是好的”写成证据，而不是“我改了文件所以我猜它好了”。
+失败路径绝不 reload：验收 §7b 断言 worker PID 没变、站点仍用旧配置提供服务。
+
+**（5）reload 只 reload，不 restart，而且只在服务在跑时做。** `systemctl is-active nginx` 现场问一次
+（执行路径不看十秒前的快照），active 才 `nginx -s reload`；不 active 时如实写
+`reload=skipped_service_inactive`——重启服务是另一个动作，不在这条流水线的权限里。
+
+**（6）执行前重新评估一次。** `proxy.apply` 的 Execute 会**重新**采集现状、重新判域名冲突
+（这回忽略自己那份文件），而不是相信预检时的结论。预检到执行之间可能有人手工加了配置；
+把预检当成免检通行证，等于把 TOCTOU 写进流水线。副作用是：一棵已经坏到判断层都读不了的配置树
+（例如括号没闭合）会把执行挡在预检阶段（`PROXY_DOMAIN_UNKNOWN`），一份“结构合法、nginx 不认”的
+配置则能走到写入（这是 `nginx -t` 门禁存在的理由）。
+
+**（7）`applied` 从事实推导，不是数据库里的一列。** 响应里的 `applied` 是四个值之一：
+`applied`（文件在，且内容与此刻的渲染结果逐字节相同）、`stale`（文件在但内容不同）、
+`not_applied`（该生效却没有文件；或已停用且文件确实不在了）、`unknown`（读不到 Nginx 现状，
+或这份定义渲染不出来，`reason` 说明是哪一种）。库里存 `applied=true` 只会多一个会漂移的真相：
+有人手工改文件、或者文件被删了，库里的 true 还在。展示路径读 5 秒快照，写入门禁读直采（§9.1 的规则不变）。
+
+**（8）任务结果。** `data` 里是这一次执行的事实：`file_state`（`written` / `removed` / `unchanged` /
+`absent`）、`config_hash`（渲染结果的 sha256）、`reload`（`done` / `skipped_unchanged` /
+`skipped_service_inactive` / `failed`）、`served`（重新采集后，这份文件在树上、域名与字节都对得上）、
+`backup`（备份文件名，没有备份时不出现）、`readback`（重新采集的细节）。`served=false` 的任务不是成功。
+
+**（9）错误码闭集。** `PROXY_NOT_FOUND`、`PROXY_VERSION_MISMATCH`、`PROXY_DOMAIN_TAKEN`、
+`PROXY_DOMAIN_UNKNOWN`、`PROXY_SECRET_INVALID`、`PROXY_UPSTREAM_UNVERIFIED`（目标不在发现结果里，
+只告警不阻断）、`NGINX_UNAVAILABLE`、`NGINX_NOT_INSTALLED`、`NGINX_UNIT_INACTIVE`、
+`NGINX_CONFIG_NOT_WRITABLE`、`NGINX_ROLLBACK_RESTORED`（回滚成功且回滚后 `nginx -t` 通过）、
+`NGINX_ROLLBACK_FAILED`（要人来看，不重试）。依赖类阻塞是 409 `DEPENDENCY_BLOCKED`，参数类
+是 400 `VALIDATION_ERROR`——两者的修复动作不同（先满足前置条件 / 改输入）。
+
+**（10）删除记录有门禁。** 托管文件还在盘上时 `DELETE /proxies/:id` 返回 409
+`DEPENDENCY_BLOCKED`，消息直接说下一步（先把 `enabled` 改成 false 并应用一次再删）：
+先删记录会留下一个面板不再管理、却仍在服务的 `server` 块。读不到事实时是 503，不是“当作没有”。
+
+**（11）路径分隔符由 Nginx 决定，不由编译机决定。** 所有拼进配置内容的路径走 `path`，不走
+`filepath`：面板可以在 Windows 上交叉编译，`filepath.Join` 会把 `/etc/nginx/...` 拼成
+`/etc/nginx\...`——一份能被 `nginx -t` 拒绝、或者更糟、被 Nginx 当成相对路径的配置。
+这条规则在 `internal/proxies/configfs.go` 与 `internal/api/proxies_applied.go` 里各写了一遍注释。
+
+**（12）秘密不打日志、不进 argv。** basic auth 的明文只经标准输入传给 apr1 计算，数据库里
+只有 `secret_ref`，Nginx 侧只有哈希。
+
 ## 10. 服务、进程、日志、终端契约
 
 | 方法与路径 | 行为 |
@@ -1840,7 +1914,7 @@ GET /alerts/events：V；POST /alerts/events/:id/ack：admin；GET/POST /notific
 | apps | id、name、type、binding_json、public_url、health_json、group_id FK、version |
 | app_favorites | user_id FK、app_id FK；联合 UNIQUE |
 | app_volume_dependencies | app_id FK、volume_id FK；联合 UNIQUE |
-| proxies | id、domain UNIQUE、app_id FK 可空、upstream_target_id/scheme/port、access_mode、allowed_cidrs_json、basic_auth_json、websocket_enabled、max_body_bytes、read_timeout_seconds、enabled（**意图**，不是已生效）、version；P10.1 的落地形态与本节的关系见 §9.1 与 DECISIONS Q281（`definition_json` 被展平成能下 CHECK 的列，`applied_config_hash` 等 P10.2 真有哈希可存时再加） |
+| proxies | id、domain UNIQUE、app_id FK 可空、upstream_target_id/scheme/port、access_mode、allowed_cidrs_json、basic_auth_json、websocket_enabled、max_body_bytes、read_timeout_seconds、enabled（**意图**，不是已生效）、version；P10.1 的落地形态与本节的关系见 §9.1 与 DECISIONS Q281（`definition_json` 被展平成能下 CHECK 的列）。P10.2 **仍然没有** `applied_config_hash` 这一列：落地状态由“此刻渲染的字节”与“树上那份文件的字节”比对得到，见 §9.2（7）与 DECISIONS Q286 |
 | certificates | id、proxy_id FK、domains_json、expiry、agent_certificate_ref、renewal_state |
 | deployments | id、name UNIQUE、definition_json、applied_digest、agent_project_ref、version |
 | file_roots | id、volume_id FK 可空、kind、agent_root_ref、display_name、read_only |

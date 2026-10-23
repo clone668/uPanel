@@ -8,11 +8,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -28,6 +30,7 @@ import (
 	"upanel/internal/nginx"
 	"upanel/internal/platform"
 	"upanel/internal/processes"
+	"upanel/internal/proxies"
 	"upanel/internal/services"
 	"upanel/internal/shares"
 	"upanel/internal/storage"
@@ -504,6 +507,41 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	if servicesCollector != nil {
 		nginxOpts.Unit = func(ctx context.Context) (string, bool, error) {
+			// 单元状态只用于两件事：一句告警（“服务没在跑，这次不会 reload”）和
+			// 现状展示。服务采集器在后台每 10 秒采一遍，快照通常就在手边。
+			//
+			// **为什么读快照，而不是现场问 systemctl。** 后台那一轮完整采集在这台
+			// 验收机上要 20 秒（503 个单元，按 200 个一段问），而 systemd 的属性查询
+			// 会被插在它后面的客户端等着。实测（.tmp/probe2）：后台采集跑着的时候，
+			// 现场问一次 `nginx.service` 用了 **6.389 秒**，紧接着的几次只要
+			// 104–124 毫秒——快的几次是掉在两段之间的空档里。同一个探针里读快照：
+			// 五次 113–252 毫秒，平均 170 毫秒。预检整条链路的预算是 10 秒
+			// （agentclient.DefaultTimeout），6.4 秒的单元探测就能把它顶成
+			// 503 AGENT_UNAVAILABLE——“代理不可用”会让人去查 socket 和权限，
+			// 而那里什么都没坏。
+			//
+			// 一份最多十几秒旧的单元状态，对这两条判断完全够用。真到执行的那一刻，
+			// reload 决策另有一条 `systemctl is-active` 现场问（applyrun.go 的
+			// unitState），不看这份旧账。
+			//
+			// 教训：别用一个没验证的实验去推翻一个解释。先前用 shell 起了一个“大查询”
+			// 再测，得到 0.2 秒，于是写下“systemd 不排队”——那个后台查询其实根本没
+			// 跑起来（事后 `pgrep systemctl` 是 0），结论是空的。复现要复现整条路径。
+			snap := servicesCollector.Snapshot()
+			if snap.Status == services.StatusOK {
+				for _, u := range snap.Units {
+					if u.Unit == nginx.DefaultUnitName {
+						return u.ActiveState, true, nil
+					}
+				}
+				if snap.Truncated {
+					// 快照被单元上限截断过，说“没有这个服务”就是假话。
+					return "", false, errors.New("服务快照被截断，里面没有 " + nginx.DefaultUnitName +
+						"：这不是“没有这个服务”，是没拿到")
+				}
+				return "", false, nil
+			}
+			// 还没采到过（刚启动、第一轮采集还没跑完）：这时候才现场问一次。
 			unit, found, err := servicesCollector.Unit(ctx, nginx.DefaultUnitName)
 			if err != nil {
 				return "", false, err
@@ -517,6 +555,61 @@ func run(args []string, stdout, stderr io.Writer) int {
 		"binary", nginxPath,
 		"unit", nginx.DefaultUnitName,
 		"scope", "只读：nginx.conf / conf.d / sites-enabled；不跟随其它 include")
+
+	// 反向代理写入路径（P10.2）。前提是找得到 nginx 可执行文件：没有它就没法
+	// `nginx -t`、也没法 reload，而“写一份不校验的配置进 conf.d”是这条流水线里
+	// 最不能接受的一步。找不到时**不登记** proxy.apply，能力页如实说没有。
+	var proxyApplier *proxies.Applier
+	// errDiscoveryCold 表示“还没采过应用发现”。它是告警文案的来源，不是失败：
+	// 上游目标检查只是一句提醒，没有快照就说没有快照，不为此去采一遍。
+	errDiscoveryCold := errors.New("还没有采集过应用发现，暂时无从确认")
+	if nginxPath != "" {
+		applier, err := proxies.NewApplier(proxies.ApplierOptions{
+			Facts:   nginxCollector,
+			Secrets: secrets,
+			Runner:  storage.SyscmdRunner(),
+			Paths: proxies.ConfigPaths{
+				Root:      nginx.DefaultConfigRoot,
+				NginxPath: nginxPath,
+			},
+			TargetExists: func(ctx context.Context, id string) (bool, error) {
+				// 发现结果里的目标才是“本机上真实存在的东西”。读不到发现结果时
+				// 返回错误而不是 false：那会让一次正常上线被一句“目标不存在”挡下。
+				//
+				// **只读已有快照，不触发新的采集。** 上游目标在不在只是一句告警
+				// （“这样上线会得到 502”），为一句可能过时的告警去扫 /proc、翻
+				// systemd 单元清单、再问一遍 docker，是拿确定的东西（预检能返回）
+				// 换不确定的东西（告警更准一点）。没采过就说“不知道”——那正是
+				// 告警该说的话，不是错误的事实。
+				//
+				// 注意：这条改动**不是**“预检慢”的原因所在，改前改后的预检耗时
+				// 都在同一档里。真正拖慢预检的是 nginx 现状采集里那条现场单元
+				// 探测（见下面 nginxOpts.Unit 的注释与实测数据）。这条改动本身
+				// 成立的理由更简单：一句告警不该买一次全量采集。
+				snap, ok := discoveryCollector.Cached()
+				if !ok {
+					return false, errDiscoveryCold
+				}
+				_, found := snap.Targets[id]
+				return found, nil
+			},
+		})
+		if err != nil {
+			logger.Error("初始化反向代理写入路径失败", "error", err)
+			return 1
+		}
+		proxyApplier = applier
+		logger.Info("已启用反向代理写入",
+			"managed_pattern", filepath.Join(nginx.DefaultConfigRoot, "conf.d", nginx.ManagedPrefix+"<domain>.conf"),
+			"auth_dir", filepath.Join(nginx.DefaultConfigRoot, proxies.AuthDirName),
+			"backup_dir", proxies.DefaultBackupDir,
+			"gate", "nginx -t 通过才保留；失败回滚并复验旧配置",
+			"reload", "nginx -s reload（不 restart）")
+	} else {
+		logger.Warn("反向代理写入未启用",
+			"reason", "找不到 nginx 可执行文件：无法 nginx -t 与 reload",
+			"hint", "安装 nginx 后重启代理；只读的现状展示不受影响")
+	}
 
 	// 动作登记表：生产表自 P05.1 起有 service.control，P05.2 起有 process.signal（受保护名单与读回验证见 internal/services）。
 	// 验收表只能靠显式参数启用，且动作全部以 acceptance. 开头、不读写任何系统资源。
@@ -540,6 +633,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Discovery:  discoveryCollector,
 		Containers: containersClient,
 		Nginx:      nginxCollector,
+	}
+	// 只在真的有时才赋给接口：nil 的 *proxies.Applier 塞进接口会变成一个非 nil
+	// 的接口值，能力表于是多出一个调用就 panic 的入口。
+	if proxyApplier != nil {
+		deps.Proxies = proxyApplier
 	}
 	// 只在真的有时才赋给接口：把一个 nil 的 *terminal.Manager 塞进接口会得到
 	// 一个非 nil 的接口值，登记表于是多出一个调用就 panic 的能力。

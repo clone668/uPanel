@@ -83,13 +83,20 @@ func (s *Server) handleCreatePreflight(c *gin.Context) {
 		return
 	}
 
+	// 服务端展开（P10.2）：proxy.apply 的参数是"库里这条记录的样子"，由面板填好再
+	// 交给代理，而不是信任调用方给的定义。其它动作原样透传。
+	params, ok := s.expandPreflightParams(c, req.Action, req.Params)
+	if !ok {
+		return
+	}
+
 	pre, err := s.opts.Operations.CreatePreflight(c.Request.Context(), operations.CreateInput{
 		UserID:      sess.User.ID,
 		SessionHash: sess.BindingHash(),
 		ReauthAt:    reauthAtFor(sess),
 		RequestID:   c.GetString(ctxKeyRequestID),
 		Action:      req.Action,
-		Params:      req.Params,
+		Params:      params,
 	})
 	if err != nil {
 		s.writePreflightError(c, &sess, action, req.Action, err)

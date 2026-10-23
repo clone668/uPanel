@@ -162,6 +162,16 @@ func (s *Service) CheckDomain(ctx context.Context, domain, selfID string) (Confl
 //     情况下“没找到”和“没有”是两件事。nginx reload 不会因为 server_name 撞车而失败，
 //     它只会安静地用第一个块，所以这里必须比 nginx 更严格。
 func JudgeDomain(facts nginx.Facts, domain string) ConflictReport {
+	return JudgeDomainIgnoring(facts, domain, "")
+}
+
+// JudgeDomainIgnoring 与 JudgeDomain 相同，但忽略某一份文件里的声明（P10.2）。
+//
+// 用途只有一个：把一条站点写进它自己的托管文件时，那份文件里已经有同名
+// `server_name`——那是上一次写下去的我们自己的成果，不是“被别人占用”。
+// 忽略的是**路径精确相等**的那一份文件，不是“所有 managed 文件”：两份面板文件
+// 抢同一个域名依然是冲突，那个判断和 P10.1 一样拦。
+func JudgeDomainIgnoring(facts nginx.Facts, domain, ignoreFile string) ConflictReport {
 	report := ConflictReport{
 		Domain:             domain,
 		NginxAvailable:     facts.Available,
@@ -171,6 +181,18 @@ func JudgeDomain(facts nginx.Facts, domain string) ConflictReport {
 		NginxConfigMissing: facts.ConfigMissing,
 		BrokenFiles:        facts.BrokenFiles(),
 	}
+	if ignoreFile != "" {
+		// 自己那份文件坏了也不能把自己的重写挡死：坏文件正是这次要整份覆盖掉的
+		// 东西（上一次写到一半、或者有人手工改坏了）。别人的坏文件照旧让结论变成
+		// unknown——那不是我们能修的东西。
+		kept := report.BrokenFiles[:0]
+		for _, f := range report.BrokenFiles {
+			if f != ignoreFile {
+				kept = append(kept, f)
+			}
+		}
+		report.BrokenFiles = kept
+	}
 	for _, f := range facts.Files {
 		if f.Managed {
 			report.ManagedFileCount++
@@ -179,11 +201,17 @@ func JudgeDomain(facts nginx.Facts, domain string) ConflictReport {
 
 	claims := facts.Lookup(domain)
 	for _, c := range claims.Matches {
+		if ignoreFile != "" && c.File == ignoreFile {
+			continue
+		}
 		report.Matches = append(report.Matches, ConflictHit{
 			File: c.File, Line: c.Line, Name: c.Name.Raw, Managed: c.Managed,
 		})
 	}
 	for _, c := range claims.Undecidable {
+		if ignoreFile != "" && c.File == ignoreFile {
+			continue
+		}
 		report.Undecidable = append(report.Undecidable, ConflictHit{
 			File: c.File, Line: c.Line, Name: c.Name.Raw, Managed: c.Managed,
 		})

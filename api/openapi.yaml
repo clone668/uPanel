@@ -8760,9 +8760,10 @@ components:
       description: |
         一个代理站点（CONTRACTS.md 第 9 节 ProxyDefinition，字段平铺）。
 
-        没有 applied_config_hash、没有 config_path：P10.1 不生成配置，这两个字段
-        要等 P10.2 真写了文件才有意义。现在填一个空值，界面就会显示一个面板并不
-        掌握的结论。
+        没有 applied_config_hash、没有 config_path 这类**存下来的**结论：P10.2 真的
+        写配置了，但“现在是否已落地”仍然是每次读的时候算出来的（`applied`），不是
+        数据库里的一列。库里存一份 `applied=true` 只会多一个会漂移的真相：有人手工
+        改了文件、或者把文件删了，那个 true 还写在库里。见 CONTRACTS §9.2(7)。
       required: [id, app_id, domain, upstream_target_id, upstream_scheme, upstream_port,
                  access_mode, allowed_cidrs, basic_auth_users, websocket_enabled,
                  max_body_bytes, read_timeout_seconds, enabled, version, created_at, updated_at]
@@ -8815,7 +8816,11 @@ components:
           description: 默认 60（与 nginx 默认一致）。
         enabled:
           type: boolean
-          description: 意图，不是事实。P10.1 不写配置，因此它不表示站点已经生效。
+          description: |
+            意图，不是事实。它说的是“用户希望这个站点生效”；真正是否已经落在
+            Nginx 上要看 `applied`。两者不一致是正常状态（改了记录还没点应用）。
+        applied:
+          $ref: '#/components/schemas/ProxyAppliedState'
         version:
           type: integer
           minimum: 1
@@ -8824,6 +8829,36 @@ components:
           $ref: '#/components/schemas/Rfc3339Utc'
         updated_at:
           $ref: '#/components/schemas/Rfc3339Utc'
+
+    ProxyAppliedState:
+      type: object
+      additionalProperties: false
+      description: |
+        这条记录此刻在 Nginx 上的落地状态。**每次读的时候算出来**：把面板此刻渲染
+        这份定义得到的字节，与配置树里那份文件的字节比对（CONTRACTS §9.2(7)）。
+
+        四态闭集，不要合并：
+        - `applied`：文件在，内容与渲染结果逐字节相同。
+        - `stale`：文件在，但内容不同——被手工改过，或者记录改过还没应用。
+        - `not_applied`：该生效却没有文件；或者已停用且文件确实不在了。
+        - `unknown`：读不到 Nginx 现状，或这份定义渲染不出来。`reason` 说明是哪一种。
+
+        `stale` 与 `not_applied` 分开的原因是下一步动作不同：前者要替换一份旧的，
+        后者只是缺一步。
+      required: [state]
+      properties:
+        state:
+          type: string
+          enum: [applied, stale, not_applied, unknown]
+        config_file:
+          type: string
+          description: 托管配置文件的绝对路径；算不出来时是空串。
+        config_hash:
+          type: string
+          description: 此刻渲染结果的 sha256（十六进制）。不出现表示这份定义渲染不出来。
+        reason:
+          type: string
+          description: 给人看的一句话；`unknown` 时一定有。
 
     ProxyBasicAuthUser:
       type: object
