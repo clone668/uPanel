@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"upanel/internal/config"
 	"upanel/internal/platform"
@@ -37,8 +38,7 @@ const exitNotImplemented = 3
 
 // 已规划但尚未实现的子命令：显式列出以便给出明确提示，而不是“未知命令”。
 var plannedCommands = map[string]string{
-	"reset-password": "P02.2（本机管理员恢复）",
-	"scheduler":      "P12（定时任务触发，仅 root 使用专用入口）",
+	"scheduler": "P12（定时任务触发，仅 root 使用专用入口）",
 }
 
 func main() {
@@ -59,6 +59,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdMigrate(args[1:], stdout, stderr)
 	case "init-admin":
 		return cmdInitAdmin(args[1:], stdout, stderr)
+	case "reset-password":
+		return cmdResetPassword(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return 0
@@ -83,9 +85,10 @@ func usage(w io.Writer) {
   check-config            校验配置文件并打印生效值（--config PATH、--json）
   migrate                 执行数据库迁移（--config PATH、--db PATH、--json）
   init-admin              创建第一个管理员（--config PATH、--db PATH、--username、--display-name、--json）
+  reset-password          重置已有账号的口令（本机恢复入口；--config PATH、--db PATH、--username、--json）
   help                    显示本帮助
 
-已规划但未实现: reset-password、scheduler
+已规划但未实现: scheduler
 （未实现的子命令返回退出码 %d，不会伪装成功）
 `, program, program, exitNotImplemented)
 }
@@ -150,9 +153,33 @@ func cmdCheckConfig(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	// 面板 HTTPS（P10.4）：证书能不能加载、指纹是多少、什么时候到期——安装脚本
+	// 拿这段输出去“当众打印指纹”，用户核对后才接受自签名证书。
+	var tlsInfo *tlsReport
+	if res.Config.Web.TLSConfigured() {
+		panelTLS, err := res.Config.Web.LoadTLS()
+		if err != nil {
+			fmt.Fprintf(stderr, "配置错误: %v\n", err)
+			return 1
+		}
+		tlsInfo = &tlsReport{
+			Subject:     panelTLS.Info.Subject,
+			Fingerprint: panelTLS.Info.Fingerprint,
+			NotBefore:   panelTLS.Info.NotBefore.Format(time.RFC3339),
+			NotAfter:    panelTLS.Info.NotAfter.Format(time.RFC3339),
+			Domains:     panelTLS.Info.Domains,
+			SelfSigned:  panelTLS.Info.SelfSigned,
+			Warnings:    panelTLS.Warnings,
+		}
+	}
+	if err := config.CheckTransport(listen, res.Config.Web.TLSConfigured()); err != nil {
+		fmt.Fprintf(stderr, "配置错误: %v\n", err)
+		return 1
+	}
+
 	// 允许源跨字段规则（非回环监听必须显式配置）也在这里判定，让 check-config
 	// 与真正启动的结论一致。
-	allowedOrigins, err := config.ResolveAllowedOrigins(res.Config.Web.AllowedOrigins, listen)
+	allowedOrigins, err := config.ResolveAllowedOrigins(res.Config.Web.AllowedOrigins, listen, tlsInfo != nil)
 	if err != nil {
 		fmt.Fprintf(stderr, "配置错误: %v\n", err)
 		return 1
@@ -164,6 +191,7 @@ func cmdCheckConfig(args []string, stdout, stderr io.Writer) int {
 		Mode:                  mode.String(),
 		WebListen:             listen,
 		WebLoopbackOnly:       config.IsLoopbackAddress(listen),
+		WebTLS:                tlsInfo,
 		AllowedOrigins:        allowedOrigins,
 		AgentSocket:           res.Config.Agent.SocketPath,
 		LogLevel:              res.Config.Log.Level,
@@ -191,6 +219,19 @@ func cmdCheckConfig(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "配置来源: %s\n", source)
 		fmt.Fprintf(stdout, "运行模式: %s\n", report.Mode)
 		fmt.Fprintf(stdout, "Web 监听: %s（仅回环: %t）\n", report.WebListen, report.WebLoopbackOnly)
+		if report.WebTLS != nil {
+			fmt.Fprintf(stdout, "面板 HTTPS: 已启用（%s，到期 %s）\n",
+				report.WebTLS.Subject, report.WebTLS.NotAfter)
+			fmt.Fprintf(stdout, "  证书指纹 sha256: %s\n", report.WebTLS.Fingerprint)
+			if len(report.WebTLS.Domains) > 0 {
+				fmt.Fprintf(stdout, "  证书域名: %s\n", strings.Join(report.WebTLS.Domains, ", "))
+			}
+			for _, warning := range report.WebTLS.Warnings {
+				fmt.Fprintf(stdout, "  注意: %s\n", warning)
+			}
+		} else {
+			fmt.Fprintf(stdout, "面板 HTTPS: 未启用（只允许回环监听 + SSH 隧道）\n")
+		}
 		fmt.Fprintf(stdout, "代理 socket: %s\n", report.AgentSocket)
 		fmt.Fprintf(stdout, "数据库: %s（busy_timeout=%dms）\n",
 			orUnset(report.DatabasePath, "未配置（需 --db 或 database.path）"), report.DatabaseBusyTimeoutMS)
@@ -212,6 +253,7 @@ type checkReport struct {
 	Mode                  string        `json:"mode"`
 	WebListen             string        `json:"web_listen"`
 	WebLoopbackOnly       bool          `json:"web_loopback_only"`
+	WebTLS                *tlsReport    `json:"web_tls,omitempty"`
 	AllowedOrigins        []string      `json:"allowed_origins"`
 	AgentSocket           string        `json:"agent_socket"`
 	LogLevel              string        `json:"log_level"`
@@ -220,6 +262,20 @@ type checkReport struct {
 	DatabaseBusyTimeoutMS int           `json:"database_busy_timeout_ms"`
 	Platform              platform.Info `json:"platform"`
 	PlatformError         string        `json:"platform_error,omitempty"`
+}
+
+// tlsReport 是 check-config 里面板 HTTPS 的那一段。
+//
+// 指纹的格式与证书模块一致：sha256(叶证书 DER) 小写十六进制。安装脚本会把它打印给
+// 用户核对，用户核对的是同一个字符串，不存在“两种指纹”。
+type tlsReport struct {
+	Subject     string   `json:"subject"`
+	Fingerprint string   `json:"fingerprint_sha256"`
+	NotBefore   string   `json:"not_before"`
+	NotAfter    string   `json:"not_after"`
+	Domains     []string `json:"domains,omitempty"`
+	SelfSigned  bool     `json:"self_signed"`
+	Warnings    []string `json:"warnings,omitempty"`
 }
 
 func orUnset(v, placeholder string) string {

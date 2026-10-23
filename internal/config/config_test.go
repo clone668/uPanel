@@ -284,7 +284,7 @@ func TestResolveAllowedOriginsDerivesLoopback(t *testing.T) {
 		{"[::1]:9443", []string{"http://127.0.0.1:9443", "http://localhost:9443", "http://[::1]:9443"}},
 	}
 	for _, c := range cases {
-		got, err := ResolveAllowedOrigins(nil, c.listen)
+		got, err := ResolveAllowedOrigins(nil, c.listen, false)
 		if err != nil {
 			t.Fatalf("%s: 推导允许源失败: %v", c.listen, err)
 		}
@@ -300,7 +300,7 @@ func TestResolveAllowedOriginsDerivesLoopback(t *testing.T) {
 }
 
 func TestResolveAllowedOriginsExplicit(t *testing.T) {
-	got, err := ResolveAllowedOrigins([]string{"HTTPS://Panel.Example.com/", "https://panel.example.com"}, "0.0.0.0:9443")
+	got, err := ResolveAllowedOrigins([]string{"HTTPS://Panel.Example.com/", "https://panel.example.com"}, "0.0.0.0:9443", false)
 	if err != nil {
 		t.Fatalf("显式配置应可用: %v", err)
 	}
@@ -308,14 +308,14 @@ func TestResolveAllowedOriginsExplicit(t *testing.T) {
 		t.Fatalf("允许源 = %v，期望去重规范化后的单一项", got)
 	}
 
-	if _, err := ResolveAllowedOrigins([]string{"not-a-url"}, ListenProduction); err == nil {
+	if _, err := ResolveAllowedOrigins([]string{"not-a-url"}, ListenProduction, false); err == nil {
 		t.Fatal("非法配置项必须报错")
 	}
 }
 
 func TestResolveAllowedOriginsRejectsNonLoopbackWithoutConfig(t *testing.T) {
 	for _, listen := range []string{"0.0.0.0:9443", "192.0.2.10:9443", "[::]:9443"} {
-		if _, err := ResolveAllowedOrigins(nil, listen); err == nil {
+		if _, err := ResolveAllowedOrigins(nil, listen, false); err == nil {
 			t.Fatalf("%s: 非回环监听且未配置允许源时必须报错", listen)
 		}
 	}

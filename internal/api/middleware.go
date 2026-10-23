@@ -13,8 +13,7 @@ import (
 	"upanel/internal/httpx"
 )
 
-// requestIDMiddleware 为每个请求确定 request_id 并放进上下文。
-//
+// requestIDMiddleware 为每个请求确定 request_id 并放进上下文。//
 // 沿用调用方传入的合法 X-Request-ID（便于跨日志关联），否则生成新的。
 // 非法值（超长、含非可见字符）直接丢弃重新生成，不截断复用。
 func requestIDMiddleware() gin.HandlerFunc {
@@ -142,6 +141,27 @@ func isUploadContentPath(path string) bool {
 func IsBodyTooLarge(err error) bool {
 	var maxErr *http.MaxBytesError
 	return errors.As(err, &maxErr)
+}
+
+// hstsHeaderValue 是面板自己发的 HSTS 值。
+//
+// 刻意**不带** includeSubDomains、也不进 preload 列表：面板跑在管理机上，
+// 很可能与业务域名同级或在其上，替整台主机的所有子域做长期承诺不是管理面板该做的事。
+// 180 天足够长到有意义，又不至于让一次错误的部署需要等到天荒地老才回退。
+const hstsHeaderValue = "max-age=15552000"
+
+// hstsMiddleware 在开了面板 TLS 时补一个 HSTS 头。
+//
+// 为什么跟着 TLS 开关走，而不是永远发：明文部署（127.0.0.1 + SSH 隧道）下浏览器
+// 一旦记住 HSTS，之后连 http://127.0.0.1:9443 会被强制升级成 https，隧道就废了。
+func (s *Server) hstsMiddleware() gin.HandlerFunc {
+	enabled := s.opts.TLS != nil
+	return func(c *gin.Context) {
+		if enabled {
+			c.Writer.Header().Set("Strict-Transport-Security", hstsHeaderValue)
+		}
+		c.Next()
+	}
 }
 
 // allowedMethods 返回 gin 为 405 响应写入的 Allow 头值（已排序、逗号分隔）。

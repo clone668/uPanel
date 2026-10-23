@@ -250,8 +250,29 @@ func run(args []string, stdout, stderr io.Writer) int {
 			"hint", "请在服务器本机运行 upanelctl init-admin 创建第一个管理员")
 	}
 
+	// 面板 HTTPS（P10.4）：配置给了证书路径就必须能加载成功，否则拒绝启动——
+	// “证书坏了但服务照跑”会让人以为面板在保护口令，实际并没有。
+	var panelTLS *config.PanelTLS
+	if cfg.Web.TLSConfigured() {
+		panelTLS, err = cfg.Web.LoadTLS()
+		if err != nil {
+			fmt.Fprintf(stderr, "配置错误: %v\n", err)
+			return 2
+		}
+	}
+	if err := config.CheckTransport(listenAddr, cfg.Web.TLSConfigured()); err != nil {
+		fmt.Fprintf(stderr, "配置错误: %v\n", err)
+		return 2
+	}
+	if panelTLS == nil {
+		logger.Warn("面板未启用 HTTPS",
+			"listen", listenAddr,
+			"hint", "只允许回环监听 + SSH 隧道这一种部署方式；要绑管理网地址必须配置 web.tls_cert_path 与 web.tls_key_path")
+	}
+
 	// 允许源只来自本机配置；不由 Host 头或 X-Forwarded-* 推导（CONTRACTS.md 第 2 节）。
-	allowedOrigins, err := config.ResolveAllowedOrigins(cfg.Web.AllowedOrigins, listenAddr)
+	// 开了 TLS 时推导出来的源就是 https://…，否则浏览器每次改状态都会因 Origin 不符被拒。
+	allowedOrigins, err := config.ResolveAllowedOrigins(cfg.Web.AllowedOrigins, listenAddr, panelTLS != nil)
 	if err != nil {
 		fmt.Fprintf(stderr, "配置错误: %v\n", err)
 		return 2
@@ -519,6 +540,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		ShutdownTimeout: cfg.Web.ShutdownTimeout(),
 		SchemaVersion:   migrateResult.To,
 		Frontend:        frontend,
+		TLS:             panelTLS,
 		Auth:            authService,
 		Audit:           auditWriter,
 		Operations:      opsService,

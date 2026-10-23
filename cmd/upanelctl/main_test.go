@@ -3,15 +3,27 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"log/slog"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"upanel/internal/audit"
+	"upanel/internal/auth"
 	"upanel/internal/store"
 	"upanel/migrations"
 )
@@ -140,7 +152,8 @@ func TestUnknownSubcommand(t *testing.T) {
 }
 
 func TestPlannedSubcommandIsNotImplemented(t *testing.T) {
-	code, _, errOut := runCtl("reset-password")
+	// scheduler 是 P12 的子命令，0.1 阶段必须明确返回“未实现”，不能返回成功。
+	code, _, errOut := runCtl("scheduler")
 	if code != exitNotImplemented {
 		t.Fatalf("退出码 = %d，期望 %d（未实现不得返回成功）", code, exitNotImplemented)
 	}
@@ -512,4 +525,222 @@ func TestInitAdminRejectsBadUsername(t *testing.T) {
 // quietTestLogger 返回丢弃输出的日志器（store.Open 要求非空）。
 func quietTestLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
+}
+
+// writePanelCertForCtl 在临时目录里生成一对自签名证书/私钥（P10.4 的 check-config 用例）。
+func writePanelCertForCtl(t *testing.T, dir string) (certPath, keyPath string, fingerprint string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("生成密钥失败: %v", err)
+	}
+	now := time.Now().UTC()
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(3003),
+		Subject:               pkix.Name{CommonName: "upanel.test"},
+		NotBefore:             now.Add(-time.Hour),
+		NotAfter:              now.Add(90 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              []string{"upanel.test"},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("签发证书失败: %v", err)
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatalf("编码私钥失败: %v", err)
+	}
+	certPath = filepath.Join(dir, "panel.pem")
+	keyPath = filepath.Join(dir, "panel.key")
+	if err := os.WriteFile(certPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(der)
+	return certPath, keyPath, hex.EncodeToString(sum[:])
+}
+
+func TestCheckConfigRejectsNonLoopbackWithoutTLS(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "upanel.json")
+	content := `{"web":{"mode":"production","listen_address":"0.0.0.0:9443","allowed_origins":["https://panel.example.com"]},` +
+		`"agent":{"socket_path":"/run/upanel/agent.sock"}}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errOut := runCtl("check-config", "--config", path)
+	if code == 0 {
+		t.Fatal("非回环监听且没有 TLS 时必须让 check-config 失败")
+	}
+	if !strings.Contains(errOut, "tls_cert_path") {
+		t.Fatalf("stderr 应指出缺的是 TLS 配置，实际: %q", errOut)
+	}
+}
+
+func TestCheckConfigPrintsTLSFingerprint(t *testing.T) {
+	dir := t.TempDir()
+	if !strings.HasPrefix(dir, "/") {
+		// 产品按 POSIX 语义校验路径（安装目标永远是 Ubuntu），宿主临时目录在 Windows 上
+		// 是 C:\...，check-config 会（正确地）拒绝它。这条用例要读真实文件，没法用假路径，
+		// 因此在非 POSIX 宿主上跳过——VM 上的验收脚本会覆盖同一件事。
+		t.Skip("宿主临时目录不是 POSIX 绝对路径，这条用例只在 Linux 上跑")
+	}
+	certPath, keyPath, fingerprint := writePanelCertForCtl(t, dir)
+	path := filepath.Join(dir, "upanel.json")
+	content := fmt.Sprintf(`{"web":{"mode":"production","listen_address":"127.0.0.1:19443",`+
+		`"tls_cert_path":%q,"tls_key_path":%q},"agent":{"socket_path":"/run/upanel/agent.sock"}}`,
+		certPath, keyPath)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	code, out, errOut := runCtl("check-config", "--config", path)
+	if code != 0 {
+		t.Fatalf("退出码 = %d，stderr = %q", code, errOut)
+	}
+	if !strings.Contains(out, "面板 HTTPS: 已启用") {
+		t.Fatalf("输出应说明 HTTPS 已启用: %q", out)
+	}
+	if !strings.Contains(out, fingerprint) {
+		t.Fatalf("输出应打印证书指纹 %s（安装时供用户核对）: %q", fingerprint, out)
+	}
+	if !strings.Contains(out, "https://127.0.0.1:19443") {
+		t.Fatalf("开了 TLS 时推导出来的允许源必须是 https: %q", out)
+	}
+
+	code, out, errOut = runCtl("check-config", "--config", path, "--json")
+	if code != 0 {
+		t.Fatalf("--json 退出码 = %d，stderr = %q", code, errOut)
+	}
+	var report struct {
+		WebTLS *struct {
+			Fingerprint string `json:"fingerprint_sha256"`
+			SelfSigned  bool   `json:"self_signed"`
+		} `json:"web_tls"`
+		AllowedOrigins []string `json:"allowed_origins"`
+	}
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("输出不是合法 JSON: %v (%q)", err, out)
+	}
+	if report.WebTLS == nil || report.WebTLS.Fingerprint != fingerprint {
+		t.Fatalf("web_tls 指纹 = %+v，期望 %s", report.WebTLS, fingerprint)
+	}
+	if !report.WebTLS.SelfSigned {
+		t.Fatal("自签名证书应在报告里标明 self_signed=true")
+	}
+	if len(report.AllowedOrigins) == 0 || !strings.HasPrefix(report.AllowedOrigins[0], "https://") {
+		t.Fatalf("允许源 = %v，期望 https 前缀", report.AllowedOrigins)
+	}
+}
+
+// reset-password 是本机管理员恢复口令的入口，测试要证明四件事：
+// 口令真的换了（旧口令失效、新口令可用）、既有会话被作废、审计留痕、
+// 以及“不存在的账号/不一致的密码”被明确拒绝。
+func TestResetPasswordChangesPasswordAndRevokesSessions(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "upanel.db")
+	const oldPassword = "correct-horse-9"
+	const newPassword = "battery-staple-42"
+
+	withStdin(t, oldPassword+"\n"+oldPassword+"\n")
+	if code, _, errOut := runCtl("init-admin", "--db", dbPath, "--username", "admin"); code != 0 {
+		t.Fatalf("init-admin 退出码 = %d，stderr = %q", code, errOut)
+	}
+
+	ctx := context.Background()
+	db, err := store.Open(ctx, store.Options{Path: dbPath, Logger: quietTestLogger()})
+	if err != nil {
+		t.Fatalf("打开数据库失败: %v", err)
+	}
+	defer db.Close()
+	svc, err := auth.NewService(db, auth.Options{})
+	if err != nil {
+		t.Fatalf("初始化认证服务失败: %v", err)
+	}
+	issued, err := svc.Login(ctx, auth.LoginInput{Username: "admin", Password: oldPassword})
+	if err != nil {
+		t.Fatalf("用初始口令登录失败: %v", err)
+	}
+
+	withStdin(t, newPassword+"\n"+newPassword+"\n")
+	code, out, errOut := runCtl("reset-password", "--db", dbPath, "--username", "admin")
+	if code != 0 {
+		t.Fatalf("reset-password 退出码 = %d，stderr = %q", code, errOut)
+	}
+	if !strings.Contains(out, "已重置账号 admin") {
+		t.Fatalf("输出 = %q", out)
+	}
+	if strings.Contains(out, newPassword) || strings.Contains(errOut, newPassword) {
+		t.Fatal("输出中出现了明文密码")
+	}
+
+	// 旧口令必须失效、新口令必须可用，且重置前的会话必须已经被作废。
+	// 先验会话作废（此时还没发生任何新的登录，不会被 Login 自身的轮换掩盖）。
+	if _, err := svc.Authenticate(ctx, issued.Token); err == nil {
+		t.Fatal("重置口令前的会话在重置后仍然有效")
+	}
+	if _, err := svc.Login(ctx, auth.LoginInput{Username: "admin", Password: oldPassword}); err == nil {
+		t.Fatal("旧口令在重置后仍能登录")
+	}
+	if _, err := svc.Login(ctx, auth.LoginInput{Username: "admin", Password: newPassword}); err != nil {
+		t.Fatalf("新口令无法登录: %v", err)
+	}
+
+	// 审计：一条 user.password.reset，actor 是本地 CLI（actor_id 为 NULL）。
+	var action string
+	var actorID *int64
+	if err := db.SQL().QueryRow(
+		`SELECT action, actor_id FROM audit_events WHERE action = ? ORDER BY id DESC LIMIT 1`,
+		audit.ActionUserPasswordReset).Scan(&action, &actorID); err != nil {
+		t.Fatalf("读取审计失败: %v", err)
+	}
+	if actorID != nil {
+		t.Fatalf("本地 CLI 的审计 actor_id 应为 NULL，实际 %d", *actorID)
+	}
+}
+
+func TestResetPasswordRejectsUnknownUserAndMismatch(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "upanel.db")
+	const password = "correct-horse-9"
+	withStdin(t, password+"\n"+password+"\n")
+	if code, _, errOut := runCtl("init-admin", "--db", dbPath, "--username", "admin"); code != 0 {
+		t.Fatalf("init-admin 退出码 = %d，stderr = %q", code, errOut)
+	}
+
+	// 不存在的账号：不能在库里凭空造出一个账号来。
+	withStdin(t, "whatever-password-1\nwhatever-password-1\n")
+	code, _, errOut := runCtl("reset-password", "--db", dbPath, "--username", "ghost")
+	if code == 0 {
+		t.Fatal("对不存在的账号 reset-password 必须失败")
+	}
+	if !strings.Contains(errOut, "没有账号") {
+		t.Fatalf("stderr = %q", errOut)
+	}
+
+	// 两行密码不一致：拒绝，不改库。
+	withStdin(t, "one-password-11\nanother-password-2\n")
+	code, _, errOut = runCtl("reset-password", "--db", dbPath, "--username", "admin")
+	if code == 0 {
+		t.Fatal("两行密码不一致时必须失败")
+	}
+	if !strings.Contains(errOut, "不一致") {
+		t.Fatalf("stderr = %q", errOut)
+	}
+	ctx := context.Background()
+	db, err := store.Open(ctx, store.Options{Path: dbPath, Logger: quietTestLogger()})
+	if err != nil {
+		t.Fatalf("打开数据库失败: %v", err)
+	}
+	defer db.Close()
+	svc, err := auth.NewService(db, auth.Options{})
+	if err != nil {
+		t.Fatalf("初始化认证服务失败: %v", err)
+	}
+	if _, err := svc.Login(ctx, auth.LoginInput{Username: "admin", Password: password}); err != nil {
+		t.Fatalf("原口令应仍然有效: %v", err)
+	}
 }

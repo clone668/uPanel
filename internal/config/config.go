@@ -90,6 +90,11 @@ type Web struct {
 	// AllowedOrigins 是允许发起状态变更请求的源（scheme://host[:port]）。
 	// 留空时按最终监听地址推导（仅对回环地址成立）；非回环地址必须显式配置。
 	AllowedOrigins []string `json:"allowed_origins"`
+	// TLSCertPath 是面板 HTTPS 证书（PEM）的绝对路径；与 TLSKeyPath 必须成对出现。
+	// 留空表示“经 SSH 隧道访问的明文部署”，只在回环监听时允许（见 CheckTransport）。
+	TLSCertPath string `json:"tls_cert_path"`
+	// TLSKeyPath 是面板 HTTPS 私钥（PEM）的绝对路径。
+	TLSKeyPath string `json:"tls_key_path"`
 	// ShutdownTimeoutSeconds 为优雅停止等待时间。
 	ShutdownTimeoutSeconds int `json:"shutdown_timeout_seconds"`
 }
@@ -448,6 +453,9 @@ func (w Web) Validate() error {
 	}
 	if err := validateAllowedOrigins(w.AllowedOrigins); err != nil {
 		return fmt.Errorf("web.allowed_origins: %w", err)
+	}
+	if err := w.validateTLSPaths(); err != nil {
+		return err
 	}
 	// “非回环地址必须显式配置允许源”这条跨字段规则放在 ResolveAllowedOrigins 里判断：
 	// 它需要最终监听地址，而这里是配置段的单段校验。check-config 与启动路径都会调用它。
@@ -848,12 +856,15 @@ func validateAllowedOrigins(origins []string) error {
 // ResolveAllowedOrigins 计算最终允许源列表。
 //
 //   - 配置里显式给出了源 → 规范化、去重后使用（无论监听地址是什么）。
-//   - 配置为空且监听地址是回环 → 用 http://127.0.0.1:<port>、http://localhost:<port>
+//   - 配置为空且监听地址是回环 → 用 <scheme>://127.0.0.1:<port>、<scheme>://localhost:<port>
 //     以及监听主机自身（当它既不是 127.0.0.1 也不是 localhost 时，例如 ::1）。
 //   - 配置为空且监听地址非回环 → 返回错误。
 //
+// https 参数决定推导出来的 scheme：开了面板 TLS，浏览器看到的源就是 https，
+// 推导成 http 会让每一次状态变更请求都因为 Origin 不匹配被拒（P10.4）。
+//
 // 期望值只来自本地配置，**不**从 Host 头或 X-Forwarded-* 推导（CONTRACTS.md 第 2 节）。
-func ResolveAllowedOrigins(origins []string, listenAddress string) ([]string, error) {
+func ResolveAllowedOrigins(origins []string, listenAddress string, https bool) ([]string, error) {
 	if len(origins) > 0 {
 		set, err := httpx.NewOriginSet(origins)
 		if err != nil {
@@ -870,13 +881,17 @@ func ResolveAllowedOrigins(origins []string, listenAddress string) ([]string, er
 		return nil, fmt.Errorf("web.allowed_origins 不能为空：监听地址 %s 不是回环地址", listenAddress)
 	}
 
+	scheme := "http"
+	if https {
+		scheme = "https"
+	}
 	hosts := []string{"127.0.0.1", "localhost"}
 	if h := strings.Trim(host, "[]"); h != "" && h != "127.0.0.1" && !strings.EqualFold(h, "localhost") {
 		hosts = append(hosts, h)
 	}
 	raw := make([]string, 0, len(hosts))
 	for _, h := range hosts {
-		raw = append(raw, "http://"+net.JoinHostPort(h, port))
+		raw = append(raw, scheme+"://"+net.JoinHostPort(h, port))
 	}
 	set, err := httpx.NewOriginSet(raw)
 	if err != nil {

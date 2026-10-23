@@ -7,12 +7,14 @@ package api
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -150,6 +152,12 @@ type Options struct {
 	// 代理）：那时详情页的 observed 明确写 available=false 与原因，而不是给一份
 	// "证书不存在"的空事实——后者会被读成"这张证书被删了"。
 	CertificateState CertificateStateReader
+	// TLS 是面板 HTTPS 材料（P10.4）。为 nil 表示不开 TLS——只有回环监听允许这样
+	// （config.CheckTransport 判定），本服务不再自己重复判断。
+	//
+	// 材料在 New 里就已经加载并校验过（证书能配私钥、没过期），因此 Serve 阶段的
+	// 失败只可能是监听本身的问题，不会出现“服务起来了但证书是坏的”。
+	TLS *config.PanelTLS
 }
 
 // Server 是 Web HTTP 服务。
@@ -163,6 +171,17 @@ type Server struct {
 	streams *streamLimiter
 	// terminalGrants 是终端连接许可（P06.3）：一次性、30 秒、只存在于本进程内存。
 	terminalGrants *terminalGrants
+	// addrMu 保护 addr：Serve 在监听成功后写入，Addr 可能从测试或运维脚本里随时读。
+	addrMu sync.RWMutex
+	addr   string
+}
+
+// Addr 返回 Serve 实际监听的地址（监听地址写成 :0 时由内核分配，只有这里知道结果）。
+// 尚未开始监听时返回空串。
+func (s *Server) Addr() string {
+	s.addrMu.RLock()
+	defer s.addrMu.RUnlock()
+	return s.addr
 }
 
 // healthLive 是 GET /api/v1/health/live 的响应体。
@@ -244,11 +263,32 @@ func (s *Server) Handler() http.Handler { return s.engine }
 //
 // 监听在进入 Serve 之前显式完成，端口被占用等问题会作为启动错误返回，
 // 不会被当成“服务已就绪”。
+//
+// 开了 TLS 时先监听、再套 TLS：这样“端口被占用”仍然以监听错误的形式
+// 在同一个地方出现，而不是被埋进第一次握手里。
 func (s *Server) Serve(ctx context.Context) error {
 	ln, err := net.Listen("tcp", s.opts.ListenAddress)
 	if err != nil {
 		return fmt.Errorf("监听 %s 失败: %w", s.opts.ListenAddress, err)
 	}
+
+	scheme := "http"
+	if s.opts.TLS != nil {
+		ln = tls.NewListener(ln, s.opts.TLS.Config)
+		scheme = "https"
+		for _, warning := range s.opts.TLS.Warnings {
+			s.opts.Logger.Warn("面板 HTTPS 材料注意", "detail", warning)
+		}
+		s.opts.Logger.Info("面板 HTTPS 已就绪",
+			"cert", s.opts.TLS.Info.Subject,
+			"fingerprint_sha256", s.opts.TLS.Info.Fingerprint,
+			"not_after", s.opts.TLS.Info.NotAfter.Format(time.RFC3339),
+			"min_version", "TLS 1.2")
+	}
+
+	s.addrMu.Lock()
+	s.addr = ln.Addr().String()
+	s.addrMu.Unlock()
 
 	loopback := config.IsLoopbackAddress(ln.Addr().String())
 	if !loopback {
@@ -260,6 +300,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	s.opts.Logger.Info("Web 服务已开始监听",
 		"address", ln.Addr().String(),
 		"network", ln.Addr().Network(),
+		"scheme", scheme,
 		"mode", s.opts.Mode.String(),
 		"loopback_only", loopback,
 		"version", s.opts.Version.Version,

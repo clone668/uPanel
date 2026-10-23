@@ -38,6 +38,8 @@ admin：完整的已实现管理权限；viewer：仅允许下表明确标注 V 
 
 日志流、下载和 SSE 可以使用 Cookie 的同源 GET，服务端不开放跨域。生产默认不信任代理头，只有明确配置可信代理地址才解析其来源。
 
+面板传输层（P10.4 定案，DECISIONS Q299）：管理面只经 HTTPS 对外。`web.tls_cert_path` 与 `web.tls_key_path` 必须成对配置（POSIX 绝对路径），只配一半是配置错误而不是“没配”；最低协议版本 TLS 1.2；未配置 TLS 时启动器只接受回环监听地址（`web.listen_address` 必须是 127.0.0.1、::1 或 localhost），非回环监听缺 TLS 一律拒绝启动。TLS 生效时所有响应带 `Strict-Transport-Security: max-age=15552000`（不含 includeSubDomains/preload），且派生允许源使用 `https://` scheme；`web.allowed_origins` 的显式条目同样必须是 `https://`。面板不做 ACME 客户端、不写系统信任库：证书来源自签名（安装脚本生成并当众打印 SHA256 指纹）或用户提供的受信任证书。
+
 | 方法与路径 | 输入/输出 | 权限 |
 |---|---|---|
 | POST /auth/login | username、password、可选 totp；返回 user、csrf_token、expires_at | 匿名，Origin+限速 |

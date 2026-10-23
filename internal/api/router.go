@@ -42,6 +42,9 @@ func (s *Server) routes() *gin.Engine {
 		accessLogMiddleware(s.opts.Logger),
 		recoveryMiddleware(s.opts.Logger),
 		bodyLimitMiddleware(MaxRequestBodyBytes),
+		// HSTS 只在真开了 TLS 时才发：明文部署（SSH 隧道）收到这个头会让浏览器
+		// 之后再也连不上 http://127.0.0.1:<port>。
+		s.hstsMiddleware(),
 	)
 
 	v1 := r.Group("/api/v1")
