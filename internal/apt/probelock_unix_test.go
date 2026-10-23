@@ -12,6 +12,24 @@ import (
 	"testing"
 )
 
+// TestProbeLockMissingFileIsFreeNotError：文件不存在既不是"被占用"，也不是"读不到"。
+//
+// 这条语义是在真机上定下的：`/var/lib/apt/lists/lock` 这类文件只在需要时出现，
+// 把它当成读不到会让每一次预检都带一条假告警，久了就没人看了。
+func TestProbeLockMissingFileIsFreeNotError(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "not-there.lock")
+	held, err := probeLock(missing)
+	if err != nil {
+		t.Fatalf("文件不存在不该报错: %v", err)
+	}
+	if held {
+		t.Fatal("文件不存在不等于被占用")
+	}
+	if _, err := os.Stat(missing); !os.IsNotExist(err) {
+		t.Fatal("探测不该创建锁文件")
+	}
+}
+
 // TestProbeLockDetectsHeldFlock 用一个真实持有的 flock 验证探测结论。
 //
 // 这是整条并发防线的基础：如果探测在锁被持有时说"空闲"，面板就会和外部 apt
