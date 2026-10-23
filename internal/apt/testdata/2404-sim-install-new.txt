@@ -1,0 +1,10 @@
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Suggested packages:
+  filters cowsay-off
+The following NEW packages will be installed:
+  cowsay
+0 upgraded, 1 newly installed, 0 to remove and 9 not upgraded.
+Inst cowsay (3.03+dfsg2-8 Ubuntu:24.04/noble [all])
+Conf cowsay (3.03+dfsg2-8 Ubuntu:24.04/noble [all])

@@ -1,0 +1,26 @@
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Some packages could not be installed. This may mean that you have
+requested an impossible situation or if you are using the unstable
+distribution that some required packages have not yet been created
+or been moved out of Incoming.
+The following information may help to resolve the situation:
+
+The following packages have unmet dependencies:
+ apt : Depends: gpgv but it is not going to be installed
+       Depends: libapt-pkg6.0t64 (>= 2.8.3) but it is not going to be installed
+ dpkg : PreDepends: zlib1g (>= 1:1.1.4) but it is not going to be installed
+ ieee-data : Depends: wget but it is not going to be installed or
+                      libwww-perl but it is not going to be installed or
+                      curl but it is not going to be installed
+ python3 : PreDepends: python3-minimal (= 3.12.3-0ubuntu2.1) but it is not going to be installed
+           Depends: python3.12 (>= 3.12.3-0~) but it is not going to be installed
+ shim-signed : Depends: grub-efi-amd64-signed (>= 1.191~) but it is not going to be installed or
+                        grub-efi-arm64-signed (>= 1.191~) but it is not installable or
+                        base-files (< 12.3) but 13ubuntu10.5 is to be installed
+               Depends: grub-efi-amd64-signed (>= 1.187.2~) but it is not going to be installed or
+                        grub-efi-arm64-signed (>= 1.187.2~) but it is not installable
+               Depends: grub2-common (>= 2.04-1ubuntu24) but it is not going to be installed
+ util-linux : PreDepends: zlib1g (>= 1:1.1.4) but it is not going to be installed
+E: Error, pkgProblemResolver::Resolve generated breaks, this may be caused by held packages.

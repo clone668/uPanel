@@ -9,6 +9,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -36,6 +37,11 @@ type countingAction struct {
 	cancellable bool
 	// execDuration 是执行耗时。
 	execDuration time.Duration
+	// planBudget 非零时登记到动作上（见 Action.PlanBudget）。
+	planBudget time.Duration
+	// slowPlanFrom 让第 N 次及以后的 Plan 调用一直等到 ctx 结束：模拟"预检快、
+	// 提交复核慢"的软件包动作（24.04 上 apt 模拟两次都慢，但测试不需要真的慢）。
+	slowPlanFrom int32
 }
 
 func (c *countingAction) registry(t *testing.T) *Registry {
@@ -63,8 +69,12 @@ func (c *countingAction) registry(t *testing.T) *Registry {
 			}
 			return p, nil
 		},
-		Plan: func(_ context.Context, in PlanInput) (Plan, error) {
+		Plan: func(ctx context.Context, in PlanInput) (Plan, error) {
 			n := c.planCalls.Add(1)
+			if c.slowPlanFrom > 0 && n >= c.slowPlanFrom {
+				<-ctx.Done()
+				return Plan{}, ctx.Err()
+			}
 			return Plan{
 				NormalizedParams: in.Params,
 				Target: Target{
@@ -96,7 +106,8 @@ func (c *countingAction) registry(t *testing.T) *Registry {
 				ObservedState: map[string]any{"counter": c.calls.Load()},
 			}, nil
 		},
-		Policy: ActionPolicy{Cancellable: c.cancellable},
+		PlanBudget: c.planBudget,
+		Policy:     ActionPolicy{Cancellable: c.cancellable},
 	}
 	if err := r.RegisterAction(action); err != nil {
 		t.Fatalf("登记计数动作失败: %v", err)
@@ -523,6 +534,94 @@ func TestOperationExecutionFailureRecorded(t *testing.T) {
 	// 失败信息不得泄漏执行器原始错误的内部细节（命令原文/堆栈）。
 	if strings.Contains(errBody.Message, "磁盘炸了") {
 		t.Fatalf("错误信息泄漏了内部细节: %q", errBody.Message)
+	}
+}
+
+// reasonedFailure 模拟"动作已经核实过原因"的失败（见 FailureReasoner）。
+type reasonedFailure struct{ err error }
+
+func (f reasonedFailure) Error() string { return f.err.Error() }
+func (f reasonedFailure) Unwrap() error { return f.err }
+func (f reasonedFailure) FailureReason() string {
+	return "apt-get update 有错误行：Err:3 http://deb.example.invalid/repo stable InRelease"
+}
+
+// TestOperationFailureReasonReachesErrorMessage：核实过的原因要进 error.message。
+//
+// 失败任务的 result 按契约是空对象，所以 error.message 是管理员唯一能看到原因
+// 的地方；上一轮的 P11.2 真机验收就卡在这里——apt 明明报了 `Err:` 行，面板只说
+// "动作执行失败"。
+func TestOperationFailureReasonReachesErrorMessage(t *testing.T) {
+	counter := &countingAction{failWith: reasonedFailure{err: errors.New("apt: 模拟失败")}}
+	srv, _, _ := newOperationServer(t, counter.registry(t))
+	plan := mustPreflight(t, srv, "acceptance.count", `{"note":"reason"}`)
+	id := opID("reason")
+	if rec := submitOperation(t, srv, operationSubmitBody(id, plan.PreflightRef, "", testSessionHash, "")); rec.Code != http.StatusCreated {
+		t.Fatalf("提交状态码 = %d；响应 %s", rec.Code, rec.Body.String())
+	}
+	final := waitForStage(t, srv, id, agentstore.StageFailed)
+	var errBody struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(final.Error, &errBody); err != nil {
+		t.Fatalf("错误体不是合法 JSON: %v（%s）", err, final.Error)
+	}
+	if errBody.Code != "COMMAND_FAILED" {
+		t.Fatalf("错误码 = %q", errBody.Code)
+	}
+	if !strings.Contains(errBody.Message, "Err:3 http://deb.example.invalid/repo") {
+		t.Fatalf("error.message 没带上核实过的原因: %q", errBody.Message)
+	}
+	// 原因里不该出现内部包裹的那一层原文：给管理员看的是 apt 那句话。
+	if strings.Contains(errBody.Message, "模拟失败") {
+		t.Fatalf("error.message 混进了内部错误原文: %q", errBody.Message)
+	}
+	if len(final.Result) != 0 && string(final.Result) != "{}" {
+		t.Fatalf("失败任务的 result 必须是空对象，实际 %s", final.Result)
+	}
+}
+
+// TestOperationRevalidateBudgetTurnsIntoResourceBusy：提交时的复核超预算要说人话。
+//
+// 提交这一步会再跑一次动作的 Plan（软件包动作=apt 模拟），服务器的 WriteTimeout 只有
+// 15 秒。不给它一把自己的秒表，连接会先断，Web 看到的是 EOF，把一次正常的慢提交记成
+// "代理不可用"——P11.2 验收第二轮在 24.04 上就是这么失败的（代理日志写着 201，
+// Web 收到 EOF，任务挂在待对账）。这里钉两件事：预算是动作自己声明的那个数，
+// 超时变成 409 RESOURCE_BUSY 而不是断连接。
+func TestOperationRevalidateBudgetTurnsIntoResourceBusy(t *testing.T) {
+	counter := &countingAction{
+		planBudget:   80 * time.Millisecond,
+		slowPlanFrom: 2, // 第 1 次（预检）快，第 2 次（提交复核）慢
+	}
+	srv, _, _ := newOperationServer(t, counter.registry(t))
+	plan := mustPreflight(t, srv, "acceptance.count", `{"note":"slow-revalidate"}`)
+	id := opID("slowreval")
+	rec := submitOperation(t, srv, operationSubmitBody(id, plan.PreflightRef, "", testSessionHash, ""))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("提交状态码 = %d；响应 %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("响应不是合法 JSON: %v（%s）", err, rec.Body.String())
+	}
+	if body.Error.Code != "RESOURCE_BUSY" {
+		t.Fatalf("错误码 = %q；响应 %s", body.Error.Code, rec.Body.String())
+	}
+	if !strings.Contains(body.Error.Message, "执行前复核超过") {
+		t.Fatalf("message 要说清是哪一步超时: %q", body.Error.Message)
+	}
+	// 复核失败时任务没有被接受：代理侧不该留下操作记录，预检也仍然读得到。
+	if _, err := srv.opts.Operations.Get(context.Background(), "op_slowreval"); !errors.Is(err, agentstore.ErrOperationNotFound) {
+		t.Fatalf("复核失败不该留下操作记录: %v", err)
+	}
+	if _, err := srv.opts.Plans.Get(context.Background(), plan.PreflightRef); err != nil {
+		t.Fatalf("复核失败不该让预检消失: %v", err)
 	}
 }
 

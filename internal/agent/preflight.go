@@ -23,6 +23,20 @@ import (
 // 时间戳，不自己再加一次。两端各自计算“120 秒”只会让到期边界出现两个真值。
 const PreflightTTL = 120 * time.Second
 
+// preflightWriteBudget 是这条路由允许占用的写超时。
+//
+// 服务器的 WriteTimeout 是 15 秒——对"读一次本地状态"是对的，但预检里有一条是
+// **真的慢**：软件包动作的预检要跑 `apt-get -s`。实测（24.04 验收机，apt 2.8.3）：
+// `--only-upgrade install zlib1g` 的模拟 15.6 秒，冷索引上更久。15 秒的写超时会在
+// 第 15 秒把连接掐掉，Web 收到的是一句 EOF，于是"这台机器能不能装这个包"被显示成
+// "代理不可用"——两边都没说真话。
+//
+// 所以只给这条路由放长，不动全局值：用 ResponseController 覆盖这一个请求的写截止
+// 时间。上限取 120 秒，与原子的预检有效期（PreflightTTL）一致——比有效期还长的
+// 预检本来也没有意义。真正该先说话的是 internal/apt 的模拟预算（assessBudget，
+// 60 秒），这里只是不让连接在它之前被掐断。
+const preflightWriteBudget = PreflightTTL
+
 // maxPreflightRequestBytes 是 POST /internal/v1/preflights 的请求体上限：
 // **最大**的动作参数上限加上 action / actor_context / JSON 转义的余量。
 //
@@ -81,11 +95,32 @@ type preflightResponse struct {
 	Locks              []string                `json:"locks"`
 }
 
+// planBudgetContext 给"同步生成计划"的请求套上动作自己的预算。
+//
+// 两条路由都在同步跑动作的 Plan：预检（POST /internal/v1/preflights）与提交前的
+// 执行前复核（POST /internal/v1/operations → revalidate）。软件包动作的 Plan 是一条
+// `apt-get -s`（24.04 上实测 10—39 秒），同一个计算要用同一把秒表，否则"预检会超时、
+// 提交不会"这种差异就只能靠猜。
+//
+// 后台执行前的那次复核（runner.revalidate）**不**套这个预算：那时任务已经被接受，
+// 没有连接在等着回答，用生成计划的秒表去掐它只会让一次正常的长安装在半路被判失败。
+func planBudgetContext(ctx context.Context, action Action) (context.Context, context.CancelFunc) {
+	if action.PlanBudget <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, action.PlanBudget)
+}
+
 // handlePreflights 生成一份预检计划并落库。
 //
 // 这一层**不做任何系统写操作**：只解码参数、调用动作的预检器、保存计划并返回。
 // 真正的执行在 POST /internal/v1/operations（P03.2），那一步会重新复核这里的绑定。
 func (s *Server) handlePreflights(w http.ResponseWriter, r *http.Request) {
+	// 预检可能很慢（见 preflightWriteBudget）：把这一条请求的写截止时间单独放长。
+	// 失败就算了——不是所有 ResponseWriter 都支持，退回服务器自己的 15 秒。
+	if rc := http.NewResponseController(w); rc != nil {
+		_ = rc.SetWriteDeadline(time.Now().Add(preflightWriteBudget))
+	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		httpx.WriteError(w, r, http.StatusMethodNotAllowed, httpx.CodeValidationError, "只支持 POST")
@@ -168,7 +203,13 @@ func (s *Server) handlePreflights(w http.ResponseWriter, r *http.Request) {
 	now := s.nowUTC().Truncate(time.Second)
 	expiresAt := now.Add(PreflightTTL)
 
-	plan, err := action.Plan(r.Context(), PlanInput{
+	// 逐动作的预检预算：软件包动作的预检要跑 `apt-get -s`（24.04 上升级模拟实测
+	// 15.6 秒），其余动作的预检只是读本地状态。给它一个自己的秒表，超时就说人话——
+	// 不让连接先被掐断，也不让 Web 把它猜成“代理不可用”。
+	planCtx, cancel := planBudgetContext(r.Context(), action)
+	defer cancel()
+
+	plan, err := action.Plan(planCtx, PlanInput{
 		Params:       params,
 		Actor:        req.Actor,
 		PreflightRef: ref,
@@ -176,6 +217,18 @@ func (s *Server) handlePreflights(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt:    expiresAt,
 	})
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			// 不是实现失败，是这台机器这一刻真的慢。说清楚是哪一步、预算是多少。
+			// 用 RESOURCE_BUSY 而不是 INTERNAL_ERROR：契约里它的含义就是“现在不行，
+			// 等一会儿可以”，前端会照着提示重试，而不是去查日志找一个不存在的 bug。
+			s.opts.Logger.Warn("预检超过单动作预算",
+				"action", req.Action, "budget", action.PlanBudget.String(),
+				"request_id", httpx.RequestID(r))
+			httpx.WriteError(w, r, httpx.StatusForCode(httpx.CodeResourceBusy), httpx.CodeResourceBusy,
+				fmt.Sprintf("预检超过 %s 未完成：这个动作要在系统上跑 apt 模拟，索引刚刷新或磁盘繁忙时会这么慢。稍后重试。",
+					action.PlanBudget))
+			return
+		}
 		// 预检器返回错误属于实现失败（业务拒绝应当用 Allowed=false + Blockers 表达）。
 		s.internalError(w, r, "预检计算失败", fmt.Errorf("%w: action=%s: %v", ErrPlanFailed, req.Action, err))
 		return

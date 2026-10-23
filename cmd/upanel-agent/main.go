@@ -649,6 +649,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// Available() 是登记条件：主机上没有 dpkg-query（非 Debian 系）时就不登记这两条
 	// 查询，capabilities 于是不会报告一个点开必然 503 的入口。
 	aptFacts := apt.New(apt.Options{})
+	// aptWriter 在下面按需赋值：非 Debian 系主机上保持 nil，登记表就不会多出四个
+	// 点了才报错的入口。
+	var aptWriter *apt.Writer
 	if aptFacts.Available() {
 		logger.Info("已启用 APT 事实读取",
 			"snapshot_ttl", apt.DefaultCacheTTL.String(),
@@ -663,6 +666,23 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// 不预热的话，第一次请求自己采一遍（24.04 实测 21 秒，与后台采集器并行时的时长），
 		// 落在预算内；之后就都是 0.3 秒的缓存命中。
 		// 慢一次比"在最需要它的那一次谎报不可用"好。
+		// 写事务（P11.2）。与只读采集共用同一套路径常量，但**单独一个 Writer**：
+		// 它的状态是锁探测与 dpkg 快照，与只读采集的 30 秒缓存没有关系。
+		//
+		// Available() 要求 apt-get 与 dpkg-query 都在：只有 apt-get 时写事务跑得起来
+		// 却核对不了结果——那正是本阶段拒绝的"命令成功就算成功"。
+		aptWriter = apt.NewWriter(apt.WriterOptions{})
+		if aptWriter.Available() {
+			logger.Info("已启用 APT 写事务",
+				"apt_get", apt.DefaultAptGet,
+				"locks", apt.DefaultPaths().LockPaths(),
+				"scope", "package.refresh / install / remove / upgrade；预检模拟、保护名单、apt-global 锁、执行后逐包核对")
+		} else {
+			logger.Warn("APT 写事务未启用",
+				"reason", "找不到可执行的 apt-get 或 dpkg-query",
+				"hint", "package.* 四个写动作不会出现在能力表里")
+			aptWriter = nil
+		}
 	} else {
 		logger.Warn("APT 事实读取未启用",
 			"reason", "找不到可执行的 "+apt.DefaultDpkgQuery,
@@ -695,6 +715,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Certificates: certOps,
 		// APT 事实读取（P11.1）。Available() 为假时登记表里不会出现这两条查询。
 		Apt: aptFacts,
+	}
+	if aptWriter != nil {
+		deps.AptWrites = aptWriter
 	}
 	// 只在真的有时才赋给接口：nil 的 *proxies.Applier 塞进接口会变成一个非 nil
 	// 的接口值，能力表于是多出一个调用就 panic 的入口。

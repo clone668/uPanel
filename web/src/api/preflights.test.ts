@@ -15,8 +15,11 @@ import {
   isPreflightExpired,
   newIdempotencyKey,
   preflightRemainingSeconds,
+  preflightTimeoutFor,
   requiresConfirmation,
   submitJob,
+  PACKAGE_PREFLIGHT_TIMEOUT_MS,
+  PREFLIGHT_TIMEOUT_MS,
   type PreflightData,
 } from './preflights'
 
@@ -155,5 +158,40 @@ describe('请求形态', () => {
       preflight_id: 'pf_abc',
       confirmation_phrase: 'PROBE AB2CD3',
     })
+  })
+})
+
+// 预检的超时分层（P11.2 验收第一轮的真事）。
+//
+// 软件包动作的预检要跑 `apt-get -s`：24.04 上 `--only-upgrade install zlib1g`
+// 的模拟实测 15.6 秒，冷索引更久。前端原来对所有动作都用 20 秒，于是升级预检
+// 在前端自己掐断，屏幕上是"请求超时"，服务端其实正在回答。
+describe('预检超时', () => {
+  it('普通动作 20 秒，软件包动作放宽', () => {
+    expect(PREFLIGHT_TIMEOUT_MS).toBe(20_000)
+    expect(preflightTimeoutFor('service.control')).toBe(PREFLIGHT_TIMEOUT_MS)
+    expect(preflightTimeoutFor('storage.volume.format')).toBe(PREFLIGHT_TIMEOUT_MS)
+    expect(preflightTimeoutFor('package.install')).toBe(PACKAGE_PREFLIGHT_TIMEOUT_MS)
+    expect(preflightTimeoutFor('package.upgrade')).toBe(PACKAGE_PREFLIGHT_TIMEOUT_MS)
+  })
+
+  it('软件包动作的超时比服务端上限（90 秒）宽，好让服务端的话先到', () => {
+    expect(PACKAGE_PREFLIGHT_TIMEOUT_MS).toBeGreaterThan(90_000)
+  })
+
+  it('预检请求真的用了这个超时，而不是写死的数', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout')
+    const mock = vi.fn(() => Promise.resolve(new Response(
+      JSON.stringify({ data: {}, request_id: 'rid' }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    )))
+    vi.stubGlobal('fetch', mock)
+
+    await createPreflight('package.install', { packages: ['cowsay'] })
+    expect(timeout).toHaveBeenCalledWith(PACKAGE_PREFLIGHT_TIMEOUT_MS)
+
+    timeout.mockClear()
+    await createPreflight('service.control', { unit: 'cron.service', operation: 'start' })
+    expect(timeout).toHaveBeenCalledWith(PREFLIGHT_TIMEOUT_MS)
   })
 })

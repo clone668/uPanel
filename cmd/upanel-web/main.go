@@ -297,7 +297,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	// 特权代理客户端（P03.1 起预检必须由代理生成）。
 	// mock 模式不连接代理：演示数据在进程内产生，与真实代理完全隔离。
-	var preflightAgent operations.Agent
+	// opsAgent 是"慢操作"客户端：预检与提交都要跑一次动作的 Plan，软件包动作的
+	// Plan 是一条 `apt-get -s`（24.04 上实测最长 38.7 秒）。名字刻意不叫
+	// preflightAgent——它同时承担 POST /jobs 的提交，只按预检命名会让人以为提交
+	// 走的是另一条（10 秒上限的）链路。
+	var opsAgent operations.Agent
 	// 系统基础资源读取端（P04.1）。演示模式下保持 nil：接口回 503，不造假数据。
 	var monitor api.Monitor
 	// 存储只读视图读取端（P04.2）。演示模式下同样保持 nil。
@@ -359,7 +363,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 				"error", err, "socket", cfg.Agent.SocketPath)
 			return 1
 		}
-		preflightAgent = client
+		// 预检与提交共用一个客户端，只多一件事：更长的调用上限。
+		// 两条路都要跑动作的 Plan（软件包动作= `apt-get -s`，24.04 上实测 15.6—38.7 秒，
+		// 量见 operations.PreflightAgentTimeout）。10 秒的通用上限会把一次正常的预检
+		// 或提交变成"代理不可用"——P11.2 验收第一、二轮的原样失败。
+		preflightClient, err := agentclient.New(cfg.Agent.SocketPath,
+			agentclient.WithTimeout(operations.PreflightAgentTimeout))
+		if err != nil {
+			logger.Error("初始化预检代理客户端失败，拒绝启动",
+				"error", err, "socket", cfg.Agent.SocketPath)
+			return 1
+		}
+		opsAgent = preflightClient
 		fetcher, err := monitoring.NewFetcher(client, logger)
 		if err != nil {
 			logger.Error("初始化系统信息读取端失败，拒绝启动", "error", err)
@@ -528,7 +543,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		go scheduler.Run(ctx)
 		logger.Info("健康探测调度已启动", "tick", apphealth.DefaultTick.String())
 	}
-	opsService, err := operations.New(db, preflightAgent, logger, operations.Options{
+	opsService, err := operations.New(db, opsAgent, logger, operations.Options{
 		// 启动依赖门禁（P09.4）：应用与依赖卷的关系只存在 Web 库里，代理算不出来，
 		// 所以这半边由 Web 补在预检之后。它只能收紧——代理拒绝过的预检不会因此放行。
 		Gate: &appruntime.Gate{Apps: appsService, Volumes: storageReader},

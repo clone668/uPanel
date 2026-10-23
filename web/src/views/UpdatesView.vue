@@ -1,12 +1,16 @@
 <script setup lang="ts">
-// 软件包与更新（P11.1，只读）。
+// 软件包与更新（P11.1 只读事实 + P11.2 写操作）。
 //
-// 这一页回答四个问题，四个问题的数据来自三条接口：
+// 读这一半回答四个问题，数据来自三条接口：
 //   1. 这台机器上装了什么、哪些能升级、哪些是安全更新  → GET /packages
 //      （counts 是全量统计；列表是分页的，两回事，不混着用）
 //   2. 升级清单是什么样                                  → GET /packages/updates
 //   3. 需不需要重启、重启标志是什么时候出现的             → GET /system/power-state
 //   4. 哪一路来源读不到                                  → 三条接口里的 errors[]
+//
+// 写这一半（P11.2）只有一个入口：`StorageActionDialog`，它走
+// POST /operations/preflight → POST /jobs，与存储、共享、证书是同一条链路。
+// 这一页**没有**第二个执行路径，也没有"跳过预检直接装"的按钮。
 //
 // 三条纪律，每一条都对应一条真机验收：
 //
@@ -15,8 +19,9 @@
 //     都不能渲染成"已是最新"。
 //   - **降级不是失败**：`errors[]` 非空时，列表照常显示，同时把"哪一路来源读不到、
 //     为什么"写在最上面。把这种情况显示成空列表，是这一页最容易犯的谎。
-//   - **不替 P11.2 承诺**：升级、安装、卸载、刷新索引都是 P11.2 的动作，有保护名单、
-//     资源锁与非交互配置。这一页没有任何写按钮，也不是"忘了接"。
+//   - **写操作要说清代价**：卸载会连带删除依赖它的包（真实样本里删 ca-certificates
+//     带走了 26 个），所以卸载一律要确认短语，与"只是一个小工具"无关——策略在
+//     `apt-get -s` 之前就定了，那时还不知道会带走几个。
 //
 // 慢：代理侧 30 秒快照过期后的第一次读取要现采（24.04 实测 8～27 秒）。页面在
 // 加载时把这句话说出来，而不是让用户对着转圈猜。
@@ -42,10 +47,23 @@ import {
   type PackageUpdatesData,
   type PowerStateData,
 } from '@/api/packages'
+import {
+  MAX_PACKAGE_NAMES,
+  PACKAGE_ACTION_LABELS,
+  invalidPackageNames,
+  packageActionNeedsPhrase,
+  packageActionNeedsReauth,
+  packageActionParams,
+  packageActionPhraseReason,
+  parsePackageNames,
+  type PackageAction,
+} from '@/api/packageactions'
 import ApiErrorPanel from '@/components/ApiErrorPanel.vue'
 import StatTile from '@/components/StatTile.vue'
 import StatePanel from '@/components/StatePanel.vue'
+import StorageActionDialog from '@/components/StorageActionDialog.vue'
 import { formatAge, formatTimestamp } from '@/utils/format'
+import { summarizePackageJob } from '@/utils/jobresult'
 import { apiPanelState, retryablePanelState } from '@/utils/viewstate'
 
 type Phase = 'loading' | 'ready' | 'error'
@@ -215,6 +233,90 @@ async function applyFilters(): Promise<void> {
   await load()
 }
 
+// ── 写操作（P11.2） ────────────────────────────────────────────────────────
+//
+// 四个动作共用同一个对话框，对话框内部只认 action + params + 翻译器，不认识
+// "软件包"这个词。这一页要做的事因此只有三件：
+//   1. 把输入框里的文字变成**合法**的 params（不合法就给 null，对话框不预检）；
+//   2. 说清楚这一步会发生什么（confirmLines）；
+//   3. 任务到终态后重取事实——因为失败也可能改了一部分状态。
+
+const writeOpen = ref(false)
+const writeAction = ref<PackageAction>('package.install')
+const namesInput = ref('')
+/** 从清单回填时产生的提示（被截断、或本来就超过上限）。 */
+const fillNotice = ref('')
+
+const writeNames = computed(() => parsePackageNames(namesInput.value))
+const writeInvalid = computed(() => invalidPackageNames(writeNames.value))
+const writeTooMany = computed(() => writeNames.value.length > MAX_PACKAGE_NAMES)
+
+/** 参数没填好就是 null：对话框据此不预检，而不是拿半份参数去问后端"能不能"。 */
+const writeParams = computed<Record<string, unknown> | null>(() => {
+  if (writeAction.value === 'package.refresh') return packageActionParams(writeAction.value, [])
+  if (writeNames.value.length === 0) return null
+  if (writeInvalid.value.length > 0) return null
+  if (writeTooMany.value) return null
+  return packageActionParams(writeAction.value, writeNames.value)
+})
+
+const writeTitle = computed(() => PACKAGE_ACTION_LABELS[writeAction.value])
+
+/** 提交前读一遍"你即将做什么"。它不是影响清单，影响清单来自预检。 */
+const writeConfirmLines = computed<string[]>(() => {
+  const action = writeAction.value
+  if (action === 'package.refresh') {
+    return ['重新下载软件源索引（apt-get update）。', '不会安装、升级或卸载任何包，也不会重启服务。']
+  }
+  const names = writeNames.value
+  const lines = [
+    `即将${PACKAGE_ACTION_LABELS[action].replace('软件包', '')} ${names.length} 个包：${names.join('、')}`,
+  ]
+  if (action === 'package.upgrade') {
+    lines.push('升级用的是 install --only-upgrade：只升点名的包，不会顺带做发行版升级。')
+  }
+  const reason = packageActionPhraseReason(action)
+  if (reason !== null) lines.push(reason)
+  return lines
+})
+
+/** 卸载要短语，其余不要——这个判断在代理侧是同一份策略的另一半。 */
+const writeNeedsPhrase = computed(() => packageActionNeedsPhrase(writeAction.value))
+
+function openWrite(action: PackageAction): void {
+  writeAction.value = action
+  if (action === 'package.refresh') namesInput.value = ''
+  fillNotice.value = ''
+  writeOpen.value = true
+}
+
+/** 这个动作现在能不能点：包名没填好就点不动，省掉一次注定被拒的往返。 */
+function canWrite(action: PackageAction): boolean {
+  if (action === 'package.refresh') return true
+  return writeNames.value.length > 0 && writeInvalid.value.length === 0 && !writeTooMany.value
+}
+
+/** 把「可升级清单」里的包名回填进输入框，超上限就截断并说明。 */
+function fillFromUpgradable(): void {
+  const all = (updates.value?.updates ?? []).map((row) => entryDisplayName(row))
+  if (all.length === 0) {
+    fillNotice.value = '可升级清单是空的，没有可回填的包名。'
+    return
+  }
+  const unique = parsePackageNames(all.join(' '))
+  const kept = unique.slice(0, MAX_PACKAGE_NAMES)
+  namesInput.value = kept.join(' ')
+  fillNotice.value =
+    unique.length > kept.length
+      ? `回填了前 ${kept.length} 个，还有 ${unique.length - kept.length} 个没进来（一次最多 ${MAX_PACKAGE_NAMES} 个）：分批来。`
+      : `回填了 ${kept.length} 个包名。`
+}
+
+/** 任务到终态就重取事实：失败也可能改了一半（例如依赖装上了、主包没装上）。 */
+function onWriteFinished(): void {
+  void load()
+}
+
 onMounted(() => {
   void load()
 })
@@ -282,6 +384,78 @@ onMounted(() => {
           :tone="counts.security > 0 ? 'error' : 'default'"
         />
       </div>
+
+      <!-- 写操作（P11.2）：一个入口，四个动作，全部走预检 → 任务。 -->
+      <NCard size="small" title="安装、升级与卸载">
+        <p class="updates__line">
+          这四个动作都先经过预检：代理会跑一次 <code>apt-get -s</code>
+          （只模拟、不动系统），把要装的、要删的、被保留的都算出来。保护名单就是拿
+          这份清单判的；卸载时连带删除的包也会写在预检结果里，不是事后才知道。
+        </p>
+        <p class="updates__line updates__meta">
+          执行阶段用 <code>DEBIAN_FRONTEND=noninteractive</code> 与
+          <code>--force-confdef --force-confold</code>：配置文件一律保留本地版本，不会停在交互提问上。
+          卸载与卸载之外的动作共用一把锁（<code>apt-global</code>），有别的 apt
+          在跑时预检就直接拦下。
+        </p>
+
+        <div class="updates__filters">
+          <NButton size="small" data-testid="pkg-refresh" @click="openWrite('package.refresh')">
+            刷新索引
+          </NButton>
+          <NButton size="small" @click="fillFromUpgradable">回填可升级清单</NButton>
+        </div>
+
+        <NInput
+          v-model:value="namesInput"
+          type="textarea"
+          :autosize="{ minRows: 2, maxRows: 4 }"
+          placeholder="包名，空格或逗号分隔，例如 cowsay zlib1g"
+          data-testid="pkg-names"
+        />
+
+        <p v-if="writeInvalid.length > 0" class="updates__line updates__warn" data-testid="pkg-invalid">
+          这些不像包名：<span class="updates__suites">{{ writeInvalid.join('、') }}</span>
+          ——包名只允许小写字母、数字与 <code>+ . -</code>，可以带 <code>:架构</code>；
+          不接受版本号（<code>bash=5.2</code>）与选项。
+        </p>
+        <p v-if="writeTooMany" class="updates__line updates__warn">
+          一次最多 {{ MAX_PACKAGE_NAMES }} 个包，现在填了 {{ writeNames.length }} 个。
+        </p>
+        <p v-if="fillNotice !== ''" class="updates__line updates__meta">{{ fillNotice }}</p>
+
+        <div class="updates__filters">
+          <NButton
+            size="small"
+            type="primary"
+            :disabled="!canWrite('package.install')"
+            data-testid="pkg-install"
+            @click="openWrite('package.install')"
+          >
+            安装
+          </NButton>
+          <NButton
+            size="small"
+            :disabled="!canWrite('package.upgrade')"
+            data-testid="pkg-upgrade"
+            @click="openWrite('package.upgrade')"
+          >
+            升级
+          </NButton>
+          <NButton
+            size="small"
+            type="error"
+            :disabled="!canWrite('package.remove')"
+            data-testid="pkg-remove"
+            @click="openWrite('package.remove')"
+          >
+            卸载
+          </NButton>
+          <span v-if="writeNeedsPhrase" class="updates__meta">
+            卸载要输入确认短语——策略在模拟之前就定了，那时还不知道会连带删几个包。
+          </span>
+        </div>
+      </NCard>
 
       <!-- 重启标志：面板只报告文件，不推断"装了内核所以要重启"。 -->
       <NCard size="small" title="重启标志">
@@ -422,11 +596,22 @@ onMounted(() => {
       </NCard>
 
       <NAlert type="info" :bordered="false">
-        这一页<strong>只读</strong>：安装、卸载、升级与刷新索引在 P11.2 开放，走预检 → 任务，
-        带保护名单、资源锁与非交互配置。<strong>可升级</strong>的含义是「候选比已安装新」，
-        不是「这次升级会升它」——分阶段推送与被保留的包要
-        <code>apt-get -s upgrade</code> 的模拟才判得出，那也是 P11.2。
+        <strong>可升级</strong>的含义是「候选比已安装新」，不是「这次升级会升它」——
+        分阶段推送与被保留的包要 <code>apt-get -s</code> 的模拟才判得出，那正是预检做的事。
+        上面四个按钮都只有这一条路：预检给出影响清单与保护判定，任务执行后逐包核对
+        dpkg 状态；核对不一致时结果标为「部分完成」并保留全部证据。
       </NAlert>
+
+      <StorageActionDialog
+        v-model:show="writeOpen"
+        :action="writeAction"
+        :title="writeTitle"
+        :params="writeParams"
+        :confirm-lines="writeConfirmLines"
+        :needs-reauth="packageActionNeedsReauth(writeAction)"
+        :summarizer="summarizePackageJob"
+        @finished="onWriteFinished"
+      />
     </template>
   </section>
 </template>
@@ -571,5 +756,11 @@ onMounted(() => {
 
 .updates__tag {
   margin-left: 6px;
+}
+
+.updates__warn {
+  color: #d03050;
+  font-size: 13px;
+  word-break: break-all;
 }
 </style>

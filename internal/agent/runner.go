@@ -214,8 +214,15 @@ func (r *runner) execute(ctx context.Context, op agentstore.Operation) {
 				"operation_id", op.ID, "action", op.Action, "code", string(code), "error", err)
 			return
 		}
+		// 默认那句"动作执行失败"等于什么都没说：动作若已经把原因核实成一句
+		// 给人看的话（见 FailureReasoner），就用它当 error.message——失败任务的
+		// result 按契约是空对象，这是管理员唯一能看到原因的字段。
+		message := "动作执行失败"
+		if reason, ok := failureReasonOf(err); ok {
+			message = reason
+		}
 		s.finishFailed(ctx, op.ID, "failed", httpxCodeCommandFailed,
-			"动作执行失败", "先确认系统实际状态，再决定是否重新提交")
+			message, "先确认系统实际状态，再决定是否重新提交")
 		s.opts.Logger.Error("动作执行失败",
 			"operation_id", op.ID, "action", op.Action,
 			"error", fmt.Errorf("%w: %v", ErrExecuteFailed, err))

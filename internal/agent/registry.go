@@ -56,6 +56,20 @@ type Action struct {
 	// （契约把它列为 params 字段），所以它登记一个与内容上限一致的值。
 	// 上限是按动作独立限制的（CONTRACTS.md 第 15 节），不是全局放宽。
 	ParamsLimitBytes int
+	// PlanBudget 是这个动作**同步生成计划**时允许占用的计算时间；0 表示不限（用请求自己的 ctx）。
+	//
+	// 同步生成计划有两条路：预检（POST /internal/v1/preflights）与提交前的执行前复核
+	// （POST /internal/v1/operations → revalidate）。两条路跑的是同一个 Plan 函数，
+	// 所以共用同一把秒表——把预算挂在登记表上，而不是挂在 Plan 函数里面，就是为了让
+	// 这件事只有一个来源。
+	//
+	// 它**不**管执行：后台 runner 在执行前还会再复核一次，那时任务已经被接受、没有连接
+	// 在等回答，用生成计划的秒表去掐它只会让一次正常的长安装在半路被判失败。
+	//
+	// 第一个使用者是 P11.2 的四个软件包动作：它们的预检要跑 `apt-get -s`，24.04 上
+	// 升级模拟实测 15.6 秒、验收机上受磁盘争抢时一次复核 38.7 秒（apt 2.8.3），
+	// 而其它动作的预检只是读本地状态（几十毫秒）。
+	PlanBudget time.Duration
 	// PolicyFor 按参数给出策略，用于“同一个动作、不同参数不同门槛”的情形。
 	//
 	// P05.2 的第一个使用者是 process.signal：TERM 只是请求退出，不需要再认证；
@@ -313,6 +327,32 @@ var (
 	ErrInvalidResult = errors.New("agent: 执行结果不合法")
 )
 
+// FailureReasoner 让动作把自己**已经核实过**的失败原因交给任务的 error.message。
+//
+// 为什么需要它：契约规定失败任务的 result 是空对象（CONTRACTS §5、openapi
+// Job.result：错误写在 error，不塞进 result、也不留上一次的 observed_state），
+// 所以"为什么失败"只能从 error.message 里看出来。默认那句"动作执行失败"什么也
+// 没说；软件包动作失败时真正有用的信息在 apt 自己那行 `E: ...` 里，管理员凭它
+// 就能判断是源坏了、锁被占、还是包名不存在。
+//
+// 这个接口是**opt-in**的：没实现它的动作仍然只报一句通用失败（错误原文可能含
+// 命令原文、路径或堆栈，见 TestOperationExecutionFailureRecorded）。实现它的动作
+// 负责把话说到"给人看的一句"为止——不带堆栈、不带 argv。
+type FailureReasoner interface {
+	FailureReason() string
+}
+
+// failureReasonOf 在错误链里找已经核实过的失败原因。
+func failureReasonOf(err error) (string, bool) {
+	var r FailureReasoner
+	if errors.As(err, &r) {
+		if s := strings.TrimSpace(r.FailureReason()); s != "" {
+			return s, true
+		}
+	}
+	return "", false
+}
+
 // NewRegistry 返回空的登记表。生产登记表由 NewProductionRegistry 构造。
 func NewRegistry() *Registry {
 	return &Registry{actions: map[string]Action{}, queries: map[string]Query{}}
@@ -538,6 +578,16 @@ func RegisterProductionActions(reg *Registry, deps ProductionDeps) error {
 		// 证书的写动作（P10.3）：手动导入、签发、续期。三个一起登记——只有 import
 		// 而没有 issue 的证书模块，会让“这张证书从哪来”只能靠命令行回答。
 		if err := RegisterCertificateActions(reg, deps.Certificates); err != nil {
+			return err
+		}
+	}
+	if deps.AptWrites != nil {
+		// APT 写事务（P11.2）：四个动作一起登记。少登记一个就会让 capabilities 报告
+		// 一组自相矛盾的入口——例如有 install 而没有 refresh，用户就永远没法先更新索引。
+		//
+		// 装配条件在 cmd/upanel-agent 里：只有 apt-get 与 dpkg-query 都在时才有实现端
+		// （只有 apt-get 时跑得起来却核对不了结果，那正是本阶段拒绝的“命令成功就算成功”）。
+		if err := RegisterPackageActions(reg, deps.AptWrites); err != nil {
 			return err
 		}
 	}

@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { JobStatus } from '@/api/jobs'
-import { checkedViaLabel, summarizeShareJob, summarizeStorageJob } from './jobresult'
+import { checkedViaLabel, summarizePackageJob, summarizeShareJob, summarizeStorageJob } from './jobresult'
 
 type SummaryInput = Parameters<typeof summarizeStorageJob>[0]
 
@@ -304,5 +304,180 @@ describe('共享动作的结果翻译', () => {
   it('结果里什么都没有时明说没有现场读数', () => {
     const summary = shareSummary({})
     expect(summary.headline).toContain('没有返回可展示的现场读数')
+  })
+})
+
+// ---------------------------------------------------------------- 软件包写事务
+
+// 这些载荷照 internal/agent/packageaction.go 的实际输出拼（`packageResult` /
+// `refreshResult` 的字段名逐个对应），不是自己想出来的形状：
+//   result.outcome               verified | partial | unknown
+//   result.observed_state        operation / verified / mismatch_count /
+//                                observed_packages / `pkg:<名字>` → `ii 版本` 或 `未安装`
+//   result.data                  operation / packages / exit_code / mismatches /
+//                                index_before / index_after（refresh 另有
+//                                refresh_errors / refresh_warns）
+//
+// 时间字段为空时代理给的是空串（`timeText(nil)`），翻译层按"没有"处理——这一条
+// 也要锁住，否则索引读不到时会显示成两个冒号。
+
+describe('软件包写事务的结果翻译', () => {
+  it('核对通过时说"逐包核对过"，并把每个包的真实状态列出来', () => {
+    const summary = summarizePackageJob(
+      job({
+        result: {
+          outcome: 'verified',
+          observed_state: {
+            operation: 'install',
+            verified: true,
+            mismatch_count: 0,
+            observed_packages: 2,
+            'pkg:zlib1g': 'ii 1:1.2.11.dfsg-2ubuntu9.2',
+            'pkg:cowsay': 'ii 3.03+dfsg2-8',
+          },
+          data: {
+            operation: 'install',
+            packages: ['cowsay', 'zlib1g'],
+            exit_code: 0,
+            mismatches: [],
+            index_before: '2026-10-24T01:02:03Z',
+            index_after: '2026-10-24T01:02:03Z',
+          },
+        },
+      }),
+    )
+    const text = summary.lines.join('\n')
+    expect(summary.ok).toBe(true)
+    expect(summary.headline).toBe('执行完成，并且逐包核对通过')
+    expect(text).toContain('执行后逐包核对过：读回的版本与预检的计划一致')
+    expect(text).toContain('执行的写操作：install')
+    expect(text).toContain('目标软件包：cowsay、zlib1g')
+    expect(text).toContain('cowsay：ii 3.03+dfsg2-8')
+    expect(text).toContain('apt-get 退出码：0')
+    // 逐包状态按字典序，页面每次打开顺序都一样
+    expect(text.indexOf('cowsay：')).toBeLessThan(text.indexOf('zlib1g：'))
+  })
+
+  it('核对没过时说"不一致"，并把对不上的地方照抄出来', () => {
+    const summary = summarizePackageJob(
+      job({
+        result: {
+          outcome: 'partial',
+          observed_state: {
+            operation: 'upgrade',
+            verified: false,
+            mismatch_count: 1,
+            observed_packages: 1,
+            'pkg:zlib1g': 'ii 1:1.2.11.dfsg-2ubuntu9.1',
+          },
+          data: {
+            operation: 'upgrade',
+            packages: ['zlib1g'],
+            exit_code: 0,
+            mismatches: ['zlib1g：期望 1:1.2.11.dfsg-2ubuntu9.2，实际 1:1.2.11.dfsg-2ubuntu9.1'],
+          },
+        },
+      }),
+    )
+    const text = summary.lines.join('\n')
+    // apt 返回 0 不代表达成：这里 ok 仍是 true（任务跑完了），但结论必须是"不一致"
+    expect(summary.ok).toBe(true)
+    expect(summary.headline).toBe('执行完成，下面是读回的现场读数')
+    expect(text).toContain('执行完成，但读回的状态与预检的计划不一致')
+    expect(text).toContain('没有通过核对：apt 报告成功，但读回的软件包状态与预检的计划不一致')
+    expect(text).toContain('对不上的地方：zlib1g：期望 1:1.2.11.dfsg-2ubuntu9.2')
+  })
+
+  it('卸载之后显示"未安装"，而不是拿旧版本冒充现状', () => {
+    const summary = summarizePackageJob(
+      job({
+        result: {
+          outcome: 'verified',
+          observed_state: {
+            operation: 'remove',
+            verified: true,
+            'pkg:cowsay': '未安装',
+          },
+          data: { packages: ['cowsay'], exit_code: 0 },
+        },
+      }),
+    )
+    expect(summary.lines.join('\n')).toContain('cowsay：未安装')
+  })
+
+  it('刷新索引报出索引时间的前后变化与 apt-get update 的告警', () => {
+    const summary = summarizePackageJob(
+      job({
+        result: {
+          outcome: 'verified',
+          observed_state: {
+            operation: 'refresh',
+            verified: true,
+            exit_code: 0,
+            index_after: '2026-10-24T02:10:00Z',
+          },
+          data: {
+            operation: 'refresh',
+            exit_code: 0,
+            index_before: '2026-10-23T20:00:00Z',
+            index_after: '2026-10-24T02:10:00Z',
+            refresh_errors: [],
+            refresh_warns: ['W: 仓库 "http://old.example.invalid stable Release" 没有 Release 文件。'],
+          },
+        },
+      }),
+    )
+    const text = summary.lines.join('\n')
+    expect(text).toContain('索引时间：2026-10-23T20:00:00Z → 2026-10-24T02:10:00Z')
+    expect(text).toContain('apt-get update 的告警：W: 仓库')
+    expect(text).not.toContain('refresh_errors')
+  })
+
+  it('索引时间读不到时不渲染成两个空冒号', () => {
+    const summary = summarizePackageJob(
+      job({
+        result: {
+          outcome: 'verified',
+          observed_state: { operation: 'refresh', verified: true },
+          data: { index_before: '', index_after: '' },
+        },
+      }),
+    )
+    expect(summary.lines.join('\n')).not.toContain('索引时间')
+  })
+
+  it('失败时只给错误与恢复建议，不给现场读数', () => {
+    const summary = summarizePackageJob(
+      job({
+        status: 'failed',
+        result: { observed_state: { operation: 'install', verified: false } },
+        error: {
+          message: 'apt-get 以退出码 100 结束：E: 无法定位软件包 cowsayy',
+          recovery_hint: '确认包名拼写；需要新包时先刷新索引',
+        },
+      }),
+    )
+    expect(summary.ok).toBe(false)
+    expect(summary.headline).toBe('任务失败')
+    expect(summary.lines).toEqual(['apt-get 以退出码 100 结束：E: 无法定位软件包 cowsayy'])
+    expect(summary.hint).toBe('确认包名拼写；需要新包时先刷新索引')
+  })
+
+  it('中断时说"结果未知"，因为 dpkg 可能停在半配置状态', () => {
+    const summary = summarizePackageJob({ status: 'interrupted', result: {}, error: {} })
+    expect(summary.ok).toBe(false)
+    expect(summary.headline).toContain('结果未知')
+    expect(summary.headline).toContain('dpkg')
+  })
+
+  it('结果里什么都没有时明说没有现场读数，并让人去刷列表', () => {
+    const summary = summarizePackageJob(job({ result: {} }))
+    expect(summary.headline).toContain('没有返回可展示的现场读数')
+  })
+
+  it('observed_state 缺失时不崩，也不编"核对通过"', () => {
+    const summary = summarizePackageJob(job({ result: { data: { packages: ['cowsay'] } } }))
+    expect(summary.headline).toBe('执行完成，下面是读回的现场读数')
+    expect(summary.lines.join('\n')).not.toContain('核对通过')
   })
 })

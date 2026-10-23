@@ -63,6 +63,11 @@ type jobResponse struct {
 
 // handleCreateJob 处理 POST /api/v1/jobs（admin，需 CSRF，必须带 Idempotency-Key）。
 func (s *Server) handleCreateJob(c *gin.Context) {
+	// 提交这一步不总是"落一条记录就返回"：代理在**接受之前**要复核一次计划，
+	// 软件包动作的这次复核是一条 `apt-get -s`（24.04 上实测 38.7 秒）。Web 的写超时
+	// 是 30 秒，不推就会在第 30 秒切断连接：代理其实已经接受了，浏览器却看到失败，
+	// 任务停在"待对账"——这正是 P11.2 验收第二轮在 24.04 上的原样失败。
+	extendWriteDeadline(c, slowOperationWriteBudget)
 	sess := sessionFrom(c)
 	const action = audit.ActionJobSubmit
 

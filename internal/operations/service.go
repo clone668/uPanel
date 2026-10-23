@@ -48,6 +48,25 @@ const (
 	clockSkewAllowance = 5 * time.Second
 )
 
+// PreflightAgentTimeout 是 Web 调用代理**生成计划**（预检与提交时的执行前复核）时的等待上限。
+//
+// 比 agentclient.DefaultTimeout（10 秒）宽得多，因为预检里有一条**真的慢**：
+// 软件包动作的预检要跑 `apt-get -s`。实测（24.04 验收机，apt 2.8.3）：
+// `apt-get -s --only-upgrade install zlib1g` 15.6 秒，普通 install 模拟 4～10 秒。
+// 用 10 秒的通用上限，一次**正常**的升级预检会被切成 AGENT_UNAVAILABLE——
+// 这是假话，比慢更糟（P11.2 验收第一轮就是这么失败的：duration_ms 10162，
+// 代理那边正跑到一半被 context canceled 掐掉）。
+//
+// 它比代理自己的模拟预算（internal/agent 的 PlanBudget，60 秒）长，所以真超时
+// 的时候先说话的是代理："预检超过 60s 未完成…稍后重试"，而不是 Web 猜的"代理不可用"。
+// 90 秒也是这条链路的实际天花板：预检有效期只有 120 秒，等更久没有意义。
+//
+// 同一个上限管提交：POST /jobs 在代理侧也要复核一次计划（跑同一个 Plan），
+// 验收机上实测这一次复核 38.7 秒。两条路用同一个数，是因为慢的原因完全一样。
+//
+// 超时只是上限，不是等待时间：代理正常时预检照样是几百毫秒到十几秒返回。
+const PreflightAgentTimeout = 90 * time.Second
+
 // 本包的固定错误。调用方（api 层）据此映射 HTTP 状态码与契约错误码。
 var (
 	// ErrAgentUnavailable 表示代理不可用（没有配置客户端，或连不上）。

@@ -69,6 +69,10 @@ type ProductionDeps struct {
 	// “什么包都没装”，一个“没有重启标志”会被读成“不用重启”——
 	// 这两种假话都比一个诚实的 503 糟得多。
 	Apt AptFacts
+	// AptWrites 是 APT 写事务的实现端（P11.2）。为 nil 时不登记 package.refresh /
+	// package.install / package.remove / package.upgrade：没有 apt-get 与锁探测的接线时，
+	// 一个"点了才报错"的卸载按钮比没有按钮更危险（人会以为这次操作已经在排队）。
+	AptWrites PackageWrites
 }
 
 // newSystemSummaryQuery 登记 system.summary：无参数，返回采集器最近一次快照。

@@ -12,6 +12,28 @@
 import { get, request, type ApiResult } from './client'
 import type { JobDTO } from './jobs'
 
+/**
+ * 预检请求的超时。
+ *
+ * 20 秒对绝大多数动作都够：它们的预检只是读本地状态。但软件包动作的预检要跑
+ * `apt-get -s`——实测（24.04，apt 2.8.3）升级模拟 15.6 秒、冷索引更久，20 秒会把
+ * 一次正常的预检在前端自己掐掉，显示成"请求超时"，而服务端其实正在回答。
+ */
+export const PREFLIGHT_TIMEOUT_MS = 20_000
+
+/**
+ * 软件包动作预检的专用超时。
+ *
+ * 95 秒 = 服务端的上游上限（operations.PreflightAgentTimeout，90 秒）加余量：
+ * 让服务端的那句真话（"apt 模拟超过 60 秒未完成"）先到，前端再超时。
+ */
+export const PACKAGE_PREFLIGHT_TIMEOUT_MS = 95_000
+
+/** 该动作的预检超时。只有 apt 写事务需要放宽。 */
+export function preflightTimeoutFor(action: string): number {
+  return action.startsWith('package.') ? PACKAGE_PREFLIGHT_TIMEOUT_MS : PREFLIGHT_TIMEOUT_MS
+}
+
 export interface PreflightNotice {
   code: string
   message: string
@@ -80,7 +102,7 @@ export function createPreflight(
   return request<PreflightData>('/operations/preflight', {
     method: 'POST',
     body: { action, params },
-    timeoutMs: 20_000,
+    timeoutMs: preflightTimeoutFor(action),
   })
 }
 

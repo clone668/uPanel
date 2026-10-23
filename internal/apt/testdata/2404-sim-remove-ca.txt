@@ -1,0 +1,53 @@
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following packages were automatically installed and are no longer required:
+  apport-symptoms appstream bc gir1.2-packagekitglib-1.0 libappstream5
+  libglib2.0-bin libgstreamer1.0-0 libpackagekit-glib2-18 libstemmer0d openssl
+  packagekit packagekit-tools python3-automat python3-bcrypt python3-blinker
+  python3-chardet python3-click python3-colorama python3-configargparse
+  python3-configobj python3-constantly python3-dateutil python3-debconf
+  python3-debian python3-distupgrade python3-hamcrest python3-hyperlink
+  python3-icu python3-incremental python3-jmespath python3-josepy python3-jwt
+  python3-lazr.uri python3-netifaces python3-oauthlib python3-openssl
+  python3-parsedatetime python3-problem-report python3-pyasn1
+  python3-pyasn1-modules python3-pyparsing python3-rfc3339
+  python3-service-identity python3-six python3-systemd python3-twisted
+  python3-update-manager python3-urllib3 python3-wadllib
+  python3-zope.interface squashfs-tools
+Use 'sudo apt autoremove' to remove them.
+The following packages will be REMOVED:
+  apport apport-core-dump-handler ca-certificates certbot cloud-init
+  landscape-common pollinate python3-acme python3-apport python3-boto3
+  python3-botocore python3-certbot python3-certifi python3-httplib2
+  python3-launchpadlib python3-lazr.restfulclient python3-requests
+  python3-s3transfer python3-software-properties snapd
+  software-properties-common ssh-import-id ubuntu-release-upgrader-core
+  ubuntu-server update-manager-core update-notifier-common
+0 upgraded, 0 newly installed, 26 to remove and 8 not upgraded.
+Remv ubuntu-server [1.539.2]
+Remv apport [2.28.3-0ubuntu0.1] [apport-core-dump-handler:amd64 ]
+Remv apport-core-dump-handler [2.28.3-0ubuntu0.1]
+Remv snapd [2.77.1+ubuntu24.04]
+Remv update-notifier-common [3.192.68.2]
+Remv update-manager-core [1:24.04.12]
+Remv ubuntu-release-upgrader-core [1:24.04.29]
+Remv ca-certificates [20260816ubuntu0.24.04.1] [ssh-import-id:amd64 software-properties-common:amd64 python3-requests:amd64 python3-httplib2:amd64 landscape-common:amd64 python3-acme:amd64 python3-certifi:amd64 pollinate:amd64 ]
+Remv certbot [2.9.0-1] [ssh-import-id:amd64 software-properties-common:amd64 python3-requests:amd64 python3-httplib2:amd64 landscape-common:amd64 python3-acme:amd64 python3-certifi:amd64 pollinate:amd64 ]
+Remv cloud-init [26.1-0ubuntu1~24.04.1] [ssh-import-id:amd64 software-properties-common:amd64 python3-requests:amd64 python3-httplib2:amd64 landscape-common:amd64 python3-acme:amd64 python3-certifi:amd64 pollinate:amd64 ]
+Remv landscape-common [24.02-0ubuntu5.7] [ssh-import-id:amd64 software-properties-common:amd64 python3-requests:amd64 python3-httplib2:amd64 python3-acme:amd64 python3-certifi:amd64 pollinate:amd64 ]
+Remv pollinate [4.33-3.1ubuntu1.3] [ssh-import-id:amd64 software-properties-common:amd64 python3-requests:amd64 python3-httplib2:amd64 python3-acme:amd64 python3-certifi:amd64 ]
+Remv python3-certbot [2.9.0-1] [ssh-import-id:amd64 software-properties-common:amd64 python3-requests:amd64 python3-httplib2:amd64 python3-acme:amd64 python3-certifi:amd64 ]
+Remv python3-acme [2.9.0-1] [ssh-import-id:amd64 software-properties-common:amd64 python3-requests:amd64 python3-httplib2:amd64 python3-certifi:amd64 ]
+Remv python3-apport [2.28.3-0ubuntu0.1] [ssh-import-id:amd64 software-properties-common:amd64 python3-requests:amd64 python3-httplib2:amd64 python3-certifi:amd64 ]
+Remv python3-boto3 [1.34.46+dfsg-1ubuntu1] [ssh-import-id:amd64 software-properties-common:amd64 python3-requests:amd64 python3-httplib2:amd64 python3-certifi:amd64 ]
+Remv python3-s3transfer [0.10.1-1ubuntu2] [ssh-import-id:amd64 software-properties-common:amd64 python3-requests:amd64 python3-httplib2:amd64 python3-certifi:amd64 ]
+Remv python3-botocore [1.34.46+repack-1ubuntu1] [ssh-import-id:amd64 software-properties-common:amd64 python3-requests:amd64 python3-httplib2:amd64 python3-certifi:amd64 ]
+Remv python3-requests [2.31.0+dfsg-1ubuntu1.2] [ssh-import-id:amd64 software-properties-common:amd64 python3-httplib2:amd64 python3-certifi:amd64 ]
+Remv python3-certifi [2023.11.17-1] [ssh-import-id:amd64 software-properties-common:amd64 python3-httplib2:amd64 ]
+Remv ssh-import-id [5.11-0ubuntu2.24.04.1] [software-properties-common:amd64 python3-httplib2:amd64 ]
+Remv software-properties-common [0.99.49.4] [python3-httplib2:amd64 ]
+Remv python3-software-properties [0.99.49.4] [python3-httplib2:amd64 ]
+Remv python3-launchpadlib [1.11.0-6] [python3-httplib2:amd64 ]
+Remv python3-lazr.restfulclient [0.14.6-1] [python3-httplib2:amd64 ]
+Remv python3-httplib2 [0.20.4-3ubuntu0.1]

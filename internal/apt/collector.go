@@ -29,12 +29,19 @@ import (
 const (
 	DefaultDpkgQuery     = "/usr/bin/dpkg-query"
 	DefaultAptCache      = "/usr/bin/apt-cache"
+	DefaultAptGet        = "/usr/bin/apt-get"
 	DefaultListsDir      = "/var/lib/apt/lists"
 	DefaultRebootFlag    = "/run/reboot-required"
 	DefaultRebootPkgs    = "/run/reboot-required.pkgs"
 	DefaultBootIDPath    = "/proc/sys/kernel/random/boot_id"
 	DefaultCacheTTL      = 30 * time.Second
 	rebootFlagPathLegacy = "/var/run/reboot-required"
+
+	// APT/dpkg 的四个系统锁（P11.2 只探测、从不删除）。
+	DefaultDpkgLockFrontend = "/var/lib/dpkg/lock-frontend"
+	DefaultDpkgLock         = "/var/lib/dpkg/lock"
+	DefaultAptListsLock     = "/var/lib/apt/lists/lock"
+	DefaultAptArchivesLock  = "/var/cache/apt/archives/lock"
 )
 
 // 命令限额。apt-cache policy 对 676 个包实测 384ms，24.04 同量级；
@@ -59,6 +66,12 @@ type Paths struct {
 	RebootRequired     string
 	RebootRequiredPkgs string
 	BootID             string
+	// 写事务用到的路径（P11.2）。读路径不碰它们。
+	AptGet           string
+	DpkgLockFrontend string
+	DpkgLock         string
+	AptListsLock     string
+	AptArchivesLock  string
 }
 
 // DefaultPaths 返回 Linux 上的标准路径。
@@ -70,6 +83,11 @@ func DefaultPaths() Paths {
 		RebootRequired:     DefaultRebootFlag,
 		RebootRequiredPkgs: DefaultRebootPkgs,
 		BootID:             DefaultBootIDPath,
+		AptGet:             DefaultAptGet,
+		DpkgLockFrontend:   DefaultDpkgLockFrontend,
+		DpkgLock:           DefaultDpkgLock,
+		AptListsLock:       DefaultAptListsLock,
+		AptArchivesLock:    DefaultAptArchivesLock,
 	}
 }
 

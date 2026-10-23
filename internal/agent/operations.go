@@ -31,6 +31,13 @@ const (
 	// 只有标识、短语与操作者上下文，不需要参数空间。
 	maxOperationRequestBytes = 16 << 10
 
+	// submitWriteBudget 是提交这条路由允许占用的写超时。
+	//
+	// 与预检同一个数（PreflightTTL）：这两条路由都在同步跑动作的 Plan，慢的原因
+	// 一模一样（24.04 的 `apt-get -s` 38.7 秒）。取 120 秒的另一层理由是它与预检
+	// 的有效期一致——超过这个时间，计划本身也过期了，再等没有意义。
+	submitWriteBudget = PreflightTTL
+
 	// ReauthWindow 是再认证的有效窗口（CONTRACTS.md 第 2 节：5 分钟）。
 	ReauthWindow = 5 * time.Minute
 
@@ -109,6 +116,13 @@ type OperationStore interface {
 
 // handleOperations 处理 POST /internal/v1/operations：接受一次操作。
 func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
+	// 提交这一步不止是"落一条记录"：接受之前要跑一次执行前复核（revalidate →
+	// action.Plan），而软件包动作的 Plan 是一条 `apt-get -s`——24.04 上实测一次
+	// 38.7 秒（P11.2 验收第二轮，apt 2.8.3）。服务器 WriteTimeout 只有 15 秒，
+	// 不推就会变成"代理日志写着 201、Web 收到 EOF、任务挂在待对账"。
+	if rc := http.NewResponseController(w); rc != nil {
+		_ = rc.SetWriteDeadline(time.Now().Add(submitWriteBudget))
+	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		httpx.WriteError(w, r, http.StatusMethodNotAllowed, httpx.CodeValidationError, "只支持 POST")
@@ -215,10 +229,25 @@ func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
 
 	// 执行前复核：拿预检里的规范化参数重新算一遍计划，比对目标身份与状态版本。
 	// 这一步在**接受之前**做，所以“预检过期/目标变了”会以 4xx 拒绝，不会留下一个注定失败的任务。
-	if err := s.revalidate(r.Context(), action, plan, now); err != nil {
+	//
+	// 它和预检跑的是同一个 Plan，因此共用同一把秒表（见 planBudgetContext）：软件包动作
+	// 在这里要再跑一次 `apt-get -s`。超时用 RESOURCE_BUSY 如实说"这台机器现在很慢"，
+	// 而不是让连接先断——断了 Web 只会看到 EOF，把一次正常的慢提交记成"代理不可用"。
+	revalCtx, cancel := planBudgetContext(r.Context(), action)
+	defer cancel()
+	if err := s.revalidate(revalCtx, action, plan, now); err != nil {
 		var rej *rejection
 		if errors.As(err, &rej) {
 			httpx.WriteError(w, r, rej.status, rej.code, rej.message)
+			return
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			s.opts.Logger.Warn("执行前复核超过单动作预算",
+				"action", action.Name, "budget", action.PlanBudget.String(),
+				"request_id", httpx.RequestID(r))
+			httpx.WriteError(w, r, httpx.StatusForCode(httpx.CodeResourceBusy), httpx.CodeResourceBusy,
+				fmt.Sprintf("执行前复核超过 %s 未完成：这个动作要在系统上跑 apt 模拟，索引刚刷新或磁盘繁忙时会这么慢。稍后重试（预检仍然有效）。",
+					action.PlanBudget))
 			return
 		}
 		s.internalError(w, r, "执行前复核失败", err)
@@ -506,7 +535,9 @@ func (s *Server) revalidate(ctx context.Context, action Action, plan agentstore.
 		ExpiresAt:    plan.ExpiresAt,
 	})
 	if err != nil {
-		return fmt.Errorf("%w: action=%s: %v", ErrPlanFailed, action.Name, err)
+		// 两个 %w：上层既要知道"预检器失败"（ErrPlanFailed），也要能认出
+		// context.DeadlineExceeded 并把它翻译成 RESOURCE_BUSY。
+		return fmt.Errorf("%w: action=%s: %w", ErrPlanFailed, action.Name, err)
 	}
 	if fresh.Target.IdentityFingerprint != plan.IdentityFingerprint {
 		return &rejection{

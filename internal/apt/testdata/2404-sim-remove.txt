@@ -1,0 +1,10 @@
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following packages will be REMOVED:
+  bash
+WARNING: The following essential packages will be removed.
+This should NOT be done unless you know exactly what you are doing!
+  bash
+0 upgraded, 0 newly installed, 1 to remove and 9 not upgraded.
+E: Essential packages were removed and -y was used without --allow-remove-essential.

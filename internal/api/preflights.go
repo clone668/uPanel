@@ -62,12 +62,26 @@ type preflightResponse struct {
 	Locks              []string             `json:"locks"`
 }
 
+// slowOperationWriteBudget 是"要转给代理、而代理那边会同步跑一次 apt 模拟"的请求
+// 允许占用的写超时。现在有两个使用者：预检（POST /operations/preflight）与提交
+// （POST /jobs——代理在**接受之前**还要复核一次计划，跑的是同一个 Plan）。
+//
+// Web 的 http.Server 写超时是 30 秒。软件包动作的这两步都要跑 `apt-get -s`：24.04
+// 上升级模拟实测 15.6 秒，验收机上受磁盘争抢时一次复核 38.7 秒。上游
+// operations.PreflightAgentTimeout（90 秒）才是这条链路的结论时间；不把这里的写截止
+// 时间推后，就会出现"代理答了、Web 写不出去"——浏览器收到空响应，和一个真的失败
+// 长得一样；提交这条路更糟：任务已经落库，会被挂成"待对账"。
+//
+// 100 秒 = 90 秒的上游上限加 10 秒余量，用来把代理的拒绝/超时原样写完。
+const slowOperationWriteBudget = 100 * time.Second
+
 // handleCreatePreflight 处理 POST /api/v1/operations/preflight（仅 admin，需 CSRF）。
 //
 // 本接口**不改变系统状态**：它向代理要一份计划，把绑定信息记下来，然后把影响与
 // 阻塞项交给前端展示。真正的执行在 POST /jobs（P03.2），那一步会重新校验再认证、
 // 预检有效期、绑定关系与确认短语。
 func (s *Server) handleCreatePreflight(c *gin.Context) {
+	extendWriteDeadline(c, slowOperationWriteBudget)
 	sess := sessionFrom(c)
 	const action = audit.ActionOperationPreflight
 

@@ -388,3 +388,104 @@ export function summarizeAppJob(
       : '任务已成功，下面是执行后的现场读数（入口通不通要看下一次健康探测）'
   return { ok: true, headline, lines, hint }
 }
+
+// ---------------------------------------------------------------- 软件包写事务
+
+/**
+ * 一次 APT 写事务的结果翻译（P11.2）。
+ *
+ * 这一处的口径与别处不同，值得写清楚：**apt 的退出码不是结论**。代理执行完之后会
+ * 重新读一遍 dpkg 数据库，逐条比对预检计划里的目标版本；只有每一跳都对上，
+ * `observed_state.verified` 才是 true，`outcome` 才是 verified。所以这里第一行
+ * 永远说"核对过了没有"，而不是"命令返回 0"。
+ *
+ * 四个动作的字段是同一套（install / upgrade / remove 共用 packageResult，
+ * refresh 走 refreshResult），因此按存在性读，不按动作名分叉。
+ */
+const PACKAGE_OUTCOME_LABELS: Record<string, string> = {
+  verified: '执行后逐包核对过：读回的版本与预检的计划一致',
+  partial: '执行完成，但读回的状态与预检的计划不一致',
+  unknown: '执行完成，但没能核对出结论',
+}
+
+export function summarizePackageJob(
+  job: Pick<JobDTO, 'status' | 'result' | 'error'>,
+): JobOutcomeSummary {
+  const error = asRecord(job.error)
+  const errorMessage = readString(error, 'message')
+  const hint = readString(error, 'recovery_hint')
+
+  if (job.status !== 'succeeded') {
+    const headline =
+      job.status === 'interrupted'
+        ? '任务被中断，结果未知：dpkg 可能停在半配置状态，先去软件包页看现场再决定'
+        : job.status === 'canceled'
+          ? '任务已取消'
+          : '任务失败'
+    return { ok: false, headline, lines: errorMessage === null ? [] : [errorMessage], hint }
+  }
+
+  const result = asRecord(job.result) ?? {}
+  const observed = asRecord(result['observed_state'])
+  const data = asRecord(result['data'])
+  const lines: string[] = []
+
+  const outcome = readString(result, 'outcome')
+  if (outcome !== null) lines.push(PACKAGE_OUTCOME_LABELS[outcome] ?? `服务端结论：${outcome}`)
+
+  const verified = readBool(observed, 'verified')
+  if (verified === false) {
+    lines.push('没有通过核对：apt 报告成功，但读回的软件包状态与预检的计划不一致')
+  }
+
+  const operation = readString(observed, 'operation') ?? readString(data, 'operation')
+  if (operation !== null) lines.push(`执行的写操作：${operation}`)
+
+  const packages = readStringList(data, 'packages')
+  if (packages.length > 0) lines.push(`目标软件包：${packages.join('、')}`)
+
+  // 逐包的真实状态：`pkg:` 前缀由代理写进 observed_state（`ii 版本` / `未安装`）。
+  // 顺序按字典序，页面每次打开都一样。
+  if (observed !== null) {
+    const pkgLines = Object.keys(observed)
+      .filter((key) => key.startsWith('pkg:'))
+      .sort()
+      .map((key) => {
+        const value = observed[key]
+        return `${key.slice(4)}：${typeof value === 'string' ? value : '状态未知'}`
+      })
+    for (const line of pkgLines) lines.push(line)
+  }
+
+  const mismatches = readStringList(data, 'mismatches')
+  if (mismatches.length > 0) lines.push(`对不上的地方：${mismatches.join('；')}`)
+
+  const indexBefore = readString(data, 'index_before')
+  const indexAfter = readString(data, 'index_after')
+  if (indexAfter !== null) {
+    lines.push(
+      indexBefore === null
+        ? `执行后索引时间：${indexAfter}`
+        : `索引时间：${indexBefore} → ${indexAfter}`,
+    )
+  }
+  const refreshErrors = readStringList(data, 'refresh_errors')
+  if (refreshErrors.length > 0) lines.push(`apt-get update 报告的错误行：${refreshErrors.join('；')}`)
+  const refreshWarns = readStringList(data, 'refresh_warns')
+  if (refreshWarns.length > 0) lines.push(`apt-get update 的告警：${refreshWarns.join('；')}`)
+
+  const exitCode = data?.['exit_code']
+  if (typeof exitCode === 'number') lines.push(`apt-get 退出码：${exitCode}`)
+  const stdout = readString(data, 'stdout')
+  if (stdout !== null) lines.push(`apt-get 输出：${stdout}`)
+  const stderr = readString(data, 'stderr')
+  if (stderr !== null) lines.push(`apt-get 错误输出：${stderr}`)
+
+  const headline =
+    lines.length === 0
+      ? '任务已成功，但代理没有返回可展示的现场读数；请刷新软件包列表确认'
+      : verified === true
+        ? '执行完成，并且逐包核对通过'
+        : '执行完成，下面是读回的现场读数'
+  return { ok: true, headline, lines, hint }
+}

@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -46,6 +47,43 @@ var fixedEnv = []string{
 	"LANG=C.UTF-8",
 	"LC_ALL=C.UTF-8",
 }
+
+// fixedEnvKeys 是 fixedEnv 里那些键的集合：调用方不得覆盖。
+var fixedEnvKeys = func() map[string]bool {
+	out := make(map[string]bool, len(fixedEnv))
+	for _, kv := range fixedEnv {
+		key, _, _ := strings.Cut(kv, "=")
+		out[key] = true
+	}
+	return out
+}()
+
+// allowedEnvKeys 是调用方可以通过 Spec.Env **追加**的环境变量白名单（P11.2）。
+//
+// 为什么需要这个口子：APT 的非交互策略有一半只能在环境里说。`Dpkg::Options` 能挡
+// conffile 提问，但 debconf 用哪个前端是 `DEBIAN_FRONTEND` 决定的——没有它，一次
+// postinst 提问会让 apt 挂在一个不存在的终端上，直到超时被杀。这不是“执行参数”，
+// 而是“请别问”，所以走环境。
+//
+// 为什么是白名单而不是 map：环境变量是提权路径的经典入口（`LD_PRELOAD`、
+// `PATH`、`BASH_ENV`…）。这里只接受下面这几个键，值还必须在 allowedEnvValues 里。
+// 任何其他键直接拒绝，不做“忽略掉继续跑”——静默丢掉一个调用方以为生效的策略，
+// 比报错更危险。
+var allowedEnvKeys = map[string]bool{
+	"DEBIAN_FRONTEND":          true,
+	"APT_LISTCHANGES_FRONTEND": true,
+	"NEEDRESTART_MODE":         true,
+}
+
+// allowedEnvValues 是上面那些键的固定取值。
+var allowedEnvValues = map[string]map[string]bool{
+	"DEBIAN_FRONTEND":          {"noninteractive": true},
+	"APT_LISTCHANGES_FRONTEND": {"none": true},
+	"NEEDRESTART_MODE":         {"a": true, "l": true, "n": true},
+}
+
+// ErrEnvNotAllowed 表示 Spec.Env 里出现了白名单之外的键或取值。
+var ErrEnvNotAllowed = errors.New("syscmd: 环境变量不在允许列表内")
 
 var (
 	// ErrEmptyProgram 表示没有给出程序路径。
@@ -82,6 +120,38 @@ type Spec struct {
 	// 约束（与 Program 同级）：只能由代码里的固定模板填充，**不得来自 HTTP 参数**；
 	// 超过 MaxStdinBytes 直接拒绝；为空时子进程的 stdin 仍是空的（不是父进程的 stdin）。
 	Stdin []byte
+	// Env 是要追加给子进程的环境变量，形如 `KEY=VALUE`。
+	//
+	// 只接受 allowedEnvKeys 里的键与 allowedEnvValues 里的值（P11.2 的 APT 非交互策略）。
+	// 它**不覆盖** fixedEnv 里的 PATH/LANG/LC_ALL：同名键会被拒绝，而不是悄悄替换——
+	// 能改 PATH 就等于能让程序以另一个身份被找到。
+	Env []string
+}
+
+// validateEnv 校验调用方追加的环境变量。
+func validateEnv(env []string) error {
+	for _, kv := range env {
+		key, value, ok := strings.Cut(kv, "=")
+		if !ok || key == "" {
+			return fmt.Errorf("%w（%q 不是 KEY=VALUE）", ErrEnvNotAllowed, kv)
+		}
+		if fixedEnvKeys[key] {
+			// 覆盖 PATH 就等于让程序以另一个身份被找到；覆盖 LANG/LC_ALL 会让
+			// dpkg 的输出变成另一种编码，解析器读到的就不是它以为读到的东西。
+			return fmt.Errorf("%w（%q 属于固定环境，不许覆盖）", ErrEnvNotAllowed, key)
+		}
+		if !allowedEnvKeys[key] {
+			return fmt.Errorf("%w（键 %q 不在白名单内）", ErrEnvNotAllowed, key)
+		}
+		values, ok := allowedEnvValues[key]
+		if !ok {
+			return fmt.Errorf("%w（键 %q 没有允许的取值集合）", ErrEnvNotAllowed, key)
+		}
+		if !values[value] {
+			return fmt.Errorf("%w（%s=%q 不在允许取值内）", ErrEnvNotAllowed, key, value)
+		}
+	}
+	return nil
 }
 
 // Limits 是本次调用的限额；零值字段取默认值。
@@ -146,6 +216,9 @@ func Run(ctx context.Context, spec Spec, limits Limits) (Result, error) {
 	if len(spec.Stdin) > MaxStdinBytes {
 		return res, fmt.Errorf("%w：%d 字节，上限 %d", ErrStdinTooLarge, len(spec.Stdin), MaxStdinBytes)
 	}
+	if err := validateEnv(spec.Env); err != nil {
+		return res, err
+	}
 	limits = limits.withDefaults()
 
 	runCtx, cancel := context.WithTimeout(ctx, limits.Timeout)
@@ -153,6 +226,9 @@ func Run(ctx context.Context, spec Spec, limits Limits) (Result, error) {
 
 	cmd := exec.CommandContext(runCtx, spec.Program, spec.Args...)
 	cmd.Env = fixedEnv
+	if len(spec.Env) > 0 {
+		cmd.Env = append(append([]string{}, fixedEnv...), spec.Env...)
+	}
 	cmd.Dir = spec.Dir
 	// 标准输入默认保持为空：不把父进程（可能是 Web 或交互终端）的输入交给子进程。
 	// 给了固定模板才接一个只读的内存流——它不是"把 stdin 透传下去"。

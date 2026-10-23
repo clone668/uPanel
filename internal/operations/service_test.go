@@ -566,3 +566,27 @@ func TestGateErrorFailsPreflight(t *testing.T) {
 		t.Fatalf("门禁故障时不该落库任何预检，实际 %d 行", n)
 	}
 }
+
+// TestPreflightAgentTimeoutWiderThanDefault 钉住预检的调用上限。
+//
+// 这条测试看着像同义反复，钉的是一件真事：预检里有唯一一条慢的系统调用
+// （软件包动作的 `apt-get -s`，24.04 上升级模拟实测 15.6 秒）。谁把上限改回
+// agentclient.DefaultTimeout，升级预检就会稳定变成 AGENT_UNAVAILABLE——
+// P11.2 验收第一轮的原样失败（duration_ms 10162）。
+//
+// 上限还必须比代理自己的模拟预算（internal/agent 的 assessBudget，60 秒）宽：
+// 先说话的是代理，不是 Web 的猜测。
+func TestPreflightAgentTimeoutWiderThanDefault(t *testing.T) {
+	if PreflightAgentTimeout <= agentclient.DefaultTimeout {
+		t.Fatalf("预检上限 %s 不比通用上限 %s 宽：升级预检会被切成代理不可用",
+			PreflightAgentTimeout, agentclient.DefaultTimeout)
+	}
+	if PreflightAgentTimeout <= 60*time.Second {
+		t.Fatalf("预检上限 %s 不比代理侧的模拟预算（60 秒）宽：真超时会先说成代理不可用",
+			PreflightAgentTimeout)
+	}
+	if PreflightAgentTimeout >= PreflightTTL {
+		t.Fatalf("预检上限 %s 不该到有效期（%s）：等到了计划也过期了",
+			PreflightAgentTimeout, PreflightTTL)
+	}
+}

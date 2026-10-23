@@ -122,6 +122,56 @@ func TestProductionRegistryRegistersSystemSummaryWithCollector(t *testing.T) {
 	}
 }
 
+// TestProductionRegistryRegistersPackageWrites 钉住装配这一环（P11.2）。
+//
+// 这一条是补上去的，原因写在它自己身上：四个写动作的单元测试直接调
+// RegisterPackageActions，于是「RegisterProductionActions 里到底有没有接上
+// AptWrites」根本没人问。真机验收第一次跑就撞上了——代理日志写着"已启用 APT 写事务"，
+// 而 capabilities 里一个 package.* 都没有，预检回 400「未登记的动作」。
+//
+// 装配是"日志说启用了"与"能力表里有"之间唯一的一行代码，必须被测试盯着。
+func TestProductionRegistryRegistersPackageWrites(t *testing.T) {
+	reg, err := NewProductionRegistry(ProductionDeps{AptWrites: newFakeWrites()})
+	if err != nil {
+		t.Fatalf("构造生产登记表失败: %v", err)
+	}
+	names := reg.ActionNames()
+	want := []string{
+		PackageInstallAction,
+		PackageRefreshAction,
+		PackageRemoveAction,
+		PackageUpgradeAction,
+	}
+	if strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Fatalf("登记的动作 = %v，期望 %v", names, want)
+	}
+	// capabilities 报的是"能真正执行的动作"：只有解码与预检、Execute 为空的动作
+	// 不该出现在这里（存储就是这样）。四个 package.* 都必须可执行。
+	executable := reg.ExecutableActionNames()
+	if strings.Join(executable, ",") != strings.Join(want, ",") {
+		t.Fatalf("可执行动作 = %v，期望 %v", executable, want)
+	}
+}
+
+// TestProductionRegistrySkipsPackageWritesWithoutImpl 是上一面的反面：
+// 没有实现端时（非 Debian 系主机）不能登记一个点了必然 501 的入口。
+func TestProductionRegistrySkipsPackageWritesWithoutImpl(t *testing.T) {
+	reg, err := NewProductionRegistry(ProductionDeps{})
+	if err != nil {
+		t.Fatalf("构造生产登记表失败: %v", err)
+	}
+	for _, name := range []string{
+		PackageRefreshAction,
+		PackageInstallAction,
+		PackageUpgradeAction,
+		PackageRemoveAction,
+	} {
+		if _, ok := reg.Action(name); ok {
+			t.Fatalf("没有实现端时不该登记 %s", name)
+		}
+	}
+}
+
 func TestDecodeParamsStrictness(t *testing.T) {
 	type params struct {
 		Message string `json:"message"`

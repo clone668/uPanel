@@ -44,10 +44,16 @@ func Start(ctx context.Context, spec Spec, limits Limits) (*Stream, error) {
 	if err := validateProgram(spec.Program); err != nil {
 		return nil, err
 	}
+	if err := validateEnv(spec.Env); err != nil {
+		return nil, err
+	}
 	limits = limits.withDefaults()
 
 	cmd := exec.CommandContext(ctx, spec.Program, spec.Args...)
 	cmd.Env = fixedEnv
+	if len(spec.Env) > 0 {
+		cmd.Env = append(append([]string{}, fixedEnv...), spec.Env...)
+	}
 	cmd.Dir = spec.Dir
 	cmd.Stdin = nil
 
