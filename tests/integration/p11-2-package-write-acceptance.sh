@@ -265,18 +265,20 @@ submit() {
 }
 
 # wait_job <名> <job_id> <超时秒>：轮询到终态，响应存成 job-<名>.json，回显状态。
+#
+# 超时按**墙钟**算，不是按轮询次数：24.04 上装 cowsay+sl 实测 6 分半（下载慢），
+# 而每轮问一次 Web 本身就要几百毫秒，按次数算的"300 秒"在这种机器上会变成 600 秒以上——
+# 一个写着 300 秒却等 400 秒的等待，等到的东西再对也不算数。
 wait_job() {
-  _i=0
-  _limit=$(( ${3:-120} * 2 ))
+  _deadline=$(( $(date +%s) + ${3:-120} ))
   _st=unknown
-  while [ "$_i" -lt "$_limit" ]; do
+  while [ "$(date +%s)" -lt "$_deadline" ]; do
     api "$JAR" "$CSRF" GET "$JOBS_PATH/$2" >/dev/null
     _st=$(jget "$WORK/resp.json" 'd["data"]["status"]')
     case $_st in
       succeeded|failed|canceled|interrupted) break ;;
     esac
     sleep 0.5
-    _i=$((_i + 1))
   done
   cp "$WORK/resp.json" "$PAYLOADS/job-$1.json" 2>/dev/null
   printf '%s' "${_st:-unknown}"
@@ -652,7 +654,11 @@ CODE=$(submit "install-two" "$PF_INSTALL" "" "p11-2-install-$$")
 expect_eq "install-submit-accepted" "202" "$CODE"
 JOB_INSTALL=$(jget "$PAYLOADS/job-submit-install-two.json" 'd["data"]["job_id"]')
 note "任务 $JOB_INSTALL 已提交，等待终态（要下载两个小包）"
-ST=$(wait_job "install-two" "$JOB_INSTALL" 300)
+# 等待预算按"不比产品先放弃"定：代理自己给 apt 的写超时是 20 分钟
+# （internal/apt: writeTimeout），这里取 21 分钟，于是到点还没终态就只能是产品卡住了，
+# 而不是脚本没耐心。真机依据：24.04 上 cowsay+sl 的安装实测 6 分半（下载慢），
+# 22.04 上同一个动作是秒级。
+ST=$(wait_job "install-two" "$JOB_INSTALL" 1260)
 expect_eq "install-job-succeeded" "succeeded" "$ST"
 expect_eq "install-outcome-verified" "verified" "$(jbf install-two 'd["data"]["result"]["outcome"]')"
 expect_eq "install-observed-verified" "True" \
@@ -692,7 +698,7 @@ if [ -n "$UPGRADE_TARGET" ]; then
   CODE=$(submit "upgrade" "$PF_UP" "" "p11-2-upgrade-$$")
   expect_eq "upgrade-submit-accepted" "202" "$CODE"
   JOB_UP=$(jget "$PAYLOADS/job-submit-upgrade.json" 'd["data"]["job_id"]')
-  ST=$(wait_job "upgrade" "$JOB_UP" 300)
+  ST=$(wait_job "upgrade" "$JOB_UP" 1260)
   expect_eq "upgrade-job-succeeded" "succeeded" "$ST"
   expect_eq "upgrade-observed-verified" "True" \
     "$(jbf upgrade 'd["data"]["result"]["observed_state"]["verified"]')"
@@ -741,7 +747,7 @@ CODE=$(api "$JAR" "$CSRF" POST "$JOBS_PATH" "{\"preflight_id\":\"$PF_REFRESH\"}"
 cp "$WORK/resp.json" "$PAYLOADS/job-submit-refresh-replay.json" 2>/dev/null
 REPLAY_ID=$(jget "$PAYLOADS/job-submit-refresh-replay.json" 'd["data"]["job_id"]')
 expect_eq "refresh-idempotent-replay-same-job" "$JOB_REFRESH" "$REPLAY_ID"
-ST=$(wait_job "refresh" "$JOB_REFRESH" 180)
+ST=$(wait_job "refresh" "$JOB_REFRESH" 360)
 expect_eq "refresh-job-succeeded" "succeeded" "$ST"
 expect_eq "refresh-observed-verified" "True" \
   "$(jbf refresh 'd["data"]["result"]["observed_state"]["verified"]')"
@@ -791,7 +797,7 @@ PF_BROKEN=$(pf refresh-broken 'd["data"]["preflight_id"]')
 CODE=$(submit "refresh-broken" "$PF_BROKEN" "" "p11-2-refresh-broken-$$")
 expect_eq "refresh-broken-submit-accepted" "202" "$CODE"
 JOB_BROKEN=$(jget "$PAYLOADS/job-submit-refresh-broken.json" 'd["data"]["job_id"]')
-ST=$(wait_job "refresh-broken" "$JOB_BROKEN" 180)
+ST=$(wait_job "refresh-broken" "$JOB_BROKEN" 360)
 expect_eq "refresh-broken-job-failed" "failed" "$ST"
 # 失败任务的 result 按契约是空对象（CONTRACTS §5：错误写在 error，不塞进 result），
 # 所以"哪一路源坏了"只能落在 error.message 里。第一版脚本在这里找 result.data.
@@ -810,7 +816,7 @@ CODE=$(preflight "refresh-recovered" package.refresh '{}')
 PF_REC=$(pf refresh-recovered 'd["data"]["preflight_id"]')
 CODE=$(submit "refresh-recovered" "$PF_REC" "" "p11-2-refresh-recovered-$$")
 JOB_REC=$(jget "$PAYLOADS/job-submit-refresh-recovered.json" 'd["data"]["job_id"]')
-ST=$(wait_job "refresh-recovered" "$JOB_REC" 180)
+ST=$(wait_job "refresh-recovered" "$JOB_REC" 360)
 expect_eq "refresh-recovers-after-broken-source-removed" "succeeded" "$ST"
 
 echo
@@ -853,7 +859,7 @@ expect_eq "remove-second-reauth" "200" "$(reauth)"
 CODE=$(submit "remove-ok" "$PF_REMOVE_ID" "$PF_REMOVE_OK" "p11-2-remove-ok-$$")
 expect_eq "remove-submit-accepted" "202" "$CODE"
 JOB_REMOVE=$(jget "$PAYLOADS/job-submit-remove-ok.json" 'd["data"]["job_id"]')
-ST=$(wait_job "remove-ok" "$JOB_REMOVE" 180)
+ST=$(wait_job "remove-ok" "$JOB_REMOVE" 1260)
 expect_eq "remove-job-succeeded" "succeeded" "$ST"
 expect_eq "remove-observed-verified" "True" \
   "$(jbf remove-ok 'd["data"]["result"]["observed_state"]["verified"]')"
@@ -906,7 +912,7 @@ else
     _i=$((_i + 1))
   done
   note "硬杀的目标进程：${KILL_VICTIM:-（25 秒内没抓到正在执行的 apt-get）}"
-  ST=$(wait_job "install-kill" "$JOB_KILL" 180)
+  ST=$(wait_job "install-kill" "$JOB_KILL" 360)
   AUDIT_AFTER_KILL=$(dpkg --audit 2>&1)
   if [ "$KILL_LANDED" = "yes" ]; then
     case "$ST" in
