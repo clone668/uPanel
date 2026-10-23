@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -46,6 +47,12 @@ const (
 
 	// acmeChallengeDir 是校验文件相对 webroot 的位置（RFC 8555 固定路径）。
 	acmeChallengeDir = ".well-known/acme-challenge"
+
+	// acmeDirMode 是校验目录（webroot 与它的两级子目录）的权限。
+	//
+	// 必须是 0755：Nginx 的 worker 不是 root，它要能进入这些目录并读到 CA 来取的
+	// 校验文件。这也意味着这里**不能**靠进程 umask 的默认值（见 probeHTTP01）。
+	acmeDirMode os.FileMode = 0o755
 )
 
 // serverURL 把「是不是 staging」映射成 ACME 目录地址。
@@ -110,8 +117,19 @@ func (o *Ops) runCertbot(ctx context.Context, p IssueParams, force bool) (string
 // 这里就失败，而失败发生在 certbot 之前。
 func (o *Ops) probeHTTP01(ctx context.Context, domain string) (int, error) {
 	dir := path.Join(o.webroot(), acmeChallengeDir)
-	if err := o.opts.FS.MkdirAll(dir, 0o755); err != nil {
+	if err := o.opts.FS.MkdirAll(dir, acmeDirMode); err != nil {
 		return 0, fmt.Errorf("建不了校验目录 %s：%w", dir, err)
+	}
+	// 这三级的权限必须**显式**设：MkdirAll 的 perm 只对新目录生效，而且先被进程
+	// umask 掩一遍。代理单元带 `UMask=0077`，于是校验目录在真机上落成 0700 root：
+	// Nginx 的 worker（www-data）连进都进不去，CA 来取校验文件时拿到 403 ——
+	// 而 certbot 只有在目录**不存在**时才按自己的 022 umask 建它，目录已经在了
+	// 它就原样沿用。P10.3 没暴露是因为那时代理是手工以 root 起的（umask 022）。
+	// 与 Q243 同一条教训：权限由代码决定，不由启动代理的 shell 决定。
+	for _, d := range []string{o.webroot(), path.Join(o.webroot(), ".well-known"), dir} {
+		if err := o.opts.FS.Chmod(d, acmeDirMode); err != nil {
+			return 0, fmt.Errorf("设置校验目录 %s 的权限失败：%w", d, err)
+		}
 	}
 	token, err := randomToken()
 	if err != nil {
