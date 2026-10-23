@@ -38,10 +38,6 @@
 # 没有 apt-get）。
 #
 # 明确不覆盖（NOT RUN，原因写在这里，不假装通过）：
-#   - **conffile 冲突时的 --force-confold**：要 dpkg 真的问一次，需要一个"可升级 +
-#     本地改过 conffile"的包；验收机上是全新安装，没有这种包，自造一个需要自建源与
-#     自制版本，那会污染验收机的 apt 现场。argv 由 internal/apt 的
-#     `TestExecuteNonInteractiveArgsAreFixed` 锁死，本脚本不假装验过。
 #   - **APT_LOCK_UNREADABLE**：root 打开 dpkg 的锁文件不会被权限拦（CAP_DAC_OVERRIDE），
 #     而挪走 dpkg 的锁文件去造 EACCES 会破坏验收机的包管理器。该分支由
 #     internal/apt/locks_test.go 覆盖。
@@ -52,6 +48,12 @@
 #   - **浏览器渲染**：VM 上没有浏览器；这一轮的载荷原样抓在 $WORK/fixtures 里。
 #   - **Windows / macOS 宿主**：0.1 不支持。
 #   - **apt-get update 真的失败（网络断掉）**：用一个不可达的源代替，网络层中断不在本轮。
+#
+# 升级与 conffile 用的是**脚本自建的 file: 源**（两个 1.0/2.0 的小包，见 §0）：
+# 发行版里"恰好有个可升级的包"是被上一轮验收消费掉的运气，不是夹具；而 24.04 上
+# 一次真升级要跑十几分钟。自建的这两个包里各带一个 conffile，装 1.0 之后本地改一行，
+# 于是升级时 dpkg 真的面对"本地改过、包也改了"的冲突——`--force-confold` 是否生效，
+# 由此从"argv 里的一串字"变成"文件里还剩什么"。收尾时包、源、仓库目录一起删掉。
 
 set -u
 
@@ -334,22 +336,83 @@ for pkg in "$INSTALL_A" "$INSTALL_B"; do
   fi
 done
 
-# 升级目标：优先挑一个小、无 conffile、无服务的包；挑不到就取第一个可升级的非保护包。
-UPGRADE_TARGET=""
-for candidate in tmux zlib1g libopeniscsiusr; do
-  if apt-get -s install --only-upgrade "$candidate" 2>/dev/null | grep -q '^Inst '; then
-    UPGRADE_TARGET=$candidate
-    break
-  fi
+# 升级路径的夹具：本机 file: 仓库里的两个 1.0/2.0 小包。
+#
+# 为什么不用"发行版里恰好有个可升级的包"：那不是夹具，那是运气。第一次跑完，
+# 那个包就被升到最新了；下一轮同一个脚本就会因为"没有可升级的包"而失败——
+# 而失败的原因跟被测代码毫无关系。24.04 上一次真升级还要跑十几分钟（zlib1g 超过
+# 6 分钟仍未终态），把"点名的包被升、别的包一个都不动"这件事埋在别的噪声里。
+#
+# 所以这里自己造两个 8 KB 的包（a 与 b），各两个版本：装 1.0，让候选停在 2.0，
+# 只升 a。差集里只该有 a —— 这比"看着不像偷偷做了 dist-upgrade"要硬：b 就是
+# 放在旁边没被点名的那一个。两个包都没有 maintainer 脚本、没有 conffile、
+# 没有服务，装上与卸掉都不留东西。
+#
+# 索引是脚本自己按 .deb 的实际字节算出来的（大小、md5、sha256），没有拿
+# dpkg-scanpackages：24.04 的验收机上没有 dpkg-dev，为这个夹具再装一套工具链
+# 不值得，而 Packages 的字段就这几个。
+UPGRADE_TARGET=upanel-fixture-a
+UPGRADE_BYSTANDER=upanel-fixture-b
+FIXREPO=$WORK/fixture-repo
+FIXLIST=/etc/apt/sources.list.d/upanel-fixture.list
+fixture_deb() { # name version
+  _n=$1
+  _v=$2
+  _d=$WORK/fixture-build/${_n}_${_v}
+  rm -rf "$_d"
+  install -d "$_d/DEBIAN" "$_d/usr/share/doc/$_n"
+  printf 'Package: %s\nVersion: %s\nArchitecture: all\nMaintainer: uPanel acceptance <upanel@localhost>\nSection: misc\nPriority: optional\nInstalled-Size: 8\nDescription: uPanel P11.2 acceptance fixture package\n A do-nothing package used to exercise apt-get install --only-upgrade.\n' \
+    "$_n" "$_v" >"$_d/DEBIAN/control"
+  printf 'fixture %s %s\n' "$_n" "$_v" >"$_d/usr/share/doc/$_n/version.txt"
+  # 每个包里放一个 conffile，内容随版本变：装 1.0 之后本地改一行，再升到 2.0，
+  # dpkg 就真的会面对"本地改过、包也改了"的冲突——这是 --force-confold 唯一
+  # 能被证明的场合，否则那几个 -o 选项只是 argv 里的一串字。
+  install -d "$_d/etc"
+  printf '# uPanel 验收夹具的 conffile\nversion=%s\nshipped=yes\n' "$_v" >"$_d/etc/${_n}.conf"
+  printf '/etc/%s.conf\n' "$_n" >"$_d/DEBIAN/conffile"
+  dpkg-deb --root-owner-group -Zgzip -b "$_d" "$FIXREPO/${_n}_${_v}_all.deb" >/dev/null
+}
+fixture_index() { # deb
+  _deb=$1
+  printf 'Package: %s\nVersion: %s\nArchitecture: all\nMaintainer: uPanel acceptance <upanel@localhost>\nInstalled-Size: 8\nFilename: ./%s\nSize: %s\nMD5sum: %s\nSHA256: %s\nSection: misc\nPriority: optional\nDescription: uPanel P11.2 acceptance fixture package\n A do-nothing package used to exercise apt-get install --only-upgrade.\n\n' \
+    "$(dpkg-deb -f "$_deb" Package)" "$(dpkg-deb -f "$_deb" Version)" "$(basename "$_deb")" \
+    "$(stat -c %s "$_deb")" "$(md5sum "$_deb" | cut -d' ' -f1)" "$(sha256sum "$_deb" | cut -d' ' -f1)"
+}
+rm -rf "$FIXREPO"
+install -d "$FIXREPO"
+for fx in "$UPGRADE_TARGET" "$UPGRADE_BYSTANDER"; do
+  fixture_deb "$fx" 1.0
+  fixture_deb "$fx" 2.0
 done
-if [ -z "$UPGRADE_TARGET" ]; then
-  UPGRADE_TARGET=$(apt-get -s upgrade 2>/dev/null | sed -n 's/^Inst \([^ ]*\) .*/\1/p' | head -1)
-fi
-if [ -n "$UPGRADE_TARGET" ]; then
-  pass "env-has-upgradable-package"
-  note "升级目标：$UPGRADE_TARGET（$(dpkg_version "$UPGRADE_TARGET") → 候选 $(apt-cache policy "$UPGRADE_TARGET" | sed -n 's/^  Candidate: //p')）"
+: >"$FIXREPO/Packages"
+for fx in "$FIXREPO"/*.deb; do fixture_index "$fx" >>"$FIXREPO/Packages"; done
+printf 'deb [trusted=yes] file:%s ./\n' "$FIXREPO" >"$FIXLIST"
+# 只刷这一路源：整份 apt-get update 在 24.04 上要几十秒，而这里只需要夹具的索引。
+if DEBIAN_FRONTEND=noninteractive apt-get -q update \
+     -o Dir::Etc::sourcelist="$FIXLIST" -o Dir::Etc::sourceparts=/dev/null \
+     -o APT::Get::List-Cleanup=0 >"$WORK/logs/fixture-update.log" 2>&1; then
+  pass "env-fixture-repo-indexed"
 else
-  fail "env-has-upgradable-package" "这台机器没有任何可升级的包，升级路径无法验收"
+  fail "env-fixture-repo-indexed" "$(tail -3 "$WORK/logs/fixture-update.log" | tr '\n' ' ')"
+fi
+if DEBIAN_FRONTEND=noninteractive apt-get -y -q install \
+     "$UPGRADE_TARGET=1.0" "$UPGRADE_BYSTANDER=1.0" >"$WORK/logs/fixture-install.log" 2>&1; then
+  pass "env-fixture-installed-at-1.0"
+else
+  fail "env-fixture-installed-at-1.0" "$(tail -3 "$WORK/logs/fixture-install.log" | tr '\n' ' ')"
+fi
+expect_eq "env-fixture-a-at-1.0" "1.0" "$(dpkg_version "$UPGRADE_TARGET")"
+expect_eq "env-fixture-b-at-1.0" "1.0" "$(dpkg_version "$UPGRADE_BYSTANDER")"
+# conffile 冲突的前置：本地改一行。装上的 1.0 与候选的 2.0 里这一行不一样，
+# 于是升级时 dpkg 真的要在"本地改过的"和"包里新的"之间做选择。
+printf 'local_edit=yes\n' >>"/etc/$UPGRADE_TARGET.conf"
+expect_eq "env-conffile-locally-edited" "yes" \
+  "$(grep -c '^local_edit=yes$' "/etc/$UPGRADE_TARGET.conf")"
+if apt-get -s install --only-upgrade "$UPGRADE_TARGET" 2>/dev/null | grep -q '^Inst '; then
+  pass "env-fixture-has-newer-candidate"
+  note "升级目标：$UPGRADE_TARGET（1.0 → 候选 $(apt-cache policy "$UPGRADE_TARGET" | sed -n 's/^  Candidate: //p')），旁边不动的是 $UPGRADE_BYSTANDER"
+else
+  fail "env-fixture-has-newer-candidate" "本机夹具仓库里的 2.0 没有成为候选，升级路径无法验收"
 fi
 
 # 连带删除的对照：apt 自己说要删几个。
@@ -705,7 +768,10 @@ if [ -n "$UPGRADE_TARGET" ]; then
   expect_eq "upgrade-target-version" "ii $CAND_UP" \
     "$(jbf upgrade "d[\"data\"][\"result\"][\"observed_state\"][\"pkg:$UPGRADE_TARGET\"]")"
   expect_eq "upgrade-dpkg-version" "$CAND_UP" "$(dpkg_version "$UPGRADE_TARGET")"
-  note "$UPGRADE_TARGET：$BEFORE_UP → $(dpkg_version "$UPGRADE_TARGET")"
+  # 旁边那个同样有 2.0 候选、但没被点名的包必须一动不动：这才是 --only-upgrade
+  # 与"顺手把能升的都升了"的分水岭。
+  expect_eq "upgrade-bystander-untouched" "1.0" "$(dpkg_version "$UPGRADE_BYSTANDER")"
+  note "$UPGRADE_TARGET：$BEFORE_UP → $(dpkg_version "$UPGRADE_TARGET")；$UPGRADE_BYSTANDER 仍是 $(dpkg_version "$UPGRADE_BYSTANDER")"
   # 差集必须只有这一个包：这就是"没有偷偷做 dist-upgrade"的机械证明。
   dpkg-query -W -f='${binary:Package}\t${Version}\n' | sort >"$WORK/versions-after.txt"
   python3 - "$WORK/versions-before.txt" "$WORK/versions-after.txt" "$UPGRADE_TARGET" \
@@ -725,6 +791,12 @@ PY
   cat "$WORK/version-diff.err" 2>/dev/null
   note "版本表差集的行数：$CHANGED（其中与 $UPGRADE_TARGET 无关的：$CHANGED_OTHERS）"
   expect_eq "upgrade-changed-only-the-named-package" "0" "$CHANGED_OTHERS"
+  # --force-confold 的真凭据：本地改过的那一行还在，包里新的 2.0 版本没有覆盖它。
+  expect_eq "upgrade-conffile-kept-local-edit" "yes" \
+    "$(grep -c '^local_edit=yes$' "/etc/$UPGRADE_TARGET.conf")"
+  expect_eq "upgrade-conffile-not-overwritten" "no" \
+    "$(grep -c '^version=2.0$' "/etc/$UPGRADE_TARGET.conf")"
+  note "conffile 现场：$(tr '\n' ' ' <"/etc/$UPGRADE_TARGET.conf")；dpkg-dist 备份：$(ls "/etc/$UPGRADE_TARGET.conf".dpkg-* 2>/dev/null | tr '\n' ' ' || true)"
 else
   notrun "upgrade-preflight-200" "没有可升级的包"
 fi
@@ -1000,10 +1072,17 @@ expect_eq "final-b-gone" "no" "$(dpkg_present "$INSTALL_B")"
 expect_eq "final-ssh-still-there" "yes" "$(dpkg_present openssh-server)"
 expect_eq "final-bash-still-there" "yes" "$(dpkg_present bash)"
 expect_eq "final-no-broken-source" "no" "$([ -e "$BROKEN_SOURCE" ] && echo yes || echo no)"
+# 夹具也要收干净：包、源、仓库目录一个不留，否则下一轮就不是从 1.0 开始了。
+DEBIAN_FRONTEND=noninteractive apt-get -y -q purge "$UPGRADE_TARGET" "$UPGRADE_BYSTANDER" >/dev/null 2>&1
+rm -f "$FIXLIST"
+rm -rf "$FIXREPO" "$WORK/fixture-build"
+expect_eq "final-fixture-a-gone" "no" "$(dpkg_present "$UPGRADE_TARGET")"
+expect_eq "final-fixture-b-gone" "no" "$(dpkg_present "$UPGRADE_BYSTANDER")"
+expect_eq "final-fixture-source-gone" "no" "$([ -e "$FIXLIST" ] && echo yes || echo no)"
+expect_eq "final-fixture-repo-gone" "no" "$([ -d "$FIXREPO" ] && echo yes || echo no)"
 
 echo
 echo "== 16. 明确未覆盖 =="
-notrun "conffile 冲突时的 --force-confold" "需要可升级且本地改过 conffile 的包；argv 由 internal/apt 单测锁死"
 notrun "APT_LOCK_UNREADABLE" "root 造不出 EACCES；不挪 dpkg 的锁文件，分支由 internal/apt/locks_test.go 覆盖"
 notrun "重启执行与 boot_id 前后确认" "P11.3"
 notrun "浏览器渲染" "VM 上没有浏览器；载荷原样抓在 $FIXDIR"
