@@ -228,6 +228,43 @@ func TestPackagesErrorMapping(t *testing.T) {
 	}
 }
 
+// TestPackagesUnavailableMessageNamesTheRightModule 503 的文案必须说的是
+// **这条路由要读的东西**。
+//
+// 三个接口共用 writePackagesError，早期版本把 503 文案写死成"无法读取软件包
+// 状态"，于是 `/system/power-state` 挂掉时页面让人去查软件包——真机复现
+// P11.3 的 503 时正文就是这么写的（internal/api/../evidence/P11 有原文）。
+func TestPackagesUnavailableMessageNamesTheRightModule(t *testing.T) {
+	cases := []struct {
+		path    string
+		want    string
+		notWant string
+	}{
+		{"/api/v1/packages", "软件包列表", "重启标志"},
+		{"/api/v1/packages/updates", "可升级清单", "软件包列表"},
+		{"/api/v1/system/power-state", "重启标志", "软件包"},
+	}
+	for _, tc := range cases {
+		stub := &stubPackages{
+			listErr:  packages.ErrFactsUnavailable,
+			updErr:   packages.ErrFactsUnavailable,
+			powerErr: packages.ErrFactsUnavailable,
+		}
+		srv, cookie := packagesFixture(t, stub)
+		rec := adminGet(t, srv, cookie, tc.path)
+		got := parseResult(t, rec).Error
+		if got == nil {
+			t.Fatalf("%s 没有错误信封：%s", tc.path, rec.Body.String())
+		}
+		if !strings.Contains(got.Message, tc.want) {
+			t.Errorf("%s 文案 %q 里没有 %q", tc.path, got.Message, tc.want)
+		}
+		if strings.Contains(got.Message, tc.notWant) {
+			t.Errorf("%s 文案 %q 说成了 %q（串台）", tc.path, got.Message, tc.notWant)
+		}
+	}
+}
+
 func TestPackagesUnavailableWithoutAgent(t *testing.T) {
 	// 演示模式：没有 Packages 读取端。三个接口都必须是 503，而不是 200 + 空列表。
 	srv, cookie := packagesFixture(t, nil)

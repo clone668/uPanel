@@ -96,7 +96,7 @@ func (s *Server) handleListPackages(c *gin.Context) {
 	extendWriteDeadline(c, slowQueryBudget)
 	res, err := reader.List(c.Request.Context(), q)
 	if err != nil {
-		s.writePackagesError(c, err, "读取软件包列表失败")
+		s.writePackagesError(c, err, "读取软件包列表失败", "软件包列表")
 		return
 	}
 	httpx.WriteData(c.Writer, c.Request, http.StatusOK, res)
@@ -113,7 +113,7 @@ func (s *Server) handleListPackageUpdates(c *gin.Context) {
 	extendWriteDeadline(c, slowQueryBudget)
 	res, err := reader.Updates(c.Request.Context())
 	if err != nil {
-		s.writePackagesError(c, err, "读取可升级清单失败")
+		s.writePackagesError(c, err, "读取可升级清单失败", "可升级清单")
 		return
 	}
 	httpx.WriteData(c.Writer, c.Request, http.StatusOK, res)
@@ -129,7 +129,7 @@ func (s *Server) handlePowerState(c *gin.Context) {
 	}
 	res, err := reader.PowerState(c.Request.Context())
 	if err != nil {
-		s.writePackagesError(c, err, "读取重启标志失败")
+		s.writePackagesError(c, err, "读取重启标志失败", "重启标志")
 		return
 	}
 	httpx.WriteData(c.Writer, c.Request, http.StatusOK, res)
@@ -144,7 +144,12 @@ func (s *Server) handlePowerState(c *gin.Context) {
 //
 // 特别注意：**没有**"降级成空列表"的分支。apt-cache 读不到是代理侧用 errors[]
 // 表达的降级（包列表照出、候选 unknown），那是数据本身的一部分，不是接口失败。
-func (s *Server) writePackagesError(c *gin.Context, err error, what string) {
+//
+// what 是日志用的完整动作（"读取重启标志失败"），noun 是给它后面那个名词
+// （"重启标志"）。两个都收，是因为 503 的文案要念给用户听：三个接口共用一个
+// 函数，但它不能说成同一个东西——`/system/power-state` 报"无法读取软件包状态"
+// 会让人去查错模块（P12.1 真机复现时撞到）。
+func (s *Server) writePackagesError(c *gin.Context, err error, what, noun string) {
 	if errors.Is(err, context.Canceled) {
 		return
 	}
@@ -156,7 +161,7 @@ func (s *Server) writePackagesError(c *gin.Context, err error, what string) {
 		s.opts.Logger.Warn(what+"：代理不可用", "error", err,
 			"request_id", c.GetString(ctxKeyRequestID))
 		writeError(c, http.StatusServiceUnavailable, httpx.CodeAgentUnavailable,
-			"代理不可用，无法读取软件包状态")
+			"代理不可用，无法读取"+noun)
 		return
 	}
 	s.opts.Logger.Error(what, "error", err, "request_id", c.GetString(ctxKeyRequestID))
