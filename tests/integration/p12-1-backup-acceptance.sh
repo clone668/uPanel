@@ -59,18 +59,29 @@ WORK=${WORK:-/var/tmp/upanel-accept-p12-1}
 AGENT="$BIN_DIR/upanel-agent"
 CTL="$BIN_DIR/upanelctl"
 WEB_USER=upanel-web
+# SFTP 目标账号**不能**用 upanel-web：它的登录 shell 是 /usr/sbin/nologin、home 是
+# /var/lib/upanel。sshd 执行 `subsystem sftp` 时用的是登录 shell，nologin 会让 sftp
+# 会话直接退出——而且面板的 Web 身份本来就不该能登进来。所以验收里另起一个专用的
+# SFTP 目标账号（真实部署里这个角色是备份服务器上的那个账号）。
+SFTP_USER=p12sftp
+SFTP_HOME=/home/$SFTP_USER
 RUN_DIR=/run/upanel
 SOCK=$RUN_DIR/agent.sock
 SYS_CFG=/etc/upanel/upanel.json
 AGENT_DB_DIR=/var/lib/upanel-agent
-AGENT_DB=$AGENT_DB_DIR/agent.db
+# AGENT_DB 在准备阶段赋值：它要落在本次工作目录下（见「准备」那一段的说明），
+# 不能沿用真实安装的那个库。
 KEY_FILE=/etc/upanel/agent.key
 STATE_DIR=/var/lib/upanel-agent/backup
 ROOT_PATH=$WORK/data
 TMPD=/tmp/p12-1.$$
 REPO_PASSWORD='p12-1-correct-horse-9'
 WRONG_PASSWORD='p12-1-wrong-horse-1'
-REMOTE_DIR=/home/$WEB_USER/p12-1-repo
+# 提交操作时 actor_context 里的 session_id_hash 必须与预检时那次相同，否则代理按
+# PREFLIGHT_STALE 拒（会话换了，冻结的计划不能沿用）。这个值在脚本里只生成一次，
+# 预检与提交共用；真实部署里它由 Web 侧的会话决定。
+SESSION_HASH=$(openssl rand -hex 32)
+REMOTE_DIR=$SFTP_HOME/p12-1-repo
 LOCAL_REL=backups/local-nightly
 SSH_DIR=$WORK/ssh
 
@@ -170,6 +181,15 @@ fi
 
 rm -rf "$WORK"
 mkdir -p "$WORK/logs" "$WORK/payloads" "$SSH_DIR" "$ROOT_PATH"
+# 每次验收都用**本次工作目录下的**代理库：仓库定义是持久状态，沿用上一次的库会让
+# “名字已被占用”这种连锁失败出现在第三段，看上去像是创建接口坏了。
+# 库目录只有 root 能进（0700），与真实安装一致。
+install -d -m 0700 "$WORK/agent"
+AGENT_DB=$WORK/agent/agent.db
+# 现场清理：known_hosts 与远端仓库目录都是本脚本自己造出来的东西。
+# 不清掉就分不清“这次写的”和“上次剩下的”，known_hosts-written 那条会变成假通过。
+rm -rf "$STATE_DIR/known_hosts"
+rm -rf "$REMOTE_DIR" "$REMOTE_DIR"-badfp "$REMOTE_DIR"-badkey "$REMOTE_DIR"-purpose "$REMOTE_DIR"-ghost "$REMOTE_DIR"-wrongpass
 chmod 0755 "$WORK"
 mkdir -p "$TMPD"
 chmod 1777 "$TMPD"   # runuser 要以 upanel-web 的身份在里面写响应文件
@@ -212,14 +232,15 @@ json() {
 # $PAYLOADS/preflight-<名字>.json，回显状态码。
 pf() {
   _body=$(printf '{"action":"backup.repository.initialize","params":{"repository_id":"%s","version":%s},"actor_context":{"user_id":1,"session_id_hash":"%s","request_id":"p12-1-%s","reauth_at":"%s"}}' \
-    "$2" "$3" "$(openssl rand -hex 32)" "$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+    "$2" "$3" "$SESSION_HASH" "$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
   _code=$(web_curl POST /internal/v1/preflights "$PAYLOADS/preflight-$1.json" "$(json preflight-$1 "$_body")")
   printf '%s' "$_code"
 }
 pfget() { jget "$PAYLOADS/preflight-$1.json" "$2"; }
 # pfblockers <名字>：预检结论里的阻塞码列表（JSON 数组文本，便于 expect_contains）。
 pfblockers() { pfget "$1" 'json.dumps([b["code"] for b in d["data"]["blockers"]])'; }
-pfmessages() { pfget "$1" 'json.dumps([b["message"] for b in d["data"]["blockers"]])'; }
+# 中文原因原样输出（ensure_ascii=False），否则证据里全是 \u 转义，看不出代理到底说了什么。
+pfmessages() { pfget "$1" 'json.dumps([b["message"] for b in d["data"]["blockers"]], ensure_ascii=False)'; }
 
 # state_of <名字> <仓库 id>：查一次 backup.repository.state，响应存
 # $PAYLOADS/state-<名字>.json，回显状态码。
@@ -239,17 +260,17 @@ create_def() {
 }
 repo_id_of() { jget "$PAYLOADS/repo-$1.json" 'd["data"]["repository"]["id"]'; }
 
-# run_op <名字> <preflight_ref>：提交操作并轮询到终态，响应存
+# run_op <名字> <preflight_ref>：提交操作并轮询到终态，**响应**存
 # $PAYLOADS/operation-<名字>.json，回显终态（提交就被拒时回 "submit:<码>"）。
+# 提交被拒时那句响应正文就是证据，所以这里不能把请求体写到响应那个位置上去。
 run_op() {
   _opid="op_$(openssl rand -hex 16)"
   _body=$(printf '{"operation_id":"%s","preflight_ref":"%s","confirmation":"","actor_context":{"user_id":1,"session_id_hash":"%s","request_id":"p12-1-%s-op","reauth_at":"%s"}}' \
-    "$_opid" "$2" "$(openssl rand -hex 32)" "$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
-  _code=$(web_curl POST /internal/v1/operations "$TMPD/op-submit.json" "$(json operation-submit-$1 "$_body")")
-  case "$_code" in
-    200|201|202) : ;;
-    *) printf 'submit:%s' "$_code"; return 0 ;;
-  esac
+    "$_opid" "$2" "$SESSION_HASH" "$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+  _code=$(web_curl POST /internal/v1/operations "$PAYLOADS/operation-$1.json" "$(json operation-submit-$1 "$_body")")
+  if [ "$_code" != "200" ] && [ "$_code" != "201" ] && [ "$_code" != "202" ]; then
+    printf 'submit:%s' "$_code"; return 0
+  fi
   _stage=""
   for _ in $(seq 1 180); do
     web_curl GET "/internal/v1/operations/$_opid" "$PAYLOADS/operation-$1.json" >/dev/null
@@ -280,6 +301,18 @@ note "ssh：$(ssh -V 2>&1)"
   ssh-keyscan -p 22 127.0.0.1 2>&1
 } >"$PAYLOADS/restic-versions.txt" 2>&1
 pass "env-records-versions"
+
+# SFTP 目标账号：只有在不存在时才建（--create-home 给一个真实 home，sshd 的 StrictModes
+# 要求 home/.ssh 的归属与权限正常）。账号没有口令哈希，只接受公钥——这也正是真实的
+# 备份目标账号该有的样子。
+if id -u "$SFTP_USER" >/dev/null 2>&1; then
+  pass "sftp-target-account-present"
+elif useradd --create-home --shell /bin/bash "$SFTP_USER" >>"$WORK/logs/setup.log" 2>&1; then
+  pass "sftp-target-account-created"
+else
+  fail "sftp-target-account-created" "$(tail -3 "$WORK/logs/setup.log" 2>/dev/null)"
+  printf 'SFTP 目标账号建不出来，后面的 SFTP 用例都会失败\n' >&2
+fi
 
 echo
 echo "== 1. 启动代理（root） =="
@@ -372,18 +405,18 @@ put_secret() { # put_secret <名字> <purpose> <值> <值是文件路径时 1>
 }
 secret_of() { jget "$PAYLOADS/secret-$1.json" 'd["data"]["secret_ref"]'; }
 
-# 两把 ed25519 私钥：一把塞进 upanel-web 的 authorized_keys，一把不塞。
+# 两把 ed25519 私钥：一把塞进 SFTP 目标账号的 authorized_keys，一把不塞。
 rm -f "$SSH_DIR"/id_ed25519* "$SSH_DIR"/id_other*
 ssh-keygen -q -t ed25519 -N '' -C 'p12-1-accept' -f "$SSH_DIR/id_ed25519" >/dev/null 2>&1
 ssh-keygen -q -t ed25519 -N '' -C 'p12-1-unauthorized' -f "$SSH_DIR/id_other" >/dev/null 2>&1
-install -d -m 0700 -o "$WEB_USER" -g "$WEB_USER" "/home/$WEB_USER/.ssh"
-touch "/home/$WEB_USER/.ssh/authorized_keys"
-chown "$WEB_USER:$WEB_USER" "/home/$WEB_USER/.ssh/authorized_keys"
-chmod 0600 "/home/$WEB_USER/.ssh/authorized_keys"
-if grep -qF "$(cat "$SSH_DIR/id_ed25519.pub")" "/home/$WEB_USER/.ssh/authorized_keys" 2>/dev/null; then
+install -d -m 0700 -o "$SFTP_USER" -g "$SFTP_USER" "$SFTP_HOME/.ssh"
+touch "$SFTP_HOME/.ssh/authorized_keys"
+chown "$SFTP_USER:$SFTP_USER" "$SFTP_HOME/.ssh/authorized_keys"
+chmod 0600 "$SFTP_HOME/.ssh/authorized_keys"
+if grep -qF "$(cat "$SSH_DIR/id_ed25519.pub")" "$SFTP_HOME/.ssh/authorized_keys" 2>/dev/null; then
   pass "authorized-key-present"
 else
-  cat "$SSH_DIR/id_ed25519.pub" >>"/home/$WEB_USER/.ssh/authorized_keys"
+  cat "$SSH_DIR/id_ed25519.pub" >>"$SFTP_HOME/.ssh/authorized_keys"
   pass "authorized-key-added"
 fi
 
@@ -425,7 +458,7 @@ print(json.dumps({"name": name, "backend": "sftp",
   "location": {"host":"127.0.0.1","port":22,"username":user,
                "remote_path": path, "host_key_fingerprint": fp},
   "password_secret_ref": pass_ref, "credential_secret_ref": key_ref}))' \
-    "$1" "$2" "$3" "$4" "$5" "$WEB_USER"
+    "$1" "$2" "$3" "$4" "$5" "$SFTP_USER"
 }
 # local_def <名称> <口令引用> <相对路径>
 local_def() {
@@ -540,6 +573,13 @@ expect_eq "preflight-ok-params-are-frozen" "yes" \
   "$(pfget ok '"yes" if set(d["data"]["normalized_params"].keys())=={"repository_id","version"} else "no"')"
 PRE_OK=$(pfget ok 'd["data"]["preflight_ref"]')
 note "preflight_ref：$PRE_OK"
+# 预检不写任何东西（CONTRACTS 4.1）。known_hosts 更是只能在核对通过之后才写，
+# 所以这一刻它必须还不存在——否则第 7 段那条“known_hosts 是我们写的”就是空话。
+if [ -n "$(find "$STATE_DIR/known_hosts" -type f 2>/dev/null | head -1)" ]; then
+  fail "known_hosts-absent-before-init" "$STATE_DIR/known_hosts 下已经有文件：预检越权写了东西，或现场没清干净"
+else
+  pass "known_hosts-absent-before-init"
+fi
 
 echo
 echo "== 7. 初始化：结果必须是 verified，且仓库 id 与独立读回的一致 =="
@@ -575,15 +615,20 @@ fi
 # 独立核对：脚本自己用同样的口令、同样那套 ssh 选项读一遍仓库 id。
 install -m 0600 "$SSH_DIR/id_ed25519" "$TMPD/id_ed25519"
 INDEP=$(RESTIC_PASSWORD="$REPO_PASSWORD" RESTIC_CACHE_DIR="$TMPD/cache" restic \
-  -r "sftp:$WEB_USER@127.0.0.1:$REMOTE_DIR" \
-  -o "sftp.command=/usr/bin/ssh -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$KH -o GlobalKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -i $TMPD/id_ed25519 -p 22 $WEB_USER@127.0.0.1 -s sftp" \
+  -r "sftp:$SFTP_USER@127.0.0.1:$REMOTE_DIR" \
+  -o "sftp.command=/usr/bin/ssh -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$KH -o GlobalKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -i $TMPD/id_ed25519 -p 22 $SFTP_USER@127.0.0.1 -s sftp" \
   cat config 2>"$TMPD/indep.err" | python3 -c 'import json,sys
 try: print(json.load(sys.stdin)["id"])
 except Exception: print("")')
 cp "$TMPD/indep.err" "$PAYLOADS/independent-cat-config.stderr" 2>/dev/null
 expect_eq "independent-repo-id-not-empty" "yes" \
   "$(python3 -c 'import sys;print("yes" if sys.argv[1] else "no")' "${INDEP:-}")"
-expect_eq "independent-read-repo-id" "$REPO_ID" "$INDEP"
+# 空等于空会假装“一致”，所以两边都要先有值才比较。
+if [ -z "$REPO_ID" ] || [ -z "$INDEP" ]; then
+  fail "independent-read-repo-id" "有一边是空的（代理 [${REPO_ID:-}] / 独立 [${INDEP:-}]），空对空不算一致"
+else
+  expect_eq "independent-read-repo-id" "$REPO_ID" "$INDEP"
+fi
 
 echo
 echo "== 8. 容量真的读了，不是 0 =="
@@ -658,8 +703,13 @@ expect_eq "preflight-stale-still-locks" "yes" \
 
 echo
 echo "== 13. 参数层：id 形状与未知字段在解码时就被拒 =="
-expect_eq "preflight-malformed-id-400" "400" "$(pf malformed not-a-repo-id 1)"
-EXTRA_BODY="{\"action\":\"backup.repository.initialize\",\"params\":{\"repository_id\":\"$REP_SFTP\",\"version\":1,\"path\":\"/tmp/x\"},\"actor_context\":{\"user_id\":1,\"session_id_hash\":\"$(openssl rand -hex 32)\",\"request_id\":\"p12-1-extra\",\"reauth_at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}"
+# 形状不合法的 id 在动作这一层不是 400：动作的职责是“对着世界给结论”，而世界里
+# 没有这条记录，所以它照常出预检、结论是已阻塞 BACKUP_REPOSITORY_NOT_FOUND。
+# 形状校验属于镜像路由（register/get/patch 那里 400），两边分工不同。
+expect_eq "preflight-malformed-id-201" "201" "$(pf malformed not-a-repo-id 1)"
+expect_eq "preflight-malformed-id-blocked" "False" "$(pfget malformed 'd["data"]["allowed"]')"
+expect_contains "preflight-malformed-id-code" "BACKUP_REPOSITORY_NOT_FOUND" "$(pfblockers malformed)"
+EXTRA_BODY="{\"action\":\"backup.repository.initialize\",\"params\":{\"repository_id\":\"$REP_SFTP\",\"version\":1,\"path\":\"/tmp/x\"},\"actor_context\":{\"user_id\":1,\"session_id_hash\":\"$SESSION_HASH\",\"request_id\":\"p12-1-extra\",\"reauth_at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}"
 expect_eq "preflight-unknown-field-400" "400" \
   "$(web_curl POST /internal/v1/preflights "$PAYLOADS/preflight-extra.json" "$(json preflight-extra "$EXTRA_BODY")")"
 expect_eq "preflight-unknown-field-code" "VALIDATION_ERROR" \

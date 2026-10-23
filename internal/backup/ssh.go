@@ -57,6 +57,29 @@ var ErrHostKeyMismatch = errors.New("backup: SFTP 主机密钥与登记的指纹
 // ErrSSHAuth 表示认证阶段失败（私钥不对、账户被锁、服务器拒绝该密钥）。
 var ErrSSHAuth = errors.New("backup: SFTP 认证失败")
 
+// hostKeyAlgorithms 是逐一尝试的主机密钥算法表。
+//
+// 为什么需要它：登记的只是一个**指纹**，没有密钥类型；而服务器会按自己的偏好挑
+// 一把交给我们。x/crypto/ssh 的 HostKeyCallback 只对协商出来的那一把表态，返回
+// 错误就中止握手——没有“换下一把”的钩子。于是“服务器有 ed25519、我们登记的就是
+// 那把它，但服务器先递了 ecdsa”会变成一次误报的不匹配（P12.1 真机上就是这么撞上的：
+// 登记 SHA256:R7OL…，实际报 ecdsa-sha2-nistp256 SHA256:SwVU…）。
+//
+// 所以：先用默认算法表试一次，不匹配时**逐个钉住一种算法**再握手，直到拿到那把
+// 登记的公钥为止。任何一次尝试里只要有一把不匹配，那次连接都会被丢掉；最终接受
+// 的连接一定是“握手时那把公钥的指纹与登记值相等”的那一次。
+var hostKeyAlgorithms = []string{
+	ssh.KeyAlgoED25519,
+	ssh.KeyAlgoECDSA256,
+	ssh.KeyAlgoECDSA384,
+	ssh.KeyAlgoECDSA521,
+	ssh.KeyAlgoRSASHA512,
+	ssh.KeyAlgoRSASHA256,
+	ssh.KeyAlgoRSA,
+	ssh.KeyAlgoSKED25519,
+	ssh.KeyAlgoSKECDSA256,
+}
+
 // Dial 建立一条 SSH 连接，并在握手阶段核对主机密钥指纹。
 //
 // 返回的连接由调用方关闭。**核对失败时连也会被关掉**：一个已经握过手的连接即使
@@ -85,11 +108,64 @@ func Dial(ctx context.Context, opts DialOptions, registered Fingerprint) (*ssh.C
 		return nil, HostKey{}, fmt.Errorf("%w：私钥无法解析（PEM 或 OpenSSH 格式）", ErrSSHAuth)
 	}
 
+	// 第一次走默认算法表（服务器挑它最喜欢的那把，常见情况下正好是登记的那把），
+	// 之后逐个算法钉住。已经被看见过的类型不再试：它只会给出同一把公钥。
 	seen := make([]string, 0, 4)
+	seenType := make(map[string]bool, 4)
+	pending := make([]string, 0, len(hostKeyAlgorithms))
+	pending = append(pending, hostKeyAlgorithms...)
+
+	var lastErr error
+	for attempt := 0; ; attempt++ {
+		var algs []string
+		if attempt > 0 {
+			if len(pending) == 0 {
+				break
+			}
+			algs = []string{pending[0]}
+			pending = pending[1:]
+		}
+		if attempt > 0 && seenType[algs[0]] {
+			continue
+		}
+		client, hostKey, err := dialOnce(ctx, opts, signer, registered, algs, &seen, seenType)
+		if err == nil {
+			return client, hostKey, nil
+		}
+		if !errors.Is(err, ErrHostKeyMismatch) {
+			// 认证失败、连不上、服务器不给 SFTP……换一种主机密钥算法都救不了。
+			return nil, HostKey{}, err
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("%w：登记 %s，握手没有提供可比的主机公钥",
+			ErrHostKeyMismatch, registered.String())
+	}
+	if len(seen) > 0 {
+		// 把见过的每一把都报出来：管理员据此判断是抄错了还是中间有人。
+		return nil, HostKey{}, fmt.Errorf("%w（登记 %s，实际 %s）",
+			ErrHostKeyMismatch, registered.String(), strings.Join(seen, "；"))
+	}
+	return nil, HostKey{}, lastErr
+}
+
+// dialOnce 是一次完整的 TCP + SSH 握手。
+//
+// algs 非空时只接受这一种主机密钥算法（其余算法在协商阶段就不会被提出）。
+// seen / seenType 跨多次尝试累积，用于最后的诊断信息与去重。
+func dialOnce(ctx context.Context, opts DialOptions, signer ssh.Signer, registered Fingerprint,
+	algs []string, seen *[]string, seenType map[string]bool) (*ssh.Client, HostKey, error) {
+	port := opts.Port
+	if port == 0 {
+		port = DefaultSFTPPort
+	}
+
 	var matched ssh.PublicKey
 	hostKeyCallback := func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		fp := SHA256(key)
-		seen = append(seen, key.Type()+" "+fp)
+		*seen = append(*seen, key.Type()+" "+fp)
+		seenType[key.Type()] = true
 		if !registered.Matches(key) {
 			return fmt.Errorf("%w：登记 %s，实际 %s %s（%s）",
 				ErrHostKeyMismatch, registered.String(), key.Type(), fp, hostname)
@@ -109,11 +185,15 @@ func Dial(ctx context.Context, opts DialOptions, registered Fingerprint) (*ssh.C
 		// 客户端版本串固定，便于在远端的 auth.log 里认出这次连接。
 		ClientVersion: "SSH-2.0-upanel-backup",
 	}
+	if len(algs) > 0 {
+		cfg.HostKeyAlgorithms = algs
+	}
 
 	dialer := &net.Dialer{Timeout: opts.Timeout}
 	addr := net.JoinHostPort(opts.Host, strconv.Itoa(port))
 	rawConn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
+		// 连不上就不要再试别的算法：换算法不会让 TCP 通。
 		return nil, HostKey{}, fmt.Errorf("backup: 连接 %s 失败: %w", addr, err)
 	}
 	// 握手的截止时间靠 deadline 兜底：DialContext 只管 TCP，握手可能更久。
@@ -126,19 +206,19 @@ func Dial(ctx context.Context, opts DialOptions, registered Fingerprint) (*ssh.C
 	sshConn, chans, reqs, err := ssh.NewClientConn(rawConn, addr, cfg)
 	if err != nil {
 		_ = rawConn.Close()
+		// 已经核对通过之后才失败的，是认证或会话阶段的问题：如实报认证失败。
+		if matched != nil {
+			return nil, HostKey{}, fmt.Errorf("%w: %v", ErrSSHAuth, err)
+		}
 		if errors.Is(err, ErrHostKeyMismatch) {
 			return nil, HostKey{}, err
 		}
-		if matched == nil {
-			// 走到这里且没有匹配：要么握手在主机密钥之前就失败了，要么指纹不对
-			// 但错误被 ssh 包成了别的形状。后者按“密钥不匹配”报，因为那是
-			// 失败关闭的一侧。
-			if len(seen) > 0 {
-				return nil, HostKey{}, fmt.Errorf("%w：登记 %s，实际 %s",
-					ErrHostKeyMismatch, registered.String(), strings.Join(seen, "；"))
-			}
+		if len(*seen) > 0 {
+			return nil, HostKey{}, fmt.Errorf("%w：登记 %s，实际 %s",
+				ErrHostKeyMismatch, registered.String(), strings.Join(*seen, "；"))
 		}
-		return nil, HostKey{}, fmt.Errorf("%w: %v", ErrSSHAuth, err)
+		// 一把公钥都没见到（例如服务器不支持这一种算法）：换下一种再试。
+		return nil, HostKey{}, fmt.Errorf("%w：%v", ErrHostKeyMismatch, err)
 	}
 	// 握手完成：清掉 deadline，否则长传输会被它断开。
 	_ = rawConn.SetDeadline(time.Time{})
@@ -151,7 +231,7 @@ func Dial(ctx context.Context, opts DialOptions, registered Fingerprint) (*ssh.C
 	return client, HostKey{
 		Type:        matched.Type(),
 		Fingerprint: SHA256(matched),
-		Algorithms:  seen,
+		Algorithms:  append([]string(nil), *seen...),
 		PublicKey:   matched,
 	}, nil
 }
