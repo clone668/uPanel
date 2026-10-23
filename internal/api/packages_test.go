@@ -37,6 +37,9 @@ type stubPackages struct {
 	powerErr  error
 	gotQuery  packages.ListQuery
 	listCalls int
+	// P11.3：任务详情里的 power_check 由读取端提供，替身这里直接给结论。
+	check      func(action string) *packages.PowerCheckView
+	checkCalls int
 }
 
 func (s *stubPackages) List(_ context.Context, q packages.ListQuery) (packages.List, error) {
@@ -60,6 +63,15 @@ func (s *stubPackages) PowerState(context.Context) (packages.PowerStateView, err
 		return packages.PowerStateView{}, s.powerErr
 	}
 	return s.power, nil
+}
+
+// PowerJobCheck 默认什么也不说（nil）。要测这一节时给 check 一个返回值。
+func (s *stubPackages) PowerJobCheck(_ context.Context, action string, _ json.RawMessage) *packages.PowerCheckView {
+	s.checkCalls++
+	if s.check == nil {
+		return nil
+	}
+	return s.check(action)
 }
 
 // packagesFixture 构造一个接了假读取端的生产模式服务器。

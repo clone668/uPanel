@@ -7,7 +7,13 @@
 import { describe, expect, it } from 'vitest'
 
 import type { JobStatus } from '@/api/jobs'
-import { checkedViaLabel, summarizePackageJob, summarizeShareJob, summarizeStorageJob } from './jobresult'
+import {
+  checkedViaLabel,
+  summarizePackageJob,
+  summarizePowerJob,
+  summarizeShareJob,
+  summarizeStorageJob,
+} from './jobresult'
 
 type SummaryInput = Parameters<typeof summarizeStorageJob>[0]
 
@@ -479,5 +485,134 @@ describe('软件包写事务的结果翻译', () => {
     const summary = summarizePackageJob(job({ result: { data: { packages: ['cowsay'] } } }))
     expect(summary.headline).toBe('执行完成，下面是读回的现场读数')
     expect(summary.lines.join('\n')).not.toContain('核对通过')
+  })
+})
+
+describe('电源任务的结果翻译（P11.3）', () => {
+  type PowerInput = Parameters<typeof summarizePowerJob>[0]
+
+  function powerJob(overrides: Partial<PowerInput> = {}): PowerInput {
+    return {
+      status: 'succeeded',
+      result: {
+        outcome: 'accepted',
+        observed_state: {
+          operation: 'reboot',
+          delay_seconds: 60,
+          boot_id_before: 'ab2eb5e8-c1b4-4a00-a3d0-33ced7870abc',
+          issued_at: '2026-10-23T10:00:00Z',
+          command: 'systemctl reboot',
+          exit_code: 0,
+        },
+      },
+      error: {},
+      power_check: null,
+      ...overrides,
+    }
+  }
+
+  it('受理不说成功：结论行必须是“不是已重启”', () => {
+    const summary = summarizePowerJob(powerJob())
+    expect(summary.ok).toBe(true)
+    expect(summary.headline).toContain('请求已受理')
+    expect(summary.headline).toContain('不是已重启')
+    expect(summary.headline).not.toContain('重启成功')
+    const body = summary.lines.join('\n')
+    expect(body).toContain('systemctl reboot')
+    expect(body).toContain('60 秒')
+    expect(body).toContain('ab2eb5e8-c1b4-4a00-a3d0-33ced7870abc')
+    expect(body).toContain('systemctl 退出码：0')
+  })
+
+  it('boot_id 变了才说“已确认”', () => {
+    const summary = summarizePowerJob(
+      powerJob({
+        power_check: {
+          operation: 'reboot',
+          state: 'confirmed',
+          changed: true,
+          boot_id_before: 'ab2eb5e8-c1b4-4a00-a3d0-33ced7870abc',
+          boot_id_now: '9f4d2c17-6a55-4c2e-8f31-0b7e5a1d9c40',
+          checked_at: '2026-10-23T10:05:00Z',
+          message: '重启已确认：boot_id 从 ab2eb5e8 变成 9f4d2c17。',
+        },
+      }),
+    )
+    expect(summary.headline).toContain('已确认')
+    expect(summary.lines.join('\n')).toContain('现在的 boot_id：9f4d2c17')
+  })
+
+  it('没变就是没变：不说“已确认”', () => {
+    const summary = summarizePowerJob(
+      powerJob({
+        power_check: {
+          operation: 'reboot',
+          state: 'unchanged',
+          changed: false,
+          boot_id_before: 'ab2eb5e8-c1b4-4a00-a3d0-33ced7870abc',
+          boot_id_now: 'ab2eb5e8-c1b4-4a00-a3d0-33ced7870abc',
+          checked_at: '2026-10-23T10:00:30Z',
+          message: '代理仍在原来的 boot_id 上：重启还没有发生。',
+        },
+      }),
+    )
+    expect(summary.headline).toContain('重启还没有发生')
+    expect(summary.headline).not.toContain('已确认')
+  })
+
+  it('关机连不上：直说读不到，不许滑成“关机成功”', () => {
+    const summary = summarizePowerJob(
+      powerJob({
+        result: {
+          outcome: 'accepted',
+          observed_state: { operation: 'poweroff', delay_seconds: 30, boot_id_before: 'ab2eb5e8' },
+        },
+        power_check: {
+          operation: 'poweroff',
+          state: 'unreachable',
+          changed: false,
+          boot_id_before: 'ab2eb5e8',
+          boot_id_now: '',
+          checked_at: '2026-10-23T10:01:00Z',
+          message: '代理已不可达。这与下发关机之后的预期一致，但面板无法据此确认电源已切断。',
+        },
+      }),
+    )
+    expect(summary.headline).toContain('代理现在连不上')
+    const body = summary.lines.join('\n')
+    expect(body).toContain('无法据此确认电源已切断')
+    expect(body).not.toContain('关机成功')
+  })
+
+  it('没有核对时，关机与重启各给一句该怎么继续', () => {
+    const poweroff = summarizePowerJob(
+      powerJob({
+        result: { outcome: 'accepted', observed_state: { operation: 'poweroff', delay_seconds: 30 } },
+      }),
+    )
+    expect(poweroff.lines.join('\n')).toContain('不构成关机成功的证据')
+
+    const reboot = summarizePowerJob(powerJob())
+    expect(reboot.lines.join('\n')).toContain('boot_id')
+  })
+
+  it('取消与失败照原样说，并且不算成功', () => {
+    const canceled = summarizePowerJob(
+      // 取消的任务没有结果：契约里 result 是空对象，这里连空对象都不给，翻译层也要扛住。
+      powerJob({ status: 'canceled', result: null as unknown as Record<string, unknown>, error: {} }),
+    )
+    expect(canceled.ok).toBe(false)
+    expect(canceled.headline).toContain('取消')
+    expect(canceled.headline).toContain('没有被调用')
+
+    const failed = summarizePowerJob(
+      powerJob({
+        status: 'failed',
+        result: {},
+        error: { code: 'COMMAND_FAILED', message: 'systemctl: 交互认证被拒绝' },
+      }),
+    )
+    expect(failed.ok).toBe(false)
+    expect(failed.lines).toEqual(['systemctl: 交互认证被拒绝'])
   })
 })

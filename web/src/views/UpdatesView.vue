@@ -58,12 +58,22 @@ import {
   parsePackageNames,
   type PackageAction,
 } from '@/api/packageactions'
+import {
+  POWER_ACTION,
+  POWER_DELAY_DEFAULT,
+  POWER_OPERATION_VERBS,
+  powerConfirmLines,
+  powerNeedsReauth,
+  powerParams,
+  type PowerOperation,
+} from '@/api/power'
 import ApiErrorPanel from '@/components/ApiErrorPanel.vue'
+import PowerControlCard from '@/components/PowerControlCard.vue'
 import StatTile from '@/components/StatTile.vue'
 import StatePanel from '@/components/StatePanel.vue'
 import StorageActionDialog from '@/components/StorageActionDialog.vue'
 import { formatAge, formatTimestamp } from '@/utils/format'
-import { summarizePackageJob } from '@/utils/jobresult'
+import { summarizePackageJob, summarizePowerJob } from '@/utils/jobresult'
 import { apiPanelState, retryablePanelState } from '@/utils/viewstate'
 
 type Phase = 'loading' | 'ready' | 'error'
@@ -317,6 +327,56 @@ function onWriteFinished(): void {
   void load()
 }
 
+// ── 电源动作（P11.3） ──────────────────────────────────────────────────────
+//
+// 一个动作，两个操作。这一页能提供的只有三样东西：选重启还是关机、选倒计时多长、
+// 以及把代价说清楚。真正的执行在预检 → 任务那条链路上（与前面四个包动作同一个对话框），
+// 这里**没有**任何“立刻重启”的快捷方式。
+//
+// 三条不能含糊的说法：
+//   - 受理 ≠ 发生：systemctl 返回 0 只证明命令交出去了；
+//   - 关机之后面板什么都读不到：连接断开符合预期，但不构成关机成功的证据；
+//   - 取消只在命令下发之前有效，倒计时就是为这个存在的窗口。
+
+const powerOpen = ref(false)
+const powerOperation = ref<PowerOperation>('reboot')
+const powerDelay = ref<number>(POWER_DELAY_DEFAULT)
+
+const powerDialogParams = computed<Record<string, unknown> | null>(() =>
+  powerParams(powerOperation.value, powerDelay.value),
+)
+
+const powerDialogTitle = computed(
+  () => `${POWER_OPERATION_VERBS[powerOperation.value]}（倒计时 ${powerDelay.value} 秒）`,
+)
+
+const powerDialogLines = computed<string[]>(() =>
+  powerConfirmLines(powerOperation.value, powerDelay.value),
+)
+
+/**
+ * 独立确认的勾选文案：与操作相关，因为两种操作的代价不一样。
+ *
+ * 它不是安全边界（真正的门槛是再认证与预检），是让人在按下之前读一遍那句话。
+ */
+const powerAcknowledgeLabel = computed(() =>
+  powerOperation.value === 'poweroff'
+    ? '我知道：关机后这台机器不会自己开机，需要有人到现场或通过带外管理上电；面板无法确认电源是否真的切断。'
+    : '我知道：重启会断开所有连接，正在跑的任务会中断；面板只能用 boot_id 的变化确认它真的重启过。',
+)
+
+function openPower(operation: PowerOperation, delaySeconds: number): void {
+  powerOperation.value = operation
+  powerDelay.value = delaySeconds
+  powerOpen.value = true
+}
+
+function onPowerFinished(): void {
+  // 重启之后这次请求多半读不回事实（代理正在起来），load() 失败就让页面如实报错；
+  // 新的 boot_id 会在下一次成功读取时显示。
+  void load()
+}
+
 onMounted(() => {
   void load()
 })
@@ -476,6 +536,14 @@ onMounted(() => {
         <p v-if="power" class="updates__line updates__meta">{{ powerLine }}</p>
       </NCard>
 
+      <!-- 电源动作（P11.3）：重启 / 关机。有倒计时、可取消、受理不是发生。 -->
+      <PowerControlCard
+        :reboot-required="power?.reboot_required ?? false"
+        :boot-id="power?.boot_id ?? ''"
+        :collected-at="power?.collected_at ?? null"
+        @request="openPower"
+      />
+
       <!-- 升级清单 -->
       <NCard size="small" title="可升级清单">
         <p class="updates__line">
@@ -612,6 +680,18 @@ onMounted(() => {
         :summarizer="summarizePackageJob"
         @finished="onWriteFinished"
       />
+
+      <StorageActionDialog
+        v-model:show="powerOpen"
+        :action="POWER_ACTION"
+        :title="powerDialogTitle"
+        :params="powerDialogParams"
+        :confirm-lines="powerDialogLines"
+        :needs-reauth="powerNeedsReauth()"
+        :acknowledge-label="powerAcknowledgeLabel"
+        :summarizer="summarizePowerJob"
+        @finished="onPowerFinished"
+      />
     </template>
   </section>
 </template>
@@ -713,6 +793,14 @@ onMounted(() => {
   gap: 8px;
   align-items: center;
   margin-bottom: 8px;
+}
+
+.updates__select {
+  padding: 2px 6px;
+  border: 1px solid #d0d3d9;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
 }
 
 .updates__pager {

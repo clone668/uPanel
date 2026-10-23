@@ -53,6 +53,28 @@ export interface JobDTO {
   updated_at: string
   started_at: string | null
   finished_at: string | null
+  /**
+   * 电源任务的事后核对（P11.3）。
+   *
+   * 只有 action 为 `system.power` 且 `result.outcome` 为 accepted 的任务才有内容；
+   * 其余任务、以及列表接口里一律是 null——null 说的是“这个问题对这条任务不成立”，
+   * 不是“还没查到”。措辞（label、颜色、怎么说才不算撒谎）在 api/power.ts 里。
+   */
+  power_check: PowerCheckDTO | null
+}
+
+/** 电源核对状态（闭集）：变了 / 没变 / 连不上 / 查不清。 */
+export type PowerCheckState = 'confirmed' | 'unchanged' | 'unreachable' | 'unknown'
+
+export interface PowerCheckDTO {
+  operation: 'reboot' | 'poweroff'
+  state: PowerCheckState
+  /** boot_id_before 与 boot_id_now 的比对结果；unreachable/unknown 下它不代表“没变”。 */
+  changed: boolean
+  boot_id_before: string
+  boot_id_now: string
+  checked_at: string
+  message: string
 }
 
 export interface JobListData {

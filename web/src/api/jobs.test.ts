@@ -35,6 +35,7 @@ function job(overrides: Partial<JobDTO> = {}): JobDTO {
     updated_at: '2026-10-20T09:00:02Z',
     started_at: '2026-10-20T09:00:01Z',
     finished_at: null,
+    power_check: null,
     ...overrides,
   }
 }

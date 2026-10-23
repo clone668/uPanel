@@ -78,6 +78,9 @@ type Source interface {
 // Service 把事实变成判断。
 type Service struct {
 	source Source
+	// now 是时钟。只有电源任务的核对需要它（"什么时候核对的"要给出去）；
+	// 其余判断都不看时间，所以它是唯一一处。
+	now func() time.Time
 }
 
 // New 构造服务。source 为 nil 时报错：一个"永远空"的包列表比 503 更能骗人。
@@ -85,7 +88,7 @@ func New(source Source) (*Service, error) {
 	if source == nil {
 		return nil, errors.New("packages: 需要事实来源")
 	}
-	return &Service{source: source}, nil
+	return &Service{source: source, now: time.Now}, nil
 }
 
 // Entry 是一个包在页面上的样子（PackageEntry）。

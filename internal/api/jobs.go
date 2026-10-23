@@ -15,6 +15,7 @@ import (
 	"upanel/internal/auth"
 	"upanel/internal/httpx"
 	"upanel/internal/operations"
+	"upanel/internal/packages"
 )
 
 // 本文件实现 CONTRACTS.md 4.2 与 4.3 里的任务接口。
@@ -59,6 +60,12 @@ type jobResponse struct {
 	UpdatedAt             string          `json:"updated_at"`
 	StartedAt             *string         `json:"started_at"`
 	FinishedAt            *string         `json:"finished_at"`
+	// PowerCheck 只对 system.power 且 result.outcome=accepted 的任务出现（P11.3）。
+	//
+	// 它是**事后核对**，不是任务状态的一部分：任务本身早就终态了（accepted 就是它
+	// 的终态），这一节回答的是"那么它到底发生了没有"。重启靠 boot_id 变化回答，
+	// 关机只能回答"代理还在不在"。详见 internal/packages/powercheck.go。
+	PowerCheck *packages.PowerCheckView `json:"power_check"`
 }
 
 // handleCreateJob 处理 POST /api/v1/jobs（admin，需 CSRF，必须带 Idempotency-Key）。
@@ -161,7 +168,13 @@ func (s *Server) handleGetJob(c *gin.Context) {
 		s.writeJobError(c, &sess, audit.ActionJobSubmit, "job:"+c.Param("id"), err)
 		return
 	}
-	httpx.WriteData(c.Writer, c.Request, http.StatusOK, jobDTO(job))
+	out := jobDTO(job)
+	// 单个任务才做这次核对：列表一次几十条，每条去问一次代理既慢又没意义——
+	// 列表只需要状态，结论在详情里看。
+	if s.opts.Packages != nil {
+		out.PowerCheck = s.opts.Packages.PowerJobCheck(c.Request.Context(), job.Action, job.Result)
+	}
+	httpx.WriteData(c.Writer, c.Request, http.StatusOK, out)
 }
 
 // handleCancelJob 处理 POST /api/v1/jobs/:id/cancel（admin，需 CSRF）。

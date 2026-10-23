@@ -12,6 +12,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -51,6 +52,9 @@ type PackagesReader interface {
 	List(ctx context.Context, q packages.ListQuery) (packages.List, error)
 	Updates(ctx context.Context) (packages.Updates, error)
 	PowerState(ctx context.Context) (packages.PowerStateView, error)
+	// PowerJobCheck 给一条已完成的电源任务补一次 boot_id 核对（P11.3）。
+	// 不适用时返回 nil；永不为它返回错误——它是任务的附带说明，不能拖垮任务查询。
+	PowerJobCheck(ctx context.Context, action string, result json.RawMessage) *packages.PowerCheckView
 }
 
 // handleListPackages 处理 GET /api/v1/packages（admin）。

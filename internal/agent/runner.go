@@ -28,11 +28,21 @@ type runner struct {
 	locks   *lockManager
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc
+	// actions 记住每个在跑的操作是什么动作。
+	//
+	// 为什么不能只留 id：P11.3 的电源动作要告诉管理员“现在有 package.install（op_…）
+	// 正在跑，所以不能重启”。只说 op_xxx 等于让人自己去翻任务页。
+	actions map[string]string
 	wg      sync.WaitGroup
 }
 
 func newRunner(s *Server) *runner {
-	return &runner{srv: s, locks: newLockManager(), cancels: make(map[string]context.CancelFunc)}
+	return &runner{
+		srv:     s,
+		locks:   newLockManager(),
+		cancels: make(map[string]context.CancelFunc),
+		actions: make(map[string]string),
+	}
 }
 
 // start 开始执行一个已接受的操作。
@@ -43,6 +53,7 @@ func (r *runner) start(op agentstore.Operation) {
 	ctx, cancel := context.WithTimeout(context.Background(), OperationTimeout)
 	r.mu.Lock()
 	r.cancels[op.ID] = cancel
+	r.actions[op.ID] = op.Action
 	r.mu.Unlock()
 
 	r.wg.Add(1)
@@ -51,6 +62,7 @@ func (r *runner) start(op agentstore.Operation) {
 		defer func() {
 			r.mu.Lock()
 			delete(r.cancels, op.ID)
+			delete(r.actions, op.ID)
 			r.mu.Unlock()
 			cancel()
 		}()
@@ -83,6 +95,28 @@ func (r *runner) running() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.cancels)
+}
+
+// runningOperation 是一个在跑的操作（给“关键任务”判定用）。
+type runningOperation struct {
+	ID     string
+	Action string
+}
+
+// runningOperations 列出在跑的操作，排除 exclude（调用者自己）。
+//
+// 排除自己是必须的：电源动作在执行时自己也在跑，不排掉就会永远撞见“有写操作正在执行”。
+func (r *runner) runningOperations(exclude string) []runningOperation {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]runningOperation, 0, len(r.cancels))
+	for id, action := range r.actions {
+		if id == exclude {
+			continue
+		}
+		out = append(out, runningOperation{ID: id, Action: action})
+	}
+	return out
 }
 
 // execute 是执行一个操作的全过程。
@@ -135,7 +169,7 @@ func (r *runner) execute(ctx context.Context, op agentstore.Operation) {
 		SessionHash:         op.SessionHash,
 	}
 	now := s.nowUTC().Truncate(time.Second)
-	if err := s.revalidate(ctx, action, plan, now); err != nil {
+	if err := s.revalidate(ctx, action, plan, now, op.ID); err != nil {
 		var rej *rejection
 		if errors.As(err, &rej) {
 			s.finishFailed(ctx, op.ID, "revalidate", string(rej.code), rej.message, "重新预检后再提交")

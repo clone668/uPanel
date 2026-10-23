@@ -489,3 +489,83 @@ export function summarizePackageJob(
         : '执行完成，下面是读回的现场读数'
   return { ok: true, headline, lines, hint }
 }
+
+// ── 电源任务（P11.3） ──────────────────────────────────────────────────────
+//
+// 电源任务的结果只有一种：accepted。它说的是“命令交出去了”，不是“机器重启了”。
+// 所以这里的翻译不写“重启成功”，而是把三件事摊开：
+//
+//   1. 交出去的是什么命令、什么时候交的（observed_state 的原文）；
+//   2. 受理不等于发生——这句话必须出现在结论行里，不能只在文档里；
+//   3. 如果服务端已经在详情里做了 boot_id 核对（power_check），把那句话带上：
+//      变了才是 confirmed，没变就是“还没发生”，连不上就直说连不上。
+
+const POWER_OUTCOME_LABELS: Record<string, string> = {
+  accepted: '命令已交给 systemctl 并拿到返回码——这与“机器真的重启/关机了”是两件事',
+  canceled: '倒计时期间取消：命令没有交出去，机器没有动',
+}
+
+export function summarizePowerJob(
+  job: Pick<JobDTO, 'status' | 'result' | 'error' | 'power_check'>,
+): JobOutcomeSummary {
+  const error = asRecord(job.error)
+  const errorMessage = readString(error, 'message')
+  const hint = readString(error, 'recovery_hint')
+
+  if (job.status !== 'succeeded') {
+    const canceled = job.status === 'canceled'
+    const headline = canceled
+      ? '已取消：倒计时里停下的，systemctl 没有被调用'
+      : job.status === 'interrupted'
+        ? '任务被中断，结果未知：命令可能已经交出去，先确认机器是否还连着'
+        : '任务失败：命令没有交出去，机器不受影响'
+    return { ok: false, headline, lines: errorMessage === null ? [] : [errorMessage], hint }
+  }
+
+  const result = asRecord(job.result) ?? {}
+  const observed = asRecord(result['observed_state'])
+  const lines: string[] = []
+
+  const outcome = readString(result, 'outcome')
+  if (outcome !== null) lines.push(POWER_OUTCOME_LABELS[outcome] ?? `服务端结论：${outcome}`)
+
+  const operation = readString(observed, 'operation')
+  if (operation !== null) lines.push(`操作：${operation === 'poweroff' ? '关机' : '重启'}`)
+
+  const delay = observed?.['delay_seconds']
+  if (typeof delay === 'number') lines.push(`倒计时：${delay} 秒`)
+
+  const bootBefore = readString(observed, 'boot_id_before')
+  if (bootBefore !== null) lines.push(`下发前的 boot_id：${bootBefore}`)
+
+  const issuedAt = readString(observed, 'issued_at')
+  if (issuedAt !== null) lines.push(`下发时间：${issuedAt}`)
+
+  const command = readString(observed, 'command')
+  if (command !== null) lines.push(`命令：${command}`)
+
+  const exitCode = observed?.['exit_code']
+  if (typeof exitCode === 'number') lines.push(`systemctl 退出码：${exitCode}`)
+
+  const check = job.power_check ?? null
+  if (check !== null && check.message !== '') {
+    lines.push(`核对（${check.state}）：${check.message}`)
+    if (check.boot_id_now !== '') lines.push(`现在的 boot_id：${check.boot_id_now}`)
+  } else if (operation === 'poweroff') {
+    lines.push('关机之后代理会消失，面板读不到任何状态：连接断开符合预期，但不构成关机成功的证据。')
+  } else {
+    lines.push('重启是否真的发生要看 boot_id 有没有变化；任务中心的任务详情里会给出核对结果。')
+  }
+
+  const headline =
+    check === null
+      ? '请求已受理（不是已重启）：下面这些是下发那一刻的现场读数'
+      : check.state === 'confirmed'
+        ? '已确认：boot_id 变了，机器确实重新启动过'
+        : check.state === 'unchanged'
+          ? '请求已受理，但机器仍在原来那次开机上：重启还没有发生'
+          : check.state === 'unreachable'
+            ? '请求已受理，但代理现在连不上：最终状态读不到'
+            : '请求已受理，但这次核对查不清：boot_id 读不出来'
+  return { ok: true, headline, lines, hint }
+}

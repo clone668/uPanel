@@ -42,6 +42,8 @@ import {
   type JobLogEntry,
 } from '@/api/jobs'
 import { openJobStream, type JobStreamHandle, type JobStreamState } from '@/api/jobstream'
+import { readPowerCheck } from '@/api/power'
+import PowerCheckPanel from '@/components/PowerCheckPanel.vue'
 import ApiErrorPanel from '@/components/ApiErrorPanel.vue'
 import StatePanel from '@/components/StatePanel.vue'
 import { useSessionStore } from '@/stores/session'
@@ -77,6 +79,13 @@ const selectedJob = computed<JobDTO | null>(() => detail.value)
 const showCancel = computed(() =>
   selectedJob.value ? canCancel(selectedJob.value, session.role) : false,
 )
+/**
+ * 电源任务的事后核对（P11.3）：重启靠 boot_id 有没有变来回答。
+ *
+ * 它只出现在 `system.power` 且结果为 accepted 的任务上（服务端现场读一次代理）。
+ * 读不到就没这一节——不是显示成“未确认”，因为对别的任务这个问题根本不成立。
+ */
+const powerCheck = computed(() => readPowerCheck(detail.value))
 const streamLabel = computed(() => {
   if (!session.isAdmin) return '不订阅（仅管理员可见事件流）'
   switch (streamState.value) {
@@ -409,6 +418,9 @@ onBeforeUnmount(() => {
           只有管理员可以请求取消。
         </p>
 
+        <section v-if="powerCheck !== null" class="jobs__block">
+          <PowerCheckPanel :check="powerCheck" />
+        </section>
         <section v-if="detail.result && Object.keys(detail.result).length > 0" class="jobs__block">
           <h3 class="jobs__heading">结果</h3>
           <pre class="jobs__pre">{{ JSON.stringify(detail.result, null, 2) }}</pre>
@@ -491,6 +503,7 @@ onBeforeUnmount(() => {
   font-size: 12px;
   opacity: 0.75;
 }
+
 
 .jobs__error-title {
   margin: 0;

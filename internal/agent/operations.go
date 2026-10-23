@@ -235,7 +235,7 @@ func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
 	// 而不是让连接先断——断了 Web 只会看到 EOF，把一次正常的慢提交记成"代理不可用"。
 	revalCtx, cancel := planBudgetContext(r.Context(), action)
 	defer cancel()
-	if err := s.revalidate(revalCtx, action, plan, now); err != nil {
+	if err := s.revalidate(revalCtx, action, plan, now, ""); err != nil {
 		var rej *rejection
 		if errors.As(err, &rej) {
 			httpx.WriteError(w, r, rej.status, rej.code, rej.message)
@@ -522,7 +522,12 @@ func (r *rejection) Error() string { return r.message }
 // 这一步是 PREFLIGHT_STALE / DEVICE_IDENTITY_CHANGED 的唯一来源：预检只是“当时”的快照，
 // 从预检到执行之间设备可能被换掉、分区表可能被改过，此时执行旧计划就是在改一个
 // 计划里没有的对象。重新规划比“相信 120 秒前的快照”贵，但它挡住的是真实的数据损失。
-func (s *Server) revalidate(ctx context.Context, action Action, plan agentstore.PreflightPlan, now time.Time) error {
+// revalidate 是执行前的第二次复核：拿预检里的规范化参数重算计划，比对目标身份与
+// 状态版本。
+//
+// operationID 非空表示调用方是“这个操作自己的执行器”——动作会把它从“在跑的任务”
+// 里排掉。接受路径传空串（那时操作还没进执行器）。
+func (s *Server) revalidate(ctx context.Context, action Action, plan agentstore.PreflightPlan, now time.Time, operationID string) error {
 	params, err := action.Decode(plan.Params)
 	if err != nil {
 		return fmt.Errorf("预检参数无法解码（动作实现与预检不一致）: %w", err)
@@ -533,6 +538,7 @@ func (s *Server) revalidate(ctx context.Context, action Action, plan agentstore.
 		PreflightRef: plan.ID,
 		Now:          now,
 		ExpiresAt:    plan.ExpiresAt,
+		OperationID:  operationID,
 	})
 	if err != nil {
 		// 两个 %w：上层既要知道"预检器失败"（ErrPlanFailed），也要能认出

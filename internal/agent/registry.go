@@ -224,6 +224,12 @@ type PlanInput struct {
 	Now time.Time
 	// ExpiresAt 是本计划的到期时间（Now + PreflightTTL）。
 	ExpiresAt time.Time
+	// OperationID 是“执行前复核时，这个计划属于哪个操作”。
+	//
+	// 预检阶段为空串——那时操作还不存在。执行前复核会填上，动作据此把自己从
+	// “在跑的任务”里排掉（system.power 的硬条件就是查在跑任务，不排掉就会自己
+	// 拒掉自己）。
+	OperationID string
 }
 
 // Plan 是动作的预检结果。Allowed 为 false 时 Blockers 必须非空——否则“不允许”
@@ -588,6 +594,17 @@ func RegisterProductionActions(reg *Registry, deps ProductionDeps) error {
 		// 装配条件在 cmd/upanel-agent 里：只有 apt-get 与 dpkg-query 都在时才有实现端
 		// （只有 apt-get 时跑得起来却核对不了结果，那正是本阶段拒绝的“命令成功就算成功”）。
 		if err := RegisterPackageActions(reg, deps.AptWrites); err != nil {
+			return err
+		}
+	}
+	if deps.Power != nil {
+		// 系统电源（P11.3）：一个动作，两个操作（reboot / poweroff）。
+		//
+		// 它登记的条件比别的动作苛刻一点，因为它**没有 dry-run**：预检能说明“现在能不能重启”，
+		// 不能说明“重启之后会怎样”。所以装配层只在真的能读到 boot_id、能找到 systemctl
+		// 的机器上把它接进来——读不到 boot_id 的机器上，重启之后无法确认是否发生过，
+		// 那正是本阶段禁止的“说不清”。
+		if err := RegisterPowerAction(reg, deps.Power); err != nil {
 			return err
 		}
 	}

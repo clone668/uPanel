@@ -13,11 +13,21 @@
 // 没有第二条执行路径：这里调的仍然是 POST /operations/preflight + POST /jobs。
 
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { NAlert, NButton, NInput, NModal, NTag } from 'naive-ui'
+import { NAlert, NButton, NCheckbox, NInput, NModal, NTag } from 'naive-ui'
 
 import { reauthPassword } from '@/api/auth'
 import { ApiError } from '@/api/client'
-import { JOB_STATUS_LABELS, JOB_STATUS_TYPES, isTerminal, type JobDTO, type JobStatus } from '@/api/jobs'
+import {
+  JOB_STATUS_LABELS,
+  JOB_STATUS_TYPES,
+  canCancel,
+  cancelJob,
+  isTerminal,
+  type JobDTO,
+  type JobStatus,
+} from '@/api/jobs'
+import { POWER_ACTION, readCountdownSeconds } from '@/api/power'
+import { openJobStream, type JobStreamHandle } from '@/api/jobstream'
 import {
   createPreflight,
   fetchJobStatus,
@@ -52,7 +62,16 @@ const props = defineProps<{
    * 共享与账号动作的结果字段完全不同（samba_config / served / startup_deps），
    * 由调用方传入自己的翻译器，而不是让这个组件按动作名分叉——分叉会随着动作变多而烂掉。
    */
-  summarizer?: (job: Pick<JobDTO, 'status' | 'result' | 'error'>) => JobOutcomeSummary
+  summarizer?: (job: Pick<JobDTO, 'status' | 'result' | 'error' | 'power_check'>) => JobOutcomeSummary
+  /**
+   * 需要一次**独立确认**时给的勾选文案（P11.3 的电源动作）。
+   *
+   * 服务端不给这类动作生成确认短语——短语是防手滑的口令，而重启/关机的代价是
+   * “所有会话断掉、可能还要有人去现场开机”，那是要人自己点头的事，不是抄一串字符。
+   * 所以这里是一个必须手动勾上的框：勾不上，提交按钮就是灰的。它**不是**安全边界，
+   * 服务端真正的门槛是再认证；它只是不让“连点两下”完成一次关机。
+   */
+  acknowledgeLabel?: string
 }>()
 
 const emit = defineEmits<{ 'update:show': [boolean]; finished: [JobStatus] }>()
@@ -76,12 +95,19 @@ const preflight = ref<PreflightData | null>(null)
 const actionError = ref<string | null>(null)
 const phrase = ref('')
 const password = ref('')
+const jobId = ref('')
+const jobSnapshot = ref<JobDTO | null>(null)
 const jobStatus = ref<JobStatus | null>(null)
 const jobStep = ref('')
 const outcome = ref<JobOutcomeSummary | null>(null)
 const idempotencyKey = ref('')
+const acknowledged = ref(false)
+const canceling = ref(false)
+/** 服务端倒计时的剩余秒数（来自进度事件）。null = 这一条不是倒计时，或读不到。 */
+const countdown = ref<number | null>(null)
 const now = ref(new Date())
 let timer: ReturnType<typeof setInterval> | null = null
+let stream: JobStreamHandle | null = null
 let disposed = false
 
 const expired = computed(() => (preflight.value ? isPreflightExpired(preflight.value, now.value) : false))
@@ -95,15 +121,22 @@ const reauthNotice = computed(
   () => props.needsReauth === true || preflight.value?.requires_reauth === true,
 )
 const busy = computed(() => phase.value === 'preflight' || phase.value === 'submitting' || phase.value === 'tracking')
+const acknowledgedOK = computed(() => props.acknowledgeLabel === undefined || acknowledged.value)
 const canSubmit = computed(
   () =>
     preflight.value !== null &&
     preflight.value.allowed &&
     phraseMatches.value &&
+    acknowledgedOK.value &&
     !busy.value &&
     !expired.value,
 )
 const jobTagType = computed(() => (jobStatus.value === null ? 'default' : JOB_STATUS_TYPES[jobStatus.value]))
+/** 取消入口：契约说可取消、任务没结束、还没请求过取消（判决在 api/jobs.ts 里）。 */
+const jobCancelable = computed(() =>
+  jobSnapshot.value === null ? false : canCancel(jobSnapshot.value, session.isAdmin ? 'admin' : 'viewer'),
+)
+const countdownText = computed(() => (countdown.value === null ? null : `${countdown.value} 秒`))
 
 function errorText(caught: unknown): string {
   if (caught instanceof ApiError) return caught.message
@@ -118,17 +151,56 @@ function stopTimer(): void {
   }
 }
 
+/** 关掉倒计时事件流。组件卸载、换动作、任务终态都要关，否则每条任务留一条连接。 */
+function stopStream(): void {
+  if (stream !== null) {
+    stream.close()
+    stream = null
+  }
+}
+
+/**
+ * 开一条只为了“剩余秒数”的事件流（仅电源动作）。
+ *
+ * 为什么不自己数秒：切标签页、机器休眠、系统时钟被 NTP 拽一下，本地计时都会漂；
+ * 而倒计时的长短决定了“还来不来得及取消”，这件事不能靠猜。代理每 5 秒写一条
+ * `step=countdown` 的事件，那是唯一权威的数字。
+ *
+ * 打不开就算了（浏览器不支持 EventSource、服务端限流）：任务照常轮询，界面只是
+ * 不显示秒数——不显示，而不是显示一个编出来的数。
+ */
+function startStream(job: string): void {
+  if (props.action !== POWER_ACTION) return
+  try {
+    stream = openJobStream(job, {
+      onEvent: (event) => {
+        if (event.kind !== 'progress') return
+        const seconds = readCountdownSeconds(event.payload)
+        if (seconds !== null) countdown.value = seconds
+      },
+    })
+  } catch {
+    stream = null
+  }
+}
+
 function reset(): void {
   phase.value = 'idle'
   preflight.value = null
   actionError.value = null
   phrase.value = ''
   password.value = ''
+  jobId.value = ''
+  jobSnapshot.value = null
   jobStatus.value = null
   jobStep.value = ''
   outcome.value = null
   idempotencyKey.value = ''
+  acknowledged.value = false
+  canceling.value = false
+  countdown.value = null
   stopTimer()
+  stopStream()
 }
 
 async function runPreflight(): Promise<void> {
@@ -175,6 +247,7 @@ async function submit(): Promise<void> {
       // 20 秒会在前端掐断一个其实已经建好的任务。
       timeoutMs: submitTimeoutFor(props.action),
     })
+    jobId.value = submitted.data.job_id
     jobStatus.value = 'queued'
     phase.value = 'tracking'
     await track(submitted.data.job_id)
@@ -192,35 +265,79 @@ async function submit(): Promise<void> {
   }
 }
 
-async function track(jobId: string): Promise<void> {
+async function track(job: string): Promise<void> {
   const limit = jobPollLimitFor(props.action)
-  for (let attempt = 0; attempt < limit; attempt += 1) {
-    if (disposed) return
-    try {
-      const result = await fetchJobStatus(jobId)
+  startStream(job)
+  try {
+    for (let attempt = 0; attempt < limit; attempt += 1) {
       if (disposed) return
-      jobStatus.value = result.data.status
-      jobStep.value = result.data.step
-      if (isTerminal(result.data.status)) {
-        outcome.value = (props.summarizer ?? summarizeStorageJob)(result.data)
+      try {
+        const result = await fetchJobStatus(job)
+        if (disposed) return
+        jobSnapshot.value = result.data
+        jobStatus.value = result.data.status
+        jobStep.value = result.data.step
+        if (isTerminal(result.data.status)) {
+          outcome.value = (props.summarizer ?? summarizeStorageJob)(result.data)
+          phase.value = 'done'
+          countdown.value = null
+          stopTimer()
+          stopStream()
+          emit('finished', result.data.status)
+          return
+        }
+      } catch (caught) {
+        if (disposed) return
+        // 读任务失败不等于任务失败：保留“未知”，让人去任务中心看。
+        actionError.value = `${errorText(caught)}（任务 ${job} 仍在执行，请到任务中心核对）`
         phase.value = 'done'
         stopTimer()
-        emit('finished', result.data.status)
+        stopStream()
         return
       }
-    } catch (caught) {
-      if (disposed) return
-      // 读任务失败不等于任务失败：保留“未知”，让人去任务中心看。
-      actionError.value = `${errorText(caught)}（任务 ${jobId} 仍在执行，请到任务中心核对）`
-      phase.value = 'done'
-      stopTimer()
-      return
+      await new Promise((resolve) => setTimeout(resolve, JOB_POLL_MS))
     }
-    await new Promise((resolve) => setTimeout(resolve, JOB_POLL_MS))
+    actionError.value = `任务在 ${(limit * JOB_POLL_MS) / 1000} 秒内没有到达终态；请到任务中心查看最新状态。`
+    phase.value = 'done'
+    stopTimer()
+    stopStream()
+  } finally {
+    // 任何出口都不留连接（服务端按用户限制并发）。
+    stopStream()
   }
-  actionError.value = `任务在 ${(limit * JOB_POLL_MS) / 1000} 秒内没有到达终态；请到任务中心查看最新状态。`
-  phase.value = 'done'
-  stopTimer()
+}
+
+/**
+ * 请求取消（P11.3 起用于电源动作的倒计时）。
+ *
+ * 取消是**请求**：服务端可能已经过了可打断的边界，那时返回 409 或任务最终以
+ * failed 结束。所以这里既不说“已取消”，也不把 409 说成失败——按原话说。
+ */
+async function requestCancel(): Promise<void> {
+  if (jobId.value === '') return
+  canceling.value = true
+  actionError.value = null
+  try {
+    const result = await cancelJob(jobId.value)
+    jobSnapshot.value = result.data
+    jobStatus.value = result.data.status
+    if (isTerminal(result.data.status)) {
+      outcome.value = (props.summarizer ?? summarizeStorageJob)(result.data)
+      phase.value = 'done'
+      countdown.value = null
+      stopTimer()
+      stopStream()
+      emit('finished', result.data.status)
+    }
+  } catch (caught) {
+    const error = caught instanceof ApiError ? caught : null
+    actionError.value =
+      error !== null && error.status === 409
+        ? `服务端不接受这次取消（409）：${error.message}——以任务状态为准，不要重复点。`
+        : errorText(caught)
+  } finally {
+    canceling.value = false
+  }
 }
 
 function close(): void {
@@ -232,7 +349,10 @@ function onShowChange(value: boolean): void {
   if (value && props.params !== null) {
     void runPreflight()
   }
-  if (!value) stopTimer()
+  if (!value) {
+    stopTimer()
+    stopStream()
+  }
 }
 
 // 参数变了（表单改了）就重新预检：预检绑定的是参数与现场，换了参数必须重算。
@@ -246,6 +366,7 @@ watch(
 onBeforeUnmount(() => {
   disposed = true
   stopTimer()
+  stopStream()
 })
 </script>
 
@@ -334,6 +455,17 @@ onBeforeUnmount(() => {
           />
           <p v-if="!phraseMatches" class="dialog__warn">短语不一致，提交会被拒绝（400 CONFIRMATION_MISMATCH）。</p>
         </div>
+        <div v-if="acknowledgeLabel !== undefined" class="dialog__block">
+          <NCheckbox
+            :checked="acknowledged"
+            :disabled="busy"
+            data-testid="storage-acknowledge"
+            @update:checked="(value: boolean) => (acknowledged = value)"
+          >
+            {{ acknowledgeLabel }}
+          </NCheckbox>
+          <p v-if="!acknowledged" class="dialog__warn">勾上之后提交按钮才可用——这一次的代价是不可逆的连接中断。</p>
+        </div>
       </template>
 
       <template v-if="jobStatus !== null">
@@ -341,6 +473,9 @@ onBeforeUnmount(() => {
           任务状态
           <NTag size="small" :type="jobTagType">{{ JOB_STATUS_LABELS[jobStatus] }}</NTag>
           <span v-if="jobStep !== ''" class="dialog__muted">（{{ jobStep }}）</span>
+        </p>
+        <p v-if="countdownText !== null" class="dialog__line" data-testid="power-countdown">
+          服务端倒计时：还剩 {{ countdownText }}。取消请求在命令下发之前都是有效的。
         </p>
         <template v-if="outcome">
           <p class="dialog__line">{{ outcome.headline }}</p>
@@ -352,7 +487,17 @@ onBeforeUnmount(() => {
       </template>
 
       <div class="dialog__actions">
-        <NButton v-if="phase !== 'done'" secondary :disabled="busy" @click="close">取消</NButton>
+        <NButton v-if="phase !== 'done'" secondary :disabled="busy" @click="close">关闭</NButton>
+        <NButton
+          v-if="jobCancelable"
+          type="warning"
+          secondary
+          :loading="canceling"
+          data-testid="dialog-cancel-job"
+          @click="requestCancel"
+        >
+          请求取消
+        </NButton>
         <NButton v-if="phase !== 'done'" secondary :disabled="busy" @click="runPreflight">
           重新预检
         </NButton>

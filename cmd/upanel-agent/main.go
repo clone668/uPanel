@@ -244,6 +244,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// 所以这里先建一个待接线的适配器交给 storage，等共享模块与采集器都齐了再 Fill。
 	// 没接线之前它返回错误，卷的卸载/格式化/退出管理会被拒——漏接线不该表现成“没有依赖”。
 	shareDeps := agent.NewShareDependents()
+	// P11.3：电源动作要知道“现在有没有写操作在跑”（STAGES §13 的“关键任务运行时拒绝电源操作”）。
+	// 与上面同一个环：动作登记表在本函数里、Server 建好之前就要挂上去，而“谁在跑”只有
+	// Server 知道。所以先建持有者，等 srv 出来再 Bind。没 Bind 之前它返回错误——查不到
+	// 不等于没有，一次重启把别人的写操作断在半路的代价太高。
+	powerDeps := agent.NewPowerDependents()
 	storageEnv := storage.SystemEnv()
 	storageEnv.Dependents = shareDeps.Probe
 
@@ -689,6 +694,23 @@ func run(args []string, stdout, stderr io.Writer) int {
 			"hint", "这台机器不是 Debian 系发行版；包管理相关入口不会出现在能力表里")
 	}
 
+	// 系统电源（P11.3）。登记条件只有一条：找得到 systemctl。boot_id 与 /run/systemd/system
+	// 是运行时事实，留给预检判——装配时判一次就永远相信，正是本轮要避免的姿态。
+	// 倒计时由代理持有（不是立刻下发再让页面倒数），所以“取消”是真的；见 internal/power。
+	powerExec := newPowerExecutor(powerDeps)
+	if powerAvailable(powerExec) {
+		logger.Info("已启用系统电源动作",
+			"systemctl", powerExec.Paths().Systemctl,
+			"boot_id", powerExec.Paths().BootID,
+			"scope", "system.power：reboot / poweroff，延迟 30—300 秒，倒计时在代理里、期间可取消；"+
+				"执行结果只报 accepted，重启是否真的发生由下次开机后的 boot_id 比对回答")
+	} else {
+		logger.Warn("系统电源动作未启用",
+			"reason", "找不到可执行的 systemctl",
+			"hint", "system.power 不会出现在能力表里；这台机器上重启/关机请用命令行")
+		powerExec = nil
+	}
+
 	// 动作登记表：生产表自 P05.1 起有 service.control，P05.2 起有 process.signal（受保护名单与读回验证见 internal/services）。
 	// 验收表只能靠显式参数启用，且动作全部以 acceptance. 开头、不读写任何系统资源。
 	registry := agent.NewRegistry()
@@ -718,6 +740,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	if aptWriter != nil {
 		deps.AptWrites = aptWriter
+	}
+	// 同上：只在真的有时才赋给接口，否则能力表会多出一个调用就 panic 的入口。
+	if powerExec != nil {
+		deps.Power = powerExec
 	}
 	// 只在真的有时才赋给接口：nil 的 *proxies.Applier 塞进接口会变成一个非 nil
 	// 的接口值，能力表于是多出一个调用就 panic 的入口。
@@ -788,6 +814,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		logger.Error("初始化代理失败", "error", err)
 		return 1
 	}
+	// 到这里执行器才存在：system.power 的“关键任务”判定从此有来源。
+	// 之前它返回错误 → 预检拒绝 → 不会出现“没检查就重启”。
+	bindPower(powerDeps, srv)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -73,6 +73,10 @@ type ProductionDeps struct {
 	// package.install / package.remove / package.upgrade：没有 apt-get 与锁探测的接线时，
 	// 一个"点了才报错"的卸载按钮比没有按钮更危险（人会以为这次操作已经在排队）。
 	AptWrites PackageWrites
+	// Power 是系统电源的实现端（P11.3）。为 nil 时不登记 system.power：
+	// 没有 systemctl、没有 boot_id 读取端的机器上，“重启”这个按钮只能做到
+	// “点了以后面板说自己已经受理了”，而那正是 PLAN §16 禁止的表述。
+	Power PowerSource
 }
 
 // newSystemSummaryQuery 登记 system.summary：无参数，返回采集器最近一次快照。

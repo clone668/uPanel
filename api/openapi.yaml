@@ -3078,6 +3078,11 @@ paths:
         result 至少包含 outcome（verified、accepted、rolled_back、partial、unknown）、
         verified_at、observed_state、recovery_hint；只有核验过真实结果的任务才是 succeeded。
         cancellation_requested 是独立布尔字段：它表示“已请求取消”，不是“已取消”。
+
+        `system.power`（重启/关机）的 result.outcome 只会是 accepted：命令交出去了，
+        机器还没重启。所以这类任务的详情里另外带着 `power_check`，由服务端现场读一次
+        代理的 boot_id 与前值比对；读不到就如实说 unreachable（关机后的常态）或 unknown。
+        列表接口不带这一节：几十条任务各问一次代理既慢又没意义，结论在详情里看。
       tags: [operations]
       parameters:
         - $ref: '#/components/parameters/JobId'
@@ -4852,9 +4857,11 @@ paths:
         `.pkgs` 的原文内容，`reboot_required_since` 是主文件的 mtime。
 
         面板**不自己推断**"装了内核所以要重启"：那是包自己的 postinst 写的文件，
-        我们只报告它。`boot_id` 供 P11.3 确认一次重启真的发生过（同一个值说明没重启）。
+        我们只报告它。`boot_id` 是重启任务的确认依据（P11.3）：同一个值说明没重启。
 
-        本节没有重启/关机动作——它们是 P11.3 的 `system.power`（预检 → 任务）。
+        重启/关机本身不在这里，是 `system.power`（预检 → 任务）。那个动作的结果只有
+        accepted，所以任务详情里另有一节 `power_check`，用 boot_id 的变化回答
+        "它到底发生了没有"。
       tags: [system]
       security:
         - upanelSession: []
@@ -5685,6 +5692,7 @@ components:
         - updated_at
         - started_at
         - finished_at
+        - power_check
       properties:
         job_id:
           type: string
@@ -5732,6 +5740,59 @@ components:
         finished_at:
           type: [string, 'null']
           description: 进入终态的时间；未结束为 null。
+        power_check:
+          oneOf:
+            - $ref: '#/components/schemas/PowerCheck'
+            - type: 'null'
+          description: 电源任务的事后核对；只对 system.power + accepted 的任务有内容，其余为 null。
+
+    PowerCheck:
+      type: object
+      additionalProperties: false
+      description: |
+        电源任务的事后核对（P11.3）。**只有** action 为 `system.power` 且
+        `result.outcome` 为 accepted 的任务才带着它，其余任务该字段为 null——null 说的是
+        “这个问题对这条任务不成立”，不是“还没查到”。
+
+        它回答的问题只有一个：这次重启/关机**到底发生了没有**。
+        受理（accepted）只证明 `systemctl` 收下了命令，不证明机器重启过。
+
+        reboot：拿任务里记下的 `boot_id_before` 与代理**此刻**的 boot_id 比。不同即 confirmed。
+        poweroff：代理正常会消失，所以 unreachable 是预期结果，但**不构成关机成功的证据**——
+        面板看不到电源灯，任何界面措辞都不得声称关机已验证。
+
+        这是任务的附加说明，不是任务状态：任务早已终态，核对失败也不会让 GET 任务报错，
+        只是如实落到 unreachable 或 unknown。
+      required: [operation, state, changed, boot_id_before, boot_id_now, checked_at, message]
+      properties:
+        operation:
+          type: string
+          enum: [reboot, poweroff]
+          description: 回显任务自己声称做的是哪件事。
+        state:
+          type: string
+          enum: [confirmed, unchanged, unreachable, unknown]
+          description: |
+            confirmed → boot_id 变了，重启确实发生过；
+            unchanged → 请求已受理，但机器还在原来那次开机上（可能仍在倒计时，也可能被取消）；
+            unreachable → 代理此刻连不上（关机后属于预期）；
+            unknown → 查不清（boot_id 读不出来，或任务里没记下基准）。
+        changed:
+          type: boolean
+          description: |
+            boot_id_before 与 boot_id_now 的比对结果。读不到时为 false，
+            必须配合 state 看：unreachable / unknown 下它不代表“没变”。
+        boot_id_before:
+          type: string
+          description: 下发那一刻的 boot_id（任务结果里记下的）；为空表示没记下基准。
+        boot_id_now:
+          type: string
+          description: 这次核对读到的 boot_id；读不到时为空串。
+        checked_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        message:
+          type: string
+          description: 已按操作与状态选好措辞的一句话，客户端可直接展示。
 
     JobData:
       $ref: '#/components/schemas/Job'

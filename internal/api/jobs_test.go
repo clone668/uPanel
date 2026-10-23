@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"upanel/internal/agentclient"
+	"upanel/internal/packages"
 )
 
 const jobTestPhrase = "PROBE K7M2QX"
@@ -490,4 +491,69 @@ func countJobs(t *testing.T, f *jobFixture) int {
 		t.Fatalf("统计任务失败: %v", err)
 	}
 	return n
+}
+
+// P11.3：任务详情里的 power_check 是读取端给的附加结论，不是任务状态。
+//
+// 三个点：非电源任务调用读取端但拿不到结论（JSON 里是 null）；读取端给了结论就原样
+// 出现在详情里；没有配置读取端（演示模式）时任务照常返回，不因为附加结论而 503。
+func TestGetJobPowerCheck(t *testing.T) {
+	f := newJobFixture(t, nil)
+	created := f.mustSubmitOK(t, "8b0f1d2c-3e4a-4b6c-9d8e-7f6a5b4c3d2e", jobTestPhrase)
+
+	at := time.Date(2026, 10, 23, 10, 0, 0, 0, time.UTC)
+	stub := &stubPackages{check: func(action string) *packages.PowerCheckView {
+		if action != "acceptance.probe" {
+			t.Errorf("读取端收到的 action = %q", action)
+		}
+		return &packages.PowerCheckView{
+			Operation:    "reboot",
+			State:        packages.PowerCheckConfirmed,
+			Changed:      true,
+			BootIDBefore: "ab2eb5e8-c1b4-4a00-a3d0-33ced7870abc",
+			BootIDNow:    "9f4d2c17-6a55-4c2e-8f31-0b7e5a1d9c40",
+			CheckedAt:    at,
+			Message:      "重启已确认",
+		}
+	}}
+	f.srv.opts.Packages = stub
+
+	rec := f.do(t, http.MethodGet, "/api/v1/jobs/"+created.JobID, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d；响应 %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		PowerCheck *packages.PowerCheckView `json:"power_check"`
+	}
+	if err := json.Unmarshal(parseResult(t, rec).Data, &got); err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if got.PowerCheck == nil || got.PowerCheck.State != packages.PowerCheckConfirmed || !got.PowerCheck.Changed {
+		t.Fatalf("power_check = %+v", got.PowerCheck)
+	}
+	if stub.checkCalls != 1 {
+		t.Errorf("详情应核对一次，实际 %d 次", stub.checkCalls)
+	}
+
+	// 列表不做核对：几十条任务各问一次代理既慢又没意义。
+	listRec := f.do(t, http.MethodGet, "/api/v1/jobs", "")
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("列表状态码 = %d", listRec.Code)
+	}
+	if stub.checkCalls != 1 {
+		t.Errorf("列表不该触发核对，实际累计 %d 次", stub.checkCalls)
+	}
+
+	// 没有读取端（演示模式）：任务照常返回，power_check 为 null。
+	f.srv.opts.Packages = nil
+	rec = f.do(t, http.MethodGet, "/api/v1/jobs/"+created.JobID, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("无读取端时状态码 = %d；响应 %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(parseResult(t, rec).Data, &got); err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if got.PowerCheck != nil {
+		t.Fatalf("无读取端时 power_check 应为 null，实际 %+v", got.PowerCheck)
+	}
 }
