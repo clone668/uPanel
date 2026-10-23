@@ -5,9 +5,9 @@
       内核：5.15.0-198-generic
       nginx：nginx version: nginx/1.18.0 (Ubuntu)
       certbot：certbot 1.21.0
-      upanel-web sha256：e4e2d49c2511e2a96fe5e5ff8f605ea6d5afb3626757ba2c9a76bc59e1a81a1f
-      upanelctl sha256：b116c1867b22af53eb8538dc584ce2726536ce7fc486435cc690355955b0feae
-      upanel-agent sha256：8e4b7cf2d906ddc7f078c243190ab4f456596d5a2842e17b9202c3b953aa50b2
+      upanel-web sha256：147d327f12a0ae594a5e8ea5c27f1ea576c537cb59fa62078f8c12da789c65f8
+      upanelctl sha256：3f084ec461a9ef1f1f82fba50f58d6f075d6b94626ef38854efb5fd281e77399
+      upanel-agent sha256：f64651e4e6e17ccf9867992b313a2a2646d3ca5c9f3ff61b41fcc3c508727ff9
 PASS  发行版在支持范围内（22.04）
 PASS  upanel-web.service 处于 active
 PASS  upanel-agent.service 处于 active
@@ -41,8 +41,8 @@ PASS  拿到 CSRF 令牌（后续写操作要用）
 
 --- 3. 被测应用与站点（域名 → nginx → 上游）---
 PASS  上游应用已就绪（http://127.0.0.1:18091 返回 marker）
-PASS  登记站点 p104a-1023-075414.example.test
-PASS  站点标识：site_8c5223a8f95b2a687e10faa38b66fbf9
+PASS  登记站点 p104a-1023-081147.example.test
+PASS  站点标识：site_f8c17687fdebecbbb0e2642a5387e504
 PASS  站点默认带 websocket_enabled
 PASS  应用站点：预检放行
 PASS  应用站点：作业终态 succeeded
@@ -51,7 +51,7 @@ PASS  托管配置文件已写出
 PASS  脚本自己再跑一遍 nginx -t
 PASS  托管配置里带上了 Upgrade/Connection（WebSocket 那一对）
 PASS  托管配置不监听面板端口
-      等正文用了 8ms
+      等正文用了 7ms
 PASS  域名访问到的是这个上游（marker 命中）
 PASS  …不是 nginx 的默认欢迎页
 
@@ -79,18 +79,18 @@ PASS  签发：结果 verified
 PASS  证书列表里出现这条记录
 PASS  记为 staging 签发（不是正式环境）
 PASS  签发者是测试环境（Pebble）
-      证书指纹：8e28663b131a863f6c3eabed1fbdcd8b5b05862a78ee94b152d36c08e01e73c3
+      证书指纹：26b18019d5a167394385256b6e34a1d4fbe4d93930e24b8181d5407db21765ea
 PASS  把证书绑定到站点
 PASS  站点记录的证书标识
 PASS  带证书应用：作业终态 succeeded
 PASS  带证书应用：这次确实 reload 了
 PASS  带证书应用：served=true
 PASS  托管配置开始监听 443
-      等状态码 301 用了 6ms（最后拿到 301）
+      等状态码 301 用了 9ms（最后拿到 301）
 PASS  绑了证书之后 80 是 301 到 https
 PASS  301 指向同一个域名的 https
 PASS  80 上的 ACME 校验位置排在 301 之前（行 13 < 21）
-      等正文用了 39ms
+      等正文用了 46ms
 PASS  443 用系统信任链取到 marker（不给 -k）
 PASS  443 上服务的证书指纹与账本记录一致
 PASS  wss 握手返回 101
@@ -103,7 +103,7 @@ PASS  upanel-web 读不到站点私钥（certbot 目录 0700 root）
 PASS  upanel-web 读得到托管配置（nginx 自己需要读）
 PASS  托管配置里没有私钥内容
 PASS  配置里给 nginx 的私钥路径就是账本里的那条
-PASS  配置里写的私钥路径面板账号读不到（/etc/letsencrypt/live/p104a-1023-075414.example.test/privkey.pem）
+PASS  配置里写的私钥路径面板账号读不到（/etc/letsencrypt/live/p104a-1023-081147.example.test/privkey.pem）
 PASS  证书详情响应里没有私钥内容
 PASS  证书详情响应里没有私钥路径
 PASS  面板库里搜不到私钥内容
@@ -119,12 +119,12 @@ PASS  失败理由点明是 nginx -t
 PASS  …并且带回了 nginx 自己说的话
 PASS  托管文件逐字节回到旧内容（回滚生效）
 PASS  worker 没有换（失败时绝不 reload）
-      等正文用了 38ms
+      等正文用了 49ms
 PASS  旧站点仍在用旧配置提供服务
 PASS  删掉坏文件后 nginx -t 恢复
 PASS  恢复之后同一条记录再应用成功
 PASS  恢复之后 nginx -t 仍然通过
-      等正文用了 40ms
+      等正文用了 42ms
 PASS  恢复之后站点照常服务
 
 --- 8. 重启两个单元之后核心场景仍然成立 ---
@@ -132,9 +132,9 @@ curl: (7) Failed to connect to 127.0.0.1 port 9443 after 0 ms: Connection refuse
 PASS  重启后面板 health 200
 PASS  重启后代理 socket 就位
 PASS  重启后可以用口令登录
-      等正文用了 52ms
+      等正文用了 49ms
 PASS  重启后 HTTP 站点仍然服务
-      等正文用了 45ms
+      等正文用了 40ms
 PASS  重启后 443 仍然服务
 PASS  重启后 wss 仍然 12 条不断流
 

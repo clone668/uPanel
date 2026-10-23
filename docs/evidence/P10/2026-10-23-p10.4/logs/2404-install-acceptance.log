@@ -94,7 +94,7 @@ PASS  代理 socket 权限 0660
 PASS  /run/upanel 权限 0755（可进入不可写）
 
 --- 6. 面板 HTTPS ---
-      磁盘上证书的指纹：72c5d7634754e9269b53ccee1a1e8e715bb79fee4455baed4f01e82433f9fa1a
+      磁盘上证书的指纹：398f787cd760e03c25791d0b954e8ffc992393c406f7657c1198c91d26389097
 PASS  用安装的证书当 CA 取 health 返回 200（不加 -k）
 PASS  health 正文是 {"status":"ok"}
 PASS  不加 --cacert 时校验证书失败（自签名不被系统信任）
@@ -108,7 +108,7 @@ PASS  TLS 响应带 HSTS
 
 --- 7. 登录与 Cookie 属性 ---
 PASS  管理员口令登录返回 200
-      Set-Cookie: Set-Cookie: __Host-upanel_session=OKM1zuGB4oEr_gc2zIfe0yOpq2RH53ke4Ih2nlOz5Zk; Path=/; Expires=Fri, 23 Oct 2026 07:23:37 GMT; HttpOnly; Secure; SameSite=Strict
+      Set-Cookie: Set-Cookie: __Host-upanel_session=_SsyMHCu7B0D4Pc_FOvkVLyDT5tHvKIw4UCngJ0b5fk; Path=/; Expires=Fri, 23 Oct 2026 08:39:29 GMT; HttpOnly; Secure; SameSite=Strict
 PASS  会话 Cookie 是 __Host- 前缀
 PASS  会话 Cookie 带 Secure
 PASS  会话 Cookie 带 HttpOnly
@@ -156,7 +156,7 @@ PASS  审计里有 user.password.reset 且 actor_id 为 NULL
 PASS  重置回原口令后可以登录
 
 --- 11. 重启两个服务之后仍然可用 ---
-      restart 命令用时 3s，恢复 HTTPS 200 用时 6s
+      restart 命令用时 17s，恢复 HTTPS 200 用时 18s
 PASS  重启后面板 active
 PASS  重启后代理 active
 PASS  重启后 60 秒内恢复 HTTPS 200

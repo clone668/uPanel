@@ -21,10 +21,10 @@
 <== PASS  go-vet
 
 ==> go-test
-ok  	upanel/cmd/upanel-agent	1.529s
+ok  	upanel/cmd/upanel-agent	(cached)
 ok  	upanel/cmd/upanel-web	(cached)
 ok  	upanel/cmd/upanelctl	(cached)
-ok  	upanel/internal/agent	24.061s
+ok  	upanel/internal/agent	(cached)
 ok  	upanel/internal/agentclient	(cached)
 ok  	upanel/internal/agentstore	(cached)
 ok  	upanel/internal/api	(cached)
@@ -47,10 +47,10 @@ ok  	upanel/internal/nginx	(cached)
 ok  	upanel/internal/operations	(cached)
 ok  	upanel/internal/platform	(cached)
 ok  	upanel/internal/processes	(cached)
-ok  	upanel/internal/proxies	5.454s
+ok  	upanel/internal/proxies	(cached)
 ok  	upanel/internal/services	(cached)
 ok  	upanel/internal/shares	(cached)
-ok  	upanel/internal/storage	9.899s
+ok  	upanel/internal/storage	(cached)
 ok  	upanel/internal/store	(cached)
 ok  	upanel/internal/syscmd	(cached)
 ok  	upanel/internal/terminal	(cached)
@@ -88,51 +88,54 @@ ok  	upanel/internal/webui	(cached)
 
  RUN  v5.0.5 H:/Code/uPanel/web
 
+ ✓ src/api/files.test.ts (39 tests) 90ms
+ ✓ src/components/realdata-files.test.ts (27 tests) 138ms
+ ✓ src/components/realdata-logs.test.ts (24 tests) 92ms
+ ✓ src/components/files.test.ts (15 tests) 94ms
+ ✓ src/components/realdata-storage-write.test.ts (5 tests) 81ms
+ ✓ src/components/realdata-p08-4.test.ts (27 tests) 87ms
+ ✓ src/components/realdata-p09-5.test.ts (51 tests) 123ms
+ ✓ src/components/realdata-p07-5.test.ts (16 tests) 112ms
+ ✓ src/components/shares.test.ts (23 tests) 116ms
+ ✓ src/components/storage-write.test.ts (24 tests) 178ms
+ ✓ src/api/processes.test.ts (12 tests) 54ms
+ ✓ src/api/storage.test.ts (16 tests) 61ms
  ✓ src/api/terminal.test.ts (17 tests) 64ms
- ✓ src/api/files.test.ts (39 tests) 98ms
- ✓ src/components/realdata-storage-write.test.ts (5 tests) 82ms
- ✓ src/components/realdata-logs.test.ts (24 tests) 174ms
- ✓ src/components/realdata-p08-4.test.ts (27 tests) 108ms
- ✓ src/components/realdata-files.test.ts (27 tests) 328ms
- ✓ src/components/shares.test.ts (23 tests) 126ms
- ✓ src/components/realdata-p09-5.test.ts (51 tests) 214ms
- ✓ src/components/realdata-p07-5.test.ts (16 tests) 102ms
- ✓ src/components/storage-write.test.ts (24 tests) 141ms
- ✓ src/components/files.test.ts (15 tests) 82ms
- ✓ src/api/client.test.ts (12 tests) 57ms
- ✓ src/api/volumes.test.ts (22 tests) 54ms
- ✓ src/api/services.test.ts (13 tests) 58ms
- ✓ src/api/apps.test.ts (32 tests) 42ms
- ✓ src/utils/format.test.ts (27 tests) 57ms
- ✓ src/api/storage.test.ts (16 tests) 62ms
- ✓ src/api/preflights.test.ts (10 tests) 53ms
- ✓ src/api/shares.test.ts (27 tests) 61ms
- ✓ src/api/processes.test.ts (12 tests) 74ms
- ✓ src/api/logs.test.ts (21 tests) 25ms
- ✓ src/utils/polling.test.ts (5 tests) 21ms
- ✓ src/utils/jobresult.test.ts (21 tests) 18ms
- ✓ src/api/system.test.ts (5 tests) 53ms
- ✓ src/api/storage-write.test.ts (27 tests) 19ms
- ✓ src/api/jobstream.test.ts (19 tests) 23ms
- ✓ src/api/jobs.test.ts (17 tests) 20ms
- ✓ src/components/logs.test.ts (7 tests) 38ms
- ✓ src/modules/registry.test.ts (7 tests) 13ms
- ✓ src/utils/viewstate.test.ts (7 tests) 8ms
- ✓ src/api/errors.test.ts (5 tests) 7ms
- ✓ src/router/routes.test.ts (6 tests) 8ms
- ✓ src/router/redirect.test.ts (4 tests) 6ms
- ✓ src/stores/mode.test.ts (5 tests) 4ms
- ✓ src/components/panels.test.ts (17 tests) 63ms
- ✓ src/components/services.test.ts (14 tests) 102ms
- ✓ src/components/storage.test.ts (24 tests) 126ms
- ✓ src/components/realdata-services.test.ts (22 tests) 121ms
- ✓ src/components/realdata.test.ts (17 tests) 149ms
- ✓ src/components/realdata-processes.test.ts (31 tests) 191ms
+ ✓ src/api/services.test.ts (13 tests) 66ms
+ ✓ src/api/shares.test.ts (27 tests) 52ms
+ ✓ src/utils/format.test.ts (27 tests) 43ms
+ ✓ src/api/client.test.ts (12 tests) 63ms
+ ✓ src/api/volumes.test.ts (22 tests) 69ms
+ ✓ src/api/system.test.ts (5 tests) 50ms
+ ✓ src/api/preflights.test.ts (10 tests) 62ms
+ ✓ src/api/apps.test.ts (32 tests) 38ms
+ ✓ src/api/jobstream.test.ts (19 tests) 15ms
+ ✓ src/api/jobs.test.ts (17 tests) 15ms
+ ✓ src/utils/polling.test.ts (5 tests) 20ms
+ ✓ src/api/logs.test.ts (21 tests) 24ms
+ ✓ src/api/storage-write.test.ts (27 tests) 21ms
+ ✓ src/components/logs.test.ts (7 tests) 40ms
+ ✓ src/utils/jobresult.test.ts (21 tests) 21ms
+ ✓ src/utils/viewstate.test.ts (7 tests) 9ms
+ ✓ src/router/routes.test.ts (6 tests) 9ms
+ ✓ src/api/errors.test.ts (5 tests) 9ms
+ ✓ src/modules/registry.test.ts (7 tests) 12ms
+ ✓ src/router/redirect.test.ts (4 tests) 7ms
+ ✓ src/stores/mode.test.ts (5 tests) 5ms
+ ✓ src/components/realdata-services.test.ts (22 tests) 73ms
+ ✓ src/components/services.test.ts (14 tests) 69ms
+ ✓ src/components/storage.test.ts (24 tests) 105ms
+ ✓ src/components/realdata.test.ts (17 tests) 106ms
+ ✓ src/components/realdata-processes.test.ts (31 tests) 126ms
+ ✓ src/components/panels.test.ts (17 tests) 37ms
 
  Test Files  40 passed (40)
       Tests  720 passed (720)
-   Start at  16:04:46
-   Duration  27.28s (import 94%, transform 3%, tests 2%)
+   Start at  16:20:14
+   Duration  2.51s (import 77%, tests 13%, transform 7%, worker 2%)
+
+    Isolate  40 workers spawned · ~241ms startup each (spawn + environment, per file)
+             at least ~402ms faster with isolate: false — reuses workers across files instead of one per file
 
 <== PASS  web-test
 
@@ -199,7 +202,7 @@ dist/assets/Button-CglAIIhM.js                     145.44 kB │ gzip: 52.30 kB
 dist/assets/index-Blx8uuWm.js                      225.35 kB │ gzip: 69.37 kB
 dist/assets/TerminalView-yX_51Ffe.js               346.92 kB │ gzip: 89.54 kB
 
-[32m✓ built in 8.56s[39m
+[32m✓ built in 785ms[39m
 <== PASS  web-build
 
 ==> web-smoke
@@ -232,7 +235,7 @@ PASS 10 / FAIL 0 / SKIP 0（共 10 项，production，目标 dist 预览，未�
 [33mwarning[39m operation-4xx-response: 2
 [33mwarning[39m operation-2xx-response: 1
 
-[90mapi\openapi.yaml: validated in 135ms
+[90mapi\openapi.yaml: validated in 128ms
 
 [39m[32mWoohoo! Your API description is valid. 🎉
 [39m[33mYou have 6 warnings.
