@@ -1,0 +1,216 @@
+== 0. 干净起点 ==
+PASS  起点：没有面板的托管配置
+PASS  起点：nginx -t 通过
+PASS  校验根目录存在（/var/www/upanel-acme）
+
+== 1. 测试 ACME（Pebble）+ 信任链 ==
+PASS  Pebble 已在运行
+PASS  系统信任库接受测试 ACME 的 API 证书（certbot 因此能连上）
+PASS  certbot 的 CA 包与系统信任库是同一个文件（certifi → /etc/ssl/certs/ca-certificates.crt）
+PASS  目录里没有 Let's Encrypt 正式环境
+PASS  目录里没有 Let's Encrypt 测试环境
+PASS  目录里的端点都指向本地测试服务
+PASS  取到测试 ACME 的根证书
+
+== 2. 网络夹具（HOSTS + 校验口重定向） ==
+PASS  测试域名解析到本机（/etc/hosts）
+PASS  校验口重定向就位（5002 → 80）
+PASS  nginx 正在运行
+
+== 3. 配置与启动（代理 root、Web 非 root） ==
+      staging 目录地址指向本地测试 ACME：https://127.0.0.1:14000/dir
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19498 启动
+PASS  监听 19498 的 Web 进程不是 root（pid=152897 uid=999）
+PASS  upanel-web 的 uid 是计划值
+PASS  数据库迁移到第 10 版（P10.3 引入证书表）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+
+== 4. 上游与站点（先只有 80） ==
+PASS  上游在 127.0.0.1:18081 提供 HTTP 服务
+PASS  登记站点 A（p103a.example.test）
+PASS  拿到站点 A 的 id
+PASS  站点 A 此刻没有绑定证书
+PASS  应用站点 A 的终态
+PASS  应用站点 A 的结果已核验
+PASS  站点 A 的 applied 状态
+PASS  站点 A 在 80 上服务上游页面
+PASS  HTTP-01 校验路径通（域名:5002 → nginx → webroot）
+
+== 5. 签发：staging 必须显式选、证书真的落到盘上 ==
+PASS  签发前 /etc/letsencrypt/live/p103a.example.test 不存在
+PASS  缺 staging 的签发被拒
+PASS  缺 staging 的错误码
+PASS  错误信息指出缺的是 staging
+PASS  签发的预检放行
+PASS  签发的终态
+PASS  签发的结果是 verified
+PASS  签发结果带核验时间
+PASS  签发的锁里有 ACME 全局锁
+PASS  签发的锁里有该域名的锁
+PASS  签发要求再认证
+PASS  certbot 写下了 fullchain.pem
+PASS  certbot 写下了 privkey.pem
+PASS  /etc/letsencrypt/live 只有 root 能进
+PASS  live/<域名> 里除 README 外没有真文件
+PASS  live/<域名> 里的四个 pem 都是符号链接
+PASS  privkey.pem 属主是 root
+PASS  uid 999 读不到 certbot 的私钥
+PASS  uid 999 读不到 certbot 的证书链（目录 0700）
+PASS  证书列表里出现这条记录
+PASS  来路是 certbot
+PASS  记为 staging 签发
+PASS  私钥保管方是 certbot
+PASS  到期状态是 valid
+PASS  签发者是测试环境（Pebble）
+PASS  拿到证书标识
+PASS  拿到指纹
+PASS  库里的指纹与盘上的证书一致
+PASS  renewal_state 与 not_after 的推导一致
+      测试 CA 给出的有效期约 89 天（Let's Encrypt 的 90 天不在这里断言）
+PASS  库里的到期时间与盘上证书一致
+PASS  详情接口状态码
+PASS  详情里的记录标识
+PASS  现场事实可读
+PASS  现场读到私钥存在
+PASS  现场读到的私钥权限是 0600
+PASS  现场读到的 staging 标记
+
+== 6. 绑定证书 → 443 真的在服务 ==
+PASS  给站点 A 绑定证书
+PASS  站点 A 的证书标识
+PASS  绑定后应用的终态
+PASS  绑定后 applied 状态
+PASS  托管配置里有 443
+PASS  托管配置里的证书路径来自记录
+PASS  托管配置里没有私钥内容
+PASS  80 端口跳转到 https
+PASS  443 上正在服务的证书就是这条记录
+PASS  443 上取到上游页面（系统信任链，无 -k）
+PASS  证书链被系统信任（curl 校验通过了链）
+PASS  ACP 之后 nginx -t 仍然通过
+
+== 7. 续期动作与限流 ==
+PASS  一小时内再次续期被拒
+PASS  限流的错误码
+PASS  限流期间没有产生任务
+      已把签发尝试的时间前移到 2026-10-23T00:30:37Z（只为让续期可测）
+PASS  续期的终态
+PASS  续期的结果是 verified
+PASS  续期后仍然只有一条记录（按域名唯一）
+PASS  续期不换记录标识
+PASS  续期换了证书（指纹变了）
+PASS  站点绑定没被续期改掉
+PASS  到期时间被刷新
+PASS  续期之后、重新应用之前，443 仍在用旧证书
+PASS  续期没有打断正在服务的旧证书
+PASS  续期后重新应用的终态
+PASS  重新应用的结果是 verified
+PASS  重新应用时配置字节确实没变
+PASS  配置没变、证书换了 → 仍然 reload
+PASS  reload 的理由写明是证书轮换
+PASS  报告里记下 reload 前 443 用的是旧证书
+PASS  报告里记下 reload 后 443 用的是新证书
+PASS  reload 之后没有陈旧告警
+PASS  重新应用之后 443 服务的是续期后的证书
+PASS  重新应用之后 443 仍然服务上游页面
+PASS  第三轮应用又是 skipped_unchanged（不再无谓 reload）
+PASS  第三轮没有 reload 理由（因为根本没有 reload）
+
+== 8. 手动导入：公钥走上传、私钥走秘密通道 ==
+PASS  生成一张测试 CA
+PASS  签出一张覆盖 p103b.example.test 的叶子证书（CA:FALSE）
+PASS  叶子证书不是 CA（CA:FALSE）
+PASS  带私钥的上传被拒
+PASS  拒绝信息说明了正确做法
+PASS  只上传公钥证书
+PASS  拿到上传标识
+PASS  上传结果的覆盖域名
+PASS  上传不写证书表（导入才写）
+PASS  上传私钥到秘密存储
+PASS  拿到私钥引用
+PASS  私钥用途被接受
+PASS  导入的预检放行
+PASS  导入的影响里写明会写私钥文件
+PASS  导入的终态
+PASS  导入的结果是 verified
+PASS  证书落地权限 0644
+PASS  私钥落地权限 0600
+PASS  证书目录只有 root 能进
+PASS  私钥属主是 root
+PASS  uid 999 读不到手动导入的私钥
+PASS  uid 999 读不到导入的证书（目录 0700）
+PASS  盘上的私钥与上传的那把一致
+PASS  导入记录的来路
+PASS  导入记录的私钥保管方
+PASS  导入记录不是 staging
+PASS  登记站点 B（p103b.example.test）
+PASS  给站点 B 绑定导入的证书
+PASS  站点 B 应用的终态
+PASS  站点 B 的 applied 状态
+PASS  站点 B 服务的就是导入的证书
+PASS  站点 B 在 443 上服务上游页面
+
+== 9. 到期信息：valid / expiring / 过期被挡 ==
+PASS  上传 20 天有效期的证书
+PASS  上传 20 天证书的私钥
+PASS  导入 20 天证书的终态
+PASS  20 天有效期的证书报 expiring
+PASS  生成一张已经过期的证书（p103d.example.test）
+PASS  上传过期证书
+PASS  上传过期证书的私钥
+PASS  过期证书的预检状态码
+PASS  过期证书的预检不放行
+PASS  阻塞原因指出证书已过期
+PASS  过期证书没有被写进证书表
+
+== 10. 私钥保护：所有出口都搜一遍 ==
+PASS  取到一把真实私钥的内容片段（用来当搜索词）
+PASS  日志里没有 PRIVATE KEY：web.log
+PASS  日志里没有 PRIVATE KEY：agent.log
+PASS  日志里没有 PRIVATE KEY：init-key.log
+PASS  代理日志里没有私钥正文
+PASS  Web 日志里没有私钥正文
+PASS  面板库里没有私钥内容：certificates
+PASS  面板库里没有私钥内容：preflights
+PASS  面板库里没有私钥内容：jobs
+PASS  面板库里没有私钥内容：job_events
+PASS  面板库里没有私钥内容：audit_events
+PASS  预检参数里没有私钥正文
+PASS  任务结果里没有私钥正文
+PASS  证书接口响应里没有 key_path
+PASS  证书接口响应里没有 cert_path
+PASS  证书接口响应里没有 privkey
+PASS  证书接口响应里没有手动证书目录
+PASS  证书接口响应里没有 certbot 目录
+PASS  证书接口响应里没有 key_secret_ref
+PASS  任务报告里带着落地路径（有意的，且只有路径没有内容）
+PASS  所有响应体里没有 PRIVATE KEY
+PASS  所有响应体里没有私钥正文
+
+== 11. 审计留痕 ==
+PASS  上传留下审计（4 条）
+PASS  证书任务留下审计（9 条）
+      预检相关审计 0 条（动作名不在本轮断言范围内）
+PASS  审计里没有私钥内容
+
+== 12. 收尾自证 ==
+PASS  收尾：托管配置已清理
+PASS  收尾：nginx -t 通过
+PASS  收尾：/etc/hosts 已还原
+PASS  收尾：nat 规则已删除
+
+== 不覆盖项（NOT RUN） ==
+NOT RUN  真实 Let's Encrypt 签发：会消耗速率限额且需要公网域名与 80 端口；本脚本只连本地 Pebble
+NOT RUN  正式签发（staging=false）：同上：正式地址那一条由配置默认值与“必须显式选择”共同保证
+NOT RUN  真实公网 DNS / 外部可达性：用 /etc/hosts 与 nat 重定向代替
+NOT RUN  浏览器信任表现：VM 没有浏览器；staging 证书在浏览器里的告警未验证
+NOT RUN  timer 自动续期：P12 才接入；本脚本只验证续期动作本身
+NOT RUN  DNS-01 / 通配符证书：产品只做 HTTP-01
+NOT RUN  证书吊销与 OCSP：不在 P10.3 范围
+
+通过 176，失败 0，未覆盖 7

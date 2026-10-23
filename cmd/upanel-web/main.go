@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -26,6 +27,7 @@ import (
 	"upanel/internal/apps"
 	"upanel/internal/audit"
 	"upanel/internal/auth"
+	"upanel/internal/certificates"
 	"upanel/internal/config"
 	"upanel/internal/containers"
 	"upanel/internal/discovery"
@@ -304,6 +306,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// nginx 那一块写明读不到；/proxies/nginx 与 /proxies/conflict 明确回 503，
 	// 而不是给一份“主机上没有配置文件”的空表。
 	var nginxFacts *proxies.AgentFacts
+	// 证书现场事实（只读，P10.3）：只有 root 读得到 /etc/letsencrypt 与
+	// /etc/ssl/upanel。演示模式下保持 nil，详情页的 observed 会写"读不到"，
+	// 而不是给出"这张证书不存在"。
+	var certificateState api.CertificateStateReader
 	// 健康检查目标的存在性检查（P09.2 的写入期约束）与探测执行端。
 	// 这两个都只在生产模式接上：演示模式没有代理，写入带健康检查的应用会明确回 503，
 	// 而不是存下一个面板根本探不到的目标。
@@ -382,6 +388,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		nginxFacts = nginxFactsClient
+		certInspector, err := certificates.NewAgentInspector(client)
+		if err != nil {
+			logger.Error("初始化证书状态读取端失败，拒绝启动", "error", err)
+			return 1
+		}
+		certificateState = certInspector
 		discoveryReader = discoveryFetcher
 		healthTargetChecker = discoveryFetcher
 		healthProber = discoveryFetcher
@@ -426,13 +438,33 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if nginxFacts != nil {
 		nginxFactsSource = nginxFacts
 	}
+	// 证书（P10.3）与代理站点互相需要对方的一小块能力：站点写入前要问"这张证书
+	// 能不能给这个域名用"，删证书前要问"还有哪些站点绑着它"。两个服务都不持有
+	// 对方的指针——接口在这里互相注入，构造顺序靠一层极小的间接层解开。
+	certUsage := &certificateUsage{}
+	certService, err := certificates.New(db, certificates.Options{Usage: certUsage})
+	if err != nil {
+		logger.Error("初始化证书服务失败，拒绝启动", "error", err)
+		return 1
+	}
 	proxiesService, err := proxies.New(db, proxies.Options{
 		Facts:     nginxFactsSource,
 		Apps:      appsService,
+		Certs:     certService,
 		Normalize: proxies.NormalizeOptions{PanelPort: panelPort},
 	})
 	if err != nil {
 		logger.Error("初始化代理站点服务失败，拒绝启动", "error", err)
+		return 1
+	}
+	// 这一步必须在开始监听之前完成：它只补上"证书占用查询"那半边，
+	// 补齐之前不会有任何请求进来。
+	certUsage.proxies = proxiesService
+
+	// 证书任务的结果 → 证书记录（P10.3 的账本）。
+	certLedger, err := certificates.NewJobApplier(certService, logger)
+	if err != nil {
+		logger.Error("初始化证书账本失败，拒绝启动", "error", err)
 		return 1
 	}
 
@@ -452,6 +484,23 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// 启动依赖门禁（P09.4）：应用与依赖卷的关系只存在 Web 库里，代理算不出来，
 		// 所以这半边由 Web 补在预检之后。它只能收紧——代理拒绝过的预检不会因此放行。
 		Gate: &appruntime.Gate{Apps: appsService, Volumes: storageReader},
+		// 证书账本（P10.3）：任务进入终态时把代理报告里的证书事实抄进 certificates 表。
+		// 放在这里而不是"等用户刷新页面时补写"，是因为任务中心关掉标签页的那一刻，
+		// 那条新证书（或那次失败）就会从账本里消失。
+		OnJobFinished: func(ctx context.Context, job operations.Job, params json.RawMessage) {
+			if err := certLedger.Apply(ctx, certificates.JobFact{
+				ID:     job.ID,
+				Action: job.Action,
+				Status: job.Status,
+				Result: job.Result,
+				Error:  job.Error,
+			}, params); err != nil {
+				// 账本没写成不改任务状态（任务已经结束了），但必须留下 ERROR：
+				// 界面上的证书列表与主机上的现实脱节的唯一线索就在这里。
+				logger.Error("证书账本写入失败", "error", err,
+					"job_id", job.ID, "action", job.Action)
+			}
+		},
 	})
 	if err != nil {
 		logger.Error("初始化预检服务失败，拒绝启动", "error", err)
@@ -489,10 +538,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		AppRuntime: &appruntime.Resolver{Services: servicesReader, Containers: containersReader},
 		// 代理站点（P10.1）：定义来自库，Nginx 现状来自代理。演示模式下后者为 nil，
 		// 读写的行为差别见 internal/api/proxies.go 的文件头说明。
-		Proxies:        proxiesService,
-		NginxFacts:     nginxFactsSource,
-		PanelPort:      panelPort,
-		AllowedOrigins: allowedOrigins,
+		Proxies:    proxiesService,
+		NginxFacts: nginxFactsSource,
+		PanelPort:  panelPort,
+		// 证书（P10.3）：记录读库；现场事实问代理；上传暂存在本进程内存里。
+		Certificates:      certService,
+		CertificateStages: certificates.NewStageStore(nil),
+		CertificateState:  certificateState,
+		AllowedOrigins:    allowedOrigins,
 	})
 	if err != nil {
 		logger.Error("初始化 Web 服务失败", "error", err)
@@ -504,4 +557,28 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// certificateUsage 打破证书服务与代理站点服务之间的构造循环。
+//
+// 两个服务各自只需要对方的一小块能力：certificates 要问"这张证书还被哪些站点绑着"
+// （删记录前必须知道），proxies 要问"这张证书能不能给这个域名用"（写入前必须知道）。
+// 它们互相注入接口而不是指针，剩下的只是先构造哪一个。
+//
+// proxies 字段在开始监听之前赋值，赋值之后不再改变：没有锁，也不需要锁——
+// 那时还没有任何请求能到达。
+type certificateUsage struct {
+	proxies interface {
+		SitesUsingCertificate(ctx context.Context, certID string) ([]string, error)
+	}
+}
+
+// SitesUsingCertificate 转给代理站点服务。
+func (u *certificateUsage) SitesUsingCertificate(ctx context.Context, certID string) ([]string, error) {
+	if u == nil || u.proxies == nil {
+		// 没接上就返回空而不是报错：删除证书时的占用检查会因此放行，库层的外键
+		// 仍然会挡住真正有站点绑着的删除。这条路径只会在启动顺序写错时出现。
+		return nil, nil
+	}
+	return u.proxies.SitesUsingCertificate(ctx, certID)
 }

@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"upanel/internal/nginx"
 	"upanel/internal/storage"
@@ -106,6 +107,15 @@ func (a *Applier) AssessApply(ctx context.Context, in ApplyParams) (Assessment, 
 		}
 	}
 
+	// 证书：绑定了才查，且只在站点启用时查——停用一个站点不该被一张过期证书挡住。
+	// 这里查的是磁盘上的事实（文件在不在、覆盖不覆盖这个域名、有没有过期），
+	// 因为这三条中的后两条能通过 nginx -t 却一定打不开站点。
+	if def.Enabled && p.Certificate != nil {
+		inspection := a.inspectTLS(a.fs(), *p.Certificate, def.Domain, a.now())
+		assess.Blockers = append(assess.Blockers, inspection.Blockers...)
+		assess.Warnings = append(assess.Warnings, inspection.Warnings...)
+	}
+
 	// 告警：服务没在跑、上游目标没被发现、托管文件与记录不一致。
 	if facts.UnitState != "" && facts.UnitState != "active" && facts.UnitState != "reloading" {
 		assess.Warnings = append(assess.Warnings, Blocker{
@@ -150,6 +160,14 @@ func (a *Applier) AssessApply(ctx context.Context, in ApplyParams) (Assessment, 
 
 	assess.Allowed = len(assess.Blockers) == 0
 	return assess, nil
+}
+
+// now 是注入的时钟（单元测试要能固定“证书是否过期”这一刻）。
+func (a *Applier) now() time.Time {
+	if a.opts.Now != nil {
+		return a.opts.Now()
+	}
+	return time.Now()
 }
 
 // managedActionText 描述这次对托管文件做什么。
@@ -206,7 +224,10 @@ func (a *Applier) ExecuteApply(ctx context.Context, req WriteRequest) (WriteRepo
 	var desired string
 	var desiredHash string
 	if def.Enabled {
-		rendered, err := RenderSite(p.SiteID, def, authPath)
+		rendered, err := RenderSite(p.SiteID, def, RenderOptions{
+			HtpasswdPath: authPath,
+			TLS:          p.Certificate,
+		})
 		if err != nil {
 			return WriteReport{}, validationError("渲染配置失败：%v", err)
 		}
@@ -218,7 +239,29 @@ func (a *Applier) ExecuteApply(ctx context.Context, req WriteRequest) (WriteRepo
 		"config_file": confPath,
 		"enabled":     def.Enabled,
 	}
+	if p.Certificate != nil {
+		observed["certificate_id"] = p.Certificate.CertificateID
+		observed["listen_ports"] = []int{ManagedListenPort, ManagedTLSPort}
+	} else {
+		observed["listen_ports"] = []int{ManagedListenPort}
+	}
 	var notes []Blocker
+
+	// ---- 0. 证书现场（绑定证书时）----
+	// 放在写任何文件之前：证书不在、不覆盖这个域名、已经过期，都是“配置能过
+	// nginx -t 但一定打不开站点”的故障，没有理由先写文件再回滚。
+	// 复核（AssessApply）刚查过一遍，这里查的是“那一刻之后有没有变”——两次之间
+	// 有人换掉证书文件是可能的，而这份报告要说清生效的是哪一张。
+	if def.Enabled && p.Certificate != nil {
+		inspection := a.inspectTLS(fs, *p.Certificate, def.Domain, a.now())
+		for k, v := range inspection.Observed {
+			observed[k] = v
+		}
+		notes = append(notes, inspection.Warnings...)
+		if len(inspection.Blockers) > 0 {
+			return WriteReport{}, blockerError(Assessment{Blockers: inspection.Blockers})
+		}
+	}
 
 	// ---- 1. 目录 ----
 	if err := ensureDir(fs, paths.ConfDir()); err != nil {
@@ -395,14 +438,40 @@ func (a *Applier) ExecuteApply(ctx context.Context, req WriteRequest) (WriteRepo
 	}
 	observed["nginx_test"] = "ok"
 
+	// ---- 5b. 证书换过没有（配置字节不变也可能换了服务内容）----
+	//
+	// 续期只改证书文件，渲染结果逐字节相同。如果这里只按 changedSomething 判断，
+	// 续期之后应用一次会得到 skipped_unchanged——新证书在盘上，443 上还是旧的，
+	// 而报告说"什么都没变"。所以问 443 一句：你现在拿的是哪一张？
+	certRotated := false
+	diskFP, _ := observed["cert_fingerprint"].(string)
+	if !changedSomething && def.Enabled && p.Certificate != nil {
+		served, probeErr := a.servedCert(ctx, def.Domain, ManagedTLSPort)
+		switch {
+		case probeErr != nil:
+			// 问不到不改结论：配置已经过了 nginx -t，reload 也修不好一个握不上手的 443。
+			// 但必须说出来——"没测到"和"没变化"不是一回事。
+			observed["served_cert_probe"] = "failed: " + probeErr.Error()
+		default:
+			observed["served_cert_fingerprint"] = served
+			observed["served_cert_probe"] = "ok"
+			certRotated = diskFP != "" && !sameFingerprint(diskFP, served)
+		}
+	}
+
 	// ---- 6. reload ----
 	unit := a.unitState(ctx)
 	observed["unit_state"] = unit
 	reloadState := ReloadSkippedInactive
 	if unit == "active" || unit == "reloading" {
-		if !changedSomething {
+		if !changedSomething && !certRotated {
 			reloadState = ReloadSkippedNoChange
 		} else {
+			if certRotated && !changedSomething {
+				// 只有这一个原因是"配置没动但必须 reload"，写出来，别让人以为
+				// 一次什么都没改的应用凭空重载了一次。
+				observed["reload_reason"] = ReloadReasonCertRotated
+			}
 			reloadState, err = a.nginxReload(ctx)
 			if err != nil {
 				// 配置是好的，reload 没被接受：不回滚（回滚会把一份正确的配置丢掉），
@@ -411,6 +480,24 @@ func (a *Applier) ExecuteApply(ctx context.Context, req WriteRequest) (WriteRepo
 					Code:    CodeUnitInactive,
 					Message: "reload 没有被接受：" + err.Error() + "；配置已经写对，下次 reload 会生效",
 				})
+			} else if certRotated {
+				// reload 是动作，"服务上换成了新证书"是结果。等新一代 worker 接上之后再问，
+				// 把结果写进报告：续期之后真正要紧的就是这一句。
+				after, tries, afterErr := a.waitServedCertMatch(ctx, def.Domain, ManagedTLSPort, diskFP)
+				observed["served_cert_probe_attempts"] = tries
+				if afterErr != nil {
+					observed["served_cert_after_reload"] = "probe_failed: " + afterErr.Error()
+				} else {
+					observed["served_cert_after_reload"] = after
+					if !sameFingerprint(diskFP, after) {
+						notes = append(notes, Blocker{
+							Code: CodeTLSServedStale,
+							Message: "reload 已经做过、也等过新一代 worker，但 443 上仍然不是磁盘上这张证书（" +
+								shortFingerprint(after) + " ≠ " + shortFingerprint(diskFP) + "，问了 " +
+								strconv.Itoa(tries) + " 次）：中间可能还有一层代理，或者这个域名没有命中本面板的 server 块",
+						})
+					}
+				}
 			}
 		}
 	} else if unit == "" {

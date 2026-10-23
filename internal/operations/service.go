@@ -94,6 +94,23 @@ type Options struct {
 	// “这个容器吃哪个卷”，也就没法在自己的预检里算这条。允许为 nil（没有应用模块
 	// 的部署）：那时没有依赖关系可守，门禁不介入。
 	Gate Gate
+	// OnJobFinished 在任务**刚刚**进入终态时被调用一次（P10.3 引入）。
+	//
+	// 它存在的理由：任务结果是代理给的，但“这次任务之后证书表该长什么样”只有 Web
+	// 知道——证书行、站点绑定、到期时间都躺在 Web 库里。没有这个回调，panel 就只能
+	// 在客户端刷新页面时顺手补写，而任务中心关掉标签页的那一刻真相就丢了。
+	//
+	// 调用时机严格收紧在**状态迁移到终态的那一次**：对账会反复看到一个已经 succeeded
+	// 的操作，若每次都对账都回调，证书的 updated_at 会被无意义地刷新，版本号也会漂移。
+	//
+	// 回调在事务提交之后、用脱离取消的 context 执行（请求被取消不该让账本少写一笔）；
+	// 回调里的错误只能记日志，不能反过来影响任务状态——任务已经结束了，它不是失败。
+	//
+	// params 是这次任务执行用的**规范化参数**（来自它消费的那份预检记录），不是请求体
+	// 原文：代理执行的就是这一份。取不到时为空切片，回调必须能处理这种情况——一份
+	// 没有参数的结果依然值得写进账本（至少"它失败了"是事实）。
+	// 允许为 nil（测试、或没有证书模块的部署）。
+	OnJobFinished func(ctx context.Context, job Job, params json.RawMessage)
 }
 
 // Gate 是 Web 侧对预检的追加判决。
@@ -114,6 +131,8 @@ type Service struct {
 	logger *slog.Logger
 	now    func() time.Time
 	gate   Gate
+	// onJobFinished 见 Options.OnJobFinished：只在任务迁移到终态时触发一次。
+	onJobFinished func(ctx context.Context, job Job, params json.RawMessage)
 
 	// sweepMu 让对账扫描串行化：后台循环与显式调用不能同时扫，否则两条路径
 	// 会各自向代理要一遍同样的操作，还会互相把对方刚写的 updated_at 当成新变化。
@@ -146,6 +165,8 @@ func New(db *store.DB, agent Agent, logger *slog.Logger, opts Options) (*Service
 		now:      now,
 		gate:     opts.Gate,
 		inflight: make(map[string]int),
+
+		onJobFinished: opts.OnJobFinished,
 	}, nil
 }
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"upanel/internal/apps"
+	"upanel/internal/certificates"
 	"upanel/internal/config"
 	"upanel/internal/discovery"
 	"upanel/internal/httpx"
@@ -64,18 +65,20 @@ func newDiscoveryFixture(t *testing.T, reader DiscoveryReader) *discoveryFixture
 	authSvc, aud, db := newTestServicesWithDB(t)
 	appSvc := newTestApps(t, db)
 	srv, err := New(Options{
-		ListenAddress:   config.ListenProduction,
-		Mode:            platform.ModeProduction,
-		Version:         version.Info{Version: "test", GoVersion: "test"},
-		Logger:          quietLogger(),
-		ShutdownTimeout: time.Second,
-		Auth:            authSvc,
-		Audit:           aud,
-		Operations:      newTestOperations(t, db, nil),
-		Apps:            appSvc,
-		Proxies:         newTestProxies(t, db),
-		Discovery:       reader,
-		AllowedOrigins:  testOrigins(),
+		ListenAddress:     config.ListenProduction,
+		Mode:              platform.ModeProduction,
+		Version:           version.Info{Version: "test", GoVersion: "test"},
+		Logger:            quietLogger(),
+		ShutdownTimeout:   time.Second,
+		Auth:              authSvc,
+		Audit:             aud,
+		Operations:        newTestOperations(t, db, nil),
+		Apps:              appSvc,
+		Proxies:           newTestProxies(t, db),
+		Certificates:      newTestCertificates(t, db),
+		CertificateStages: certificates.NewStageStore(nil),
+		Discovery:         reader,
+		AllowedOrigins:    testOrigins(),
 	})
 	if err != nil {
 		t.Fatalf("New 失败: %v", err)

@@ -33,6 +33,7 @@ import (
 
 	"upanel/internal/audit"
 	"upanel/internal/auth"
+	"upanel/internal/certificates"
 	"upanel/internal/config"
 	"upanel/internal/httpx"
 	"upanel/internal/platform"
@@ -175,18 +176,20 @@ func newTerminalFixture(t *testing.T, reader *stubTerminal) *terminalFixture {
 		injected = reader
 	}
 	srv, err := New(Options{
-		ListenAddress:   config.ListenProduction,
-		Mode:            platform.ModeProduction,
-		Version:         version.Info{Version: "test", GoVersion: "test"},
-		Logger:          quietLogger(),
-		ShutdownTimeout: time.Second,
-		Auth:            authSvc,
-		Audit:           aud,
-		Operations:      newTestOperations(t, db, nil),
-		Apps:            newTestApps(t, db),
-		Proxies:         newTestProxies(t, db),
-		AllowedOrigins:  testOrigins(),
-		Terminal:        injected,
+		ListenAddress:     config.ListenProduction,
+		Mode:              platform.ModeProduction,
+		Version:           version.Info{Version: "test", GoVersion: "test"},
+		Logger:            quietLogger(),
+		ShutdownTimeout:   time.Second,
+		Auth:              authSvc,
+		Audit:             aud,
+		Operations:        newTestOperations(t, db, nil),
+		Apps:              newTestApps(t, db),
+		Proxies:           newTestProxies(t, db),
+		Certificates:      newTestCertificates(t, db),
+		CertificateStages: certificates.NewStageStore(nil),
+		AllowedOrigins:    testOrigins(),
+		Terminal:          injected,
 	})
 	if err != nil {
 		t.Fatalf("New 失败: %v", err)

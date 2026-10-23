@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"upanel/internal/audit"
+	"upanel/internal/certificates"
 	"upanel/internal/config"
 	"upanel/internal/nginx"
 	"upanel/internal/platform"
@@ -79,18 +80,20 @@ func newProxyFixture(t *testing.T, facts proxies.FactsSource, reader NginxFactsR
 		t.Fatalf("构造代理站点服务失败: %v", err)
 	}
 	srv, err := New(Options{
-		ListenAddress:   config.ListenProduction,
-		Mode:            platform.ModeProduction,
-		Version:         version.Info{Version: "test", GoVersion: "test"},
-		Logger:          quietLogger(),
-		ShutdownTimeout: time.Second,
-		Auth:            authSvc,
-		Audit:           aud,
-		Operations:      newTestOperations(t, db, nil),
-		Apps:            newTestApps(t, db),
-		Proxies:         proxySvc,
-		NginxFacts:      reader,
-		AllowedOrigins:  testOrigins(),
+		ListenAddress:     config.ListenProduction,
+		Mode:              platform.ModeProduction,
+		Version:           version.Info{Version: "test", GoVersion: "test"},
+		Logger:            quietLogger(),
+		ShutdownTimeout:   time.Second,
+		Auth:              authSvc,
+		Audit:             aud,
+		Operations:        newTestOperations(t, db, nil),
+		Apps:              newTestApps(t, db),
+		Proxies:           proxySvc,
+		NginxFacts:        reader,
+		AllowedOrigins:    testOrigins(),
+		Certificates:      newTestCertificates(t, db),
+		CertificateStages: certificates.NewStageStore(nil),
 	})
 	if err != nil {
 		t.Fatalf("New 失败: %v", err)

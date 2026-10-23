@@ -20,6 +20,7 @@ import (
 
 	"upanel/internal/agent"
 	"upanel/internal/agentstore"
+	"upanel/internal/certificates"
 	"upanel/internal/config"
 	"upanel/internal/containers"
 	"upanel/internal/discovery"
@@ -35,6 +36,7 @@ import (
 	"upanel/internal/shares"
 	"upanel/internal/storage"
 	"upanel/internal/terminal"
+	"upanel/internal/tlscert"
 	"upanel/internal/version"
 	"upanel/migrations/agentdb"
 )
@@ -611,6 +613,34 @@ func run(args []string, stdout, stderr io.Writer) int {
 			"hint", "安装 nginx 后重启代理；只读的现状展示不受影响")
 	}
 
+	// 证书动作（P10.3）。前提是秘密存储与命令执行器都在：手动导入的私钥只存在于
+	// 秘密存储里，签发与续期只能通过 certbot。两个都在时登记 certificate.import /
+	// issue / renew 与 certificate.state；任何一个不在就不登记——capabilities 因此
+	// 不会报告一个点了才报错的入口。
+	//
+	// webroot 与 ACME 目录可以配置（agent.certificates）：默认值就是 Let's Encrypt
+	// 与 /var/www/upanel-acme，覆盖它们的唯一实际用途是私有 CA 与验收。
+	certOps, err := certificates.NewOps(certificates.OpsOptions{
+		Secrets:                secrets,
+		Runner:                 storage.SyscmdRunner(),
+		Now:                    nil, // 走真实时钟
+		CertbotPath:            cfg.Agent.Certificates.CertbotPath,
+		Webroot:                cfg.Agent.Certificates.ACMEWebroot,
+		StagingDirectoryURL:    cfg.Agent.Certificates.StagingDirectoryURL,
+		ProductionDirectoryURL: cfg.Agent.Certificates.ProductionDirectoryURL,
+	})
+	if err != nil {
+		logger.Error("初始化证书模块失败", "error", err)
+		return 1
+	}
+	logger.Info("已接上证书模块",
+		"certbot", firstNonEmpty(cfg.Agent.Certificates.CertbotPath, tlscert.CertbotPath),
+		"webroot", firstNonEmpty(cfg.Agent.Certificates.ACMEWebroot, tlscert.ACMEWebroot),
+		"cert_dir", tlscert.CertDir,
+		"staging_dir", firstNonEmpty(cfg.Agent.Certificates.StagingDirectoryURL, certificates.ACMEDirectoryStaging),
+		"production_dir", firstNonEmpty(cfg.Agent.Certificates.ProductionDirectoryURL, certificates.ACMEDirectoryProduction),
+		"scope", "certificate.import / issue / renew / state；staging 默认，不碰 nginx 插件")
+
 	// 动作登记表：生产表自 P05.1 起有 service.control，P05.2 起有 process.signal（受保护名单与读回验证见 internal/services）。
 	// 验收表只能靠显式参数启用，且动作全部以 acceptance. 开头、不读写任何系统资源。
 	registry := agent.NewRegistry()
@@ -633,6 +663,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Discovery:  discoveryCollector,
 		Containers: containersClient,
 		Nginx:      nginxCollector,
+		// 证书（P10.3）。上面已经构造好；把它接进来，三个写动作与一条查询才会登记。
+		Certificates: certOps,
 	}
 	// 只在真的有时才赋给接口：nil 的 *proxies.Applier 塞进接口会变成一个非 nil
 	// 的接口值，能力表于是多出一个调用就 panic 的入口。
@@ -734,6 +766,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 		terminalManager.Shutdown()
 	}
 	return 0
+}
+
+// firstNonEmpty 返回第一个非空值（用于日志里显示“配置值或默认值”）。
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // initSecretKey 生成新的本机秘密密钥。

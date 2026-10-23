@@ -166,6 +166,12 @@ type Definition struct {
 	ReadTimeoutSeconds int `json:"read_timeout_seconds"`
 	// Enabled 表示这个站点是否生效。P10.1 只存这个意图，写配置是 P10.2。
 	Enabled bool `json:"enabled"`
+	// CertificateID 是这个站点用的 TLS 证书（P10.3）。
+	//
+	// 空表示站点只监听 80；非空才渲染 443 的 server 块，证书与私钥的路径由证书记录
+	// 决定（证书那一侧的事，见 internal/certificates）。它是**显式绑定**：按站点域名
+	// 自动匹配证书省一次点击，却让“换了一张证书”和“换了绑定”变成同一件事。
+	CertificateID string `json:"certificate_id,omitempty"`
 }
 
 // Site 是一条站点记录。

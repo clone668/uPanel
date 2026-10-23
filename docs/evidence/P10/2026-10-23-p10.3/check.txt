@@ -1,0 +1,30 @@
+# 宿主静态检查 go version go1.27.3 windows/amd64
+
+## gofmt -l ./cmd ./internal
+(空 = 全部已格式化)
+
+## go vet ./...
+(无输出 = 通过)
+
+## go test ./...
+36 个包 ok；3 个包无测试文件（testsupport、migrations、migrations/agentdb）
+
+## 交叉编译（证据 binary 就是这一份源码编出来的，CGO_ENABLED=0）
+upanel-agent ok
+upanel-web ok
+upanelctl ok
+
+## 三个二进制 sha256（与 VM 上 env.txt 一致）
+944ee4d13b1f5d4251b12eed472379fb02ce0a0bd661b9b384bbc1fe02c7cfee *.tmp/p103bin/upanel-agent
+f8ad3bd6a42ce7117f6709f7b0923c41933cc0d27217102d8e1252b5507a8bb8 *.tmp/p103bin/upanel-web
+40728d1ff9d2701e2fca85b0c2b5ba9f45e6ea9356598d398405f74a1c538b24 *.tmp/p103bin/upanelctl
+
+## scripts/check.sh（统一检查）
+汇总：PASS 12 / FAIL 1 / NOT RUN 0
+明细：go-build:PASS go-vet:PASS go-test:PASS go-build-linux:PASS go-vet-linux:PASS gofmt:PASS node-version:FAIL web-typecheck:PASS web-lint:PASS web-test:PASS web-build:PASS web-smoke:PASS openapi-lint:PASS
+
+- 唯一的 FAIL 是宿主 Node 版本：仓库 .nvmrc 钉 v22.23.3，本机是 v24.15.0。
+  这是**这台开发机**的环境差异，不是本轮的代码问题；本轮没有切换 nvm，也没有把这条当成通过。
+  前端那一组检查仍然是真跑过的（typecheck/lint/test/build/smoke 全 PASS），只是跑在 v24 上。
+- openapi-lint：valid，6 条 warning（no-unused-components 3、operation-4xx-response 2、operation-2xx-response 1）。
+  比上一轮的 7 条少一条：P10.3 新增的三个 schema 都被引用了，no-unused-components 从 4 降到 3。

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"upanel/internal/agentclient"
+	"upanel/internal/certificates"
 	"upanel/internal/config"
 	"upanel/internal/operations"
 	"upanel/internal/platform"
@@ -111,17 +112,19 @@ func newPreflightFixture(t *testing.T, agent operations.Agent) *adminFixture {
 	t.Helper()
 	authSvc, aud, db := newTestServicesWithDB(t)
 	srv, err := New(Options{
-		ListenAddress:   config.ListenProduction,
-		Mode:            platform.ModeProduction,
-		Version:         version.Info{Version: "test", GoVersion: "test"},
-		Logger:          quietLogger(),
-		ShutdownTimeout: time.Second,
-		Auth:            authSvc,
-		Audit:           aud,
-		Operations:      newTestOperations(t, db, agent),
-		Apps:            newTestApps(t, db),
-		Proxies:         newTestProxies(t, db),
-		AllowedOrigins:  testOrigins(),
+		ListenAddress:     config.ListenProduction,
+		Mode:              platform.ModeProduction,
+		Version:           version.Info{Version: "test", GoVersion: "test"},
+		Logger:            quietLogger(),
+		ShutdownTimeout:   time.Second,
+		Auth:              authSvc,
+		Audit:             aud,
+		Operations:        newTestOperations(t, db, agent),
+		Apps:              newTestApps(t, db),
+		Proxies:           newTestProxies(t, db),
+		Certificates:      newTestCertificates(t, db),
+		CertificateStages: certificates.NewStageStore(nil),
+		AllowedOrigins:    testOrigins(),
 	})
 	if err != nil {
 		t.Fatalf("New 失败: %v", err)

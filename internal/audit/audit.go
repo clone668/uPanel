@@ -87,6 +87,15 @@ const (
 	ActionProxyDelete = "proxy.delete"
 	// ActionProxyManage 用于代理请求被中间件拒绝（admin/CSRF）时记录的事件。
 	ActionProxyManage = "proxy.manage"
+	// ActionCertificateUpload 是一次公钥证书上传（P10.3，POST /certificates/uploads）。
+	//
+	// 记的是"谁交进来一份 PEM、覆盖哪些域名、指纹是什么"，不记内容（公钥证书本身
+	// 不是秘密，但整份 PEM 几百行，进审计只会让日志变得没人读）。这条事件重要的
+	// 理由是：上传只是暂存，真正的动作是随后那次 certificate.import 任务——两者
+	// 分开记，才能分清"传了没导"和"导了没成"。
+	ActionCertificateUpload = "certificate.upload"
+	// ActionCertificateManage 用于证书请求被中间件拒绝（admin/CSRF/再认证）时记录的事件。
+	ActionCertificateManage = "certificate.manage"
 )
 
 // 结果枚举，与迁移里的 CHECK 约束一致。

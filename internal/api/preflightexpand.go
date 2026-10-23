@@ -26,6 +26,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"upanel/internal/certificates"
 	"upanel/internal/httpx"
 	"upanel/internal/proxies"
 )
@@ -39,7 +40,16 @@ type proxyApplyParamsRequest struct {
 //
 // 返回 false 表示已经写出错误响应，调用方应当直接 return。
 func (s *Server) expandPreflightParams(c *gin.Context, action string, params json.RawMessage) (json.RawMessage, bool) {
-	if action != proxies.ActionProxyApply {
+	// 证书的三个动作各有自己的展开规则（P10.3），见 certificateexpand.go。
+	// 其余动作（含 proxy.apply）落到下面。
+	switch action {
+	case certificates.ActionImport:
+		return s.expandCertificateImport(c, params)
+	case certificates.ActionIssue, certificates.ActionRenew:
+		return s.expandCertificateIssue(c, action, params)
+	case proxies.ActionProxyApply:
+		// 继续往下，走站点定义的展开。
+	default:
 		return params, true
 	}
 	if s.opts.Proxies == nil {
@@ -87,6 +97,31 @@ func (s *Server) expandPreflightParams(c *gin.Context, action string, params jso
 		Version:    site.Version,
 		Definition: &def,
 		PanelPort:  s.opts.PanelPort,
+	}
+	// 绑了证书就把材料一起展开（P10.3）。代理在执行层还会再核对一次：材料里的
+	// 域名必须等于站点域名，证书必须覆盖它、还没过期，私钥权限不能松。这里多问
+	// 一次库，是为了让"记录已经不在了"在预检阶段就变成 404，而不是等代理报一句
+	// 参数不合法。
+	if def.CertificateID != "" {
+		material, merr := s.tlsMaterial(c.Request.Context(), def.CertificateID)
+		if merr != nil {
+			if errors.Is(merr, certificates.ErrNotFound) {
+				writeError(c, http.StatusNotFound, httpx.CodeNotFound,
+					"站点绑定的证书不存在："+def.CertificateID)
+				return nil, false
+			}
+			s.internalError(c, "预检展开失败", merr)
+			return nil, false
+		}
+		if material.Domain != def.Domain {
+			// 证书是按域名登记的，站点域名改过一次之后绑定就会失配。这是用户要
+			// 处理的事（重新绑一张覆盖新域名的证书），不是内部故障。
+			writeError(c, http.StatusConflict, httpx.CodeValidationError,
+				"绑定的证书属于 "+material.Domain+"，与站点域名 "+def.Domain+" 不一致："+
+					"请先解绑或换一张覆盖该域名的证书")
+			return nil, false
+		}
+		expanded.Certificate = &material
 	}
 	raw, err := json.Marshal(expanded)
 	if err != nil {

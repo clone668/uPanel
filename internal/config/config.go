@@ -121,6 +121,67 @@ type Agent struct {
 	Files Files `json:"files"`
 	// Terminal 是受限终端的配置（P06.3）。
 	Terminal Terminal `json:"terminal"`
+	// Certificates 是证书模块的配置（P10.3）。
+	Certificates Certificates `json:"certificates"`
+}
+
+// Certificates 是证书模块的配置（P10.3）。
+//
+// 三个路径/地址都有默认值（证书目录、webroot、certbot 路径与 Let's Encrypt 的两个
+// 入口都由代码常量决定），这里存在的理由只有一个：**验收与私有 ACME**。
+//
+//	staging_directory_url / production_directory_url  指向一个本地测试 ACME 服务器，
+//	这样“签发流程”可以在没有公网域名的机器上跑完整条链路。
+//
+// 面板只能选「staging 还是正式」，**不能指定地址**：地址来自这份 root 独占的配置。
+// 否则一个 HTTP 参数就能让 root 的 certbot 去连任意主机。
+type Certificates struct {
+	// CertbotPath 是 certbot 可执行文件的绝对路径；留空用 /usr/bin/certbot。
+	CertbotPath string `json:"certbot_path"`
+	// ACMEWebroot 是 HTTP-01 校验文件的根目录；留空用 /var/www/upanel-acme。
+	ACMEWebroot string `json:"acme_webroot"`
+	// StagingDirectoryURL 覆盖 ACME 测试环境目录地址。
+	StagingDirectoryURL string `json:"staging_directory_url"`
+	// ProductionDirectoryURL 覆盖 ACME 正式环境目录地址。
+	//
+	// **改这个值等于换掉信任根**：面板上勾「正式签发」时，certbot 会连这个地址。
+	// 默认值是 Let's Encrypt；填别的只该发生在私有 CA 或验收环境里。
+	ProductionDirectoryURL string `json:"production_directory_url"`
+}
+
+// Validate 校验证书模块的配置。
+func (c Certificates) Validate() error {
+	for _, item := range []struct{ field, value string }{
+		{"agent.certificates.certbot_path", c.CertbotPath},
+		{"agent.certificates.acme_webroot", c.ACMEWebroot},
+	} {
+		if item.value == "" {
+			continue
+		}
+		if !path.IsAbs(item.value) {
+			return fmt.Errorf("%s 必须是 POSIX 绝对路径，当前为 %q", item.field, item.value)
+		}
+		if strings.ContainsAny(item.value, "?#") {
+			return fmt.Errorf("%s 不能包含 '?' 或 '#'，当前为 %q", item.field, item.value)
+		}
+	}
+	for _, item := range []struct{ field, value string }{
+		{"agent.certificates.staging_directory_url", c.StagingDirectoryURL},
+		{"agent.certificates.production_directory_url", c.ProductionDirectoryURL},
+	} {
+		if item.value == "" {
+			continue
+		}
+		// 只允许 https：ACME 的账号与订单都走 HTTPS，明文目录地址会让 certbot
+		// 去连一个 http 端点（它自己会拒），错误信息出现在很远的后面。
+		if !strings.HasPrefix(item.value, "https://") {
+			return fmt.Errorf("%s 必须是 https:// 开头的地址，当前为 %q", item.field, item.value)
+		}
+		if strings.ContainsAny(item.value, " 	") {
+			return fmt.Errorf("%s 不能包含空白，当前为 %q", item.field, item.value)
+		}
+	}
+	return nil
 }
 
 // Terminal 是受限 Web 终端的配置（P06.3）。
@@ -444,6 +505,9 @@ func (a Agent) Validate() error {
 		return err
 	}
 	if err := a.Terminal.Validate(); err != nil {
+		return err
+	}
+	if err := a.Certificates.Validate(); err != nil {
 		return err
 	}
 	return a.Services.Validate()

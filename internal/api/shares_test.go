@@ -23,6 +23,7 @@ import (
 	"upanel/internal/agentclient"
 	"upanel/internal/audit"
 	"upanel/internal/auth"
+	"upanel/internal/certificates"
 	"upanel/internal/config"
 	"upanel/internal/httpx"
 	"upanel/internal/platform"
@@ -215,18 +216,20 @@ func sharesFixture(t *testing.T, reader SharesReader) (*Server, *http.Cookie, st
 	t.Helper()
 	authSvc, aud, db := newTestServicesWithDB(t)
 	srv, err := New(Options{
-		ListenAddress:   config.ListenProduction,
-		Mode:            platform.ModeProduction,
-		Version:         version.Info{Version: "test", GoVersion: "test"},
-		Logger:          quietLogger(),
-		ShutdownTimeout: time.Second,
-		Auth:            authSvc,
-		Audit:           aud,
-		Operations:      newTestOperations(t, db, nil),
-		Apps:            newTestApps(t, db),
-		Proxies:         newTestProxies(t, db),
-		AllowedOrigins:  testOrigins(),
-		Shares:          reader,
+		ListenAddress:     config.ListenProduction,
+		Mode:              platform.ModeProduction,
+		Version:           version.Info{Version: "test", GoVersion: "test"},
+		Logger:            quietLogger(),
+		ShutdownTimeout:   time.Second,
+		Auth:              authSvc,
+		Audit:             aud,
+		Operations:        newTestOperations(t, db, nil),
+		Apps:              newTestApps(t, db),
+		Proxies:           newTestProxies(t, db),
+		Certificates:      newTestCertificates(t, db),
+		CertificateStages: certificates.NewStageStore(nil),
+		AllowedOrigins:    testOrigins(),
+		Shares:            reader,
 	})
 	if err != nil {
 		t.Fatalf("New 失败: %v", err)

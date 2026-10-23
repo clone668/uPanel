@@ -33,6 +33,9 @@ type Options struct {
 	Apps AppChecker
 	// Normalize 是校验环境（面板端口）。
 	Normalize NormalizeOptions
+	// Certs 是证书服务的投影（P10.3）。允许为 nil：那时绑定证书的写入会被拒绝
+	// （无法确认那张证书存不存在、覆不覆盖这个域名），不绑证书的写入照常可用。
+	Certs CertificateChecker
 }
 
 // Service 是代理站点的唯一入口。接口层不得直接写这张表。
@@ -41,6 +44,7 @@ type Service struct {
 	now       func() time.Time
 	facts     FactsSource
 	apps      AppChecker
+	certs     CertificateChecker
 	normalize NormalizeOptions
 }
 
@@ -49,7 +53,8 @@ func New(db *store.DB, opts Options) (*Service, error) {
 	if db == nil {
 		return nil, errors.New("proxies: 数据库句柄不能为空")
 	}
-	s := &Service{db: db, now: opts.Now, facts: opts.Facts, apps: opts.Apps, normalize: opts.Normalize}
+	s := &Service{db: db, now: opts.Now, facts: opts.Facts, apps: opts.Apps,
+		certs: opts.Certs, normalize: opts.Normalize}
 	if s.now == nil {
 		s.now = time.Now
 	}
@@ -115,6 +120,9 @@ func (s *Service) Create(ctx context.Context, def Definition) (Site, error) {
 	if err := s.checkApp(ctx, norm.AppID); err != nil {
 		return Site{}, err
 	}
+	if err := s.checkCertificate(ctx, norm.CertificateID, norm.Domain); err != nil {
+		return Site{}, err
+	}
 	if err := s.requireDomainFree(ctx, norm.Domain, ""); err != nil {
 		return Site{}, err
 	}
@@ -136,12 +144,12 @@ func (s *Service) Create(ctx context.Context, def Definition) (Site, error) {
 		INSERT INTO proxies (id, app_id, domain, upstream_target_id, upstream_scheme,
 		                        upstream_port, access_mode, allowed_cidrs_json, basic_auth_json,
 		                        websocket_enabled, max_body_bytes, read_timeout_seconds,
-		                        enabled, version, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+		                        enabled, certificate_id, version, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
 		id, nullableString(norm.AppID), norm.Domain, norm.UpstreamTargetID, norm.UpstreamScheme,
 		norm.UpstreamPort, string(norm.AccessMode), cidrs, users,
 		boolInt(norm.WebSocketEnabled), norm.MaxBodyBytes, norm.ReadTimeoutSeconds,
-		boolInt(norm.Enabled), formatTime(now), formatTime(now))
+		boolInt(norm.Enabled), nullableString(norm.CertificateID), formatTime(now), formatTime(now))
 	if err != nil {
 		if isUniqueViolation(err) {
 			return Site{}, ErrDomainTaken
@@ -165,7 +173,8 @@ func (s *Service) Get(ctx context.Context, id string) (Site, error) {
 	row := s.queryRow(ctx, `
 		SELECT id, app_id, domain, upstream_target_id, upstream_scheme, upstream_port,
 		       access_mode, allowed_cidrs_json, basic_auth_json, websocket_enabled,
-		       max_body_bytes, read_timeout_seconds, enabled, version, created_at, updated_at
+		       max_body_bytes, read_timeout_seconds, enabled, certificate_id,
+		       version, created_at, updated_at
 		FROM proxies WHERE id = ?`, id)
 	return scanSite(row)
 }
@@ -175,7 +184,8 @@ func (s *Service) GetByDomain(ctx context.Context, domain string) (Site, error) 
 	row := s.queryRow(ctx, `
 		SELECT id, app_id, domain, upstream_target_id, upstream_scheme, upstream_port,
 		       access_mode, allowed_cidrs_json, basic_auth_json, websocket_enabled,
-		       max_body_bytes, read_timeout_seconds, enabled, version, created_at, updated_at
+		       max_body_bytes, read_timeout_seconds, enabled, certificate_id,
+		       version, created_at, updated_at
 		FROM proxies WHERE domain = ?`, domain)
 	return scanSite(row)
 }
@@ -209,7 +219,8 @@ func (s *Service) List(ctx context.Context, opts ListOptions) ([]Site, string, e
 	query := `
 		SELECT id, app_id, domain, upstream_target_id, upstream_scheme, upstream_port,
 		       access_mode, allowed_cidrs_json, basic_auth_json, websocket_enabled,
-		       max_body_bytes, read_timeout_seconds, enabled, version, created_at, updated_at
+		       max_body_bytes, read_timeout_seconds, enabled, certificate_id,
+		       version, created_at, updated_at
 		FROM proxies`
 	var where []string
 	var args []any
@@ -273,13 +284,19 @@ type Patch struct {
 	MaxBodyBytes       *int64
 	ReadTimeoutSeconds *int
 	Enabled            *bool
+	// CertificateID 指向一张证书记录；传空串表示解绑（站点退回只监听 80）。
+	//
+	// 语义只有两条：**字段不出现** = 不改；**出现且为空串** = 解绑。这三态不能用
+	// *string 之外的形状表达，也不能用 null（JSON null 与“没写”在解码后长得一样）。
+	CertificateID *string
 }
 
 // IsEmpty 表示这个 patch 一个字段都没写。
 func (p Patch) IsEmpty() bool {
 	return p.AppID == nil && p.Domain == nil && p.UpstreamTargetID == nil && p.UpstreamScheme == nil &&
 		p.UpstreamPort == nil && p.AccessMode == nil && p.AllowedCIDRs == nil && p.BasicAuthUsers == nil &&
-		p.WebSocketEnabled == nil && p.MaxBodyBytes == nil && p.ReadTimeoutSeconds == nil && p.Enabled == nil
+		p.WebSocketEnabled == nil && p.MaxBodyBytes == nil && p.ReadTimeoutSeconds == nil &&
+		p.Enabled == nil && p.CertificateID == nil
 }
 
 // UpdateInput 是 PATCH /proxies/:id 的输入。
@@ -339,6 +356,9 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (Site, error) {
 	if in.Patch.Enabled != nil {
 		next.Enabled = *in.Patch.Enabled
 	}
+	if in.Patch.CertificateID != nil {
+		next.CertificateID = *in.Patch.CertificateID
+	}
 
 	norm, err := next.Normalize(s.normalize)
 	if err != nil {
@@ -356,6 +376,14 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (Site, error) {
 			return Site{}, err
 		}
 	}
+	// 证书与域名任一变化都要重新确认覆盖关系：绑着 A 域名的证书被改到 B 域名上，
+	// 结果是一个证书名字对不上的 443 站点。只在 patch 里出现这两个字段时才问，
+	// 理由与 checkApp 上面那一段相同。
+	if in.Patch.CertificateID != nil || (in.Patch.Domain != nil && norm.Domain != current.Domain) {
+		if err := s.checkCertificate(ctx, norm.CertificateID, norm.Domain); err != nil {
+			return Site{}, err
+		}
+	}
 
 	cidrs, err := cidrJSON(norm.AllowedCIDRs)
 	if err != nil {
@@ -370,13 +398,13 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (Site, error) {
 		UPDATE proxies SET app_id = ?, domain = ?, upstream_target_id = ?, upstream_scheme = ?,
 		                       upstream_port = ?, access_mode = ?, allowed_cidrs_json = ?,
 		                       basic_auth_json = ?, websocket_enabled = ?, max_body_bytes = ?,
-		                       read_timeout_seconds = ?, enabled = ?,
+		                       read_timeout_seconds = ?, enabled = ?, certificate_id = ?,
 		                       version = version + 1, updated_at = ?
 		WHERE id = ? AND version = ?`,
 		nullableString(norm.AppID), norm.Domain, norm.UpstreamTargetID, norm.UpstreamScheme,
 		norm.UpstreamPort, string(norm.AccessMode), cidrs, users,
 		boolInt(norm.WebSocketEnabled), norm.MaxBodyBytes, norm.ReadTimeoutSeconds,
-		boolInt(norm.Enabled), formatTime(now), in.ID, in.Version)
+		boolInt(norm.Enabled), nullableString(norm.CertificateID), formatTime(now), in.ID, in.Version)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return Site{}, ErrDomainTaken
@@ -482,6 +510,7 @@ func scanSite(row rowScanner) (Site, error) {
 	var (
 		site       Site
 		appID      sql.NullString
+		certID     sql.NullString
 		accessMode string
 		cidrsJSON  string
 		usersJSON  string
@@ -493,7 +522,8 @@ func scanSite(row rowScanner) (Site, error) {
 	err := row.Scan(
 		&site.ID, &appID, &site.Domain, &site.UpstreamTargetID, &site.UpstreamScheme,
 		&site.UpstreamPort, &accessMode, &cidrsJSON, &usersJSON, &wsInt,
-		&site.MaxBodyBytes, &site.ReadTimeoutSeconds, &enabled, &site.Version, &created, &updated)
+		&site.MaxBodyBytes, &site.ReadTimeoutSeconds, &enabled, &certID,
+		&site.Version, &created, &updated)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Site{}, ErrNotFound
@@ -501,6 +531,7 @@ func scanSite(row rowScanner) (Site, error) {
 		return Site{}, fmt.Errorf("proxies: 读取站点失败: %w", err)
 	}
 	site.AppID = appID.String
+	site.CertificateID = certID.String
 	site.AccessMode = AccessMode(accessMode)
 	site.WebSocketEnabled = wsInt != 0
 	site.Enabled = enabled != 0

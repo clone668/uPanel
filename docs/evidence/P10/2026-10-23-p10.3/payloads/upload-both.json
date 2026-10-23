@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"上传内容里有私钥：这里只接收公钥证书链。私钥请经 POST /secrets（用途 tls_private_key）上传，导入时用 secret_ref 引用它"},"request_id":"2c6bf58e4ac19bef6303691b8900eacb"}

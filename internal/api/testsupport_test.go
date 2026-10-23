@@ -8,6 +8,7 @@ import (
 	"upanel/internal/apps"
 	"upanel/internal/audit"
 	"upanel/internal/auth"
+	"upanel/internal/certificates"
 	"upanel/internal/operations"
 	"upanel/internal/proxies"
 	"upanel/internal/storage"
@@ -108,6 +109,19 @@ func newTestProxies(t *testing.T, db *store.DB) *proxies.Service {
 	})
 	if err != nil {
 		t.Fatalf("构造代理站点服务失败: %v", err)
+	}
+	return svc
+}
+
+// newTestCertificates 构造证书服务（P10.3）。
+//
+// Usage 传 nil：占用检查在这批测试里不需要（删证书的 409 有库层外键兜底），
+// 而把代理站点服务接进来会绕出一个构造循环。
+func newTestCertificates(t *testing.T, db *store.DB) *certificates.Service {
+	t.Helper()
+	svc, err := certificates.New(db, certificates.Options{})
+	if err != nil {
+		t.Fatalf("构造证书服务失败: %v", err)
 	}
 	return svc
 }

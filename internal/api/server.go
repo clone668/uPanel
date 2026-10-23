@@ -21,6 +21,7 @@ import (
 	"upanel/internal/apps"
 	"upanel/internal/audit"
 	"upanel/internal/auth"
+	"upanel/internal/certificates"
 	"upanel/internal/config"
 	"upanel/internal/httpx"
 	"upanel/internal/operations"
@@ -130,6 +131,25 @@ type Options struct {
 	// 再拒绝一次"把管理面板自己的端口写成上游"。值来自真实的监听地址，不是常量
 	// 9443——面板端口可配，写死的那个数在某台机器上会正好是别的服务的端口。
 	PanelPort int
+	// Certificates 是证书元数据服务（P10.3）。必需依赖，理由与 Proxies 相同：
+	// 证书记录是纯面板库里的元数据，读列表与详情不需要代理。
+	//
+	// 注意它与"签发/导入"的分工：本服务只回答**记录是什么**；证书能不能装上去、
+	// 私钥怎么写进主机，全是代理侧的动作（certificate.import / certificate.issue），
+	// 面板只负责提交任务。
+	Certificates *certificates.Service
+	// CertificateStages 是待导入公钥证书的暂存区（P10.3）。必需依赖：
+	// POST /certificates/uploads 只把上传的 PEM 暂存在本进程内存里十分钟
+	// （绑定用户 + 会话），导入任务执行时再展开进参数。
+	//
+	// 为什么不直接落库：公钥证书是公开材料，但也**不需要**长期保存——真正的落库
+	// 时机是导入成功之后（那时证书已经从主机上读回来解析过一次）。暂存区让
+	// "上传了但没点确认"不留任何持久痕迹。
+	CertificateStages *certificates.StageStore
+	// CertificateState 读取主机上证书的现场事实（P10.3）。允许为 nil（演示模式不连
+	// 代理）：那时详情页的 observed 明确写 available=false 与原因，而不是给一份
+	// "证书不存在"的空事实——后者会被读成"这张证书被删了"。
+	CertificateState CertificateStateReader
 }
 
 // Server 是 Web HTTP 服务。
@@ -182,6 +202,12 @@ func New(opts Options) (*Server, error) {
 	}
 	if opts.Proxies == nil {
 		return nil, errors.New("api: Proxies 不能为空")
+	}
+	if opts.Certificates == nil {
+		return nil, errors.New("api: Certificates 不能为空")
+	}
+	if opts.CertificateStages == nil {
+		return nil, errors.New("api: CertificateStages 不能为空")
 	}
 	origins, err := httpx.NewOriginSet(opts.AllowedOrigins)
 	if err != nil {

@@ -1,0 +1,1 @@
+{"error":{"code":"RESOURCE_BUSY","message":"这个域名在一小时内已经尝试过签发/续期：ACME 对同一域名的签发有速率限额，失败的尝试也算一次。请先核对失败原因（任务详情里有 certbot 的输出），确认后再等一小时重试"},"request_id":"fd9bd541bb7757d20feb3a9726e2e624"}

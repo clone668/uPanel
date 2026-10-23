@@ -34,6 +34,9 @@ var (
 
 	// domainLabelPattern：DNS 标签。IDNA 转成 A-label 之后只剩下这些字符。
 	domainLabelPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+	// certificateIDPattern：证书记录的标识（crt_ + 32 位小写十六进制，见 0010 迁移）。
+	certificateIDPattern = regexp.MustCompile(`^crt_[0-9a-f]{32}$`)
 )
 
 // idnaProfile 是域名转 A-label 用的档位。
@@ -214,6 +217,15 @@ func (d Definition) Normalize(opts NormalizeOptions) (Definition, error) {
 	if out.ReadTimeoutSeconds < MinReadTimeoutSeconds || out.ReadTimeoutSeconds > MaxReadTimeoutSeconds {
 		return Definition{}, invalid("read_timeout_seconds",
 			"读取超时必须在 %d 到 %d 秒之间", MinReadTimeoutSeconds, MaxReadTimeoutSeconds)
+	}
+
+	// 证书是**形状判断**，不是存在性判断：这张证书在不在、覆不覆盖这个域名，
+	// 要问证书服务（Service 里的 CertificateChecker）。这里只挡住“明显不是标识”
+	// 的输入，免得把一个打错的 id 变成一次数据库往返。
+	out.CertificateID = strings.TrimSpace(out.CertificateID)
+	if out.CertificateID != "" && !certificateIDPattern.MatchString(out.CertificateID) {
+		return Definition{}, invalid("certificate_id",
+			"证书标识必须是 crt_ 加 32 位小写十六进制（清空它表示这个站点只监听 80）")
 	}
 
 	return out, nil

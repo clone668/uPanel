@@ -60,6 +60,10 @@ type ProductionDeps struct {
 	// 没有 Nginx 现状来源或命令执行器时，“写配置并 reload”这件事根本做不到，
 	// 报告一个一点就报错的入口比不报告更糟。
 	Proxies proxySource
+	// Certificates 是证书动作的实现（P10.3）。为 nil 时不登记 certificate.* 动作
+	// 与 certificate.state：没有秘密存储读取端，手动导入装不上私钥；没有命令执行端，
+	// 签发根本跑不起来——两种情况下“证书”都会是一个点了才报错的入口。
+	Certificates certificateSource
 }
 
 // newSystemSummaryQuery 登记 system.summary：无参数，返回采集器最近一次快照。

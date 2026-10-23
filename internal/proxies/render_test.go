@@ -13,6 +13,8 @@ package proxies
 import (
 	"strings"
 	"testing"
+
+	"upanel/internal/tlscert"
 )
 
 // renderableDefinition 返回一份能渲染的完整定义（public 模式）。
@@ -34,11 +36,11 @@ const renderTestSiteID = "site_0123456789abcdef0123456789abcdef"
 // TestRenderSiteIsByteStable 同样输入两次渲染必须一字不差。
 func TestRenderSiteIsByteStable(t *testing.T) {
 	def := renderableDefinition()
-	first, err := RenderSite(renderTestSiteID, def, "")
+	first, err := RenderSite(renderTestSiteID, def, RenderOptions{})
 	if err != nil {
 		t.Fatalf("渲染失败: %v", err)
 	}
-	second, err := RenderSite(renderTestSiteID, def, "")
+	second, err := RenderSite(renderTestSiteID, def, RenderOptions{})
 	if err != nil {
 		t.Fatalf("渲染失败: %v", err)
 	}
@@ -55,7 +57,7 @@ func TestRenderSiteIsByteStable(t *testing.T) {
 
 // TestRenderSiteStructure 逐行核对 public 模式的产物。
 func TestRenderSiteStructure(t *testing.T) {
-	out, err := RenderSite(renderTestSiteID, renderableDefinition(), "")
+	out, err := RenderSite(renderTestSiteID, renderableDefinition(), RenderOptions{})
 	if err != nil {
 		t.Fatalf("渲染失败: %v", err)
 	}
@@ -110,7 +112,7 @@ func TestRenderSiteStructure(t *testing.T) {
 func TestRenderSiteWebSocketHeaders(t *testing.T) {
 	def := renderableDefinition()
 	def.WebSocketEnabled = true
-	out, err := RenderSite(renderTestSiteID, def, "")
+	out, err := RenderSite(renderTestSiteID, def, RenderOptions{})
 	if err != nil {
 		t.Fatalf("渲染失败: %v", err)
 	}
@@ -137,7 +139,7 @@ func TestRenderSiteCIDRAccess(t *testing.T) {
 	def := renderableDefinition()
 	def.AccessMode = AccessCIDR
 	def.AllowedCIDRs = []string{"10.0.0.0/8", "192.168.1.0/24"}
-	out, err := RenderSite(renderTestSiteID, def, "")
+	out, err := RenderSite(renderTestSiteID, def, RenderOptions{})
 	if err != nil {
 		t.Fatalf("渲染失败: %v", err)
 	}
@@ -163,7 +165,7 @@ func TestRenderSiteBasicAuthAccess(t *testing.T) {
 		{Name: "alice", SecretRef: "sec_0123456789abcdef0123456789abcdef"},
 	}
 	const authPath = "/etc/nginx/upanel-auth/site_0123456789abcdef0123456789abcdef.htpasswd"
-	out, err := RenderSite(renderTestSiteID, def, authPath)
+	out, err := RenderSite(renderTestSiteID, def, RenderOptions{HtpasswdPath: authPath})
 	if err != nil {
 		t.Fatalf("渲染失败: %v", err)
 	}
@@ -230,7 +232,7 @@ func TestRenderSiteRejectsUnrenderable(t *testing.T) {
 			if tc.mutate != nil {
 				tc.mutate(&def)
 			}
-			out, err := RenderSite(siteID, def, tc.auth)
+			out, err := RenderSite(siteID, def, RenderOptions{HtpasswdPath: tc.auth})
 			if err == nil {
 				t.Fatalf("非法输入却渲染出了配置：\n%s", out)
 			}
@@ -291,8 +293,230 @@ func TestRenderSiteDomainCannotEscapeConfDir(t *testing.T) {
 		if _, err := ManagedFileNameOf(def.Domain); err == nil {
 			t.Errorf("域名 %q 竟然能当文件名用", domain)
 		}
-		if out, err := RenderSite(renderTestSiteID, def, ""); err == nil {
+		if out, err := RenderSite(renderTestSiteID, def, RenderOptions{}); err == nil {
 			t.Errorf("域名 %q 竟然能渲染出配置：\n%s", domain, out)
 		}
+	}
+}
+
+// ---- P10.3：TLS 与 ACME 校验位置 ----
+
+// renderTestMaterial 返回一份指向测试路径的证书材料。
+func renderTestMaterial() *TLSMaterial {
+	return &TLSMaterial{
+		CertificateID: "crt_0123456789abcdef0123456789abcdef",
+		Source:        CertSourceManual,
+		Domain:        "app.example.com",
+		CertPath:      "/etc/ssl/upanel/app.example.com.pem",
+		KeyPath:       "/etc/ssl/upanel/app.example.com.key",
+		Fingerprint:   strings.Repeat("ab", 32),
+		Issuer:        "uPanel 测试 CA",
+		NotAfter:      "2030-01-02T03:04:05Z",
+	}
+}
+
+// tlsRenderableDefinition 返回一份绑定了证书的定义。
+func tlsRenderableDefinition() Definition {
+	def := renderableDefinition()
+	def.CertificateID = "crt_0123456789abcdef0123456789abcdef"
+	return def
+}
+
+// TestRenderSiteWithoutCertificateListensOn80Only 没有绑证书时只有 80 这一块。
+//
+// 这一条是“不假装有 TLS”的判据：只要定义里没有证书标识，产物里就不该出现
+// 任何 ssl_ 指令，也不该出现 443——一个没有证书却写着 443 的 server 块会让
+// nginx -t 直接失败，而用户看到的是“我什么都没改就坏了”。
+func TestRenderSiteWithoutCertificateListensOn80Only(t *testing.T) {
+	out, err := RenderSite(renderTestSiteID, renderableDefinition(), RenderOptions{})
+	if err != nil {
+		t.Fatalf("渲染失败: %v", err)
+	}
+	if strings.Contains(out, "listen 443") || strings.Contains(out, "ssl_certificate") {
+		t.Errorf("没有证书却渲染出了 TLS：\n%s", out)
+	}
+	if strings.Count(out, "server {") != 1 {
+		t.Errorf("应该只有一个 server 块：\n%s", out)
+	}
+	// ACME 校验位置无论有没有证书都要有：续期发生在证书已经存在的站点上，
+	// 但首签发生在它还没有证书的时候（那时站点只监听 80）。
+	if !strings.Contains(out, "    location ^~ /.well-known/acme-challenge/ {\n") {
+		t.Errorf("缺少 ACME 校验位置：\n%s", out)
+	}
+	if !strings.Contains(out, "        root "+tlscert.ACMEWebroot+";\n") {
+		t.Errorf("ACME 校验位置没有指向默认 webroot：\n%s", out)
+	}
+	// 只有 80 的站点不该有跳转：它没有 https 可跳。
+	if strings.Contains(out, "return 301") {
+		t.Errorf("没有证书却写了跳转：\n%s", out)
+	}
+}
+
+// TestRenderSiteWithCertificate 绑定证书之后是两个 server 块：80 只留校验与跳转，443 是站点。
+func TestRenderSiteWithCertificate(t *testing.T) {
+	m := renderTestMaterial()
+	out, err := RenderSite(renderTestSiteID, tlsRenderableDefinition(), RenderOptions{TLS: m})
+	if err != nil {
+		t.Fatalf("渲染失败: %v", err)
+	}
+	if got := strings.Count(out, "server {"); got != 2 {
+		t.Fatalf("应该有两个 server 块，实际 %d：\n%s", got, out)
+	}
+	must := []string{
+		"    listen 80;",
+		"    listen [::]:80;",
+		"    listen 443 ssl;",
+		"    listen [::]:443 ssl;",
+		"    ssl_certificate     " + m.CertPath + ";",
+		"    ssl_certificate_key " + m.KeyPath + ";",
+		"    ssl_protocols TLSv1.2 TLSv1.3;",
+		"    ssl_session_cache shared:upanel_tls:10m;",
+		"    ssl_prefer_server_ciphers off;",
+		"        return 301 https://$host$request_uri;",
+		"        proxy_pass http://127.0.0.1:8080;",
+		"    location ^~ /.well-known/acme-challenge/ {",
+	}
+	for _, want := range must {
+		if !strings.Contains(out, want) {
+			t.Errorf("缺少 %q：\n%s", want, out)
+		}
+	}
+	// 两个反斜杠都要有：证书与私钥各一条，且都指向材料给的路径。
+	if strings.Count(out, "ssl_certificate_key ") != 1 {
+		t.Error("ssl_certificate_key 应恰好出现一次")
+	}
+	// 旧协议与 http2 都不该出现。
+	for _, banned := range []string{"TLSv1.1", "TLSv1 ", "http2", "SSLv3"} {
+		if strings.Contains(out, banned) {
+			t.Errorf("不该出现 %q：\n%s", banned, out)
+		}
+	}
+	// 跳转必须在 ACME 校验位置之后：否则 http-01 会被 301 到 https，
+	// 而签发那一刻 https 上还没有可用证书。
+	if strings.Index(out, "return 301") < strings.Index(out, "acme-challenge") {
+		t.Error("301 不能排在 ACME 校验位置之前")
+	}
+}
+
+// TestRenderSiteACMEWebrootOverride 校验目录可以被覆盖（测试环境用它指向临时目录）。
+func TestRenderSiteACMEWebrootOverride(t *testing.T) {
+	const webroot = "/tmp/upanel-acme-test"
+	out, err := RenderSite(renderTestSiteID, renderableDefinition(),
+		RenderOptions{ACMEWebroot: webroot})
+	if err != nil {
+		t.Fatalf("渲染失败: %v", err)
+	}
+	if !strings.Contains(out, "        root "+webroot+";\n") {
+		t.Errorf("没有用上覆盖的 webroot：\n%s", out)
+	}
+	if strings.Contains(out, tlscert.ACMEWebroot) {
+		t.Errorf("默认 webroot 不该再出现：\n%s", out)
+	}
+}
+
+// TestRenderSiteRejectsBadTLSMaterial 证书材料的形状不对时必须拒绝渲染。
+func TestRenderSiteRejectsBadTLSMaterial(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*TLSMaterial)
+	}{
+		{name: "证书标识形状", mutate: func(m *TLSMaterial) { m.CertificateID = "crt_XYZ" }},
+		{name: "来源不认识", mutate: func(m *TLSMaterial) { m.Source = "selfsign" }},
+		{name: "证书路径不是绝对路径", mutate: func(m *TLSMaterial) { m.CertPath = "app.pem" }},
+		{name: "证书路径含 ..", mutate: func(m *TLSMaterial) {
+			m.CertPath = "/etc/ssl/upanel/../nginx/app.pem"
+		}},
+		{name: "证书路径不在证书目录", mutate: func(m *TLSMaterial) {
+			m.CertPath = "/etc/passwd"
+		}},
+		{name: "证书文件名不是域名", mutate: func(m *TLSMaterial) {
+			m.CertPath = "/etc/ssl/upanel/other.example.com.pem"
+		}},
+		{name: "证书与私钥同路径", mutate: func(m *TLSMaterial) { m.KeyPath = m.CertPath }},
+		{name: "指纹不是 64 位十六进制", mutate: func(m *TLSMaterial) { m.Fingerprint = "zz" }},
+		{name: "到期时间不是 RFC3339", mutate: func(m *TLSMaterial) { m.NotAfter = "2030-01-02" }},
+		{name: "域名为空", mutate: func(m *TLSMaterial) { m.Domain = "" }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := renderTestMaterial()
+			tc.mutate(m)
+			if out, err := RenderSite(renderTestSiteID, tlsRenderableDefinition(),
+				RenderOptions{TLS: m}); err == nil {
+				t.Fatalf("非法材料却渲染出了配置：\n%s", out)
+			}
+		})
+	}
+}
+
+// TestApplyParamsCertificateConsistency 定义与材料必须成对出现、且对得上。
+func TestApplyParamsCertificateConsistency(t *testing.T) {
+	def := tlsRenderableDefinition()
+	m := renderTestMaterial()
+
+	// 两半都在、且一致：通过。
+	good := ApplyParams{SiteID: renderTestSiteID, Version: 1, Definition: &def, PanelPort: 9443, Certificate: m}
+	if _, err := good.Normalize(); err != nil {
+		t.Fatalf("一致的材料被拒: %v", err)
+	}
+
+	// 定义绑了证书但参数里没有材料。
+	half := ApplyParams{SiteID: renderTestSiteID, Version: 1, Definition: &def, PanelPort: 9443}
+	if _, err := half.Normalize(); err == nil {
+		t.Error("定义绑了证书却没有材料，应当拒绝（否则站点以为绑了证书、实际只监听 80）")
+	}
+
+	// 材料有、定义没绑。
+	unbound := renderableDefinition()
+	other := ApplyParams{SiteID: renderTestSiteID, Version: 1, Definition: &unbound, PanelPort: 9443, Certificate: m}
+	if _, err := other.Normalize(); err == nil {
+		t.Error("参数带证书材料但定义没绑定，应当拒绝")
+	}
+
+	// 标识对不上。
+	mismatch := renderTestMaterial()
+	mismatch.CertificateID = "crt_ffffffffffffffffffffffffffffffff"
+	p := ApplyParams{SiteID: renderTestSiteID, Version: 1, Definition: &def, PanelPort: 9443, Certificate: mismatch}
+	if _, err := p.Normalize(); err == nil {
+		t.Error("证书标识与定义不一致，应当拒绝")
+	}
+
+	// 域名对不上。
+	wrongDomain := renderTestMaterial()
+	wrongDomain.Domain = "other.example.com"
+	wrongDomain.CertPath = "/etc/ssl/upanel/other.example.com.pem"
+	wrongDomain.KeyPath = "/etc/ssl/upanel/other.example.com.key"
+	p = ApplyParams{SiteID: renderTestSiteID, Version: 1, Definition: &def, PanelPort: 9443, Certificate: wrongDomain}
+	if _, err := p.Normalize(); err == nil {
+		t.Error("证书域名与站点域名不一致，应当拒绝")
+	}
+}
+
+// TestTLSOperatorPaths 两条来源各自的路径规则（写进配置的必须是这两个目录之一）。
+func TestTLSOperatorPaths(t *testing.T) {
+	certbot := TLSMaterial{
+		CertificateID: "crt_0123456789abcdef0123456789abcdef",
+		Source:        CertSourceCertbot,
+		Domain:        "app.example.com",
+		CertPath:      "/etc/letsencrypt/live/app.example.com/fullchain.pem",
+		KeyPath:       "/etc/letsencrypt/live/app.example.com/privkey.pem",
+		Fingerprint:   strings.Repeat("cd", 32),
+		NotAfter:      "2030-01-02T03:04:05Z",
+		Staging:       true,
+	}
+	if err := certbot.Validate(); err != nil {
+		t.Fatalf("certbot 材料被拒: %v", err)
+	}
+	// certbot 的文件名是固定的，不是 <域名>.pem。
+	bad := certbot
+	bad.CertPath = "/etc/letsencrypt/live/app.example.com/cert.pem"
+	if err := bad.Validate(); err == nil {
+		t.Error("certbot 的证书文件名必须是 fullchain.pem")
+	}
+	// staging 只能是 certbot 的。
+	stagedManual := renderTestMaterial()
+	stagedManual.Staging = true
+	if err := stagedManual.Validate(); err == nil {
+		t.Error("手动导入的证书不该被标成 staging")
 	}
 }

@@ -1522,6 +1522,8 @@ domain 为一个不带协议/路径/端口的有效域名；初期不允许通�
 **渲染是纯函数**：同一份定义永远渲染出同样的字节，包括 basic auth 的 apr1 哈希（盐由域名派生，
 不是随机的）。因此“再应用一次”是**幂等重放**——不写文件、不产生备份、不 reload，
 任务里如实写 `file_state=unchanged`、`reload=skipped_unchanged`。
+P10.3 给这条加了一个例外，而且只有这一个：站点**绑定了证书**、且盘上那张证书与 443 上正在用的
+那一张不是同一张时，配置字节没变也照样 reload（§9.3(13)）——续期换的正是“配置之外的那部分内容”。
 
 **（2）参数由 Web 展开，不由调用方给。** `proxy.apply` 的请求体只有一个 `site_id`
 （`internal/api/preflightexpand.go`）：定义取自面板库里的那条记录、`version` 取自记录、
@@ -1583,6 +1585,134 @@ domain 为一个不带协议/路径/端口的有效域名；初期不允许通�
 
 **（12）秘密不打日志、不进 argv。** basic auth 的明文只经标准输入传给 apr1 计算，数据库里
 只有 `secret_ref`，Nginx 侧只有哈希。
+
+### 9.3 P10.3 已实现范围：签发、手动导入、到期信息与私钥边界
+
+本节覆盖证书的**生命周期**：一张证书从“什么都没有”到“装在一个站点上、443 正在用它服务”，
+以及“私钥在哪儿、谁能读”。自动续期的**调度**（systemd timer）是 P12；本节只保证“续期这个
+动作成立、可以被调度”。
+
+| 方法与路径 / 动作 | 权限 | 行为 |
+|---|---|---|
+| GET /certificates?domain=&limit=&cursor= | admin | 证书记录列表（`renewal_state` 派生） |
+| GET /certificates/:id | admin | 记录 + `observed` 现场事实 |
+| POST /certificates/uploads | admin + CSRF + 再认证 | multipart 暂存公钥证书（1 MiB、10 分钟、一次性） |
+| `certificate.issue` | admin + R，预检 → 任务 | ACME 签发（`staging` 必须显式） |
+| `certificate.renew` | admin + R，预检 → 任务 | 续期既有记录（身份不变） |
+| `certificate.import` | admin + R，预检 → 任务 | 把上传的证书与秘密存储里的私钥装到主机 |
+| `certificate.state` | admin（只读查询） | 盘上那张证书此刻的事实 |
+
+**（1）一条域名一条记录，一处写入。** `certificates.domain` 唯一。写这条记录的地方**只有一处**：
+面板在任务从非终态转入终态时调用 `Options.OnJobFinished`，由它按任务的 `observed_state` 落账
+（`internal/certificates/ledger.go`）。任务自己不改库、预检不改库、接口层不改库。这条约束的理由
+不是洁癖：签发与导入都能把一张证书“事实上”换掉，若允许多处写，`last_error` 与 `fingerprint`
+就会出现“谁最后写谁算”的竞争，而事后没人能从库里分辨是哪一次动作留下的。
+
+标识在**预检展开时**就定下来（已有记录就复用，没有就生成 `crt_` + 32 位十六进制），所以站点绑定
+指向的 id 不会因为“这次签发成功/失败”而变。来路不同则拒绝：一条记录不能既是 `certbot` 又是
+`manual`——“当前这张是谁给的”必须只有一个答案。
+
+**（2）staging 必须显式为 true 或 false。** 缺字段是 400，不是“当它选了正式”。理由两条：
+默认正式会让人一句 JSON 写漏就烧掉速率限额；默认测试会让人以为签好了而浏览器仍然报警。
+`--server` 的两个取值由 `staging` 决定，调用方没有机会塞进一个任意 URL；私有 ACME / 验收用的
+本地测试 CA 只能由 root 独占的代理配置覆盖（`agent.certificates.{staging,production}_directory_url`，
+必须是 `https://` 绝对地址）。签发出来的证书是不是 staging，由**证书自己的签发者**判断
+（`(staging)` / `fake le` / `pebble`），不看人的声明——声明会错，字符串不会。
+
+**（3）一小时限流查的是任务表，不是证书表。** 同一域名一小时内只允许一次 ACME 尝试。查
+`jobs`（`RecentAttempts`，按 `action` + `target_json.display_name` + 时间窗）而不是查证书：
+**失败的尝试同样消耗配额**，而失败的首次签发在证书表里根本没有记录。`certificates.last_attempt_at`
+是第二道（同一个判断在读记录时也要成立，且续期之后要能被打上时间戳）。限流返回 429
+`RESOURCE_BUSY`，消息里给出下一步（先看失败原因，再等一小时），不给“重试”按钮。
+
+**（4）签发前先探一次 HTTP-01 可达性。** 校验路径不可达时**阻断**（`ACME_HTTP01_UNREACHABLE`）：
+这一步不做，最常见的失败（域名没指到这台机器、80 没通）会在 certbot 真的去申请时才暴露，
+而那时已经消耗了一次请求。探测返回非 200 但可达时只告警——路径存在、内容不对，让 certbot 自己试。
+
+只做 HTTP-01，**不支持通配符**（那需要 DNS-01，意味着把 DNS 凭据交给面板）。
+不用 certbot 的 nginx 插件：它会自己改 `/etc/nginx`，而改配置是本产品的核心动作，必须走
+渲染 → 原子写 → `nginx -t` → 回滚那条流水线（§9.2），不能交给另一个程序在黑盒里做一遍。
+`--webroot` 只写校验文件，由我们自己渲染的 ACME location 提供服务。
+
+**（5）手动导入：公钥走上传，私钥走秘密通道。** 第三步分开是本节的核心边界：
+
+- 公钥证书经 `POST /certificates/uploads`（multipart，字段 `certificate`，1 MiB 上限）。夹带私钥
+  **直接 400**，不“忽略多余的块”——那样私钥已经进了这个进程的内存与可能的日志。暂存按会话绑定、
+  10 分钟、一次性、每用户有数量上限（满了 429），只存在内存里。
+- 私钥经 `POST /secrets`（用途 `tls_private_key`，16 KiB），进代理的 AEAD 加密库；导入参数里
+  只有 `private_key_secret_ref`。
+- 暂存**在展开的最后一步才被消费**（`Take` 是销毁语义）。唯一的例外是“证书不覆盖这个域名”：
+  判覆盖必须先解出证书里的域名，所以那种情况会连上传一起消耗掉，错误信息直接说需要重传。
+
+**（6）落地路径与权限是固定的。** 手动导入：目录 `/etc/ssl/upanel`（`0700 root`）、证书
+`<domain>.pem`（`0644`）、私钥 `<domain>.key`（`0600 root`）。certbot 签发：文件在
+`/etc/letsencrypt/live/<domain>/`（certbot 自己的 `0700` 目录），面板**只读取路径用于渲染**，
+从不打开私钥。`nginx` 以 root 启动、以 worker 用户运行，两种文件它都读得到；面板 Web 以
+`upanel-web`（uid 999）运行，**两种私钥都读不到**——这一条是验收里唯一靠 `runuser` 直接证明的。
+
+**（7）私钥内容任何出口都不出现；路径只出现在任务报告里。** 接口 DTO 里没有 `key_path`、`cert_path`、
+`key_secret_ref`、`cert_pem` 这些字段（不是忘了加）；`certificate.state` 的代理响应里**带着**
+这两个路径（它排查问题要用），接口层用显式结构体接住响应，多出来的字段自然丢掉——比在每个调用点
+记着删一个键可靠。审计只记域名、指纹、有效期与来路。任务参数里会出现公钥 PEM（`ImportParams.CertPEM`）：
+它是公开材料，落进 `preflights.normalized_params` 没有问题；私钥反过来，只以 `secret_ref` 的形式存在。
+
+**路径与内容要分开算。** 任务结果与预检的影响说明里**会**出现落地路径
+（`/etc/ssl/upanel/<域名>.key`、`/etc/letsencrypt/live/<域名>/privkey.pem`）：那是运维要知道的
+“文件写到了哪儿”，而路径本身不是凭据（能读到它的人已经能 `ls`）。私钥**内容**从不出现，一处也不行。
+这条分界是可测的：验收 §10 把“路径只在任务报告里”写成断言，同时在证书接口的响应体、面板库、审计、
+Web 与代理日志里搜 `PRIVATE KEY` 与这把私钥的一行正文，必须一处都搜不到。
+
+**（8）到期是算出来的，不是存下来的。** `not_after` 是从证书解析出来的事实，`renewal_state` 是
+读的时候按 21 天临期窗口算出来的四态（`valid` / `expiring` / `expired` / `unknown`）。已经过期的
+证书在**预检就被挡**（`CERTIFICATE_EXPIRED`）：装上去只会让浏览器报警，那不是“装好了”。
+详情页的 `observed` 是现场事实：文件还在不在、指纹还是不是当初那一张、私钥权限有没有被改松
+（`key_present` / `key_mode`）。`observed.available=false` 不改变状态码——记录还在，为“读不到现场”
+整页 503 会把用户已经掌握的事实一起丢掉。
+
+**（9）续期不改身份。** `certificate.renew` 的请求体只有 `domain`（外加必须显式的 `staging`）：
+记录 id、ACME 邮箱、来路都沿用既有记录，站点绑定不动。续期成功后指纹与到期时间刷新、`last_error`
+清空、任务结果里带新证书的 `observed_state`。手动导入的记录**不能被 certbot 续期**（409）：
+两条来路不会互相顶替。
+
+**（10）错误码闭集。** 阻塞：`CERTIFICATE_PARAMS_INVALID`、`CERTIFICATE_PEM_INVALID`、
+`CERTIFICATE_KEY_MISSING`、`CERTIFICATE_KEY_MISMATCH`、`CERTIFICATE_DOMAIN_UNCOVERED`、
+`CERTIFICATE_EXPIRED`、`CERTIFICATE_IS_CA`、`CERTBOT_MISSING`、`ACME_HTTP01_UNREACHABLE`、
+`CERTIFICATE_LIVE_DIR_MISSING`、`CERTIFICATE_FILES_UNREADABLE`。告警：`CERTIFICATE_STAGING`、
+`CERTIFICATE_SELF_SIGNED`、`CERTIFICATE_EXPIRED`（临期窗口内）、`CERTIFICATE_WRITTEN`。
+`proxy.apply` 这一侧另有十个与 TLS 现场相关的码。阻塞（渲染 443 之前的现场检查）：
+`PROXY_TLS_MATERIAL_MISSING`、`PROXY_TLS_MATERIAL_INVALID`、`PROXY_TLS_KEY_UNAVAILABLE`、
+`PROXY_TLS_DOMAIN_UNCOVERED`、`PROXY_TLS_CERT_EXPIRED`。告警：`PROXY_TLS_KEY_PERMISSIVE`、
+`PROXY_TLS_CERT_EXPIRING`、`PROXY_TLS_STAGING_CERT`、`PROXY_TLS_FINGERPRINT_DRIFT`、
+`PROXY_TLS_SERVED_STALE`（§9.3(13)）。
+执行期失败：`CERTBOT_FAILED`（带 certbot 的输出摘要，其中不含私钥）。HTTP 侧：400
+`VALIDATION_ERROR`、404 `NOT_FOUND`、409 `VALIDATION_ERROR` / `DEPENDENCY_BLOCKED`、
+429 `RESOURCE_BUSY`（限流）、503 `AGENT_UNAVAILABLE`。
+
+**（11）审计。** `certificate.upload`（域名、指纹、有效期、是否 staging）、`certificate.manage`
+（被 admin / CSRF / 再认证挡下的请求）与任务链路的 `job.submit`；明细里没有 PEM、没有私钥、
+没有路径。
+
+**（12）本阶段没有调度。** 不创建 timer、不自动续期、不后台重试。续期只有两条触发路径：人在
+界面上点，或者 P12 的 timer 调同一个动作。
+
+**（13）续期只换文件；让新证书生效靠下一次应用，而这一次应用必须认出来。** `certificate.renew`
+不 reload Nginx（它不该顺手重载一棵可能被别人改过的配置树），所以续期成功之后、应用之前，443 上
+**仍然是旧证书**——这是 Nginx 的正常行为，worker 启动时把证书读进内存，文件换了它不重读。
+把它接上的是 `proxy.apply`：站点绑了证书、且渲染结果与盘上那份逐字节相同（`file_state=unchanged`）
+时，它用 SNI 向 `127.0.0.1:443` 做一次握手（2 秒上限），比对**叶证书指纹**与磁盘上那本证书：
+
+- 不一致 → 视同“有变化”，照常 reload，任务 `observed_state` 里写 `reload_reason=cert_rotated`、
+  `served_cert_fingerprint`（reload 之前 443 用的）、`served_cert_after_reload`（reload 之后再问一次）、
+  `served_cert_probe_attempts`（问了几次）。
+- reload 之后要**等新一代 worker 接上**再问：`nginx -s reload` 只发一个 HUP 就返回，真机上 reload
+  刚返回时 443 上还是旧证书（P10.3 验收实测）。等待预算 12 × 250ms，对上就停。
+- 等满预算仍不一致 → 告警 `PROXY_TLS_SERVED_STALE`（“reload 做了也没生效”：前面还有一层代理，
+  或这个域名没命中本面板的 server 块）。这不是失败，但它必须出现在报告里。
+- 握手失败 → **不改结论**（配置已经过 `nginx -t`，reload 修不好一个握不上手的 443），
+  但 `served_cert_probe=failed: …` 要留在报告里：没测到与没变化不是一回事。
+
+判据是**现场测量**：不新增“强制 reload”参数，也不存“上次 reload 时证书是哪一张”——
+存下来的结论会过期，测量不会。因此 P12 的 timer 只需要做两步：续期 → 对绑定的站点各应用一次。
 
 ## 10. 服务、进程、日志、终端契约
 

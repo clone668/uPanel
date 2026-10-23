@@ -73,6 +73,12 @@ const (
 	ReloadSkippedNoChange = "skipped_unchanged"
 	ReloadSkippedInactive = "skipped_service_inactive"
 	ReloadFailed          = "failed"
+
+	// ReloadReasonCertRotated 是"配置字节没变、但证书换过了"这一次 reload 的理由。
+	//
+	// 它存在的意义是把一次看起来"什么都没改却重载了"的应用解释清楚：续期只换证书
+	// 文件，渲染结果逐字节相同，按配置字节判断就会漏掉这次 reload。
+	ReloadReasonCertRotated = "cert_rotated"
 )
 
 // 阻塞码与告警码（闭集，测试按码断言）。
@@ -122,6 +128,11 @@ type ApplyParams struct {
 	// 记录校验里已经执行过一次，这里是执行层的第二次——因为执行层的入口是 HTTP
 	// 参数，而“记录校验过了”不能替参数上的值担保。
 	PanelPort int `json:"panel_port"`
+	// Certificate 是站点绑定的 TLS 材料（P10.3）。nil 表示这个站点只监听 80。
+	//
+	// 它随参数走，理由与 Definition 相同：执行时写进配置的必须是预检那一刻
+	// 认定的那张证书。**它里面没有私钥**，只有路径与指纹。
+	Certificate *TLSMaterial `json:"certificate,omitempty"`
 }
 
 // Normalize 校验并归一化参数。
@@ -142,7 +153,49 @@ func (p ApplyParams) Normalize() (ApplyParams, error) {
 		return ApplyParams{}, err
 	}
 	out.Definition = &def
+	if err := out.normalizeCertificate(); err != nil {
+		return ApplyParams{}, err
+	}
 	return out, nil
+}
+
+// normalizeCertificate 检查“站点定义”和“证书材料”这两半是否对得上。
+//
+// 三分之一的一致性在这里，三分之二在面板的证书记录校验里（证书必须覆盖域名、
+// 必须未过期、必须未过界）。重复的那点检查是有意的：执行层的入口是参数，
+// 上面那条路径已经证明过的事不能替参数上的值担保。
+func (p *ApplyParams) normalizeCertificate() error {
+	if p.Certificate == nil {
+		// 没有证书就不能有证书标识——反过来也一样。两半只有一半在位时，
+		// 最可能的后果是“以为绑了证书，实际只听 80”，而浏览器只会给一个
+		// 让人摸不着头脑的连接被拒。
+		if p.Definition.CertificateID != "" {
+			return invalid("certificate", "定义里绑定了证书，但参数里没有证书材料")
+		}
+		return nil
+	}
+	m := *p.Certificate
+	m.CertificateID = strings.TrimSpace(m.CertificateID)
+	m.Domain = strings.ToLower(strings.TrimSpace(m.Domain))
+	m.CertPath = strings.TrimSpace(m.CertPath)
+	m.KeyPath = strings.TrimSpace(m.KeyPath)
+	m.Fingerprint = strings.ToLower(strings.TrimSpace(m.Fingerprint))
+	m.NotAfter = strings.TrimSpace(m.NotAfter)
+	m.Issuer = strings.TrimSpace(m.Issuer)
+	if err := m.Validate(); err != nil {
+		return invalid("certificate", "证书材料不合法：%s", err.Error())
+	}
+	if p.Definition.CertificateID != m.CertificateID {
+		return invalid("certificate", "证书标识与定义里的绑定不一致")
+	}
+	if m.Domain != p.Definition.Domain {
+		// 证书的域名必须就是站点的域名。通配证书由面板在记录校验里折算成
+		// “覆盖了这个域名”，到执行层只剩一个等价判断：能写进 server_name 的
+		// 那个域名必须被证书覆盖，而这里的最简形式是二者相同。
+		return invalid("certificate", "证书域名 %q 与站点域名 %q 不一致", m.Domain, p.Definition.Domain)
+	}
+	p.Certificate = &m
+	return nil
 }
 
 // Assessment 是一次判决（预检用）。
@@ -213,6 +266,13 @@ type ApplierOptions struct {
 	// 正常的上线被一个正在重启的应用挡死。真正危险的目标（外网、云元数据）在
 	// 形状层就被拒绝了，这里问的是“它现在活着吗”，是健康问题不是安全问题。
 	TargetExists func(ctx context.Context, targetID string) (bool, error)
+
+	// ServedCert 取“443 上此刻正在用的证书指纹”（可选，零值走真实握手）。
+	//
+	// 它是可注入的，因为真实的判断是向 127.0.0.1:443 做一次带 SNI 的握手——
+	// 单元测试里既没有 443 也不该去监听它。注入它换来的是：把“证书换了但配置
+	// 没变”这条分支放进普通测试里跑，而不是只靠真机验收。
+	ServedCert func(ctx context.Context, domain string, port int) (string, error)
 }
 
 // Applier 是反向代理写入路径的入口。
@@ -233,6 +293,14 @@ func NewApplier(opts ApplierOptions) (*Applier, error) {
 		opts.Now = time.Now
 	}
 	return &Applier{opts: opts}, nil
+}
+
+// servedCert 取 443 上此刻在用的证书指纹（未注入时走真实握手）。
+func (a *Applier) servedCert(ctx context.Context, domain string, port int) (string, error) {
+	if a.opts.ServedCert != nil {
+		return a.opts.ServedCert(ctx, domain, port)
+	}
+	return servedCertFingerprint(ctx, domain, port)
 }
 
 func (a *Applier) paths() ConfigPaths {

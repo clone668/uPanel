@@ -374,6 +374,9 @@ type fakeRunner struct {
 	reloadExit int
 	unitOut    string
 	runErr     error
+	// afterReload 在 reload 成功之后调用一次：模拟"Nginx 换了新一代 worker，
+	// 从此读的是新证书"——证书轮换用例要靠它把"reload 之前/之后"分开。
+	afterReload func()
 }
 
 func (r *fakeRunner) Run(_ context.Context, spec syscmd.Spec, _ syscmd.Limits) (syscmd.Result, error) {
@@ -405,6 +408,9 @@ func (r *fakeRunner) Run(_ context.Context, spec syscmd.Spec, _ syscmd.Limits) (
 		}
 		return res, nil
 	case len(spec.Args) == 2 && spec.Args[0] == "-s" && spec.Args[1] == "reload":
+		if r.reloadExit == 0 && r.afterReload != nil {
+			r.afterReload()
+		}
 		return syscmd.Result{Program: spec.Program, ExitCode: r.reloadExit}, nil
 	}
 	return syscmd.Result{}, fmt.Errorf("测试里没有预料到的命令：%s", key)
@@ -558,7 +564,7 @@ func TestApplyWritesConfigAtomically(t *testing.T) {
 	}
 
 	// 内容就是渲染结果，一个字节都不差。
-	want, err := RenderSite(applySiteID, applyDefinition(applyDomain), applyAuthPath())
+	want, err := RenderSite(applySiteID, applyDefinition(applyDomain), RenderOptions{HtpasswdPath: applyAuthPath()})
 	if err != nil {
 		t.Fatalf("渲染失败: %v", err)
 	}

@@ -326,6 +326,7 @@ func (s *Service) handleAgentForgets(ctx context.Context, job Job) reconcileOutc
 
 // markJobInterrupted 把任务标成 interrupted（执行结果未知）并记录原因。
 func (s *Service) markJobInterrupted(ctx context.Context, jobID, step string, errJSON []byte, now time.Time) (Job, error) {
+	var changed bool
 	err := s.db.WithTx(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx, `
 			UPDATE jobs SET status = 'interrupted', step = ?, error_json = ?, needs_sync = 0,
@@ -343,13 +344,21 @@ func (s *Service) markJobInterrupted(ctx context.Context, jobID, step string, er
 			// 已经被别处写成终态了：不覆盖，也不再追加事件。
 			return nil
 		}
+		changed = true
 		return appendJobEventTx(ctx, tx, jobID, "status",
 			map[string]any{"status": "interrupted", "step": step, "reason": "unknown_result"}, now)
 	})
 	if err != nil {
 		return Job{}, err
 	}
-	return s.readJobUnscoped(ctx, jobID)
+	job, err := s.readJobUnscoped(ctx, jobID)
+	if err != nil {
+		return Job{}, err
+	}
+	if changed {
+		s.notifyFinished(ctx, job)
+	}
+	return job, nil
 }
 
 // beginSubmit 登记“这条任务正在提交途中”。

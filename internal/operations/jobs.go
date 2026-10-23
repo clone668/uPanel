@@ -549,6 +549,8 @@ func (s *Service) syncFromAgent(ctx context.Context, jobID string, op agentclien
 		s.logger.Warn("镜像代理事件失败", "job_id", jobID, "operation_id", op.OperationID, "error", err)
 	}
 
+	// becameTerminal 由事务内的状态迁移置位：本次同步是否把任务从非终态推到了终态。
+	var becameTerminal bool
 	err := s.db.WithTx(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		// 先读旧状态：事件记的是**变化**，不是每次对账的回声。
 		var oldStatus, oldStep string
@@ -580,6 +582,8 @@ func (s *Service) syncFromAgent(ctx context.Context, jobID string, op agentclien
 		if n == 0 || (oldStatus == status && oldStep == op.Step) {
 			return nil
 		}
+		// 只有“从非终态 → 终态”这一次算完成；之后无论对账再看多少遍都不算。
+		becameTerminal = isTerminalStatus(status) && !isTerminalStatus(oldStatus)
 		return appendJobEventTx(ctx, tx, jobID, "status", map[string]any{
 			"status": status,
 			"step":   op.Step,
@@ -589,26 +593,100 @@ func (s *Service) syncFromAgent(ctx context.Context, jobID string, op agentclien
 	if err != nil {
 		return Job{}, err
 	}
-	return s.readJobUnscoped(ctx, jobID)
+	job, err := s.readJobUnscoped(ctx, jobID)
+	if err != nil {
+		return Job{}, err
+	}
+	if becameTerminal {
+		s.notifyFinished(ctx, job)
+	}
+	return job, nil
+}
+
+// notifyFinished 在任务**刚刚**进入终态后通知 OnJobFinished。
+//
+// 三条约束写在这里，因为它们都不会在编译期报错：
+//   - 用 context.WithoutCancel：写账本的那一笔不该因为浏览器提前断开而消失；
+//   - 吞掉 panic：账本写坏了是账本的问题，不能让一个已经成功的任务在对账循环里炸掉；
+//   - 只记日志、不改状态：任务已经结束，回调失败不等于任务失败。
+func (s *Service) notifyFinished(ctx context.Context, job Job) {
+	if s.onJobFinished == nil || !isTerminalStatus(job.Status) {
+		return
+	}
+	detached := context.WithoutCancel(ctx)
+	// 参数取不到不算失败：多数动作的消费者根本不需要它，需要它的那一方（证书）
+	// 会把"没有参数"当成"这一笔只能记状态，记不了事实"。
+	params, err := s.jobParams(detached, job.ID)
+	if err != nil {
+		s.logger.Warn("读取任务参数失败，回调将拿不到参数",
+			"job_id", job.ID, "action", job.Action, "error", err)
+		params = nil
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Error("任务结束回调 panic", "job_id", job.ID, "action", job.Action, "panic", r)
+		}
+	}()
+	s.onJobFinished(detached, job, params)
+}
+
+// jobParams 读取任务消费的那份预检记录里的规范化参数。
+//
+// 为什么不在提交时把参数抄一份到 jobs：多一份副本就多一个会与预检不一致的来源，
+// 而"代理执行的是哪一份参数"这个问题必须只有一个答案。预检记录不随任务结束被删，
+// 所以这里随时读得到。
+func (s *Service) jobParams(ctx context.Context, jobID string) (json.RawMessage, error) {
+	var raw string
+	err := s.db.SQL().QueryRowContext(ctx, `
+		SELECT p.normalized_params
+		  FROM jobs j JOIN preflights p ON p.id = j.preflight_id
+		 WHERE j.id = ?`, jobID).Scan(&raw)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("operations: 查询任务参数失败: %w", err)
+	}
+	if !json.Valid([]byte(raw)) {
+		return nil, nil
+	}
+	return json.RawMessage(raw), nil
 }
 
 // markJobFailed 把任务标成失败并记录错误码。
 func (s *Service) markJobFailed(ctx context.Context, jobID, step string, errJSON []byte, now time.Time) (Job, error) {
+	var changed bool
 	err := s.db.WithTx(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, `
+		res, err := tx.ExecContext(ctx, `
 			UPDATE jobs SET status = 'failed', step = ?, error_json = ?, needs_sync = 0,
 			       finished_at = ?, updated_at = ?
 			 WHERE id = ? AND status NOT IN ('succeeded', 'failed', 'canceled', 'interrupted')`,
-			step, string(errJSON), formatTime(now), formatTime(now), jobID); err != nil {
+			step, string(errJSON), formatTime(now), formatTime(now), jobID)
+		if err != nil {
 			return fmt.Errorf("operations: 标记任务失败失败: %w", err)
 		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("operations: 读取更新结果失败: %w", err)
+		}
+		if n == 0 {
+			return nil
+		}
+		changed = true
 		return appendJobEventTx(ctx, tx, jobID, "status",
 			map[string]any{"status": "failed", "step": step}, now)
 	})
 	if err != nil {
 		return Job{}, err
 	}
-	return s.readJobUnscoped(ctx, jobID)
+	job, err := s.readJobUnscoped(ctx, jobID)
+	if err != nil {
+		return Job{}, err
+	}
+	if changed {
+		s.notifyFinished(ctx, job)
+	}
+	return job, nil
 }
 
 // appendJobEventTx 追加一条任务事件（seq 在任务内单调递增）。

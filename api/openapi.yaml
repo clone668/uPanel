@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: uPanel API
-  version: 0.0.0-p10.1
+  version: 0.0.0-p10.3
   summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
   description: |
     uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。
@@ -23,7 +23,7 @@ info:
     name: Proprietary
     identifier: LicenseRef-Proprietary
 x-upanel-contract-status:
-  stage: P10.1
+  stage: P10.3
   implemented_paths:
     - get /api/v1/health/live
     - head /api/v1/health/live
@@ -101,6 +101,9 @@ x-upanel-contract-status:
     - get /api/v1/proxies/{id}
     - patch /api/v1/proxies/{id}
     - delete /api/v1/proxies/{id}
+    - get /api/v1/certificates
+    - get /api/v1/certificates/{id}
+    - post /api/v1/certificates/uploads
   note: 只列出已实现并通过验收的接口；未实现模块不出现在 paths 中。
 servers:
   - url: https://127.0.0.1:9443/api/v1
@@ -1954,6 +1957,184 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+
+  /api/v1/certificates:
+    get:
+      operationId: getCertificates
+      summary: 证书列表（仅 admin）
+      description: |
+        CONTRACTS.md 第 9.3 节（P10.3 起）。返回面板里登记的证书记录，按 domain 升序
+        稳定排序，同名按 id 兜底。
+
+        这一层只读记录，`renewal_state` 是**读的时候按 `not_after` 算出来的**
+        （valid / expiring / expired / unknown，临期窗口 21 天），不是库里的一列：
+        存下来的结论会过期，而过期了的结论比没有更糟。
+
+        **没有私钥路径，也没有私钥内容。** `key_storage` 只回答“私钥由谁保管”这一个
+        问题——certbot 签发时私钥留在 `/etc/letsencrypt`（root 0700，面板连读都不读），
+        手动导入时它经 `POST /secrets`（用途 `tls_private_key`）进代理的加密库，
+        由代理物化成 0600 root 的文件。
+
+        `staging=true` 是显式列，不靠“看 issuer 猜”：staging 证书浏览器不认，
+        界面上必须一眼可见。
+      tags: [proxy]
+      security:
+        - upanelSession: []
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: domain
+          in: query
+          required: false
+          description: |
+            只返回该域名（精确匹配）。输入先按 IDNA 归一化，因此大写与末尾的点不影响
+            结果；归一化失败是 400，不是“没找到”——静默返回空列表会让人以为证书丢了。
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 当页证书记录。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/CertificateListData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/certificates/{id}:
+    get:
+      operationId: getCertificate
+      summary: 证书详情与现场事实（仅 admin）
+      description: |
+        CONTRACTS.md 第 9.3 节（P10.3 起）。`certificate` 是库里的记录，`observed`
+        是**此刻盘上是什么样**——由代理的 `certificate.state` 只读查询回答。
+
+        `observed.available=false` **不影响状态码**：记录还在，为“读不到现场”整页 503
+        会把用户已经掌握的事实（这张证书覆盖什么、绑在哪个域名）一起丢掉。此时
+        `observed.reason` 说明是“没有代理连接”还是“代理不可用”，其余字段是零值；
+        界面必须显示“不知道”，不能显示“证书不存在、有效期为零”。
+
+        `observed` 里同样没有路径：代理自己知道 `cert_path`/`key_path`（排查用），
+        这一层用显式结构体接住响应，多出来的字段自然丢掉。`key_present` 与
+        `key_mode` 的用途是让“私钥权限被人改松了”这件事在界面上看得见。
+      tags: [proxy]
+      security:
+        - upanelSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^crt_[0-9a-f]{32}$'
+      responses:
+        '200':
+          description: 记录与现场事实。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/CertificateDetailData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/certificates/uploads:
+    post:
+      operationId: uploadCertificate
+      summary: 上传公钥证书并暂存（仅 admin + CSRF + 再认证）
+      description: |
+        CONTRACTS.md 第 9.3 节（P10.3 起）。手动导入的第一步：把一张**公钥**证书链
+        交给面板，拿回一个 10 分钟内有效、一次性使用的引用，随后用
+        `certificate.import` 任务把它装上主机。
+
+        只暂存：**不写库、不碰主机**。真正落到 `/etc/ssl/upanel` 的是任务。
+
+        **夹带私钥直接拒绝**（400），不“忽略多余的块”——那样私钥就已经进了这个进程的
+        内存与可能的日志。私钥请走 `POST /secrets`（用途 `tls_private_key`），导入时用
+        `private_key_secret_ref` 引用它。本接口的响应里没有 PEM 内容：上传方刚给过它。
+
+        `multipart/form-data`，文件字段名 `certificate`，上限 1 MiB。暂存按会话绑定，
+        别的会话拿不到；同一用户最多同时持有少量暂存，满了返回 429。
+      tags: [proxy]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CertificateUploadRequest'
+      responses:
+        '201':
+          description: 已暂存；返回这次上传的解析结果与引用。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/CertificateUploadCreated'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          description: |
+            不是合法的 multipart、缺少 `certificate` 字段、内容里有私钥，或内容无法解析
+            成证书（PEM 无效、只有 CA 证书没有叶子证书）。错误信息里不含上传内容。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: 需要 admin、需要 CSRF 令牌，或需要 5 分钟内的密码再认证。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /api/v1/apps:
     get:
@@ -8819,6 +9000,15 @@ components:
           description: |
             意图，不是事实。它说的是“用户希望这个站点生效”；真正是否已经落在
             Nginx 上要看 `applied`。两者不一致是正常状态（改了记录还没点应用）。
+        certificate_id:
+          type: string
+          pattern: '^crt_[0-9a-f]{32}$'
+          description: |
+            这个站点用的 TLS 证书（P10.3）；不出现表示只监听 80。
+
+            绑定是一次**明确的动作**，不按域名自动匹配：自动匹配会让“我换了一张证书”
+            和“我换了绑定”变成同一件事，出了问题分不清。证书必须覆盖站点的域名，
+            否则那次写操作在预检就被拒（409/400），不会先存下来再说。
         applied:
           $ref: '#/components/schemas/ProxyAppliedState'
         version:
@@ -9100,6 +9290,12 @@ components:
         enabled:
           type: boolean
           description: 省略时默认启用（“省略”和“显式 false”是两件事）。
+        certificate_id:
+          type: string
+          pattern: '^crt_[0-9a-f]{32}$'
+          description: |
+            登记时就绑定一张证书（P10.3）。省略表示先只监听 80，之后再 PATCH 绑定。
+            证书必须已存在且覆盖这个域名，否则 400；来路不同或有站点在用时由预检判定。
 
     ProxyBasicAuthUserInput:
       type: object
@@ -9164,6 +9360,218 @@ components:
           maximum: 3600
         enabled:
           type: boolean
+        certificate_id:
+          type: string
+          pattern: '^crt_[0-9a-f]{32}$'
+          description: |
+            绑定或解绑证书（P10.3）。**指针语义**：字段缺席表示不动绑定；空串表示解绑
+            （退回只监听 80）。绑定一张不覆盖本站点域名的证书是 400。
+
+    CertificateSummary:
+      type: object
+      additionalProperties: false
+      description: |
+        一条证书记录（CONTRACTS.md 第 9.3 节）。**没有 key_path、没有 cert_path、
+        没有 key_secret_ref、没有 PEM**——不是“忘了加”，是不该有：路径一旦出现在响应里，
+        它就会被前端保存、被日志收集、被贴进聊天窗口，而私钥的位置本身就是攻击面的一半。
+
+        `not_after` 与 `fingerprint` 是导入/签发那一刻从证书本身解析出来的事实；
+        盘上的文件后来可能被换掉（certbot 自己续期、有人手工替换），那种变化要看
+        `GET /certificates/{id}` 的 `observed`，不是看这条记录。
+      required: [id, domain, domains, source, staging, issuer, subject, not_before,
+                 not_after, fingerprint, renewal_state, key_storage, version,
+                 created_at, updated_at]
+      properties:
+        id:
+          type: string
+          pattern: '^crt_[0-9a-f]{32}$'
+        domain:
+          type: string
+          maxLength: 253
+          description: |
+            这张证书绑定的域名（归一化后的 A-label）。一条记录一个域名：0.1 一个站点
+            一个域名；多域名证书可以导入，但只按主域名登记。
+        domains:
+          type: array
+          description: 证书实际覆盖的域名（SAN + CN，小写、去重、排序）。导入时按它判覆盖。
+          items:
+            type: string
+        source:
+          type: string
+          enum: [certbot, manual]
+          description: 来路闭集。certbot = ACME 签发，manual = 手动导入。
+        staging:
+          type: boolean
+          description: |
+            这张证书来自 ACME 测试环境。浏览器不认 staging 证书，所以它是显式列，
+            不靠“看 issuer 猜”。
+        issuer:
+          type: string
+        subject:
+          type: string
+        not_before:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        not_after:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        fingerprint:
+          type: string
+          description: 整张 DER 的 SHA-256（十六进制）。用来判断盘上的文件还是不是当初那一张。
+          pattern: '^[0-9a-f]{64}$'
+        renewal_state:
+          type: string
+          enum: [valid, expiring, expired, unknown]
+          description: |
+            派生值：`not_after` 与此刻比较的结果，临期窗口 21 天。不是库里的一列。
+            `unknown` 表示到期时间或指纹缺失，判断不了——不要读成“有效”。
+        key_storage:
+          type: string
+          enum: [certbot, secret_store]
+          description: |
+            私钥的保管方。certbot：私钥在 `/etc/letsencrypt`（root 0700），面板不读它；
+            secret_store：私钥经 `POST /secrets` 存在代理的加密库里，由代理物化。
+            它回答的是“续期时我还要不要再传一次私钥”，不是私钥在哪儿。
+        acme_email:
+          type: string
+          description: Certbot 账号邮箱（续期要用同一个账号）；手动导入的记录没有这个字段。
+        last_attempt_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        last_error:
+          type: string
+          description: 上一次失败的原因（人可读）。成功后清空。
+        version:
+          type: integer
+          minimum: 1
+        created_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        updated_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
+    CertificateListData:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CertificateSummary'
+        next_cursor:
+          type: [string, 'null']
+
+    CertificateObserved:
+      type: object
+      additionalProperties: false
+      description: |
+        盘上那张证书此刻的事实（代理的 `certificate.state` 只读查询）。
+
+        `available=false` 时只有 `reason` 有意义：其余字段是零值，界面必须据此显示
+        “不知道”。`present=false` 是另一件事——读到了，但文件不在（还没签发/还没导入，
+        或者被删了）。`key_present` / `key_mode` 只报告私钥在不在、权限是多少，
+        从不报告内容，也从不报告路径。
+      required: [available]
+      properties:
+        available:
+          type: boolean
+        reason:
+          type: string
+          description: 读不到的原因；`available=false` 时一定有。
+        domain:
+          type: string
+        source:
+          type: string
+          enum: [certbot, manual]
+        present:
+          type: boolean
+        issuer:
+          type: string
+        subject:
+          type: string
+        domains:
+          type: array
+          items:
+            type: string
+        not_before:
+          type: string
+        not_after:
+          type: string
+        fingerprint:
+          type: string
+          description: 盘上那张证书的 SHA-256（十六进制）。
+        chain_length:
+          type: integer
+          minimum: 0
+          description: 证书链里的证书张数。
+        staging:
+          type: boolean
+        self_signed:
+          type: boolean
+        expired:
+          type: boolean
+        expiring:
+          type: boolean
+        key_present:
+          type: boolean
+        key_mode:
+          type: string
+          description: 私钥文件的八进制权限位（例如 `0600`）；私钥不在时不出现。
+
+    CertificateDetailData:
+      type: object
+      additionalProperties: false
+      required: [certificate]
+      properties:
+        certificate:
+          $ref: '#/components/schemas/CertificateSummary'
+        observed:
+          $ref: '#/components/schemas/CertificateObserved'
+
+    CertificateUploadRequest:
+      type: object
+      additionalProperties: false
+      required: [certificate]
+      properties:
+        certificate:
+          type: string
+          format: binary
+          description: |
+            单个 PEM 公钥证书（可以带中间证书链）。上限 1 MiB。**不能包含私钥**——
+            有私钥就整个请求 400，不做“忽略多余块”的处理。
+
+    CertificateUploadCreated:
+      type: object
+      additionalProperties: false
+      required: [certificate_upload_id, domains, issuer, subject, not_before, not_after,
+                 fingerprint, staging, self_signed, expires_at]
+      properties:
+        certificate_upload_id:
+          type: string
+          pattern: '^crtup_[0-9a-f]{32}$'
+          description: |
+            这次暂存的引用，10 分钟内一次性有效，交给 `certificate.import` 的
+            `certificate_upload_id`。被别的会话、或者已经被用过，都是 400。
+        domains:
+          type: array
+          items:
+            type: string
+        issuer:
+          type: string
+        subject:
+          type: string
+        not_before:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        not_after:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        fingerprint:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        staging:
+          type: boolean
+          description: 签发者看起来是 ACME 测试环境（Pebble、Let's Encrypt staging）。
+        self_signed:
+          type: boolean
+        expires_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
   responses:
     BadRequest:
       description: 语法或参数错误（400）。

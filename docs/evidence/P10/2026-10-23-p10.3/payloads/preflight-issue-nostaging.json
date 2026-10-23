@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"必须显式给出 staging（true 用测试环境，false 用正式环境）：正式签发有速率限额，这个选择不能靠默认值"},"request_id":"9047a5afc436a4e07fd1cf8c137a9efa"}

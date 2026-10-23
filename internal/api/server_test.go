@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"upanel/internal/certificates"
 	"upanel/internal/config"
 	"upanel/internal/platform"
 	"upanel/internal/version"
@@ -24,17 +25,19 @@ func newTestServer(t *testing.T, mode platform.Mode, listen string) *Server {
 	t.Helper()
 	authSvc, aud, db := newTestServicesWithDB(t)
 	srv, err := New(Options{
-		ListenAddress:   listen,
-		Mode:            mode,
-		Version:         version.Info{Version: "test", Commit: "test", BuildDate: "test", GoVersion: "test"},
-		Logger:          quietLogger(),
-		ShutdownTimeout: time.Second,
-		Auth:            authSvc,
-		Audit:           aud,
-		Operations:      newTestOperations(t, db, nil),
-		Apps:            newTestApps(t, db),
-		Proxies:         newTestProxies(t, db),
-		AllowedOrigins:  testOrigins(),
+		ListenAddress:     listen,
+		Mode:              mode,
+		Version:           version.Info{Version: "test", Commit: "test", BuildDate: "test", GoVersion: "test"},
+		Logger:            quietLogger(),
+		ShutdownTimeout:   time.Second,
+		Auth:              authSvc,
+		Audit:             aud,
+		Operations:        newTestOperations(t, db, nil),
+		Apps:              newTestApps(t, db),
+		Proxies:           newTestProxies(t, db),
+		Certificates:      newTestCertificates(t, db),
+		CertificateStages: certificates.NewStageStore(nil),
+		AllowedOrigins:    testOrigins(),
 	})
 	if err != nil {
 		t.Fatalf("New 失败: %v", err)
@@ -137,44 +140,50 @@ func TestMockModeMustBindLoopback18881(t *testing.T) {
 	preflights := newTestOperations(t, db, nil)
 	appSvc := newTestApps(t, db)
 	if _, err := New(Options{
-		ListenAddress:   config.ListenProduction,
-		Mode:            platform.ModeMock,
-		Logger:          quietLogger(),
-		ShutdownTimeout: time.Second,
-		Auth:            authSvc,
-		Audit:           aud,
-		Operations:      preflights,
-		Apps:            appSvc,
-		Proxies:         newTestProxies(t, db),
-		AllowedOrigins:  testOrigins(),
+		ListenAddress:     config.ListenProduction,
+		Mode:              platform.ModeMock,
+		Logger:            quietLogger(),
+		ShutdownTimeout:   time.Second,
+		Auth:              authSvc,
+		Audit:             aud,
+		Operations:        preflights,
+		Apps:              appSvc,
+		Proxies:           newTestProxies(t, db),
+		Certificates:      newTestCertificates(t, db),
+		CertificateStages: certificates.NewStageStore(nil),
+		AllowedOrigins:    testOrigins(),
 	}); err == nil {
 		t.Fatal("mock 模式绑定 9443 必须被拒绝")
 	}
 	if _, err := New(Options{
-		ListenAddress:   "0.0.0.0:18881",
-		Mode:            platform.ModeMock,
-		Logger:          quietLogger(),
-		ShutdownTimeout: time.Second,
-		Auth:            authSvc,
-		Audit:           aud,
-		Operations:      preflights,
-		Apps:            appSvc,
-		Proxies:         newTestProxies(t, db),
-		AllowedOrigins:  testOrigins(),
+		ListenAddress:     "0.0.0.0:18881",
+		Mode:              platform.ModeMock,
+		Logger:            quietLogger(),
+		ShutdownTimeout:   time.Second,
+		Auth:              authSvc,
+		Audit:             aud,
+		Operations:        preflights,
+		Apps:              appSvc,
+		Proxies:           newTestProxies(t, db),
+		Certificates:      newTestCertificates(t, db),
+		CertificateStages: certificates.NewStageStore(nil),
+		AllowedOrigins:    testOrigins(),
 	}); err == nil {
 		t.Fatal("mock 模式绑定 0.0.0.0 必须被拒绝")
 	}
 	if _, err := New(Options{
-		ListenAddress:   config.ListenMock,
-		Mode:            platform.ModeMock,
-		Logger:          quietLogger(),
-		ShutdownTimeout: time.Second,
-		Auth:            authSvc,
-		Audit:           aud,
-		Operations:      preflights,
-		Apps:            appSvc,
-		Proxies:         newTestProxies(t, db),
-		AllowedOrigins:  testOrigins(),
+		ListenAddress:     config.ListenMock,
+		Mode:              platform.ModeMock,
+		Logger:            quietLogger(),
+		ShutdownTimeout:   time.Second,
+		Auth:              authSvc,
+		Audit:             aud,
+		Operations:        preflights,
+		Apps:              appSvc,
+		Proxies:           newTestProxies(t, db),
+		Certificates:      newTestCertificates(t, db),
+		CertificateStages: certificates.NewStageStore(nil),
+		AllowedOrigins:    testOrigins(),
 	}); err != nil {
 		t.Fatalf("mock 模式绑定 127.0.0.1:18881 应成功: %v", err)
 	}
@@ -183,16 +192,18 @@ func TestMockModeMustBindLoopback18881(t *testing.T) {
 func TestNewRejectsInvalidOptions(t *testing.T) {
 	authSvc, aud, db := newTestServicesWithDB(t)
 	base := Options{
-		ListenAddress:   config.ListenProduction,
-		Mode:            platform.ModeProduction,
-		Logger:          quietLogger(),
-		ShutdownTimeout: time.Second,
-		Auth:            authSvc,
-		Audit:           aud,
-		Operations:      newTestOperations(t, db, nil),
-		Apps:            newTestApps(t, db),
-		Proxies:         newTestProxies(t, db),
-		AllowedOrigins:  testOrigins(),
+		ListenAddress:     config.ListenProduction,
+		Mode:              platform.ModeProduction,
+		Logger:            quietLogger(),
+		ShutdownTimeout:   time.Second,
+		Auth:              authSvc,
+		Audit:             aud,
+		Operations:        newTestOperations(t, db, nil),
+		Apps:              newTestApps(t, db),
+		Proxies:           newTestProxies(t, db),
+		Certificates:      newTestCertificates(t, db),
+		CertificateStages: certificates.NewStageStore(nil),
+		AllowedOrigins:    testOrigins(),
 	}
 	if _, err := New(Options{ListenAddress: config.ListenProduction, Mode: base.Mode, ShutdownTimeout: time.Second}); err == nil {
 		t.Fatal("缺少 Logger 必须报错")

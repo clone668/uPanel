@@ -70,7 +70,9 @@ type proxySiteDTO struct {
 	MaxBodyBytes       int64                   `json:"max_body_bytes"`
 	ReadTimeoutSeconds int                     `json:"read_timeout_seconds"`
 	Enabled            bool                    `json:"enabled"`
-	Version            int                     `json:"version"`
+	// CertificateID 是绑定的证书；空串表示只监听 80（P10.3）。
+	CertificateID string `json:"certificate_id,omitempty"`
+	Version       int    `json:"version"`
 	// Applied 是"这条记录此刻落地了没有"（P10.2）。它由"渲染出来的字节"与
 	// 配置树里那份文件的字节比对得到，不是库里的列——库里存一份 applied 只会
 	// 多出一个会漂移的事实来源。演示模式（没接代理）时为 unknown，不是 false。
@@ -169,6 +171,10 @@ type createProxyRequest struct {
 	MaxBodyBytes       int64                   `json:"max_body_bytes"`
 	ReadTimeoutSeconds int                     `json:"read_timeout_seconds"`
 	Enabled            *bool                   `json:"enabled"`
+	// CertificateID 是这个站点要用的 TLS 证书（P10.3）。空表示只监听 80。
+	// 它是**显式绑定**：绑一张不覆盖本域名的证书会在写入时被拒（422），
+	// 而不是等到浏览器报错。
+	CertificateID string `json:"certificate_id"`
 }
 
 // updateProxyRequest 是 PATCH /proxies/:id 的请求体：nil 表示“不改这一项”。
@@ -189,6 +195,8 @@ type updateProxyRequest struct {
 	MaxBodyBytes       *int64                   `json:"max_body_bytes"`
 	ReadTimeoutSeconds *int                     `json:"read_timeout_seconds"`
 	Enabled            *bool                    `json:"enabled"`
+	// CertificateID 用指针：缺席表示“不动绑定”，空串表示“解绑”（退回只监听 80）。
+	CertificateID *string `json:"certificate_id"`
 }
 
 // handleListProxies 处理 GET /api/v1/proxies（admin）。
@@ -309,6 +317,7 @@ func (s *Server) handleCreateProxySite(c *gin.Context) {
 		MaxBodyBytes:       req.MaxBodyBytes,
 		ReadTimeoutSeconds: req.ReadTimeoutSeconds,
 		Enabled:            req.Enabled == nil || *req.Enabled,
+		CertificateID:      strings.TrimSpace(req.CertificateID),
 	}
 	if req.AppID != nil {
 		def.AppID = *req.AppID
@@ -379,6 +388,11 @@ func (s *Server) handleUpdateProxySite(c *gin.Context) {
 		MaxBodyBytes:       req.MaxBodyBytes,
 		ReadTimeoutSeconds: req.ReadTimeoutSeconds,
 		Enabled:            req.Enabled,
+	}
+	// 证书绑定走指针语义（见 updateProxyRequest.CertificateID），所以在这里单独转一手。
+	if req.CertificateID != nil {
+		id := strings.TrimSpace(*req.CertificateID)
+		patch.CertificateID = &id
 	}
 	if req.AccessMode != nil {
 		mode := proxies.AccessMode(*req.AccessMode)
@@ -510,6 +524,7 @@ func proxySiteDTOOf(site proxies.Site) proxySiteDTO {
 		MaxBodyBytes:       site.MaxBodyBytes,
 		ReadTimeoutSeconds: site.ReadTimeoutSeconds,
 		Enabled:            site.Enabled,
+		CertificateID:      site.CertificateID,
 		Version:            site.Version,
 		CreatedAt:          site.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:          site.UpdatedAt.UTC().Format(time.RFC3339),

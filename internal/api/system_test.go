@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"upanel/internal/auth"
+	"upanel/internal/certificates"
 	"upanel/internal/config"
 	"upanel/internal/monitoring"
 	"upanel/internal/platform"
@@ -35,18 +36,20 @@ func systemFixture(t *testing.T, mon Monitor) (*Server, *http.Cookie) {
 	t.Helper()
 	authSvc, aud, db := newTestServicesWithDB(t)
 	srv, err := New(Options{
-		ListenAddress:   config.ListenProduction,
-		Mode:            platform.ModeProduction,
-		Version:         version.Info{Version: "test", GoVersion: "test"},
-		Logger:          quietLogger(),
-		ShutdownTimeout: time.Second,
-		Auth:            authSvc,
-		Audit:           aud,
-		Operations:      newTestOperations(t, db, nil),
-		Apps:            newTestApps(t, db),
-		Proxies:         newTestProxies(t, db),
-		AllowedOrigins:  testOrigins(),
-		Monitor:         mon,
+		ListenAddress:     config.ListenProduction,
+		Mode:              platform.ModeProduction,
+		Version:           version.Info{Version: "test", GoVersion: "test"},
+		Logger:            quietLogger(),
+		ShutdownTimeout:   time.Second,
+		Auth:              authSvc,
+		Audit:             aud,
+		Operations:        newTestOperations(t, db, nil),
+		Apps:              newTestApps(t, db),
+		Proxies:           newTestProxies(t, db),
+		Certificates:      newTestCertificates(t, db),
+		CertificateStages: certificates.NewStageStore(nil),
+		AllowedOrigins:    testOrigins(),
+		Monitor:           mon,
 	})
 	if err != nil {
 		t.Fatalf("New 失败: %v", err)

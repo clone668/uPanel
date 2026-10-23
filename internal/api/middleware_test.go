@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"upanel/internal/certificates"
 	"upanel/internal/config"
 	"upanel/internal/platform"
 	"upanel/internal/version"
@@ -196,17 +197,19 @@ func TestRecoveryTurnsPanicInto500WithoutLeakingStack(t *testing.T) {
 
 	authSvc, aud, db := newTestServicesWithDB(t)
 	srv, err := New(Options{
-		ListenAddress:   config.ListenMock,
-		Mode:            platform.ModeMock,
-		Version:         version.Info{Version: "test", Commit: "test", BuildDate: "test", GoVersion: "test"},
-		Logger:          logger,
-		ShutdownTimeout: time.Second,
-		Auth:            authSvc,
-		Audit:           aud,
-		Operations:      newTestOperations(t, db, nil),
-		Apps:            newTestApps(t, db),
-		Proxies:         newTestProxies(t, db),
-		AllowedOrigins:  testOrigins(),
+		ListenAddress:     config.ListenMock,
+		Mode:              platform.ModeMock,
+		Version:           version.Info{Version: "test", Commit: "test", BuildDate: "test", GoVersion: "test"},
+		Logger:            logger,
+		ShutdownTimeout:   time.Second,
+		Auth:              authSvc,
+		Audit:             aud,
+		Operations:        newTestOperations(t, db, nil),
+		Apps:              newTestApps(t, db),
+		Proxies:           newTestProxies(t, db),
+		Certificates:      newTestCertificates(t, db),
+		CertificateStages: certificates.NewStageStore(nil),
+		AllowedOrigins:    testOrigins(),
 	})
 	if err != nil {
 		t.Fatalf("New 失败: %v", err)

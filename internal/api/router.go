@@ -177,6 +177,20 @@ func (s *Server) routes() *gin.Engine {
 		px.PATCH("/:id", s.requireCSRF(), s.handleUpdateProxySite)
 		px.DELETE("/:id", s.requireCSRF(), s.handleDeleteProxySite)
 
+		// 证书（P10.3）：读 admin；上传 admin + CSRF + 再认证（CONTRACTS.md 第 9 节）。
+		//
+		// 这一组同样**不改主机状态**：列表与详情读的是面板库里的记录（附带一次
+		// certificate.state 现场读取），uploads 只把公钥证书暂存在本进程内存里十分钟。
+		// 真正把证书装上主机的是 certificate.import / issue / renew 三个动作，
+		// 走预检 → 任务链路，这里不提供"直接导入"或"直接签发"的入口。
+		cs := v1.Group("/certificates", s.auditRoute(audit.ActionCertificateManage))
+		cs.Use(s.requireSession(), s.requireAdmin())
+		cs.GET("", s.handleListCertificates)
+		cs.GET("/:id", s.handleGetCertificate)
+		// 再认证的理由：上传的是一份会被装进 Nginx 的公钥证书，而"我刚登录所以我有权"
+		// 与"我此刻确实在场"是两件事。CSRF 头挡的是别的站点代发的表单。
+		cs.POST("/uploads", s.requireCSRF(), s.requireReauth(), s.handleUploadCertificate)
+
 		// 服务与进程（P05.1）：权限 V（CONTRACTS.md 第 10 节）。只读路由在这里，
 		// 启停/重启/开机启动是写操作，走统一的预检 → 任务链路（POST /operations/preflight
 		// + POST /jobs，action=service.control），不在这里开一个“直接执行”的入口。

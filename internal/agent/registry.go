@@ -430,6 +430,13 @@ func RegisterProductionQueries(reg *Registry, deps ProductionDeps) error {
 			return fmt.Errorf("代理登记 nginx.state 失败: %w", err)
 		}
 	}
+	if deps.Certificates != nil {
+		// 只读的那一条（P10.3）：读盘上那张证书的事实。它与 proxy.apply 的现场检查
+		// 共用同一套解析，因此详情页看到的到期时间与写配置时判断的是同一个数。
+		if err := RegisterCertificateQueries(reg, deps.Certificates); err != nil {
+			return err
+		}
+	}
 	if deps.Discovery != nil {
 		// 两条一起登记：发现与探测是一对。只有 apps.discovery 的结果里能找到的
 		// target_id，apps.probe 才可能解析成功；少任何一条，健康检查就只能显示
@@ -509,6 +516,13 @@ func RegisterProductionActions(reg *Registry, deps ProductionDeps) error {
 		// 代理站点的写入路径（P10.2）。登记与否由装配决定：没有 Nginx 现状来源或没有
 		// 命令执行器时不登记，而不是登记一个一点就 501 的动作。
 		if err := RegisterProxyActions(reg, deps.Proxies); err != nil {
+			return err
+		}
+	}
+	if deps.Certificates != nil {
+		// 证书的写动作（P10.3）：手动导入、签发、续期。三个一起登记——只有 import
+		// 而没有 issue 的证书模块，会让“这张证书从哪来”只能靠命令行回答。
+		if err := RegisterCertificateActions(reg, deps.Certificates); err != nil {
 			return err
 		}
 	}

@@ -54,6 +54,8 @@ type proxyAppliedDTO struct {
 // 那一侧用的是不吃缓存的 Collect（P10.1 的规则没有变）。
 func (s *Server) proxyAppliedStates(ctx context.Context, sites []proxies.Site) map[string]proxyAppliedDTO {
 	out := make(map[string]proxyAppliedDTO, len(sites))
+	// 一次把证书材料取齐：渲染 N 条站点不该查 N 次库。
+	materials := s.tlsMaterialsOfSites(ctx, sites)
 	if s.opts.NginxFacts == nil {
 		for _, site := range sites {
 			out[site.ID] = proxyAppliedDTO{
@@ -74,14 +76,14 @@ func (s *Server) proxyAppliedStates(ctx context.Context, sites []proxies.Site) m
 		return out
 	}
 	for _, site := range sites {
-		out[site.ID] = appliedStateOf(facts, site)
+		out[site.ID] = appliedStateOf(facts, site, materials[site.ID])
 	}
 	return out
 }
 
 // appliedStateOf 算一条站点的落地状态。它不返回 error：展示路径上"算不出来"
 // 本身就是一种状态（unknown），而不是一次请求失败。
-func appliedStateOf(facts nginx.Facts, site proxies.Site) proxyAppliedDTO {
+func appliedStateOf(facts nginx.Facts, site proxies.Site, material proxies.TLSMaterial) proxyAppliedDTO {
 	root := facts.ConfigRoot
 	if root == "" {
 		root = nginx.DefaultConfigRoot
@@ -124,8 +126,21 @@ func appliedStateOf(facts nginx.Facts, site proxies.Site) proxyAppliedDTO {
 	}
 
 	def := site.Definition
-	rendered, rerr := proxies.RenderSite(site.ID, def, path.Join(root, proxies.AuthDirName,
-		proxies.AuthFileNameOf(site.ID)))
+	// 绑了证书就必须有材料才谈得上"期望的字节"。这里不退化成只监听 80 的渲染结果：
+	// 那份字节属于另一套配置，拿它比出来的 stale 是假结论。
+	opts := proxies.RenderOptions{
+		HtpasswdPath: path.Join(root, proxies.AuthDirName, proxies.AuthFileNameOf(site.ID)),
+	}
+	if site.CertificateID != "" {
+		if material.CertificateID == "" {
+			dto.State = proxyStateUnknown
+			dto.Reason = "站点绑了证书，但读不到那条证书记录：算不出期望的配置"
+			return dto
+		}
+		m := material
+		opts.TLS = &m
+	}
+	rendered, rerr := proxies.RenderSite(site.ID, def, opts)
 	if rerr != nil {
 		dto.State = proxyStateUnknown
 		dto.Reason = "这份定义渲染不出配置：" + rerr.Error()
