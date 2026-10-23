@@ -362,9 +362,58 @@ func (s *Server) prepareSocketPath() error {
 	if st.Mode()&os.ModeSocket == 0 {
 		return fmt.Errorf("%s 已存在且不是 socket（类型 %s），拒绝覆盖", s.opts.SocketPath, st.Mode().Type())
 	}
+	// 是 socket 还要再问一句：**上面有没有人在服务**。
+	//
+	// 这里的删除是给"上次异常退出留下的陈旧 socket"用的，不是给"抢别人正在用的
+	// socket"用的。两者长得一模一样，唯一的分辨办法是连一下：连得上就是有人，
+	// 连不上才是陈旧。
+	//
+	// 不分这一下会出真事：P11.3 验收那台 22.04 上，上一轮留下的 systemd 单元在
+	// 3 秒一次的重启循环里抢同一个 socket 路径。脚本手启的代理明明活着，Web 却报
+	// `dial unix /run/upanel/agent.sock: no such file or directory`——抢到路径的那个
+	// 实例随后失败退出，退出时把这个路径顺手删了；还活着的那个从此不可达，
+	// 而它自己完全不知道。
+	live, err := probeAgentSocket(s.opts.SocketPath)
+	if err != nil {
+		return err
+	}
+	if live {
+		return fmt.Errorf("%s 上已经有一个代理在服务，拒绝启动第二个"+
+			"（同一个 socket 只能有一个代理；不删别人的 socket）", s.opts.SocketPath)
+	}
 	if err := os.Remove(s.opts.SocketPath); err != nil {
 		return fmt.Errorf("清理残留 socket 失败 %s: %w", s.opts.SocketPath, err)
 	}
 	s.opts.Logger.Warn("清理了残留的 socket 文件", "socket", s.opts.SocketPath)
 	return nil
 }
+
+// probeAgentSocket 判断这个 socket 路径上还有没有活着的监听者。
+//
+// 三态，不能压成两态：
+//   - 连得上 → 有人，调用方必须拒绝启动；
+//   - 内核明说没人监听（连接被拒、路径已不存在）→ 陈旧，可以清；
+//   - 说不清（超时之类）→ 当成"有人"，**不许清**。
+//
+// 第三态宁可让运维看见一条"拒绝启动"，也不要让一个可能活着的代理失去自己的
+// socket——那种故障在面板上只表现为"代理不可用"，没人查得到真正的原因。
+func probeAgentSocket(path string) (bool, error) {
+	conn, err := net.DialTimeout("unix", path, socketProbeTimeout)
+	if err == nil {
+		_ = conn.Close()
+		return true, nil
+	}
+	if os.IsTimeout(err) {
+		return true, nil
+	}
+	if isNoListenerErr(err) {
+		return false, nil
+	}
+	return false, fmt.Errorf("探测 socket 是否有人服务失败 %s: %w", path, err)
+}
+
+// socketProbeTimeout 是一次探测的上限。
+//
+// 连一个 Unix socket 是本地内存操作，正常是微秒级；给 1 秒是为了在机器刚重启、
+// 负载很高时不要误判成"没人"，也不要让启动卡在这里。
+const socketProbeTimeout = time.Second

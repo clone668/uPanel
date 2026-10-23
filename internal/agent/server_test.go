@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -265,5 +266,88 @@ func TestPrepareSocketPathRequiresExistingDir(t *testing.T) {
 	}
 	if err := srv.prepareSocketPath(); err == nil {
 		t.Fatal("socket 目录不存在时必须报错，不能隐式创建系统目录")
+	}
+}
+
+// newTestServerAt 构造一个 socket 路径指定的服务，只用于 prepareSocketPath 的测试。
+func newTestServerAt(t *testing.T, socketPath string) *Server {
+	t.Helper()
+	srv, err := New(Options{
+		SocketPath:      socketPath,
+		Version:         version.Info{Version: "test", Commit: "test", BuildDate: "test", GoVersion: "test"},
+		Logger:          quietLogger(),
+		ShutdownTimeout: time.Second,
+		Peer:            testPeer(),
+		Secrets:         newTestSecretStore(t),
+		Plans:           newTestPlanStore(t),
+		Operations:      newTestOperationStore(t),
+	})
+	if err != nil {
+		t.Fatalf("New 失败: %v", err)
+	}
+	return srv
+}
+
+// TestPrepareSocketPathRefusesLiveSocket 验证不会抢走一个正在服务的代理的 socket。
+//
+// 这条来自 P11.3 验收现场：上一轮留下的 systemd 单元在 3 秒一次的重启循环里反复
+// 启动代理，每次都把脚本手启的那个代理的 socket 文件删掉再 bind；抢输的那个随即
+// 退出，退出时又把路径删了。结果代理进程活着，Web 却报
+// "dial unix /run/upanel/agent.sock: connect: no such file or directory"。
+// 连得上就说明有人在服务，此时必须拒绝启动，而不是删掉它。
+func TestPrepareSocketPathRefusesLiveSocket(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent.sock")
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatalf("准备监听失败: %v", err)
+	}
+	defer func() { _ = listener.Close() }()
+
+	srv := newTestServerAt(t, path)
+	prepErr := srv.prepareSocketPath()
+	if prepErr == nil {
+		t.Fatal("socket 上已有代理在服务时必须拒绝启动")
+	}
+	if !strings.Contains(prepErr.Error(), "已经有一个代理在服务") {
+		t.Fatalf("错误信息应说清原因，实际: %v", prepErr)
+	}
+	if _, statErr := os.Lstat(path); statErr != nil {
+		t.Fatalf("正在服务的 socket 不能被删除: %v", statErr)
+	}
+	// 拒绝启动不能对原来的监听者有任何副作用。
+	conn, dialErr := net.DialTimeout("unix", path, time.Second)
+	if dialErr != nil {
+		t.Fatalf("拒绝启动后原代理的 socket 应仍然可连: %v", dialErr)
+	}
+	_ = conn.Close()
+}
+
+// TestPrepareSocketPathReplacesStaleSocket 验证陈旧 socket 仍然会被清掉。
+//
+// 上一次异常退出的代理会留下 socket 文件而没有人 listen。这种必须能恢复，
+// 否则代理一旦崩溃就再也起不来——那是把"不误删"做成了"不能启动"。
+func TestPrepareSocketPathReplacesStaleSocket(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent.sock")
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatalf("准备监听失败: %v", err)
+	}
+	// 关掉监听但把文件留在原地：这就是崩溃后留下的现场。
+	if unixListener, ok := listener.(*net.UnixListener); ok {
+		unixListener.SetUnlinkOnClose(false)
+	}
+	if err := listener.Close(); err != nil {
+		t.Fatalf("关闭监听失败: %v", err)
+	}
+	if _, statErr := os.Lstat(path); statErr != nil {
+		t.Fatalf("陈旧 socket 应该还在: %v", statErr)
+	}
+
+	srv := newTestServerAt(t, path)
+	if err := srv.prepareSocketPath(); err != nil {
+		t.Fatalf("陈旧 socket 应被清理: %v", err)
+	}
+	if _, statErr := os.Lstat(path); !os.IsNotExist(statErr) {
+		t.Fatalf("陈旧 socket 应已被删除，实际: %v", statErr)
 	}
 }

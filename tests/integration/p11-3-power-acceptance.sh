@@ -200,9 +200,46 @@ chown_web_db() {
   return 0
 }
 
+guard_foreign_units() {
+  # 这台机器上除了本脚本手启的两个进程，不该还有别的 upanel 服务在跑。
+  #
+  # P11.3 第一次跑就栽在这上面：前几轮留下的 upanel-agent.service /
+  # upanel-web.service 还留在系统里，ExecStart 指向已经被删掉的二进制，于是 systemd
+  # 每 3 秒重启一次（status=203/EXEC，计数器已经到 40 多次）。它们的
+  # RuntimeDirectory=upanel 每停一次就清掉 /run/upanel——里面正是脚本手启的代理的
+  # socket。现场表现是代理进程活着、日志正常、预检还能应答，Web 却报
+  # "connect: no such file or directory"。
+  #
+  # 所以环境里先停掉、禁掉、mask 掉，再断言一个都不剩。停不掉就是环境不满足，
+  # 直接退出码 2，不能带着一个每 3 秒抢一次 socket 的东西跑验收。
+  _foreign=$(systemctl list-unit-files --no-legend 'upanel*.service' 2>/dev/null | awk '{print $1}')
+  for _u in $_foreign; do
+    systemctl disable --now "$_u" >/dev/null 2>&1
+    systemctl mask "$_u" >/dev/null 2>&1
+    _state=$(systemctl is-active "$_u" 2>/dev/null)
+    case $_state in
+      inactive|failed|unknown|"") ;;
+      *)
+        printf '这台机器上还有外来服务 %s 处于 %s：它会在别处清 /run，验收结果不可信\n' \
+          "$_u" "$_state" >&2
+        printf '%s\n' "$_foreign" >&2
+        exit 2 ;;
+    esac
+  done
+  # 手启之前再确认一次：不许有别的代理进程占着这个 socket。
+  # 只在本阶段还没启过代理时查（AGENT_PID 为空）——否则查到的是我们自己。
+  if [ -z "${AGENT_PID:-}" ] && pgrep -x upanel-agent >/dev/null 2>&1; then
+    printf '这台机器上已经有 upanel-agent 进程在跑，先停掉再验收（否则 socket 归属不明）\n' >&2
+    exit 2
+  fi
+  return 0
+}
+
 start_agent() {
   ensure_run_dir
-  rm -f "$SOCK"
+  # 这里**故意不 rm -f "$SOCK"**。陈旧 socket 由代理自己判断并清理；如果那个路径上
+  # 其实有人在服务，代理会拒绝启动并把理由写进日志——那正是我们想看到的东西。
+  # 脚本先删掉就等于替代理把"有人在服务"这件事抹掉了。
   "$AGENT" --config "$SYS_CFG" >>"$AGENT_LOG" 2>&1 &
   AGENT_PID=$!
   for _ in $(seq 1 100); do
@@ -396,6 +433,7 @@ JSON
 }
 
 bring_up() {
+  guard_foreign_units
   if start_agent; then phase_pass "agent-restarted"; else phase_fail "agent-restarted" "代理没起来（见 $AGENT_LOG）"; fi
   if start_web; then phase_pass "web-restarted"; else phase_fail "web-restarted" "Web 没起来（见 $WEB_LOG）"; fi
 }
@@ -408,6 +446,8 @@ phase_pre() {
   note "uptime：$(uptime_seconds) 秒"
   note "systemd：$(systemctl is-system-running 2>&1 | head -1)"
   phase_pass "env-systemd-and-boot-id"
+  guard_foreign_units
+  phase_pass "env-no-foreign-units"
 
   echo
   echo "== 0.1 装配：配置、代理密钥、管理员与 viewer =="
