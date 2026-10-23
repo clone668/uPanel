@@ -176,8 +176,17 @@ func (l Limits) withDefaults() Limits {
 
 // Result 是一次调用的完整结果。即使返回错误，Result 也会尽量填好。
 type Result struct {
-	Program         string
-	ExitCode        int
+	Program  string
+	ExitCode int
+	// Signal 是终止子进程的信号名（如 "SIGKILL"）；正常退出时为空。
+	//
+	// 为什么退出码不够：被信号杀死的进程 ExitCode 是 -1，"退出码 -1" 写给用户
+	// 等于什么都没说——它既不是 apt 自己的判断，也没说谁停的。信号名是运行时
+	// 就摆在 ProcessState 里的事实，传出去比让上层猜要诚实。
+	//
+	// 注意：本包自己超时/取消时也走 SIGKILL 终止进程组，所以那两种情况 Signal
+	// 同样是 "SIGKILL"。区分"谁停的"看 TimedOut 与返回的错误，不看这里。
+	Signal          string
 	Stdout          string
 	Stderr          string
 	StdoutTruncated bool
@@ -262,6 +271,7 @@ func Run(ctx context.Context, spec Spec, limits Limits) (Result, error) {
 	}
 	if cmd.ProcessState != nil {
 		res.ExitCode = cmd.ProcessState.ExitCode()
+		res.Signal = signalName(cmd.ProcessState)
 	}
 
 	switch {

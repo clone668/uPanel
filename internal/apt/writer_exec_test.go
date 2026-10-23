@@ -184,6 +184,60 @@ func TestExecuteBusyLockRunsNothing(t *testing.T) {
 }
 
 // TestExecuteFailureKeepsEvidence：apt 非零退出时，退出码与 E: 行都要留下来。
+// TestExecuteKilledReasonNamesTheSignal：被信号停住的 apt，原因不能写成
+// "退出码 -1 + 半截日志"。
+//
+// 这条来自真机：P11.2 验收在 22.04/24.04 上硬杀安装中的 apt，面板当时真的写出
+// 「apt-get install 失败（退出码 -1）：Reading package lists...」——读的人既不知道
+// 是谁停的，也会把那半截日志当成 apt 的报错。
+func TestExecuteKilledReasonNamesTheSignal(t *testing.T) {
+	f := &fakeApt{
+		simulateOut:   readCapture(t, "2404-sim-install-upgrade.txt"),
+		execOut:       "正在读取软件包列表...\n",
+		execSignal:    "SIGKILL",
+		dpkgSequences: []string{dpkgLine("zlib1g", "ii ", "1:1.2.11.dfsg-2ubuntu9.2", false)},
+	}
+	w := newTestWriter(f, testNow)
+	res, err := w.Execute(context.Background(), OpInstall, []string{"zlib1g"}, nil)
+	if err == nil {
+		t.Fatal("被信号终止必须返回 error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "被信号 SIGKILL 终止") {
+		t.Fatalf("原因里要写清是谁停的: %q", msg)
+	}
+	if !strings.Contains(msg, "事务可能停在中间") {
+		t.Fatalf("原因里要说明事务可能停在中间: %q", msg)
+	}
+	if !strings.Contains(msg, "-1") {
+		t.Fatalf("退出码这个事实不能丢: %q", msg)
+	}
+	if res.Verified {
+		t.Fatal("被信号终止不能判核对通过")
+	}
+	// 失败后的读回照样要做：它是判断"停在哪"的唯一依据。
+	if res.Observed["zlib1g"].Version == "" {
+		t.Fatalf("失败后仍要记录真实版本: %+v", res.Observed)
+	}
+}
+
+// TestRefreshKilledReasonNamesTheSignal：刷新被停住时同理。
+func TestRefreshKilledReasonNamesTheSignal(t *testing.T) {
+	f := &fakeApt{refreshOut: "命中:1 http://archive.ubuntu.com/ubuntu noble InRelease\n", refreshSignal: "SIGTERM"}
+	w := newTestWriter(f, testNow)
+	res, err := w.Refresh(context.Background(), nil)
+	if err == nil {
+		t.Fatal("被信号终止必须返回 error")
+	}
+	if !strings.Contains(err.Error(), "被信号 SIGTERM 终止") {
+		t.Fatalf("原因里要写清是谁停的: %q", err.Error())
+	}
+	if res.Verified {
+		t.Fatal("被信号终止不能判核对通过")
+	}
+}
+
+// TestExecuteFailureKeepsEvidence：apt 非零退出时保留现场。
 func TestExecuteFailureKeepsEvidence(t *testing.T) {
 	f := &fakeApt{
 		simulateOut:   readCapture(t, "2404-sim-remove-ssh.txt"),

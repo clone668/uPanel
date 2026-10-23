@@ -185,12 +185,24 @@ chown_web_db() {
 }
 
 start_agent() {
+  # 上一次被 SIGKILL 的代理会留下 socket 文件，而 [ -S ] 对尸体也返回真。
+  # 24.04 上就吃过这一口：start_agent 立刻"成功"，紧接着读日志时新代理还没把
+  # 「已启用 APT 写事务」写下来，于是被判定成没启用——断言没错，就绪判据错了。
+  # 所以先清掉可能存在的尸体，再要求**能应答**：capabilities 返回 200 才说明
+  # 装配完成、路由挂好、日志也已经落盘（服务端 Serve 在所有组件日志之后）。
+  rm -f "$SOCK"
   "$AGENT" --config "$SYS_CFG" >>"$AGENT_LOG" 2>&1 &
   AGENT_PID=$!
   for _ in $(seq 1 100); do
-    [ -S "$SOCK" ] && return 0
+    if [ -S "$SOCK" ] && runuser -u "$WEB_USER" -- curl -fsS -o /dev/null \
+         --unix-socket "$SOCK" http://agent/internal/v1/capabilities 2>/dev/null; then
+      return 0
+    fi
     sleep 0.1
   done
+  # 没应答也要说清卡在哪：socket 在不在、代理日志最后一句是什么。
+  note "代理就绪探针失败：socket=$([ -S "$SOCK" ] && echo 在 || echo 不在)"
+  note "代理日志最后一行：$(tail -1 "$AGENT_LOG" 2>/dev/null | cut -c1-200)"
   return 1
 }
 
@@ -913,6 +925,16 @@ else
       *)
         pass "kill-job-real-error"
         note "失败原因：$(printf '%s' "$_kmsg" | cut -c1-200)"
+        # 光"有原因"不够：原因得说清是谁停的。这一条是 22.04 真机抓出来的——
+        # 当时面板写的是「退出码 -1：Reading package lists...」，读的人不知道发生过硬杀。
+        case "$_kmsg" in
+          *"被信号"*SIG*|*"超时"*|*"时限"*)
+            pass "kill-reason-names-the-signal"
+            ;;
+          *)
+            fail "kill-reason-names-the-signal" "原因没说清是被信号终止的：$(printf '%s' "$_kmsg" | cut -c1-160)"
+            ;;
+        esac
         ;;
     esac
   else
@@ -920,6 +942,7 @@ else
     notrun "kill-mid-flight" "25 秒内没抓到 apt-get 进程（$PKG_KILL 太小或任务已结束），硬杀这条没有证据"
     notrun "kill-job-not-verified-claim" "同上：本次没有真的中断，verified 的取值说明不了什么"
     notrun "kill-job-real-error" "同上：本次没有真的中断"
+    notrun "kill-reason-names-the-signal" "同上：本次没有真的中断"
   fi
   # 不自动重试：任务数不再增长（重试会留下第二条 job）。
   sleep 5

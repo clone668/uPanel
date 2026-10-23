@@ -89,6 +89,9 @@ func (w *Writer) Execute(ctx context.Context, op Op, names []string, progress fu
 
 	if runErr != nil {
 		// 真实错误原样带出去，由任务层写进 error（而不是 result）。
+		if note, stopped := stoppedNote("apt-get "+string(op), res); stopped {
+			return result, errors.New(note)
+		}
 		return result, fmt.Errorf("apt-get %s 失败（退出码 %d）：%s", op, res.ExitCode, firstMeaningfulLine(res.Stderr, res.Stdout, plan))
 	}
 	return result, nil
@@ -130,6 +133,9 @@ func (w *Writer) Refresh(ctx context.Context, progress func(step string, fields 
 	result.RefreshErrors, result.RefreshWarnings = refreshMessages(res.Stdout + "\n" + res.Stderr)
 	result.Verified = runErr == nil && len(result.RefreshErrors) == 0
 	if runErr != nil {
+		if note, stopped := stoppedNote("apt-get update", res); stopped {
+			return result, errors.New(note)
+		}
 		return result, fmt.Errorf("apt-get update 失败（退出码 %d）：%s",
 			res.ExitCode, firstMeaningfulLine(res.Stderr, res.Stdout, Simulation{}))
 	}
@@ -209,6 +215,26 @@ func mismatchesFor(plan Simulation, state *dpkgState) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// stoppedNote 在 apt 不是"自己失败"而是被停住时给出说明。
+//
+// 为什么单独处理：硬杀 apt 的退出码是 -1，而它的输出停在任意一行。P11.2 真机
+// 验收（22.04 / 24.04）里，面板当时写出来的原因是
+// 「apt-get install 失败（退出码 -1）：Reading package lists...」——既没说谁停的，
+// 还把 apt 的半截日志当成了错误原因。事务层要求的"说实话"落到这里就是一句：
+// 谁停的、停在哪、下一步先看什么。超时是我们自己杀的（syscmd 也报 SIGKILL），
+// 所以先认超时，再认外部信号。
+func stoppedNote(name string, res syscmd.Result) (string, bool) {
+	switch {
+	case res.TimedOut:
+		return fmt.Sprintf("%s 超过执行时限被终止（退出码 %d），事务可能停在中间；先核对 dpkg 状态，再决定是否重试",
+			name, res.ExitCode), true
+	case res.Signal != "":
+		return fmt.Sprintf("%s 被信号 %s 终止（退出码 %d），事务可能停在中间；先核对 dpkg 状态，再决定是否重试",
+			name, res.Signal, res.ExitCode), true
+	}
+	return "", false
 }
 
 // firstMeaningfulLine 从 apt 的输出里挑一句最能说明问题的话。

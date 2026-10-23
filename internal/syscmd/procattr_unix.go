@@ -3,9 +3,43 @@
 package syscmd
 
 import (
+	"fmt"
+	"os"
 	"os/exec"
 	"syscall"
 )
+
+// signalName 返回终止子进程的信号名；正常退出的进程返回空串。
+//
+// WaitStatus.Signaled 为假时不编造名字——退出码 0 或非零都能说明问题，只有
+// 被信号打死这一种情形的退出码是 -1，那才是这个函数存在的理由。
+func signalName(ps *os.ProcessState) string {
+	if ps == nil {
+		return ""
+	}
+	ws, ok := ps.Sys().(syscall.WaitStatus)
+	if !ok || !ws.Signaled() {
+		return ""
+	}
+	sig := ws.Signal()
+	switch sig {
+	case syscall.SIGKILL:
+		return "SIGKILL"
+	case syscall.SIGTERM:
+		return "SIGTERM"
+	case syscall.SIGINT:
+		return "SIGINT"
+	case syscall.SIGSEGV:
+		return "SIGSEGV"
+	case syscall.SIGABRT:
+		return "SIGABRT"
+	case syscall.SIGPIPE:
+		return "SIGPIPE"
+	case syscall.SIGHUP:
+		return "SIGHUP"
+	}
+	return fmt.Sprintf("信号 %d", int(sig))
+}
 
 // setProcAttr 让子进程进入独立进程组，终止时可以连同它派生的进程一起杀掉。
 func setProcAttr(cmd *exec.Cmd) {

@@ -25,11 +25,15 @@ import (
 
 // fakeApt 是一台"可以摆状态的机器"。
 type fakeApt struct {
-	simulateOut   string
-	simulateExit  int
-	execOut       string
-	execErrOut    string
-	execExit      int
+	simulateOut  string
+	simulateExit int
+	execOut      string
+	execErrOut   string
+	execExit     int
+	// execSignal 非空表示执行阶段不是"apt 自己失败"，而是被这个信号停住
+	// （退出码 -1、Signal 有值）。硬杀场景靠它造。
+	execSignal    string
+	refreshSignal string
 	dpkgSequences []string // 第 n 次 dpkg-query 的输出；用完之后重复最后一份
 	refreshOut    string
 	refreshExit   int
@@ -58,7 +62,13 @@ func (f *fakeApt) run(_ context.Context, spec syscmd.Spec, _ syscmd.Limits) (sys
 			return f.exit(spec.Program, f.simulateOut, f.simulateExit)
 		}
 		if hasArg(spec.Args, "update") {
+			if f.refreshSignal != "" {
+				return killed(spec.Program, f.refreshOut, f.refreshSignal)
+			}
 			return f.exit(spec.Program, f.refreshOut, f.refreshExit)
+		}
+		if f.execSignal != "" {
+			return killed(spec.Program, f.execOut+f.execErrOut, f.execSignal)
 		}
 		return f.exit(spec.Program, f.execOut+f.execErrOut, f.execExit)
 	}
@@ -71,6 +81,13 @@ func (f *fakeApt) exit(program, out string, code int) (syscmd.Result, error) {
 		return res, &syscmd.ExitError{Program: program, ExitCode: code}
 	}
 	return res, nil
+}
+
+// killed 造一次"被信号停住"的执行结果：退出码 -1、Signal 有值。
+// syscmd 在真机上也是这样填的（见 internal/syscmd 的 signalName）。
+func killed(program, out, signal string) (syscmd.Result, error) {
+	res := syscmd.Result{Program: program, Stdout: out, ExitCode: -1, Signal: signal}
+	return res, &syscmd.ExitError{Program: program, ExitCode: -1}
 }
 
 func (f *fakeApt) dpkgSequence() string {
