@@ -367,9 +367,12 @@ fixture_deb() { # name version
   # 每个包里放一个 conffile，内容随版本变：装 1.0 之后本地改一行，再升到 2.0，
   # dpkg 就真的会面对"本地改过、包也改了"的冲突——这是 --force-confold 唯一
   # 能被证明的场合，否则那几个 -o 选项只是 argv 里的一串字。
+  #
+  # 文件名是 DEBIAN/conffiles（复数）：写成单数 dpkg 一声不响地忽略它，文件就变成
+  # 普通文件，升级时直接覆盖——第一次做这个夹具时正是这么错的，而且断言把它抓出来了。
   install -d "$_d/etc"
   printf '# uPanel 验收夹具的 conffile\nversion=%s\nshipped=yes\n' "$_v" >"$_d/etc/${_n}.conf"
-  printf '/etc/%s.conf\n' "$_n" >"$_d/DEBIAN/conffile"
+  printf '/etc/%s.conf\n' "$_n" >"$_d/DEBIAN/conffiles"
   dpkg-deb --root-owner-group -Zgzip -b "$_d" "$FIXREPO/${_n}_${_v}_all.deb" >/dev/null
 }
 fixture_index() { # deb
@@ -407,7 +410,7 @@ expect_eq "env-fixture-b-at-1.0" "1.0" "$(dpkg_version "$UPGRADE_BYSTANDER")"
 # 于是升级时 dpkg 真的要在"本地改过的"和"包里新的"之间做选择。
 printf 'local_edit=yes\n' >>"/etc/$UPGRADE_TARGET.conf"
 expect_eq "env-conffile-locally-edited" "yes" \
-  "$(grep -c '^local_edit=yes$' "/etc/$UPGRADE_TARGET.conf")"
+  "$(grep -qx 'local_edit=yes' "/etc/$UPGRADE_TARGET.conf" && echo yes || echo no)"
 if apt-get -s install --only-upgrade "$UPGRADE_TARGET" 2>/dev/null | grep -q '^Inst '; then
   pass "env-fixture-has-newer-candidate"
   note "升级目标：$UPGRADE_TARGET（1.0 → 候选 $(apt-cache policy "$UPGRADE_TARGET" | sed -n 's/^  Candidate: //p')），旁边不动的是 $UPGRADE_BYSTANDER"
@@ -793,9 +796,9 @@ PY
   expect_eq "upgrade-changed-only-the-named-package" "0" "$CHANGED_OTHERS"
   # --force-confold 的真凭据：本地改过的那一行还在，包里新的 2.0 版本没有覆盖它。
   expect_eq "upgrade-conffile-kept-local-edit" "yes" \
-    "$(grep -c '^local_edit=yes$' "/etc/$UPGRADE_TARGET.conf")"
+    "$(grep -qx 'local_edit=yes' "/etc/$UPGRADE_TARGET.conf" && echo yes || echo no)"
   expect_eq "upgrade-conffile-not-overwritten" "no" \
-    "$(grep -c '^version=2.0$' "/etc/$UPGRADE_TARGET.conf")"
+    "$(grep -qx 'version=2.0' "/etc/$UPGRADE_TARGET.conf" && echo yes || echo no)"
   note "conffile 现场：$(tr '\n' ' ' <"/etc/$UPGRADE_TARGET.conf")；dpkg-dist 备份：$(ls "/etc/$UPGRADE_TARGET.conf".dpkg-* 2>/dev/null | tr '\n' ' ' || true)"
 else
   notrun "upgrade-preflight-200" "没有可升级的包"
@@ -1085,7 +1088,7 @@ echo
 echo "== 16. 明确未覆盖 =="
 notrun "APT_LOCK_UNREADABLE" "root 造不出 EACCES；不挪 dpkg 的锁文件，分支由 internal/apt/locks_test.go 覆盖"
 notrun "重启执行与 boot_id 前后确认" "P11.3"
-notrun "浏览器渲染" "VM 上没有浏览器；载荷原样抓在 $FIXDIR"
+notrun "浏览器渲染" "VM 上没有浏览器；每一步的原始响应在 $PAYLOADS，能力表在 $FIXDIR"
 notrun "Windows / macOS 宿主" "0.1 不支持"
 
 echo
