@@ -1,0 +1,1 @@
+{"data":{"collected_at":"2026-10-23T10:43:19.175312352Z","index_updated_at":"2026-10-23T05:28:44.791497408Z","counts":{"installed":676,"upgradable":9,"security":0},"filters":{"query":"","installed":true,"upgradable":false,"security":true},"matched":0,"limit":20,"next_cursor":null,"packages":[],"errors":[]},"request_id":"8b25d5e5ba36f0c0c331a1237215b1ea"}

@@ -1,0 +1,120 @@
+== 0. 这台机器的发行版与包管理现场 ==
+      发行版：Ubuntu 24.04.5 LTS
+      dpkg-query：/usr/bin/dpkg-query；apt-cache：/usr/bin/apt-cache
+      dpkg 登记的包：731 个；其中状态 ii 的：731 个
+PASS  env-has-installed-packages
+
+== 1. 启动代理（root）与 Web（非 root） ==
+PASS  agent-key-present
+PASS  agent-started
+PASS  agent-runs-as-root
+PASS  agent-logs-apt-enabled
+PASS  init-admin
+PASS  web-started
+PASS  web-not-root
+
+== 2. 能力表如实报告两条查询 ==
+PASS  capabilities-200
+PASS  capabilities-has-apt-packages
+PASS  capabilities-has-power-state
+      supported_queries=["apps.discovery", "apps.probe", "apt.packages", "certificate.state", "containers.get", "containers.images", "containers.list", "containers.logs", "containers.networks", "containers.projects", "containers.volumes", "files.list", "files.roots", "files.text", "logs.query", "nginx.state", "processes.list", "services.list", "services.unit", "share.accounts", "share.capability", "share.connections", "share.list", "storage.topology", "storage.volume.blockers", "storage.volumes", "system.power_state", "system.summary", "terminal.sessions"]
+PASS  capabilities-no-package-actions
+
+== 3. 登录与权限 ==
+PASS  login-admin
+      已建 viewer 账号 pkg-watcher
+PASS  login-viewer
+PASS  viewer-403/api/v1/packages
+PASS  viewer-403/api/v1/packages/updates
+PASS  viewer-403/api/v1/system/power-state
+PASS  anon-401/api/v1/packages
+PASS  anon-401/api/v1/packages/updates
+PASS  anon-401/api/v1/system/power-state
+PASS  no-write-route-POST
+PASS  no-write-route-PUT
+PASS  no-write-route-PATCH
+PASS  no-write-route-DELETE
+
+== 3b. 首次采集（冷启动可能几十秒，这一步只等，不判断快慢） ==
+      首次拿到包事实：第 1 次，11611ms
+PASS  packages-first-call-succeeds
+
+== 4. GET /packages：事实与判断 ==
+PASS  packages-200
+      collected_at=2026-10-23T10:55:09.310751633Z  index_updated_at=2026-10-23T07:28:48.90436708Z  matched=731
+PASS  packages-default-limit
+PASS  packages-default-page-size
+PASS  packages-counts-installed-matches-dpkg
+PASS  packages-has-next-cursor
+PASS  packages-errors-empty
+PASS  packages-index-time-is-lists-mtime
+PASS  packages-collected-at-fresh
+PASS  packages-second-request-200
+PASS  packages-snapshot-cached-30s
+PAGES=15 ENTRIES=731 DUPLICATES=0
+      翻页：15 页，共 731 条，重复 0 条
+PASS  packages-paging-covers-all
+PASS  packages-paging-no-duplicates
+PASS  packages-paging-multi-page
+
+== 5. 与 dpkg / apt 逐条对账（版本比较用 dpkg 自己的实现） ==
+PASS  packages-verified-against-dpkg-and-apt
+      SCOPE=installed ENTRIES=731 EXPECTED=731 CHECKED=731 MISMATCH=0
+NOT RUN  packages-default-excludes-rc：这台机器没有 rc（仅剩配置）的包
+NOT RUN  packages-installed-false-includes-rc：这台机器没有 rc（仅剩配置）的包
+      反例包：cloud-init（候选来源 26.2-0ubuntu1~24.04.2，security 源里出现的行数 1）
+PASS  packages-security-not-from-other-versions
+
+== 6. GET /packages/updates ==
+PASS  updates-200
+      total=9 security=1 返回 9 条 truncated=False
+PASS  updates-total-matches-list-counts
+PASS  updates-security-matches-list-counts
+PASS  updates-count-matches-total
+PASS  updates-every-item-newer-and-security-first
+
+== 7. GET /system/power-state ==
+PASS  power-state-200
+PASS  power-state-boot-id-matches-kernel
+PASS  power-state-reboot-required-matches-file
+PASS  power-state-pkgs-empty-without-file
+
+== 8. 只读性：包数据库与索引没有被动过 ==
+PASS  readonly-dpkg-status-unchanged
+PASS  readonly-apt-lists-mtime-unchanged
+
+== 9. 参数拒绝 ==
+PASS  reject_api_v1_packages_limit_201
+PASS  reject_api_v1_packages_limit_0
+PASS  reject_api_v1_packages_limit_abc
+PASS  reject_api_v1_packages_installed_maybe
+PASS  reject_api_v1_packages_upgradable_2
+PASS  reject_api_v1_packages_cursor_not-base64__
+PASS  reject-query-control-char
+PASS  accept-filtered-query
+PASS  accept-filtered-query-matches
+PASS  accept-security-filter
+PASS  accept-security-filter-only-security
+      security=true 命中 1 个
+PASS  accept-arch-qualified
+PASS  accept-arch-qualified-candidate
+      bind9-libs 候选 ['1:9.18.39-0ubuntu0.24.04.8']
+
+== 10. 明确未覆盖 ==
+NOT RUN  apt-cache 失败时的降级：要让 apt-cache 真失败会破坏验收机的 apt；该分支由单测覆盖
+NOT RUN  安装/卸载/升级/刷新索引：P11.2
+NOT RUN  重启执行与 boot_id 前后确认：P11.3
+NOT RUN  分阶段推送与被保留包的判定（apt-get -s upgrade）：P11.2
+NOT RUN  浏览器渲染：VM 上没有浏览器；页面数据由真实抓取的夹具回放验证
+
+== 汇总 ==
+PASS 64  FAIL 0  NOT RUN 7
+夹具（原样抓取，前端回放用）：/var/tmp/upanel-accept-p11-1/fixtures
+      capabilities.json
+      packages-bind9.json
+      packages-page1.json
+      packages-search.json
+      packages-security.json
+      packages-updates.json
+      power-state.json
+EXIT=0
