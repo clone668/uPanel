@@ -64,9 +64,9 @@ type Location struct {
 
 // Definition 是一条仓库定义。
 type Definition struct {
-	Name      string   `json:"name"`
-	Backend   Backend  `json:"backend"`
-	Location  Location `json:"location"`
+	Name     string   `json:"name"`
+	Backend  Backend  `json:"backend"`
+	Location Location `json:"location"`
 	// PasswordSecretRef 指向 backup_repository_password 用途的秘密。
 	PasswordSecretRef string `json:"password_secret_ref"`
 	// CredentialSecretRef 指向 sftp_private_key 用途的秘密；local 后端必须为空。

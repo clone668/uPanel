@@ -126,8 +126,8 @@ var repoIDPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 // CatConfig 读仓库 config。仓库不存在或口令不对时返回明确错误。
 func (r *Restic) CatConfig(ctx context.Context, inv Invocation) (RepoConfig, error) {
 	res, err := r.run(ctx, ExecSpec{
-		Program: r.paths.Restic,
-		Args:    r.args(inv, "cat", "config"),
+		Program:  r.paths.Restic,
+		Args:     r.args(inv, "cat", "config"),
 		Password: inv.Password,
 		CacheDir: r.paths.CacheDir,
 		Timeout:  inv.Timeout,
@@ -208,9 +208,9 @@ type resticFailure struct {
 	err error
 }
 
-func (f *resticFailure) Error() string        { return f.FailureReason() }
-func (f *resticFailure) Unwrap() error        { return f.err }
-func (f *resticFailure) Reason() string       { return f.FailureReason() }
+func (f *resticFailure) Error() string  { return f.FailureReason() }
+func (f *resticFailure) Unwrap() error  { return f.err }
+func (f *resticFailure) Reason() string { return f.FailureReason() }
 func (f *resticFailure) FailureReason() string {
 	line := lastLine(f.res.Stderr)
 	if line == "" {

@@ -165,17 +165,17 @@ type Assessment struct {
 	RepositoryID string
 	Definition   Definition
 	// AbsolutePath 是本地仓库解析后的绝对路径（SFTP 时为空）。
-	AbsolutePath string
-	Allowed      bool
-	Blockers     []Reason
-	Warnings     []Reason
-	Impacts      []Impact
-	Locks        []string
-	Target       Target
-	Capacity     Capacity
-	HostKey      HostKey
+	AbsolutePath  string
+	Allowed       bool
+	Blockers      []Reason
+	Warnings      []Reason
+	Impacts       []Impact
+	Locks         []string
+	Target        Target
+	Capacity      Capacity
+	HostKey       HostKey
 	ResticVersion string
-	CheckedAt    time.Time
+	CheckedAt     time.Time
 }
 
 // Assess 生成预检结论。
@@ -419,13 +419,13 @@ type ExecuteRequest struct {
 
 // Execution 是一次初始化的结果。
 type Execution struct {
-	RepositoryID  string
-	AbsolutePath  string
+	RepositoryID string
+	AbsolutePath string
 	// RepoID 是 restic 报告的仓库 id；只有它非空才说明仓库真的建成了。
-	RepoID        string
-	RepoVersion   int
-	ResticVersion string
-	HostKey       HostKey
+	RepoID         string
+	RepoVersion    int
+	ResticVersion  string
+	HostKey        HostKey
 	CapacityBefore Capacity
 	CapacityAfter  Capacity
 	InitializedAt  time.Time
@@ -447,8 +447,8 @@ func (o *Ops) Execute(ctx context.Context, req ExecuteRequest) (Execution, error
 		return Execution{}, err
 	}
 	out := Execution{
-		RepositoryID: req.RepositoryID,
-		RepoVersion:  1,
+		RepositoryID:  req.RepositoryID,
+		RepoVersion:   1,
 		InitializedAt: o.opts.Now().UTC(),
 	}
 	progress := req.Progress
@@ -544,24 +544,24 @@ type StateRequest struct {
 // `repo_id` 是 `restic cat config` 读回来的仓库标识。两者都读不到时给出原因，
 // 而不是把“读不到”显示成“没有”。
 type RepositoryState struct {
-	RepositoryID  string     `json:"repository_id"`
-	Name          string     `json:"name"`
-	Backend       Backend    `json:"backend"`
-	Location      string     `json:"location"`
-	Version       int64      `json:"version"`
-	AbsolutePath  string     `json:"absolute_path,omitempty"`
-	ResticVersion string     `json:"restic_version,omitempty"`
-	ResticMissing string     `json:"restic_missing,omitempty"`
+	RepositoryID  string  `json:"repository_id"`
+	Name          string  `json:"name"`
+	Backend       Backend `json:"backend"`
+	Location      string  `json:"location"`
+	Version       int64   `json:"version"`
+	AbsolutePath  string  `json:"absolute_path,omitempty"`
+	ResticVersion string  `json:"restic_version,omitempty"`
+	ResticMissing string  `json:"restic_missing,omitempty"`
 	// Initialized 表示目标位置已经是一个 restic 仓库。
-	Initialized     bool   `json:"initialized"`
-	RepoID          string `json:"repo_id,omitempty"`
-	RepoVersion     int    `json:"repo_version,omitempty"`
-	RepoConfigError string `json:"repo_config_error,omitempty"`
+	Initialized     bool     `json:"initialized"`
+	RepoID          string   `json:"repo_id,omitempty"`
+	RepoVersion     int      `json:"repo_version,omitempty"`
+	RepoConfigError string   `json:"repo_config_error,omitempty"`
 	Capacity        Capacity `json:"capacity"`
 	// HostKeyVerified 表示这次连接用登记的指纹核对通过（SFTP）。
-	HostKeyVerified bool     `json:"host_key_verified"`
-	HostKey         string   `json:"host_key,omitempty"`
-	HostKeyError    string   `json:"host_key_error,omitempty"`
+	HostKeyVerified bool      `json:"host_key_verified"`
+	HostKey         string    `json:"host_key,omitempty"`
+	HostKeyError    string    `json:"host_key_error,omitempty"`
 	CheckedAt       time.Time `json:"checked_at"`
 }
 
@@ -700,8 +700,8 @@ func (o *Ops) stateInvocation(ctx context.Context, out *RepositoryState, def Def
 		}
 		cleanup := func() { RemovePrivateKey(keyPath) }
 		return Invocation{
-			Repository:  def.resticRepository(""),
-			Password:    string(password),
+			Repository: def.resticRepository(""),
+			Password:   string(password),
 			SFTPCommand: SFTPCommand(o.opts.Paths.SSH, knownHostsPath, keyPath,
 				def.Location.Host, def.Location.Port, def.Location.Username),
 		}, cleanup, nil
