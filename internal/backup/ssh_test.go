@@ -9,11 +9,12 @@ package backup
 // 上撞到的正是这件事：登记 SHA256:R7OL…（ed25519），握手递过来的却是
 // ecdsa-sha2-nistp256，于是在“指纹不一样”上误报，仓库初始化被挡死。
 //
-// 因此这一组测试锁住四件事：
+// 因此这一组测试锁住五件事：
 //  1. 登记的那把钥匙只要服务器有，就一定能连上，不管它是不是首选；
 //  2. 服务器首选的正好是登记的那把时，一次握手搞定，不多连；
 //  3. 谁都没登记过的指纹 → ErrHostKeyMismatch，且把见过的每把钥匙都报出来；
-//  4. 指纹对了但认证被拒 → ErrSSHAuth，且不因为换算法而重试。
+//  4. 指纹对了但认证被拒 → ErrSSHAuth，且不因为换算法而重试；
+//  5. 握手根本走不完（超时/断连）→ 既不是 mismatch 也不是 auth，且只连一次。
 
 import (
 	"context"
@@ -26,6 +27,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -261,7 +263,7 @@ func TestDialReportsAuthFailureWithoutRetrying(t *testing.T) {
 	}
 }
 
-// TestDialRejectsUnreachableHost：连不上就直接失败，不因为“换算法”而反复连。
+// TestDialRejectsUnreachableHost：连不上就直接失败，不因为"换算法"而反复连。
 func TestDialRejectsUnreachableHost(t *testing.T) {
 	// 拿一个刚关掉的端口当目标。
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -281,5 +283,66 @@ func TestDialRejectsUnreachableHost(t *testing.T) {
 	}
 	if errors.Is(err, ErrHostKeyMismatch) || errors.Is(err, ErrSSHAuth) {
 		t.Fatalf("连不上应报连接错误，而不是主机密钥/认证错误: %v", err)
+	}
+}
+
+// TestDialHandshakeTimeoutIsNotAuthFailure：连上了但对面不说话（握手超时）。
+//
+// 真机上撞到过这一条：两台虚机同时跑验收，CPU 被抢到握手超时，而结论写的是
+// "SFTP 认证失败"——把一次网络超时说成钥匙不对，人会先去换钥匙。它必须落到
+// "连不上"（BACKUP_SFTP_UNREACHABLE），而且不能因为"换算法"把超时乘以十次。
+func TestDialHandshakeTimeoutIsNotAuthFailure(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("监听失败: %v", err)
+	}
+	defer ln.Close()
+	attempts := &atomic.Int32{}
+	// 收下的连接要一直挂着，直到测试结束——关掉就变成 EOF，测不到卡住的那条路。
+	var (
+		mu    sync.Mutex
+		conns []net.Conn
+	)
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			attempts.Add(1)
+			mu.Lock()
+			conns = append(conns, conn)
+			mu.Unlock()
+		}
+	}()
+	t.Cleanup(func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, conn := range conns {
+			_ = conn.Close()
+		}
+	})
+
+	host, portStr, _ := net.SplitHostPort(ln.Addr().String())
+	port, _ := strconv.Atoi(portStr)
+	started := time.Now()
+	_, _, err = Dial(context.Background(), DialOptions{
+		Host: host, Port: port, User: "backup", PrivateKey: clientKeyPEM(t),
+		Timeout: 700 * time.Millisecond,
+	}, strangerFingerprint(t))
+	if err == nil {
+		t.Fatalf("对面不说话却成功了")
+	}
+	if errors.Is(err, ErrSSHAuth) {
+		t.Fatalf("握手超时不该报成认证失败: %v", err)
+	}
+	if errors.Is(err, ErrHostKeyMismatch) {
+		t.Fatalf("握手超时不该报成主机密钥不匹配: %v", err)
+	}
+	if got := attempts.Load(); got != 1 {
+		t.Fatalf("连了 %d 次，应为 1 次（网络失败不该逐个算法重试）", got)
+	}
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Fatalf("用了 %s 才失败：重试把超时叠起来了", elapsed)
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -206,6 +207,12 @@ func dialOnce(ctx context.Context, opts DialOptions, signer ssh.Signer, register
 	sshConn, chans, reqs, err := ssh.NewClientConn(rawConn, addr, cfg)
 	if err != nil {
 		_ = rawConn.Close()
+		// 先分网络层：超时、连接被断、EOF 都是"连不上"，不是"钥匙不行"。
+		// 这件事在真机上撞到过——两台 VM 同时跑验收时，CPU 被抢到握手超时，
+		// 而当时那句结论写的是"SFTP 认证失败"，把管理员指向了最不该先动的地方。
+		if isNetworkFailure(err) {
+			return nil, HostKey{}, fmt.Errorf("backup: 与 %s 的握手失败（网络层）: %w", addr, err)
+		}
 		// 已经核对通过之后才失败的，是认证或会话阶段的问题：如实报认证失败。
 		if matched != nil {
 			return nil, HostKey{}, fmt.Errorf("%w: %v", ErrSSHAuth, err)
@@ -236,7 +243,24 @@ func dialOnce(ctx context.Context, opts DialOptions, signer ssh.Signer, register
 	}, nil
 }
 
-// sftpClient 打开一个 SFTP 子系统会话。
+// isNetworkFailure 判断一次握手失败是不是**网络层**的原因：超时、对端断开、EOF。
+//
+// 这三类都不该被读成"钥匙不对"或"认证被拒"——它们的处置完全不同（等一会儿再试 / 换钥匙），
+// 而把超时写成"SFTP 认证失败"会把人指向最不该先动的那个地方。真机上撞到过一次：
+// 两台虚机同时跑验收、CPU 被抢到握手超时，结论里写着"认证失败: i/o timeout"。
+func isNetworkFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr)
+}
+
+// sftpClient 在已经核对过的连接上开一个 sftp 会话。
 func sftpClient(client *ssh.Client) (*sftp.Client, error) {
 	c, err := sftp.NewClient(client)
 	if err != nil {
