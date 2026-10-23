@@ -67,9 +67,12 @@ fi
 # ---------------------------------------------------------------- 3. Go 二进制
 echo "==> 构建 Go 二进制（版本 $VERSION，commit $COMMIT）"
 mkdir -p bin
-go build -trimpath -ldflags "$LDFLAGS" -o bin/upanel-web ./cmd/upanel-web
-go build -trimpath -ldflags "$LDFLAGS" -o bin/upanel-agent ./cmd/upanel-agent
-go build -trimpath -ldflags "$LDFLAGS" -o bin/upanelctl ./cmd/upanelctl
+# -buildvcs=false：否则 Go 会把工作树的 VCS 状态（vcs.revision / vcs.modified）写进
+# 二进制，于是同一份源码在"脏工作树"与"干净工作树"下构建出的字节不同——P12.1 想把
+# 验收用的二进制逐字节复现时撞到了这一条。版本号本来就由 ldflags 注入，这里不缺信息。
+go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o bin/upanel-web ./cmd/upanel-web
+go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o bin/upanel-agent ./cmd/upanel-agent
+go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o bin/upanelctl ./cmd/upanelctl
 
 echo "==> 完成"
 ls -l bin
