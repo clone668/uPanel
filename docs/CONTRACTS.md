@@ -1443,6 +1443,73 @@ domain 为一个不带协议/路径/端口的有效域名；初期不允许通�
 
 手动证书公钥通过受限上传接口接收，大小不超过 1 MiB；私钥通过 /secrets 上传。证书申请与续期不接受任意 Certbot 参数。
 
+### 9.1 P10.1 已实现范围：发现、冲突判断与站点登记（不写配置）
+
+本节只覆盖**登记与判断**。配置生成、原子写入、`nginx -t` 门禁、reload 与失败恢复是 P10.2；
+证书是 P10.3。P10.1 期间 `/etc/nginx` 一个字节都不会被写。
+
+| 方法与路径 | 权限 | 行为 |
+|---|---|---|
+| GET /proxies | admin | 站点定义列表（`limit`、`app_id`、`domain` 过滤），并带一份当前 Nginx 现状摘要 |
+| GET /proxies/nginx | admin | 主机 Nginx 现状：可用性、版本、单元状态、配置根、文件清单（含每个 `server` 块的 `server_name` 与行号）、`include`、解析失败的文件 |
+| GET /proxies/conflict?domain=&exclude_id= | admin | 域名可用性三态结论与证据 |
+| GET /proxies/:id | admin | 单个站点定义 |
+| POST /proxies | admin + CSRF | 新建，返回 201 |
+| PATCH /proxies/:id | admin + CSRF | 局部修改，必须带 `version` |
+| DELETE /proxies/:id | admin + CSRF | 删除，必须带 `version` |
+
+**（1）事实与判断分开。** 代理只登记一条查询 `nginx.state`（参数 `{fresh: bool}`），返回主机事实；
+“这个域名能不能用”由 Web 侧的 `internal/proxies` 判断。判断需要数据库（面板自己有没有同名记录），
+事实需要 root，两边都不替对方猜。
+
+**（2）展示走缓存，写入门禁走直读。** `fresh=false`（页面）走代理侧 5 秒快照：同一次请求里前后两个
+域名依据同一时刻的事实。`fresh=true`（写操作前的冲突判断）不吃缓存——缓存窗口里正好可能有人手工
+加了一条 `server_name`，而那是唯一需要判准的时刻。Web 侧**不设第二份缓存**。
+
+**（3）冲突三态，`unknown` 与 `taken` 一样阻断。**
+
+- `clear`：没有任何现有配置声明这个域名。
+- `taken`：有配置声明了它（精确、通配符、`*.x` 的子域），或面板自己已有一条同域名记录（`exclude_id`
+  指向自己时不算）。`matches` 给出 `file` / `line` / `name` / `managed`，`line` 是 `server_name` 那一行。
+- `unknown`：判不了——读不到配置、有文件解析失败、有正则或不支持的 `server_name`。**也阻断**，因为
+  `nginx reload` 不会因为 `server_name` 撞车而失败，它只会安静地用第一个块。
+
+被阻断的写操作返回 409，details 带 `matches` / `undecidable` / `broken_files` / `existing_site_id`；
+读不到主机事实返回 503 `AGENT_UNAVAILABLE`，不是 400——那是“现在判不了”，不是“你的域名有问题”。
+
+**（4）ProxySite 载荷。** 平铺 `ProxyDefinition` 的 11 个字段，外加 `id`、`version`、`created_at`、
+`updated_at`。**没有** `applied_*`、`config_path`、`config_hash`：P10.1 不写配置，`enabled` 只表示
+“用户希望它生效”，不表示“已生效”。`basic_auth_users` 返回只含 `name`；`secret_ref` 永不出现在响应里，
+审计明细里也没有。
+
+**（5）PATCH 的语义。** 所有字段都是可选的指针；`version` 必填，`version` 与库中不一致 → 409
+`VERSION_CONFLICT`；一个字段都不给 → 400。改域名会重新跑冲突判断（排除自己那条记录）；改域名以外的
+字段不会因为“Nginx 里有同名配置”被挡。因为响应里拿不到 `secret_ref`，**修改 `basic_auth_users` 必须
+重新提交**每个账号的 `secret_ref`，只给 `name` 会被当作密码引用非法而 400。
+
+**（6）校验与默认值（与 nginx 自身的默认对齐）。**
+
+- `domain`：IDNA 转 A-label、转小写、去掉一个尾点；不接受通配符、协议、路径、查询串、端口、IP 地址；
+  至少要有一个点，顶级域不能全数字。归一化之后同一域名进不了第二条记录（409）。
+- `upstream_target_id`：必须是发现出来的目标标识（`local_` / `cntr_` 前缀 + 限定字符集），不能填主机名、
+  IP 或 URL。
+- `upstream_scheme`：`http`（默认）或 `https`。
+- `upstream_port`：1—65535，且**不得等于管理面板自己真正监听的端口**（取自运行时监听地址，不写死 9443）。
+- `max_body_bytes`：默认 1048576（nginx 的 `1m`），范围 1 KiB—1 GiB。
+- `read_timeout_seconds`：默认 60（nginx 的 `60s`），范围 1—3600。
+- `access_mode`：`public`（默认）/ `cidr` / `basic_auth`，与附加字段必须一致——`cidr` 必须要网段，
+  其它模式不许有网段；`basic_auth` 必须要账号，其它模式不许有账号（多给也 400，不静默丢弃）。
+  网段收敛成网络地址、排序去重，`/0` 直接拒绝（那等于 `public` 却顶着“受限”的名字）。
+- 账号名：1—64 个字符，小写字母/数字/`.`/`_`/`-`，以字母或数字开头；重名拒绝。
+
+**（7）错误映射。** 400 `VALIDATION_ERROR`（输入不合法，消息点名出问题的要求）、409 `VALIDATION_ERROR`
++ `details`（域名冲突，带 `state` / `matches` / `undecidable` / `broken_files` / `existing_site_id`；
+沿用同一个错误码是因为它的可修性相同：改输入）、404 `NOT_FOUND`、409 `VERSION_CONFLICT`、
+503 `AGENT_UNAVAILABLE`。
+
+**（8）审计。** `proxy.create` / `proxy.update` / `proxy.delete` 与业务写入同一事务；明细固定带
+`"applied": false`，使“这次只写了库”在事后可查。
+
 ## 10. 服务、进程、日志、终端契约
 
 | 方法与路径 | 行为 |
@@ -1773,7 +1840,7 @@ GET /alerts/events：V；POST /alerts/events/:id/ack：admin；GET/POST /notific
 | apps | id、name、type、binding_json、public_url、health_json、group_id FK、version |
 | app_favorites | user_id FK、app_id FK；联合 UNIQUE |
 | app_volume_dependencies | app_id FK、volume_id FK；联合 UNIQUE |
-| proxies | id、domain UNIQUE、app_id FK 可空、definition_json、applied_config_hash |
+| proxies | id、domain UNIQUE、app_id FK 可空、upstream_target_id/scheme/port、access_mode、allowed_cidrs_json、basic_auth_json、websocket_enabled、max_body_bytes、read_timeout_seconds、enabled（**意图**，不是已生效）、version；P10.1 的落地形态与本节的关系见 §9.1 与 DECISIONS Q281（`definition_json` 被展平成能下 CHECK 的列，`applied_config_hash` 等 P10.2 真有哈希可存时再加） |
 | certificates | id、proxy_id FK、domains_json、expiry、agent_certificate_ref、renewal_state |
 | deployments | id、name UNIQUE、definition_json、applied_digest、agent_project_ref、version |
 | file_roots | id、volume_id FK 可空、kind、agent_root_ref、display_name、read_only |
@@ -1817,7 +1884,7 @@ GET /alerts/events：V；POST /alerts/events/:id/ack：admin；GET/POST /notific
 | POST /internal/v1/streams | 创建受限日志/文件上传下载/终端流许可，绑定用途和参数 |
 | GET/PUT /internal/v1/streams/:id | 单次受限流；再次核验 socket 凭据、路径/UID/大小限制 |
 
-query 枚举按模块登记，例如 system.summary、storage.topology、services.list、files.list、logs.query；禁止 query=command。terminal 的字节通道只能连接已降权 PTY，不能进入代理的命令解释器。P14 增加 /internal/v1/totp/enroll、/confirm、/verify、/disable 四个专用接口，操作绑定用户与用途，种子不进入普通 query/secret 读取通道。
+query 枚举按模块登记，例如 system.summary、storage.topology、services.list、files.list、logs.query；P10.1 起增加 nginx.state（参数 `{fresh}`，见 §9.1）；禁止 query=command。terminal 的字节通道只能连接已降权 PTY，不能进入代理的命令解释器。P14 增加 /internal/v1/totp/enroll、/confirm、/verify、/disable 四个专用接口，操作绑定用户与用途，种子不进入普通 query/secret 读取通道。
 
 `/internal/v1/streams` 自 P05.3 起已实现，但目前只登记一种用途 **logs.stream**：`POST` 建许可（绑定用途与查询参数、单次使用、30 秒过期且到期即回收），`GET /streams/:id` 打开流式响应（`application/x-ndjson`，每行一帧 `{"type":"entry|end|error", ...}`；`entry` 帧的 `entry` 是日志条目本身，`end` 帧带 `reason`，`error` 帧带 `code`/`message`）。未登记的用途回 501，不回一条空流——多报一个用途等于把能力清单变成谎话。许可只用一次：第二次 `GET` 回 404，被放进地址栏或日志里的 URL 因此最多只能被用一次。流式消费端的「帧类型来自事件名」与外层 SSE 不同，是因为 NDJSON 是单条无名字的字节流，类型必须写在帧里。
 

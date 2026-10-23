@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: uPanel API
-  version: 0.0.0-p09.5
+  version: 0.0.0-p10.1
   summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
   description: |
     uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。
@@ -23,7 +23,7 @@ info:
     name: Proprietary
     identifier: LicenseRef-Proprietary
 x-upanel-contract-status:
-  stage: P09.4
+  stage: P10.1
   implemented_paths:
     - get /api/v1/health/live
     - head /api/v1/health/live
@@ -94,6 +94,13 @@ x-upanel-contract-status:
     - get /api/v1/container-volumes
     - get /api/v1/deployments
     - get /api/v1/deployments/{id}
+    - get /api/v1/proxies
+    - post /api/v1/proxies
+    - get /api/v1/proxies/nginx
+    - get /api/v1/proxies/conflict
+    - get /api/v1/proxies/{id}
+    - patch /api/v1/proxies/{id}
+    - delete /api/v1/proxies/{id}
   note: 只列出已实现并通过验收的接口；未实现模块不出现在 paths 中。
 servers:
   - url: https://127.0.0.1:9443/api/v1
@@ -1613,6 +1620,340 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/proxies:
+    get:
+      operationId: getProxies
+      summary: 代理站点列表（仅 admin）
+      description: |
+        CONTRACTS.md 第 9 节（P10.1 起）。返回面板里登记的代理站点定义，按 domain 升序
+        稳定排序，同名按 id 兜底。
+
+        **这一层不写 Nginx 配置**：`enabled` 是意图，不是事实。生成配置、`nginx -t`
+        与 reload 是 P10.2 的 `proxy.apply` 任务，因此这里没有 `applied_*` 字段——
+        填一个空值会让界面显示一个面板并不掌握的结论。
+
+        `nginx` 块是主机现状摘要。读不到代理时 `read_error` 非空、`available` 为 false，
+        与“主机上没有 Nginx”（`config_missing=true`）是两件事：前者让人去查代理，
+        后者说明这台机器确实没有配置可冲突。
+      tags: [proxy]
+      security:
+        - upanelSession: []
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: app_id
+          in: query
+          required: false
+          description: 只返回关联该应用的站点。
+          schema:
+            type: string
+            pattern: '^app_[0-9a-f]{32}$'
+        - name: domain
+          in: query
+          required: false
+          description: |
+            只返回该域名（精确匹配）。输入会先按 IDNA 归一化，因此大写与末尾的点不影响
+            结果；归一化失败是 400，不是“没找到”——静默返回空列表会让人以为站点不存在。
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 当页站点与 Nginx 现状摘要。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ProxySiteListData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: postProxy
+      summary: 登记一个代理站点（仅 admin）
+      description: |
+        只登记定义，**不改主机**：本阶段没有任何代码写 /etc/nginx。
+
+        写入前必须判断域名冲突。判不了就拒绝（503 AGENT_UNAVAILABLE），不是“先存下来
+        再说”：没有代理就不知道主机上已经声明了哪些域名，存下一条“看起来没问题”的记录
+        只会把冲突推到 P10.2 写配置那一刻。已被占用返回 409 并带证据（文件、行、原文）。
+
+        `upstream_port` 不能等于管理面板自己的端口 9443：那等于把一个公网入口指向面板。
+
+        `basic_auth_users` 的响应里只有 `name`，没有 `secret_ref`——引用也不靠“读出来再
+        存回去”维持，因此修改用户列表时必须重新提供 `secret_ref`。
+      tags: [proxy]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProxyDefinitionCreate'
+      responses:
+        '201':
+          description: 已登记（尚未写入 Nginx）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ProxySite'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/proxies/nginx:
+    get:
+      operationId: getProxyNginxFacts
+      summary: 主机 Nginx 现状（仅 admin）
+      description: |
+        CONTRACTS.md 第 9 节（P10.1 起）。列出读到的配置文件名、每个 server 块的
+        `server_name` 与 `listen` 原文，以及解析失败的文件和没有跟随的 include。
+
+        它自己的失败就是 503：用户点进来就是为了看这一步读到了什么，给一份空表会被
+        读成“这台机器上没有 Nginx”。
+      tags: [proxy]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: Nginx 现状。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ProxyNginxFacts'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/proxies/conflict:
+    get:
+      operationId: getProxyDomainConflict
+      summary: 判断域名能否用于新站点（仅 admin）
+      description: |
+        CONTRACTS.md 第 9 节（P10.1 起）。`state` 是闭集 `clear|taken|unknown`。
+
+        **`unknown` 不等于 `clear`**：读不到 Nginx、有文件解析失败、或有认不出的
+        `server_name` 写法时，结论是判不了，写入会被拒绝。理由是 `nginx reload` 不会
+        因为 `server_name` 撞车而失败——它只会安静地用第一个块，所以面板必须比 nginx
+        更严格。
+
+        `exclude_id` 用于修改：把自己那条记录排除掉，否则改一个站点的其它字段时会被
+        自己的域名挡下来。
+      tags: [proxy]
+      security:
+        - upanelSession: []
+      parameters:
+        - name: domain
+          in: query
+          required: true
+          description: 待判断的域名；非法域名返回 400，不是“可用”。
+          schema:
+            type: string
+        - name: exclude_id
+          in: query
+          required: false
+          description: 修改场景下要排除的站点 id。
+          schema:
+            type: string
+            pattern: '^site_[0-9a-f]{32}$'
+      responses:
+        '200':
+          description: 结论与依据。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ProxyDomainConflict'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/proxies/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ProxySiteId'
+    get:
+      operationId: getProxy
+      summary: 单个代理站点（仅 admin）
+      tags: [proxy]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 站点定义。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ProxySite'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      operationId: patchProxy
+      summary: 修改代理站点（仅 admin）
+      description: |
+        `version` 必填，与库中不一致返回 409 VERSION_CONFLICT。
+
+        字段缺席表示“不改这一项”，`allowed_cidrs: []` 表示“清空”。只改域名时才重新
+        判断冲突（并且排除自己），只改 app_id 时才重新确认应用存在——改一个超时不该
+        因为代理临时不可用而失败。
+      tags: [proxy]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProxyDefinitionPatch'
+      responses:
+        '200':
+          description: 修改后的站点。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ProxySite'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    delete:
+      operationId: deleteProxy
+      summary: 删除代理站点（仅 admin）
+      description: |
+        只删面板里这条记录：不碰应用、不碰容器、不删 /etc/nginx 里的任何文件。
+        `version` 必填（请求体 `{"version":N}` 或查询参数），不一致返回 409。
+      tags: [proxy]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                version:
+                  type: integer
+                  minimum: 1
+      responses:
+        '200':
+          description: 已删除。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    type: object
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
 
   /api/v1/apps:
     get:
@@ -4444,6 +4785,15 @@ components:
         type: string
         maxLength: 128
         pattern: '^[0-9a-z-]+$'
+
+    ProxySiteId:
+      name: id
+      in: path
+      required: true
+      description: 代理站点标识，形如 site_ac1ceea48853ce6d068878632d603a14。
+      schema:
+        type: string
+        pattern: '^site_[0-9a-f]{32}$'
 
 
   headers:
@@ -8404,6 +8754,381 @@ components:
           type: [string, 'null']
 
 
+    ProxySite:
+      type: object
+      additionalProperties: false
+      description: |
+        一个代理站点（CONTRACTS.md 第 9 节 ProxyDefinition，字段平铺）。
+
+        没有 applied_config_hash、没有 config_path：P10.1 不生成配置，这两个字段
+        要等 P10.2 真写了文件才有意义。现在填一个空值，界面就会显示一个面板并不
+        掌握的结论。
+      required: [id, app_id, domain, upstream_target_id, upstream_scheme, upstream_port,
+                 access_mode, allowed_cidrs, basic_auth_users, websocket_enabled,
+                 max_body_bytes, read_timeout_seconds, enabled, version, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          pattern: '^site_[0-9a-f]{32}$'
+        app_id:
+          type: [string, 'null']
+          description: 关联的应用；不关联时为 null。
+        domain:
+          type: string
+          maxLength: 253
+          description: 归一化后的域名（小写、无末尾点、IDNA A-label）。不接受通配符。
+        upstream_target_id:
+          type: string
+          description: 上游目标标识（代理发现结果里的 local_/cntr_ 形状）。
+        upstream_scheme:
+          type: string
+          enum: [http, https]
+        upstream_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          description: 等于管理面板端口（默认 9443）一律拒绝。
+        access_mode:
+          type: string
+          enum: [public, cidr, basic_auth]
+        allowed_cidrs:
+          type: array
+          description: 仅 cidr 模式使用；已按掩码归一化并排序。没有限制时是 []。
+          items:
+            type: string
+        basic_auth_users:
+          type: array
+          description: 仅 basic_auth 模式使用。**只有 name，没有 secret_ref。**
+          items:
+            $ref: '#/components/schemas/ProxyBasicAuthUser'
+        websocket_enabled:
+          type: boolean
+        max_body_bytes:
+          type: integer
+          minimum: 1024
+          maximum: 1073741824
+          description: 默认 1048576（与 nginx 默认的 1 MiB 一致）。
+        read_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          description: 默认 60（与 nginx 默认一致）。
+        enabled:
+          type: boolean
+          description: 意图，不是事实。P10.1 不写配置，因此它不表示站点已经生效。
+        version:
+          type: integer
+          minimum: 1
+          description: 乐观并发版本，每次成功修改加一；写操作必须回传。
+        created_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        updated_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
+    ProxyBasicAuthUser:
+      type: object
+      additionalProperties: false
+      description: |
+        basic auth 用户。响应里只有 name：secret_ref 也不靠“读出来再存回去”维持，
+        因此修改用户列表时必须重新提供 secret_ref（请求侧字段见 ProxyDefinitionCreate）。
+      required: [name]
+      properties:
+        name:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9._-]{0,63}$'
+
+    ProxyNginxState:
+      type: object
+      additionalProperties: false
+      description: |
+        主机 Nginx 现状摘要。`read_error` 非空表示面板读不到代理：那时 `available`
+        与 `config_missing` 都不可信，界面必须显示“不知道”，不能显示“没有 Nginx”。
+      required: [available, config_missing, reason, version, unit_state, config_root,
+                 collected_at, managed_file_count, broken_files, warnings, read_error]
+      properties:
+        available:
+          type: boolean
+        config_missing:
+          type: boolean
+          description: 配置目录根本不存在：这台机器大概率没装 Nginx（因此确认没有冲突）。
+        reason:
+          type: string
+          description: 给人看的一句话说明。
+        version:
+          type: string
+          description: nginx -v 报的版本号；读不到是空串，不编。
+        unit_state:
+          type: string
+          description: nginx.service 的 ActiveState；空串表示没读到，不是“没在跑”。
+        config_root:
+          type: string
+        collected_at:
+          type: [string, 'null']
+          description: 采集时刻；读不到代理时为 null。
+        managed_file_count:
+          type: integer
+          minimum: 0
+          description: 面板自己的配置文件（upanel-*.conf）数量。
+        broken_files:
+          type: array
+          description: 解析失败的文件。它们里面写了什么不知道，因此冲突结论只能是 unknown。
+          items:
+            type: string
+        warnings:
+          type: array
+          items:
+            type: string
+        read_error:
+          type: string
+          description: 空串表示读到了；`agent_unavailable` / `no_agent_connection` 表示读不到。
+
+    ProxyServer:
+      type: object
+      additionalProperties: false
+      description: 一个 server 块。names 与 listen 都是文件里的原文，不做归一化。
+      required: [line, names_line, names, listen]
+      properties:
+        line:
+          type: integer
+          minimum: 1
+          description: server 这个字所在的行。
+        names_line:
+          type: integer
+          minimum: 0
+          description: 第一条 server_name 所在的行；没有 server_name 时为 0。
+        names:
+          type: array
+          items:
+            type: string
+        listen:
+          type: array
+          items:
+            type: string
+
+    ProxyConfigFile:
+      type: object
+      additionalProperties: false
+      required: [path, managed, size_bytes, error, servers]
+      properties:
+        path:
+          type: string
+        managed:
+          type: boolean
+          description: 面板自己的文件（upanel-*.conf）。
+        size_bytes:
+          type: integer
+          minimum: 0
+        error:
+          type: string
+          description: 解析或读取失败的原因；空串表示读到了。
+        servers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProxyServer'
+
+    ProxyNginxFacts:
+      type: object
+      additionalProperties: false
+      required: [state, files, server_names, includes]
+      properties:
+        state:
+          $ref: '#/components/schemas/ProxyNginxState'
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProxyConfigFile'
+        server_names:
+          type: array
+          description: 归一化后的 host 列表（去重升序）。
+          items:
+            type: string
+        includes:
+          type: array
+          description: 配置里出现、但面板没有跟随的 include 目标。
+          items:
+            type: string
+
+    ProxyConflictHit:
+      type: object
+      additionalProperties: false
+      required: [file, line, name, managed]
+      properties:
+        file:
+          type: string
+        line:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          description: 文件里原本写的 server_name 原文。
+        managed:
+          type: boolean
+
+    ProxyDomainConflict:
+      type: object
+      additionalProperties: false
+      required: [domain, state, reason, matches, undecidable, broken_files, existing_site_id, nginx]
+      properties:
+        domain:
+          type: string
+        state:
+          type: string
+          enum: [clear, taken, unknown]
+          description: |
+            clear 可以写；taken 已被占用；unknown 判不了——unknown **不是** clear，
+            写入会被拒绝。
+        reason:
+          type: string
+        matches:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProxyConflictHit'
+        undecidable:
+          type: array
+          description: 写法判不了、可能占住这个域名的声明（例如正则 server_name）。
+          items:
+            $ref: '#/components/schemas/ProxyConflictHit'
+        broken_files:
+          type: array
+          items:
+            type: string
+        existing_site_id:
+          type: [string, 'null']
+          description: 面板自己已有的同域名记录（修改自己时不算冲突）。
+        nginx:
+          $ref: '#/components/schemas/ProxyNginxState'
+
+    ProxySiteListData:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor, nginx]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProxySite'
+        next_cursor:
+          type: [string, 'null']
+        nginx:
+          $ref: '#/components/schemas/ProxyNginxState'
+
+    ProxyDefinitionCreate:
+      type: object
+      additionalProperties: false
+      description: 新建站点的请求体（CONTRACTS.md 第 9 节 ProxyDefinition）。
+      required: [domain, upstream_target_id, upstream_port]
+      properties:
+        app_id:
+          type: [string, 'null']
+          pattern: '^app_[0-9a-f]{32}$'
+          description: 关联的应用；不提供或 null 表示不关联。
+        domain:
+          type: string
+          maxLength: 253
+          description: 不带协议/路径/端口的域名；不接受通配符。
+        upstream_target_id:
+          type: string
+        upstream_scheme:
+          type: string
+          enum: [http, https]
+          description: 省略时为 http。
+        upstream_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        access_mode:
+          type: string
+          enum: [public, cidr, basic_auth]
+          description: 省略时为 public。
+        allowed_cidrs:
+          type: array
+          description: access_mode=cidr 时必填；其他模式下给出非空列表是错误，不是“顺手存下”。
+          items:
+            type: string
+        basic_auth_users:
+          type: array
+          description: access_mode=basic_auth 时必填；同名用户是错误（两条同名 htpasswd 只有一条有效）。
+          items:
+            $ref: '#/components/schemas/ProxyBasicAuthUserInput'
+        websocket_enabled:
+          type: boolean
+        max_body_bytes:
+          type: integer
+          minimum: 1024
+          maximum: 1073741824
+          description: 省略或 0 时取默认 1048576。
+        read_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          description: 省略或 0 时取默认 60。
+        enabled:
+          type: boolean
+          description: 省略时默认启用（“省略”和“显式 false”是两件事）。
+
+    ProxyBasicAuthUserInput:
+      type: object
+      additionalProperties: false
+      required: [name, secret_ref]
+      properties:
+        name:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9._-]{0,63}$'
+        secret_ref:
+          type: string
+          pattern: '^sec_[0-9a-f]{32}$'
+          description: 通过 POST /secrets（用途 proxy_basic_password）取得。只在请求里出现。
+
+    ProxyDefinitionPatch:
+      type: object
+      additionalProperties: false
+      description: 修改站点的请求体：字段缺席表示不改这一项。
+      required: [version]
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        app_id:
+          type: [string, 'null']
+          pattern: '^app_[0-9a-f]{32}$'
+          description: 显式 null 或空串表示解除关联。
+        domain:
+          type: string
+          maxLength: 253
+        upstream_target_id:
+          type: string
+        upstream_scheme:
+          type: string
+          enum: [http, https]
+        upstream_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        access_mode:
+          type: string
+          enum: [public, cidr, basic_auth]
+        allowed_cidrs:
+          type: array
+          description: 提供 [] 表示清空这个列表；字段缺席表示不动它。
+          items:
+            type: string
+        basic_auth_users:
+          type: array
+          description: 提供 [] 表示清空；修改时必须重新给出 secret_ref（响应里没有它）。
+          items:
+            $ref: '#/components/schemas/ProxyBasicAuthUserInput'
+        websocket_enabled:
+          type: boolean
+        max_body_bytes:
+          type: integer
+          minimum: 1024
+          maximum: 1073741824
+        read_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+        enabled:
+          type: boolean
   responses:
     BadRequest:
       description: 语法或参数错误（400）。

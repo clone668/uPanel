@@ -2,7 +2,7 @@
 
 最后更新：2026-10-24。
 
-当前事实：**P00—P08 全部 passed（P07.1—P07.5、P08.1—P08.4），P09 的 P09.1—P09.5 全部 passed（P09 阶段收口）**，下一个子任务是 **P10**（反向代理、HTTPS、0.1 发布）（权威状态见 §1 的“当前阶段”与 §3 的阶段表；下面这段是交付历程摘要，按轮次追加，个别中间轮次没写进来）。P01.1 交付 Go 最小可运行骨架
+当前事实：**P00—P08 全部 passed（P07.1—P07.5、P08.1—P08.4），P09 的 P09.1—P09.5 全部 passed（P09 阶段收口），P10.1 passed**，下一个子任务是 **P10.2**（配置生成、原子写入、`nginx -t` 门禁与 reload）（权威状态见 §1 的“当前阶段”与 §3 的阶段表；下面这段是交付历程摘要，按轮次追加，个别中间轮次没写进来）。P01.1 交付 Go 最小可运行骨架
 （两个服务入口 + CLI、严格 JSON 配置、结构化日志、`/api/v1/health/live`、代理 `capabilities`、
 Linux/mock 分离）；P01.2 交付持久层基础（SQLite 打开与 PRAGMA 校验、显式 SQL 迁移与校验和锁定、
 事务工具、封闭错误码与统一错误信封、request_id、Gin 路由与中间件组织、`upanelctl migrate`），
@@ -152,9 +152,27 @@ P07.1 先把“该拒的都拒”证完（判决层、可靠身份、整盘锁�
 
 ## 1. 当前任务
 
-- 当前阶段：**P09（现有 Web 应用与 Docker 接入）进行中**，**P09.5 已 passed**，
-  下一个子任务 **P09.6 / P10**（STAGES 里 P09 第 5 条是 P09 的最后一条，接下来是 P10 反向代理、HTTPS、0.1 发布）。
-  **P09.5（应用卡片、搜索、分组、一键打开、状态区分和常用入口首页集成）passed**：
+- 当前阶段：**P10（反向代理、HTTPS、0.1 发布）进行中**，**P10.1 已 passed**，
+  下一个子任务 **P10.2**（配置生成、原子写入、`nginx -t` 门禁、reload 与失败恢复）。
+  **P10.1（Nginx 发现、配置冲突、单域名单 upstream、WebSocket、请求限制、访问策略）passed**：
+  这一轮**只登记与判断，一个字节都没写 `/etc/nginx`**——配置生成与 reload 是 P10.2。分成两个包：
+  `internal/nginx` 解析配置并吐**事实**（`nginx.conf`、`conf.d/*.conf`、`sites-enabled/*`（含符号链接
+  按真实路径去重）、每个 `server` 块的 `server_name` 与行号、`listen`、`include`、`nginx -v`、单元状态），
+  `internal/proxies` 出**判断**（`JudgeDomain`）——事实要 root、判断要数据库（面板自己有没有同名记录），
+  两边不互相猜（Q278）。代理只登记一条查询 `nginx.state`（参数 `{fresh}`）；**展示走 5 秒快照，写入门禁
+  走直读**：缓存窗口里正好可能有人手工加了一条 `server_name`，而那正是唯一需要判准的时刻。
+  冲突三态 **`clear` / `taken` / `unknown`，`unknown` 与 `taken` 一样阻断写入**（409 + 证据：
+  文件、`server_name` 所在行、原文、`broken_files`）——因为 `nginx reload` 不会因为 `server_name`
+  撞车而失败，它只会安静地用第一个块。读不到主机事实是 503 `AGENT_UNAVAILABLE`，不是“没有冲突”。
+  域名按 IDNA 归一（A-label、小写、去尾点，禁通配符/协议/端口/路径）；**上游端口不得等于面板自己真正
+  监听的端口**（取自运行时监听地址，不是写死的 9443）；默认值与 nginx 对齐（`1m`/`60s`）；
+  访问模式与附加字段必须一致（多给也 400，不静默丢弃）；`secret_ref` 只进不出。
+  `enabled` 只是**意图**：没有 `applied_*` 字段，审计明细固定 `"applied": false`（Q280）。
+  VM 上 **PASS=100 / FAIL=0 / NOT RUN=0**；真机抓出并修掉 **1 个**产品缺陷（Q279：`nginx -v` 的时限
+  写成无单位的 `5`，被当成 5 纳秒，命令还没启动就超时——宿主的单测在 Windows 上 `t.Skip`，全绿证明不了
+  它）。宿主 `check.sh` **PASS 13 / FAIL 0 / NOT RUN 0**、`go test ./...` 37 个包全绿。
+  证据 `docs/evidence/P10/2026-10-22-p10.1/`。
+  **上一子任务 P09.5（应用卡片、搜索、分组、一键打开、状态区分和常用入口首页集成）passed**：
   这一轮**只动前端**，没有新增任何接口——`GET /apps`、`/app-groups`、`/apps/discovery`、
   `/apps/{id}/health`、`/apps/{id}/logs` 与既有的 `POST/PATCH/DELETE /apps`、`PUT /apps/{id}/favorite`、
   `/app-groups` 全部是 P09.1—P09.4 就有的。卡片把**四件事分开画**：`runtime_state`、`http_state`、
@@ -554,7 +572,7 @@ P07.1 先把“该拒的都拒”证完（判决层、可靠身份、整盘锁�
 | P07 | 分区、格式化、挂载 | **passed** | P07.1 **passed**：存储写动作的**拒绝逻辑**（预检判决、可靠设备身份、整盘锁、系统设备/挂载/swap/holders/依赖保护）。四个动作 `storage.partition_table.initialize\|partition.create\|partition.delete\|filesystem.format` 只登记解码 + `Plan`，`Execute` 为 nil，提交必 501 `NOT_IMPLEMENTED`（Q170），因此**这一轮没有任何一次写盘**。判决层 `internal/storage/assess.go` 以“读不出来不等于可以写”为第一原则（签名读不到/`/proc/*/fd` 扫不动/分区表只有 sysfs/设备类型未知 → 一律阻塞），保护沿 `partition_of`/`depends_on` 递归向上，阻塞码是闭集；能力投影由判决层算出、30 秒 TTL；签名识别 ext/XFS/Btrfs/swap/LUKS/LVM2/md 固定魔数，占用按 `st_rdev` 比对。VM 上 **PASS=189 / FAIL=0 / NOT RUN=1**（`PREFLIGHT_STALE` 无法验证——提交在复核之前就 501）；真机抓出并修掉 **2 个**产品缺陷：交换区魔数在第一个页面的末 10 字节（4096−10）而不是盘尾、`holders/`/`slaves/` 是符号链接目录没有 `list` 属性（导致 dm/md 占用在真机上永远看不见），见 Q171/Q172。证据 `docs/evidence/P07/2026-10-21-p07.1/`。**P07.2 passed**：三个分区动作接上执行器并在 VM 的三块一次性空盘上**真的写盘**——固定模板（`label: gpt` / `--append --wipe-partitions never start=… size=… type=linux name="…"` / `--delete <dev> <n>`）、模板只经 `syscmd` 的有上限 stdin 通道、命令行里只有已校验的数字与名字；写前重算判决并比对身份指纹/状态版本，写后 `udevadm settle` + 等内核与 `/dev` 节点 + 读回盘上 GPT 头与条目表与期望形态逐条比对，两源都对上才 `verified`（退出码 0 不算）。契约新增 `partition_table.disk_guid`/`disk_entries`（CONTRACTS §6.3、openapi `StorageGPTEntry`、前端 DTO 与真机载荷回放）。VM 上 **PASS=177 / FAIL=0 / NOT RUN=1**，真机抓出并修掉 Q177（`disk_entries` 空数组与“没读到”撞车），记下 Q178—Q182；宿主 `check.sh` PASS 13/0/0、前端 450 用例。证据 `docs/evidence/P07/2026-10-22-p07.2/`。**P07.3 passed**：`storage.filesystem.format` 接上执行器（`internal/storage/format.go` 448 行 + `fsprobe.go`）——固定模板里只有已校验的文件系统名、设备路径与卷标（卷标另有第三道 `ErrUnsafeWrite` 闸），写完**直接读超级块**做两源核验（ext4 偏移 1024 的 `53 ef`/`s_uuid`/`s_volume_name`，XFS 偏移 0 的 `XFSB`/`sb_uuid`/`sb_fname`），退出码 0 不算验证。四条纪律落地：错短语 400 且**整份预检就此作废**；标签超限在预检之前就是 400（ext4 的 17 字节标签会 rc=0 并被静默截断，Q184）；mkfs 跑着时取消是 409 且任务不会被标成 canceled；代理被 SIGKILL 后操作落 `interrupted` + `OPERATION_INTERRUPTED` 且**不自动重跑**；执行前二次身份检查用两道门——版本比对（结构变了 → 409 `PREFLIGHT_STALE`）与设备直读（字节换了 → 409 `DEVICE_IDENTITY_CHANGED`）。VM 上 **PASS=204 / FAIL=0 / NOT RUN=1**（唯一 NOT RUN 是内核/盘上条目不一致的真实竞态，单测 `TestFormatRefusesPartitionThatMoved` 覆盖），真机抓出并修掉 **1 个**产品缺陷 Q190（对已经不存在的设备做预检回 500：拒绝路径没有目标可绑定，预检层却无条件要求绑定），记下 Q184—Q190；宿主 `check.sh` PASS 13/0/0、`go test ./... -count=1` 26 包 ok、storage 单测 PASS 328 / FAIL 0（P07.2 提交同口径 291，+37）。证据 `docs/evidence/P07/2026-10-22-p07.3/`。**P07.4 passed**：受管理卷——`internal/storage/fstab.go`（760 行）/`volume.go`/`volumeassess.go`（960）/`volumewrite.go`（878）/`volumeholders.go` 把“一块已有文件系统的分区”变成面板管理的卷，五个动作 `storage.volume.import\|mount\|unmount\|configure\|forget` 全部接上执行器（**都不要确认短语**：短语只留给“写下去就找不回来”的动作）。fstab 只做**最小修改**（块外逐字保留、选项顺序固定、`nofail` 恒在、`noauto` 随 automount、第六列 ext4=2/XFS=0），写路径“比哈希 → 渲染候选 → 临时文件 → fsync → `findmnt --verify` → 备份 → rename → fsync 目录”，候选不合格目标文件一个字节不动，渲染结果与原文相同则直接返回；**禁用 `mount -a`**。占用列表把 fd 的 `st_rdev` 与挂载点下文件的 `st_dev` 合流，“挂着但空闲”不算忙，读不到 `/proc` 一律 fail-closed。VM 上分两段（中间隔一次真重启）：第一段 **PASS=267 / FAIL=0 / NOT RUN=0**，第二段 **PASS=38 / FAIL=0 / NOT RUN=0**——开机 26 秒时 `srv-upanel-volumes-data.mount` 由 fstab 自己挂上（之后才启动面板）、UUID 一致、标记文件 sha 不变、`noauto` 的卷没有挂上。真机抓出并修掉 **1 个**产品缺陷 Q199（configure 预检漏绑定目标身份指纹 ⇒ 500），记下 Q191—Q203。证据 `docs/evidence/P07/2026-10-22-p07.4/`。**P07.5 passed**：磁盘页面完整交互 + 系统外部独立检查 + 存储恢复文档 + openapi 补齐 P07。前端五个新组件（`DeviceStorageActions`/`VolumeImportForm`/`VolumeCard`/`VolumeSection`/`StorageActionDialog`）+ `api/volumes.ts`、`utils/jobresult.ts` 把九种动作接上页面：判定只认载荷里的 `capabilities`（`available` 才可点、`blocked` 给服务端理由、`unsupported` 不出现、载荷无 `capabilities` 时一个动作都不画，Q205），`capacity` 只在真挂着时存在（没挂写「没有容量读数」而不是 `0 B`），每次动作走 `/operations/preflight` → `/jobs`（带幂等键），预检 120 秒过期要重新预检、要短语的必须原样敲、要再认证的提示重新输密码。`api/openapi.yaml` 补 `GET /storage/volumes`、`/storage/volumes/{id}`、`/storage/volumes/{id}/blockers` + 五个 schema，版本 `0.0.0-p07.5`，`capacity`/`observed_state`/`dependencies` 的空值语义写进 description。`scripts/storage-external-check.sh`（381 行）是**不经过面板的独立证人**（只读 `/etc/fstab`、`findmnt --mountpoint`、`/proc/self/mountinfo`、systemd 单元、备份权限，退出码 0=一致），真机上跑三遍真的 `/etc/fstab` + 五种坏副本；`docs/STORAGE_RECOVERY.md` 写清人怎么恢复（§2 第三步用 `--mountpoint`，Q204）。夹具从真机抓回 `web/src/fixtures/p07-5-vm/`（11 份载荷 + README），由 `realdata-p07-5.test.ts` 回放。VM 上 **PASS=205 / FAIL=0 / NOT RUN=3**（浏览器渲染 / 跨重启 / 九种动作逐一点击，逐条写原因与替代证据），真机抓出并修掉 **1 个**产品缺陷 Q208（把“未挂载所以读不到类型”当成“不合格”，于是纳入管理的候选在任何真机上都是空的——**夹具比现实干净，测试就变成了橡皮章**），记下 Q204/Q209 两个验收脚本缺陷与 Q205—Q207；宿主 `check.sh` PASS 13/0/0、web 35 文件 / 552 用例、openapi valid（7 warning）、`go test ./...` 26 包 ok（本轮没改 Go 代码，条目数与 P07.4 一致）。证据 `docs/evidence/P07/2026-10-22-p07.5/`。**阶段结论：P07 五个子任务全部完成** |
 | P08 | SMB 与卷依赖 | **已完成**（P08.1—P08.4 全部 passed）| P08.1 **passed**：Samba 能力检测、受管理账号、密码秘密通道、POSIX ACL、共享定义与配置版本。VM 上 **PASS=382 / FAIL=0 / NOT RUN=4**；`share.apply` 只到 `accepted`（不写 `smb.conf`、不重载，`sha256` 首末一致），密码明文只走 `smbpasswd` 的 stdin（五处扫描 0 命中），账号与 ACL 均用系统自己的命令读回核验。真机修掉 4 个产品缺陷（Q214/Q220/Q221/Q223），钉死 P05.1 采集器性能问题（Q222，未根治），记下 5 处验收脚本缺陷；证据 `docs/evidence/P08/2026-10-22-p08.1/`。**P08.2 passed**：托管 `upanel.conf` 整份重写 + `smb.conf` 末尾只追加两行（原有内容逐字节前缀比对保留），候选/合并两次 `testparm`、备份 0600 留 40 份、rename + 目录 fsync 的原子更新、`smbd` 活着才 `smbcontrol all reload-config`、逐参数读回、真实 `smbclient` 读写与拒绝、`smbstatus` 会话表连接状态。VM 上 **PASS=237 / FAIL=0 / NOT RUN=0**（四遍）；真机抓出 **1 个**产品缺陷（Q233 上级目录 0700 导致真实客户端 `ACCESS_DENIED`，7 条断言 1 个根因）+ **1 个**契约事实（Q234 `hosts allow` 对环回永远放行），2 处验收脚本缺陷；证据 `docs/evidence/P08/2026-10-22-p08.2/`。**P08.3 passed**：共享与 `volume_id` 绑定、启用检查、启动依赖、运行时脱盘、卸载/格式化依赖阻断。挂载门（只有 `volume_state=mounted` 才渲染，`unknown`/空按没挂处理）、30 秒一轮**只撤不恢复**的监视循环（撤销现场 `runtime_revoked{at,volume_id,volume_name,volume_state,reason}` 落在共享记录上，人再应用才回来）、systemd drop-in `/etc/systemd/system/smbd.service.d/upanel-shares.conf`（`RequiresMountsFor=` 一行四路径、排序去重、原子写、`daemon-reload` 必做、清空即整份删除）、存储侧按 `purpose` 分档的反向约束（卸载只看启用中的共享，格式化/退出管理看任何共享，查不出依赖一律阻塞）。VM 上 **PASS=207 / FAIL=0 / NOT RUN=5**（三遍：184/14 → 203/2 → 207/0），另用三阶段脚本连同一次真 `reboot` 验完重启顺序（pre 18 / post 11 / clean 5，各 0 失败，挂载单元比 `smbd` 早 57.2 秒进入 active，`smb.conf` 重启前后逐字节相同）。真机抓出 **2 个**产品缺陷（Q240 少一列导致 `runtime_revoked` 从不落盘且幂等判据永远失效；Q243 `0644` 被 umask 掩成 `0600`），**2 处**脚本缺陷（Q241、Q244），1 处契约补记（Q242）；证据 `docs/evidence/P08/2026-10-22-p08.3/`。**P08.4 passed**：共享 UI、用户权限与客户端连接说明（不加接口、不改字段）。三个准备状态分开显示；卷的状态与开机依赖**都不在共享记录里**——卷的挂没挂由页面按 `volume_id` 从 `/storage/volumes` 的 `observed_state` join（取不到就少显示一行；`unknown`/`error`/`mismatch` 说“读不出来”而不是“没挂”），开机依赖在 `share.apply` 的 `result.data`；客户端说明四种（Windows/macOS/`mount.cifs`/`smbclient`），地址取自 `window.location.hostname`，命令里永远没有密码（`credentials=` + `0600` + here-doc 走 stdin）。VM 上 **PASS=190 / FAIL=0 / NOT RUN=4**（四遍：167/20 → 187/2 → 190/0），第 5 节逐字执行说明里的 11 行（真 `smbclient` + 真 `mount.cifs` 挂载、写入读回、`umount`），第 6 节四种身份全拿真实 `NT_STATUS_*`，第 7 节 58 份载荷 / 两个库 / `/proc` 两处 / `/proc/mounts` 命中 0。真机抓出 **2 个**产品缺陷（Q246 前端 DTO 写着后端从不发送的四个字段，“卷没挂”永远亮不了；Q247 “重新应用”这条唯一的出路走不通，`runtime_revoked` 从来没被清过），**5 处**验收脚本缺陷；宿主 `check.sh` PASS 13/0/0、前端 637 条用例全绿；证据 `docs/evidence/P08/2026-10-23-p08.4/`、回放夹具 `web/src/fixtures/p08-4-vm/`。`P00-VM-D`（独立 SMB 客户端 VM）仍未建立，跨机器真实网段访问属 **NOT RUN** |
 | P09 | 现有 Web 应用与 Docker | **已完成**（P09.1—P09.5 全部 passed）| P09.5 **passed**：应用卡片、搜索、分组、一键打开、状态区分与常用入口首页集成——**只动前端，不新增接口**。卡片四件事分开画（`runtime_state` / `http_state` / `dependency_protection` / `runtime_note`），「容器在跑但回 500」同时写“运行中”与“入口异常”；按钮按服务器给的 `capabilities` 画（link 只有 `open`、受保护单元只剩 `logs`、看不见的绑定一个都不给）；`open` 是锚点（`target="_blank"`、`noopener noreferrer`）不是请求，地址是服务器地址——真机入口 `http://10.0.2.15:18897/` 回 200 而同端口回环 000，回环/`localhost`/带凭据/`javascript:` 的入口在写入口就 400；启停只落 `service.control`/`container.control`（不引入 `app.control`，那条路会绕过依赖卷门禁）；收藏按用户、幂等；搜索在页面（`GET /apps?q=` 结果集不变）；非空分组删不掉且成员不被顺手移走；`group_id` 形状对但不存在 → 200 + 空、**形状不对 → 400**（Q277，改的是 openapi 的描述不是代码）。VM 上 **PASS=211 / FAIL=0 / NOT RUN=0**，真机**无产品缺陷**（4 处失败：1 处契约文字 + 3 处脚本毛病）；前端 40 文件 / 720 用例、真机载荷回放 51 条断言、宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P09/2026-10-22-p09.5/`、回放夹具 `web/src/fixtures/p09-5-vm/`。P09.4 **passed**：应用摘要里的状态/按钮/日志/依赖保护全部**来自底层对象的观测**，并在启动路径上加一道**只能收紧**的依赖卷门禁。`internal/appruntime` 一次请求内合成三件事：状态逐来源枚举（systemd `active`/`reloading`→`running`、`failed`→`failed`、`activating`/`deactivating`→`unknown`、单元不在列表→`unknown`；docker `running`→`running`、`stopped`→`stopped`、其余→`unknown`）、**能力来自对象自己的能力集合**（不再由 `type` 推导）、保护判定。三处容易写错的钉死了：**`unknown` 不是 `stopped`**（绑在不存在的单元/被重建的容器上要人重新确认绑定，而不是给一个点下去必然失败的按钮）、**受保护单元仍有日志能力**（`ssh.service` 三项生命周期全 false、`logs` 为 true）、**门禁只拦启动**（`stop` 永不拦——卷掉线时最想做的就是停机，拦它只会把人逼回命令行、绕过审计）。门禁 `internal/appruntime/gate.go` 跑在 `CreatePreflight` 已有判决**之后**，只能把 `allowed` 从 true 改成 false（Q273；依赖关系只在 Web 库里，代理不该知道应用元数据）：未挂载→`VOLUME_OFFLINE`、身份不符→`VOLUME_IDENTITY_CHANGED`、读不到卷清单→`VOLUME_CHECK_UNAVAILABLE`（fail closed），提交被钉住的预检是 409 `DEPENDENCY_BLOCKED`，真机用 `docker inspect` 现场对照容器确实没动。`managed` 只给「docker + `restart` 是 no/空 + 有依赖卷」（Q274）——它说的是“经面板发起的启动会被检查”，不是“依赖被接管了”；手工 `docker start`、开机自启、`systemctl enable` 过的单元、`restart: always` 四条绕过路径都在 note 里点名，这几种一律 `unmanaged`。`GET /api/v1/apps/{id}/logs` 按绑定判别 journal / docker，两种 `page` 形状各自与 `/logs`、`/containers/{id}/logs` 一致；`unit`/`source` 这类“想改对象”的参数一律 400（对象来自绑定）。两条**没做**的明写着而不拿门禁冒充（Q276、Q275）：运行时卷失联自动停止要代理侧常驻协调者，本轮不做；docker 的 `failed` 这一版不区分（DTO 里没有 ExitCode，非 running 一律 `stopped`）。VM 上 **PASS=165 / FAIL=0 / NOT RUN=0**（11 节），**真机没抓出产品缺陷**，10 处失败全是脚本自己的毛病（子壳变量、拿受保护单元当夹具、`/storage/volumes` 读成 `data.items`、`lsblk -r` 与 `-l` 在 util-linux 2.39 互斥、拿旧服务快照断言新单元、把“改完之后的版本号”当乐观锁、`pfget` 拼路径去跑表达式）；宿主 `check.sh` PASS 13/0/0、`go test -count=1 ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.4/`。P09.3 **passed**：Docker 只读查询（容器/镜像/网络/数据卷/部署）、容器日志（时间键集分页 + SSE 流，每账号 4 条并发）、现有受支持容器的 start/stop/restart。**Web 进程从不碰 `docker.sock`**——所有查询与动作在代理里用固定子命令完成，真机验了 Web 账号不在 docker 组、`docker ps` 被拒、`/proc/<pid>/fd` 里没有 sock。**容器身份只认完整 64 位小写十六进制**（唯一会进 argv 的可写字符串，名字只在输出里出现；短 ID 可猜，全 ID 不行），`^[0-9a-f]{64}$` 在 Web 与代理各校验一次。**风险是闭集而不是启发式**：privileged、host 网络/pid/ipc、危险 capability、挂 `docker.sock`、挂宿主 `/` → `risk.level=high` + `managed=false` + 三项能力全 false，并在预检（`CONTAINER_NOT_MANAGED`）与执行前复核（`controlBlockedError` → 409 `PREFLIGHT_STALE`）**两处**拒绝。**不该要的东西不请求**：inspect 格式串里没有 `Config.Env`、没有完整标签表（只取六个 `com.docker.compose.*`），真机放了唯一口令，清单/详情/日志/SSE/代理日志里都搜不到，日志正文经 `logging.Redact` 成 `[redacted]`。启停每条都“预检 → 任务 → 读回”并与 `docker inspect` 现场对照：**退出码 0 不算成功，读回状态一致才算**（`observed_state.verified`）。compose 项目是派生身份 `dep_`+sha256 前缀，只做精确匹配 GET，外部 YAML 不执行不解析不落盘。VM 上 **PASS=217 / FAIL=0 / NOT RUN=1**（五遍；唯一 NOT RUN 是“执行前复核（受理之后再变）”，需毫秒级可重复竞态，由 `TestContainerControlExecuteStaleState` 覆盖）；真机抓出并修掉 **3 个**产品缺陷（Q270 `--tail`/`--until` 顺序让往回翻页只剩边界一条 → 时间窗分页；Q271 套接字还在但守护进程死了被当成命令失败/500 → 按 `Cannot connect to the Docker daemon` 判 `UnavailableError`，清单降级 200 + `available=false`、预检 `allowed=false` + `DOCKER_UNAVAILABLE`；Q272 代理的 5xx 域内码被 Web 改写成 `AGENT_UNAVAILABLE`）；宿主 `check.sh` PASS 13/0/0、`go test ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.3/`。P09.2 **passed**：本机端口/服务/容器发现、管理员确认候选、普通健康检查与 SSRF 约束。三路来源（`/proc/net/tcp{,6}` LISTEN → inode → `/proc/<pid>/fd` → cgroup v2 → `.service`、裸监听、`docker ps -a --no-trunc`），候选 `target_id` 只有 `local_…`/`cntr_…` 两种形状；**SSRF 不是过滤而是写不出来**——探测地址一律由代理拼成 `http(s)://127.0.0.1:<port><path>`（`Proxy: nil`、不跟重定向、TLS 校验开、正文 64 KiB 截断），调用方没有任何位置能放主机名/IP/完整 URL；确认候选＝`POST /apps`（不另开接口）；结论只进 `app_health_results`（`0008`），定义仍在 `apps.health_json`；调度 5 秒一拍/一轮 60 秒/每应用 30—300 秒/最小间隔 5 秒，代理不可用写一条 `unknown` 即结束本轮。两条诚实性规矩：**“没看”不能变成“没有”**（探测侧 `unknown` vs `error`，入 Q257；绑定合并侧来源没采成不进 `missing_bindings`，Q260），**没发出去的探测不填 address/url**。为三条容器验收在测试机上装 `docker.io` 29.1.3 + `alpine:3.20` **夹具**（非依赖；无 docker 的机器上那三条仍是 NOT RUN）。VM 上 **PASS=120 / FAIL=0 / NOT RUN=1**（六遍 93/0 → 120/0；唯一 NOT RUN 属 P09.4）；真机抓出并修掉 **3 个**产品缺陷（Q258 pid 1 代持的 `.socket` 监听让端口出现两次、Q259 docker-proxy 在 `docker.service` cgroup 里让容器出现两次且抑制必须在单元分类之前、Q260 停 dockerd 后容器应用被误判“需重新确认”）+ 一条语义修正 Q257；宿主 `check.sh` PASS 13/0/0、`go test ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.2/`。**下一子任务 P09.3**（Docker 只读查询、日志、现有受支持容器的启停）。P09.1 **passed**：应用/分组/收藏元数据、link/systemd/docker/compose 判别模型、公共入口与内部目标分离。四张表（`apps`/`app_groups`/`app_favorites`/`app_volume_dependencies`，`0007_apps.sql`）；`type` 决定 `binding` 的唯一合法键，规范化 JSON + `uq_apps_binding`（`WHERE type <> 'link'`）+ `CHECK` 让唯一性由数据库保证；`public_url` 只受理浏览器能打开的地址（生产禁回环/通配），健康检查 `target_id` 形状写不出 IP/主机名/URL，`169.254.169.254` 真机试过；摘要字段只填“不知道”（link `not_applicable`，其余 `unknown` + `last_checked_at=null` + `dependency_protection=unmanaged`），`capabilities` 只有 `open`；依赖卷不建外键（Q248），写入经代理确认，503 不写库、422 带 `volume_id`；删除只删元数据，收藏按用户隔离且不写审计。VM 上 **PASS=210 / FAIL=0 / NOT RUN=0**（第八遍；第七遍复跑同样 210/0/0）。真机**无产品缺陷**，前几遍 23 个 FAIL 全为脚本自身问题（断言写错 4 处、破坏性动作漏再认证、夹具没清干净 1 处），并把“预检绑定快照”这条产品语义钉进脚本；宿主 `check.sh` PASS 13/0/0、`go test ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.1/`。|
-| P10 | 反向代理、HTTPS、0.1 发布 | not_started | — |
+| P10 | 反向代理、HTTPS、0.1 发布 | **进行中**（P10.1 passed；P10.2—P10.4 未开始）| P10.1 **passed**：Nginx 发现、域名冲突判断、站点定义登记（单域名单 upstream、WebSocket 开关、请求限制、访问策略）。事实与判断分家：代理登记 `nginx.state`（`{fresh}`）只给事实，`internal/proxies` 出判断；**展示用 5 秒快照、写入门禁用直读**（缓存窗口里刚手工加的 `server_name` 正是唯一需要判准的时刻）；冲突三态 `clear`/`taken`/`unknown`，**`unknown` 与 `taken` 一样 409 阻断**（`nginx reload` 不因 `server_name` 撞车失败，只会安静地用第一个块），证据带文件 + `server_name` 所在行 + 原文 + `broken_files`；读不到主机事实是 503 而不是“没有冲突”。符号链接按真实路径去重（`sites-enabled/default` 只算一次）；域名 IDNA 归一并禁通配符/协议/端口/路径；**上游端口不得等于面板真正监听的端口**（取自监听地址，不写死 9443）；默认值与 nginx 一致（`1m`/`60s`）；访问模式与附加字段双向一致（多给也 400）；`secret_ref` 只进不出。**P10.1 不写配置**：没有 `applied_*` 字段、审计固定 `"applied": false`、`/etc/nginx` 全部文件内容摘要前后相等（Q280）。VM 上 **PASS=100 / FAIL=0 / NOT RUN=0**，真机抓出 **1 个**产品缺陷（Q279：`nginx -v` 时限写成无单位 `5` → 5 纳秒，Windows 上被 `t.Skip` 的单测证明不了）；证据 `docs/evidence/P10/2026-10-22-p10.1/` |
 | P11 | 软件更新与电源 | not_started | — |
 | P12 | 备份恢复与计划任务 | not_started | 需恢复校验 |
 | P13 | 历史监控和告警 | not_started | — |
@@ -4099,6 +4117,94 @@ Playwright 截图也没有人工点检）；跨浏览器与移动端布局；并
 （agent/web）、`env.txt`（**验收跑完之后**采集）、`check.txt`、`native-tests.txt`、`result.md`、
 `collect-env.sh`），回放夹具 `web/src/fixtures/p09-5-vm/`。
 
+### P10.1（2026-10-22）— Nginx 发现、配置冲突、单域名单 upstream、WebSocket、请求限制、访问策略
+
+**范围**（STAGES §12 第 1 条）：让面板能回答“这台机器的 Nginx 现在长什么样”和“这个域名我能不能用”，
+并把“我要这样代理”登记下来。**不生成任何配置**：写文件、`nginx -t`、reload 是 P10.2，证书是 P10.3。
+
+**做了什么**
+
+- `internal/nginx`（新）：配置解析与事实采集。只扫三处（`nginx.conf`、`conf.d/*.conf`、
+  `sites-enabled/*`，与默认 `include` 一致，不跟随其它 include），按**解析后的真实路径**去重——
+  `sites-enabled/default` 是符号链接，不去重就会把同一份 `server_name` 数两遍、证据指两次。
+  每个 `server` 块留下 `line`（块起始）与 `names_line`（`server_name` 所在行）、`listen`、`names`。
+  `ServerName.Verdict` 五类写法：精确、`*.x`、`www.*`、`x.*`、占位 `_`（不声明任何域名）、
+  正则/其它（`Undecidable`）。`nginx -v` 与 `nginx.service` 状态只读，读不到只降级成 warning，
+  **不会**因此说“这台机器上没有 Nginx”。
+- `internal/proxies`（新）：`NormalizeDomain`（IDNA `MapForLookup`+`StrictDomainName`，A-label、小写、
+  去一个尾点；通配符/协议/路径/查询串/端口/IP 一律报错而不是悄悄剪掉）、`Definition.Normalize`
+  （默认值、闭集、模式与附加字段双向一致）、`JudgeDomain`（纯函数，不 I/O）、`Service`
+  （事务 + 乐观锁 + 审计）、`store`（SQLite）。
+- `internal/proxies/agentfacts.go`（新）：`Snapshot`（代理侧 5 秒快照）/ `Collect`（直读）/
+  `Invalidate`（只设“下次必须 `fresh`”，Web 侧不存第二份缓存）。
+- `internal/agent/nginxquery.go`（新）：登记查询 `nginx.state`，参数 `{fresh}`；`NginxVersionProbe`
+  读 `nginx -v` 的 **stderr**（nginx 就写在那里）。
+- `internal/api/proxies.go`（新）：7 条路由，全部 admin；写操作带 CSRF；审计 `proxy.create/update/delete`
+  与业务同事务，明细固定 `"applied": false`。
+- `migrations/0009_proxies.sql`：`proxies` 表 + `uq_proxies_domain` 唯一索引 +
+  `CHECK`（模式与名单一致性、上游目标前缀、数值范围）。
+- 接线：`cmd/upanel-agent/main.go` 探测 `nginx` 可执行文件（常见五处）与 `nginx.service`；
+  `cmd/upanel-web/main.go` 从**真实监听地址**取面板端口传给校验（不是写死 9443）。
+- `api/openapi.yaml`：`0.0.0-p10.1`，4 条 path、12 个 schema；`docs/CONTRACTS.md` §9.1。
+
+**几个当时必须定下来的取舍**
+
+- **事实归代理、判断归 Web**（Q278）：事实要 root，判断要数据库（面板自己有没有同名记录）。
+  两边都不替对方猜，代理只会登记 `nginx.state` 一条查询，`internal/api` 不直接读配置。
+- **缓存分两档**：页面上用 5 秒快照（同一次请求里前后两个域名依据同一时刻），写操作前的冲突判断
+  用直读。理由很具体：缓存窗口里正好可能有人手工加了一条 `server_name`，而那是唯一需要判准的时刻。
+- **`unknown` 也阻断**：`nginx reload` 不会因为 `server_name` 撞车而失败，它只会安静地用第一个块。
+  所以“有正则 `server_name`”“有文件解析失败”“读不到配置”都必须拒绝写入，而不是当成“没找到冲突”。
+  验收里专门验了正对照：删掉那份正则/坏文件之后，同一个域名立刻恢复 `clear`。
+- **读不到 ≠ 没有**：代理不可用时写入 503 `AGENT_UNAVAILABLE`，列表仍 200 且
+  `nginx.read_error=agent_unavailable`、`config_missing=false`；`config_missing` 只在“主机上确实
+  没有 Nginx 配置目录”时为真，那种情况下冲突结论才是 `clear`。
+- **面板端口是禁区且来自真实端口**：`PanelPort` 取自运行时 `--listen` 的端口，验收里被拒绝的正是
+  这一次跑的 19495。写死 9443 会让这台机器上的规则形同虚设。
+- **`enabled` 是意图**（Q280）：没有 `applied_*`、`config_path`、`config_hash` 字段；审计里写
+  `"applied": false`；`managed_file_count` 在 P10.1 必然是 0。
+- **`secret_ref` 只进不出**：创建响应、列表、详情、审计里都只有账号名。代价是**修改账号必须重传
+  `secret_ref`**（只给 `name` 会按“密码引用非法”400），这条写进 CONTRACTS §9.1(5)。
+- **定义展平进列，不进 `definition_json`**（Q281）：`definition_json` 装不下“cidr 模式必须有网段、
+  其它模式必须没有”这类约束，而展平之后四条 `CHECK` 与域名唯一索引都能由数据库守。代价是
+  一个 11 字段的表，换来的是并发提交在库里撞一下就是 409，而不是“先查后写”中间那条缝。
+  `applied_config_hash` 这一列**不存在**：P10.1 不写配置，它永远是空，加它等于留一个能误读的位置。
+
+**验收**
+
+- 真机脚本 `tests/integration/p10-1-proxy-acceptance.sh`（630 行，7 节），最终一遍
+  **PASS=100 / FAIL=0 / NOT RUN=0**（退出码 0）。节：环境与启动 9、Nginx 现状 12、冲突判断 21、
+  登记校验 22、修改与删除 12、权限与“没有代理” 15、没动 Nginx 4。
+- 夹具是真的 nginx 配置：`/etc/nginx/conf.d/p101-taken.conf`（`server_name` 在第 3 行）、
+  `p101-wild.conf`（`*.p101wild.example.com`）、临时 `p101-regex.conf`（正则）、临时
+  `p101-broken.conf`（未闭合的 `server` 块）。**正则与坏文件必须分段放**：正则会让**所有**域名的
+  结论变成 `unknown`，放一起会把 clear/taken 断言全染成 unknown，看起来像崩了。
+- 逐条钉住的证据：`line == 3`（取 `names_line` 不是块起始行）；`*.x` 占子域但**不占上级域**；
+  库里 `SELECT COUNT(*)` 证明被拒绝的写入没留记录；审计 `redacted_details LIKE '%"applied":false%'`
+  计数；`/etc/nginx` 全部文件内容摘要**前后相等** + `nginx -t` 通过 + `conf.d` 无残留；
+  停代理后写 503 且库不变、重启后同一请求 201。
+
+**这一轮真机抓出 1 个产品缺陷**（Q279）：`maxNginxVersionTimeout = 5` 无单位，赋给
+`syscmd.Limits.Timeout`（`time.Duration`）就是 5 纳秒，`nginx -v` 还没 fork 就超时，版本号永远为空。
+宿主的 `go test ./...` 全绿是因为那条探针的单测在 Windows 上 `t.Skip`。修成 `5 * time.Second` 后
+`version=1.24.0`，`warnings` 清空。脚本自身也错过两遍：第一遍 Web 起不来（脚本把库目录留给 root，
+sqlite 报 `attempt to write a readonly database`）、第二遍 4 处期望写错（审计应为 2 条、`taken` 夹具
+在 §4 之前已被删）——都记在证据 `run-attempt-1.log` / `run-attempt-2.log` 里。
+
+**未验证**：配置生成、原子写、`nginx -t` 门禁、reload 与失败恢复（P10.2）；HTTPS 与证书（P10.3）；
+`basic_auth` 口令的实际生效（要等 P10.2 生成 htpasswd）；前端页面（P10.4）；多机/远程 Nginx
+（PLAN 限定单机）；22.04.5 上的 Nginx（本轮全部证据在 24.04.5 + nginx 1.24.0）。**受阻**：无。
+
+**已知限制**：`nginx -v` 与 `nginx.service` 读不到时只降级成 warning（配置照样读、冲突照样判，
+但页面上版本号是空的）；只解析三处配置，其它 `include` 进来的 `server_name` **看不见**——
+如果有人在 `nginx.conf` 里 include 了自定义目录，那里的域名不会被判成 `taken`（这条写进
+`internal/nginx/collector.go` 的注释，P10.2 生成配置时也不能依赖它）；
+`proxies` 表按 CONTRACTS §14.1 用了表名但没有照抄 `definition_json` / `applied_config_hash`
+（Q281），§14.1 那一行已改成实际形态。
+
+证据：`docs/evidence/P10/2026-10-22-p10.1/`（`run.log`、`run-attempt-1.log`、`run-attempt-2.log`、
+`payloads/nginx-facts.json`、`logs/`（agent/web/nginx-t）、`env.txt`、`native-tests.txt`、`result.md`）。
+
 ## 6. 未决问题与范围变更
 
 未批准任何范围变更。DECISIONS.md 第 8 节记录 Q1—Q80；P03.3 新增六条：Q67（阶段与事件必须同事务，
@@ -4505,6 +4611,15 @@ Q103（`cmd/upanel-web` 的用例会读机器上的 `/etc/upanel/upanel.json`，
 | P09.5-REPLAY | P09 | 已执行通过（真机载荷 16 份取自 VM，`realdata-p09-5.test.ts` 回放 **51 条断言**：字段闭集、三状态分开、能力来自对象、`open` 是锚点不是请求、分桶规则、启停动作名、任务 `observed_state`） | web/src/fixtures/p09-5-vm/、web/src/components/realdata-p09-5.test.ts |
 | P09.5-HOST | P09 | 已执行通过（`check.sh` PASS 13 / FAIL 0 / NOT RUN 0，含 gofmt、Linux 交叉编译、前端四项、openapi lint 7 warning（与 P08 以来同口径）；`go test -count=1 ./...` 全部包 ok；前端 40 文件 / 720 用例；`typecheck`/`lint` 干净） | docs/evidence/P09/2026-10-22-p09.5/{check.txt,native-tests.txt} |
 | P09.5-RESULT | P09 | 已产出（逐节断言表、4 处失败的根因（1 处契约文字 + 3 处脚本毛病）、0 个产品缺陷、NOT RUN=0 与四条声明式不覆盖、已知限制、下一子任务 P10） | docs/evidence/P09/2026-10-22-p09.5/{result.md,env.txt,collect-env.sh} |
+| P10.1-VM | P10 | **已执行并通过（24.04.5 一次性 VM + nginx 1.24.0，7 节 100 项断言，`FAIL=0 / NOT RUN=0`，退出码 0）** | docs/evidence/P10/2026-10-22-p10.1/{run.log,logs/,env.txt} |
+| P10.1-FACTS | P10 | 已执行通过（`GET /proxies/nginx`：`version=1.24.0`、`unit_state=active`、`config_root=/etc/nginx`、4 份配置；`sites-enabled/default` 是符号链接且**只登记一次**（按真实路径去重）；`names_line=3` 与 `46` 如实带出；`warnings=[]`） | docs/evidence/P10/2026-10-22-p10.1/{payloads/nginx-facts.json,run.log 第 2 节} |
+| P10.1-CONFLICT | P10 | 已执行通过（`clear` / `taken`（证据指到 `server_name` 行 + 文件 + 原文）/ `unknown`（正则、坏文件）三态；`*.x` 占子域不占上级域；**`unknown` 连无关域名也一并阻断**（409）且库里无记录；删掉夹具后同一域名恢复 `clear` 的正对照） | docs/evidence/P10/2026-10-22-p10.1/run.log 第 3 节 |
+| P10.1-VALIDATE | P10 | 已执行通过（面板端口 = 真实监听端口 19495 → 400；通配符/带协议/非法目标/`cidr` 空名单/`public` 带网段/重复账号全 400 且库里 0 条；`P101-OK.Example.COM.` → `p101-ok.example.com`；默认 1048576/60/public/http；`secret_ref` 不在响应也不在审计） | docs/evidence/P10/2026-10-22-p10.1/run.log 第 4 节 |
+| P10.1-NOWRITE | P10 | 已执行通过（`/etc/nginx` 全部文件内容摘要**前后相等** + `nginx -t` 仍通过 + `conf.d` 无 `p101-*` 残留 + `managed_file_count=0`；审计两条 `proxy.create` 均含 `"applied":false`） | docs/evidence/P10/2026-10-22-p10.1/{run.log 第 7 节,logs/nginx-t.log} |
+| P10.1-UNAVAIL | P10 | 已执行通过（停代理：列表仍 200 + `nginx.read_error=agent_unavailable` + `config_missing=false`；登记与冲突判断 503 `AGENT_UNAVAILABLE` 且库不变；重启后同一请求 201；viewer 三条 403、未登录 401） | docs/evidence/P10/2026-10-22-p10.1/run.log 第 6 节 |
+| P10.1-ATTEMPTS | P10 | 已保存（第 1 遍 78 FAIL：脚本把库目录留给 root → `attempt to write a readonly database`；第 2 遍 6 FAIL：**1 个产品缺陷**（Q279，`nginx -v` 5ns）+ 4 处脚本期望写错 + 1 处连锁） | docs/evidence/P10/2026-10-22-p10.1/{run-attempt-1.log,run-attempt-2.log} |
+| P10.1-HOST | P10 | 已执行通过（`check.sh` PASS 13 / FAIL 0 / NOT RUN 0，含 gofmt、Linux 交叉编译、前端四项、openapi lint 7 warning（与 P08 以来同口径）；`go test ./...` 37 个包全部 ok；首跑 gofmt 红在 `internal/api/proxies_test.go` 已修） | docs/evidence/P10/2026-10-22-p10.1/{check.txt,native-tests.txt} |
+| P10.1-RESULT | P10 | 已产出（逐节断言表、1 个产品缺陷的根因与复现、2 遍脚本失败的根因、NOT RUN 五条声明式不覆盖、已知限制、下一子任务 P10.2） | docs/evidence/P10/2026-10-22-p10.1/result.md |
 | P00-VM-C（LVM 根） | P00/P04 | **NOT RUN**（未创建） | 需在 P04 前补齐 |
 | P00-VM-D（SMB 客户端） | P00/P08 | **NOT RUN**（未创建；P08.2 用同机真实 `smbclient` + netns 客户端替代，跨机器网络路径仍缺） | 需在 P08 前补齐 |
 
@@ -4892,3 +5007,17 @@ SHARE/APP/PROXY/PKG/BACKUP/TIMER/ALERT/NET/NFS/DEPLOY/RELEASE。**矩阵编号�
   会在下一次重写时被纠正。
 - **迁移漏列不会编译失败**（Q240）：给 `shares` 加字段要同时改四处（迁移、`sharesColumns`、
   `SaveShare`、`scanShare`）。这条已写进 `sharestore.go` 的注释里。
+- **Nginx 只解析三处配置**（P10.1）：`nginx.conf`、`conf.d/*.conf`、`sites-enabled/*`，与 nginx 的默认
+  `include` 一致，**不跟随其它 include**。如果有人在 `nginx.conf` 里 include 了自定义目录，那里的
+  `server_name` 不会被判成 `taken`。P10.2 生成配置时也不能依赖“扫描覆盖了全部 server 块”这个假设。
+- **`nginx -v` / `nginx.service` 读不到只降级成 warning**（P10.1）：配置照样读、冲突照样判，但页面上
+  版本号为空、单元状态为未知。**不能**把这种情况写成“这台机器没有 Nginx”——那会让人以为可以随便占域名。
+- **`0009_proxies.sql` 在提交前被改写过一次**（P10.1）：本轮真机验收之后，表名按 CONTRACTS §14.1
+  对齐成 `proxies`（原来是 `proxy_sites`），并改正了两处与实现不符的注释（说标识是 `prx_`、说
+  `enabled` 只由 P10.2 置 1）。文件内容变了，校验和也就变了——`store/migrate.go` 会拒绝校验和不符的
+  已有库。它尚未在任何长期库上应用过（验收库每轮重建），因此这次改写没有影响；但如果有人在本轮
+  中途拷走过一份 v9 的 Web 库，那个库只能重建。
+- **`enabled=true` 不代表已生效**（Q280）：P10.1 一个字都没写进 `/etc/nginx`。要让站点真的生效必须等
+  P10.2 的写配置 + `nginx -t` + reload，届时才会有 `applied_*` 字段可看。
+- **修改 `basic_auth_users` 必须重传 `secret_ref`**（P10.1）：响应里只回账号名，接口拿不到引用；
+  只给 `name` 的 patch 会 400（“密码引用非法”）。这是“秘密只进不出”的代价，不是缺陷。

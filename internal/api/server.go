@@ -25,6 +25,7 @@ import (
 	"upanel/internal/httpx"
 	"upanel/internal/operations"
 	"upanel/internal/platform"
+	"upanel/internal/proxies"
 	"upanel/internal/version"
 )
 
@@ -116,6 +117,13 @@ type Options struct {
 	// false，并写明“未配置代理连接”。/apps 本身是纯数据库元数据，不会因为代理
 	// 不在就变成 503——那会把“这台机器上有哪些入口”一起弄丢。
 	AppRuntime *appruntime.Resolver
+	// Proxies 是代理站点元数据服务（P10.1）。必需依赖：站点定义存在面板库里，
+	// 读列表与详情不依赖代理。
+	Proxies *proxies.Service
+	// NginxFacts 读取主机 Nginx 现状（P10.1）。允许为 nil（演示模式不连代理）：
+	// 那时 /proxies 仍返回站点定义，nginx 那一块写明 ReadError；/proxies/nginx
+	// 与 /proxies/conflict 明确回 503，而不是给一份“没有配置文件”的空表。
+	NginxFacts NginxFactsReader
 }
 
 // Server 是 Web HTTP 服务。
@@ -165,6 +173,9 @@ func New(opts Options) (*Server, error) {
 	}
 	if opts.Apps == nil {
 		return nil, errors.New("api: Apps 不能为空")
+	}
+	if opts.Proxies == nil {
+		return nil, errors.New("api: Proxies 不能为空")
 	}
 	origins, err := httpx.NewOriginSet(opts.AllowedOrigins)
 	if err != nil {

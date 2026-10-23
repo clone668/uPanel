@@ -224,6 +224,7 @@ func sharesFixture(t *testing.T, reader SharesReader) (*Server, *http.Cookie, st
 		Audit:           aud,
 		Operations:      newTestOperations(t, db, nil),
 		Apps:            newTestApps(t, db),
+		Proxies:         newTestProxies(t, db),
 		AllowedOrigins:  testOrigins(),
 		Shares:          reader,
 	})

@@ -6,6 +6,7 @@ import (
 
 	"upanel/internal/discovery"
 	"upanel/internal/monitoring"
+	"upanel/internal/nginx"
 	"upanel/internal/processes"
 	"upanel/internal/services"
 	"upanel/internal/storage"
@@ -51,6 +52,10 @@ type ProductionDeps struct {
 	// apps.probe：没有 /proc 与容器读取的接线时，一个“空候选列表”会被读成
 	// “这台机器上什么都没有”，那是假话。
 	Discovery *discovery.Collector
+	// Nginx 是 Nginx 现状采集器（P10.1）。为 nil 时不登记 nginx.state：
+	// 读不到配置时，一个“没有 server_name”的空结果会被读成“这个域名没人用”，
+	// 而那正是把面板写到别人站点上的前一步。
+	Nginx *nginx.Collector
 }
 
 // newSystemSummaryQuery 登记 system.summary：无参数，返回采集器最近一次快照。

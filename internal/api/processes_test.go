@@ -44,6 +44,7 @@ func processesFixture(t *testing.T, reader ProcessesReader) (*Server, *http.Cook
 		Audit:           aud,
 		Operations:      newTestOperations(t, db, nil),
 		Apps:            newTestApps(t, db),
+		Proxies:         newTestProxies(t, db),
 		AllowedOrigins:  testOrigins(),
 		Processes:       reader,
 	})

@@ -58,6 +58,15 @@ var (
 // NewAppID 生成一个应用标识（app_ + 32 位小写十六进制）。
 func NewAppID() (string, error) { return newID(appIDPrefix) }
 
+// ValidTargetID 判断一个健康检查/代理上游目标标识的形状是否合法。
+//
+// 反向代理（internal/proxies）也用这条形状限制上游：一个地方定义“什么能当目标”，
+// 才不会出现“应用的健康检查拒绝的目标，代理却接受”的错位。
+func ValidTargetID(id string) bool { return targetIDPattern.MatchString(id) }
+
+// ValidAppID 判断应用标识的形状（app_ + 32 位小写十六进制）。
+func ValidAppID(id string) bool { return validAppID(id) }
+
 // NewGroupID 生成一个分组标识（grp_ + 32 位小写十六进制）。
 func NewGroupID() (string, error) { return newID(groupIDPrefix) }
 

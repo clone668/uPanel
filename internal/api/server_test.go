@@ -33,6 +33,7 @@ func newTestServer(t *testing.T, mode platform.Mode, listen string) *Server {
 		Audit:           aud,
 		Operations:      newTestOperations(t, db, nil),
 		Apps:            newTestApps(t, db),
+		Proxies:         newTestProxies(t, db),
 		AllowedOrigins:  testOrigins(),
 	})
 	if err != nil {
@@ -144,6 +145,7 @@ func TestMockModeMustBindLoopback18881(t *testing.T) {
 		Audit:           aud,
 		Operations:      preflights,
 		Apps:            appSvc,
+		Proxies:         newTestProxies(t, db),
 		AllowedOrigins:  testOrigins(),
 	}); err == nil {
 		t.Fatal("mock 模式绑定 9443 必须被拒绝")
@@ -157,6 +159,7 @@ func TestMockModeMustBindLoopback18881(t *testing.T) {
 		Audit:           aud,
 		Operations:      preflights,
 		Apps:            appSvc,
+		Proxies:         newTestProxies(t, db),
 		AllowedOrigins:  testOrigins(),
 	}); err == nil {
 		t.Fatal("mock 模式绑定 0.0.0.0 必须被拒绝")
@@ -170,6 +173,7 @@ func TestMockModeMustBindLoopback18881(t *testing.T) {
 		Audit:           aud,
 		Operations:      preflights,
 		Apps:            appSvc,
+		Proxies:         newTestProxies(t, db),
 		AllowedOrigins:  testOrigins(),
 	}); err != nil {
 		t.Fatalf("mock 模式绑定 127.0.0.1:18881 应成功: %v", err)
@@ -187,6 +191,7 @@ func TestNewRejectsInvalidOptions(t *testing.T) {
 		Audit:           aud,
 		Operations:      newTestOperations(t, db, nil),
 		Apps:            newTestApps(t, db),
+		Proxies:         newTestProxies(t, db),
 		AllowedOrigins:  testOrigins(),
 	}
 	if _, err := New(Options{ListenAddress: config.ListenProduction, Mode: base.Mode, ShutdownTimeout: time.Second}); err == nil {

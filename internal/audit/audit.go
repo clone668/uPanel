@@ -78,6 +78,15 @@ const (
 	ActionAppGroupDelete = "app_group.delete"
 	// ActionAppGroupManage 用于分组请求被中间件拒绝时记录的事件。
 	ActionAppGroupManage = "app_group.manage"
+	// ActionProxyCreate / Update / Delete 是代理站点记录的管理（P10.1）。
+	//
+	// 记这条事件的意义在于“谁把这个域名指向了哪个上游”。P10.1 只写记录、不写
+	// Nginx 配置；配置真正落盘时（P10.2）会另有一条任务事件，两者不要混为一谈。
+	ActionProxyCreate = "proxy.create"
+	ActionProxyUpdate = "proxy.update"
+	ActionProxyDelete = "proxy.delete"
+	// ActionProxyManage 用于代理请求被中间件拒绝（admin/CSRF）时记录的事件。
+	ActionProxyManage = "proxy.manage"
 )
 
 // 结果枚举，与迁移里的 CHECK 约束一致。

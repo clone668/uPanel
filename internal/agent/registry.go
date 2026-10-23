@@ -425,6 +425,11 @@ func RegisterProductionQueries(reg *Registry, deps ProductionDeps) error {
 			}
 		}
 	}
+	if deps.Nginx != nil {
+		if err := reg.RegisterQuery(newNginxStateQuery(deps.Nginx)); err != nil {
+			return fmt.Errorf("代理登记 nginx.state 失败: %w", err)
+		}
+	}
 	if deps.Discovery != nil {
 		// 两条一起登记：发现与探测是一对。只有 apps.discovery 的结果里能找到的
 		// target_id，apps.probe 才可能解析成功；少任何一条，健康检查就只能显示

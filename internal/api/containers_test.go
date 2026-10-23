@@ -168,6 +168,7 @@ func containersFixture(t *testing.T, reader ContainersReader) (*Server, *http.Co
 		Audit:           aud,
 		Operations:      newTestOperations(t, db, nil),
 		Apps:            newTestApps(t, db),
+		Proxies:         newTestProxies(t, db),
 		AllowedOrigins:  testOrigins(),
 		Containers:      reader,
 	})

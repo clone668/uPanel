@@ -10,9 +10,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -34,6 +36,7 @@ import (
 	"upanel/internal/operations"
 	"upanel/internal/platform"
 	"upanel/internal/processes"
+	"upanel/internal/proxies"
 	"upanel/internal/services"
 	"upanel/internal/shares"
 	"upanel/internal/storage"
@@ -297,6 +300,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// /containers*、/images、/container-networks、/container-volumes、/deployments*
 	// 明确回 503，而不是给一份空容器清单——空清单会被读成“没有容器在跑”。
 	var containersReader api.ContainersReader
+	// Nginx 现状读取端（P10.1）。演示模式下保持 nil：那时 /proxies 仍返回站点定义，
+	// nginx 那一块写明读不到；/proxies/nginx 与 /proxies/conflict 明确回 503，
+	// 而不是给一份“主机上没有配置文件”的空表。
+	var nginxFacts *proxies.AgentFacts
 	// 健康检查目标的存在性检查（P09.2 的写入期约束）与探测执行端。
 	// 这两个都只在生产模式接上：演示模式没有代理，写入带健康检查的应用会明确回 503，
 	// 而不是存下一个面板根本探不到的目标。
@@ -369,6 +376,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		containersReader = containersFetcher
+		nginxFactsClient, err := proxies.NewAgentFacts(client, logger)
+		if err != nil {
+			logger.Error("初始化 Nginx 现状读取端失败，拒绝启动", "error", err)
+			return 1
+		}
+		nginxFacts = nginxFactsClient
 		discoveryReader = discoveryFetcher
 		healthTargetChecker = discoveryFetcher
 		healthProber = discoveryFetcher
@@ -394,6 +407,32 @@ func run(args []string, stdout, stderr io.Writer) int {
 	})
 	if err != nil {
 		logger.Error("初始化应用元数据服务失败，拒绝启动", "error", err)
+		return 1
+	}
+
+	// 代理站点元数据（P10.1）：站点定义存在面板库里，读列表与详情不依赖代理；
+	// 但**任何写入都要先判域名冲突**，判不了（没连代理、有配置解析失败）就拒绝写入。
+	// facts 为 nil 时（演示模式）写入明确回 503，而不是落一条可能覆盖别人站点的记录。
+	//
+	// PanelPort 用真实监听端口，不写死 9443：面板端口可配，而上游端口永远不能等于它——
+	// 配一个反代把管理面板暴露到公网，是这套系统里最容易犯也最不该犯的错。
+	panelPort := 0
+	if _, portStr, err := net.SplitHostPort(listenAddr); err == nil {
+		if p, convErr := strconv.Atoi(portStr); convErr == nil {
+			panelPort = p
+		}
+	}
+	var nginxFactsSource proxies.FactsSource
+	if nginxFacts != nil {
+		nginxFactsSource = nginxFacts
+	}
+	proxiesService, err := proxies.New(db, proxies.Options{
+		Facts:     nginxFactsSource,
+		Apps:      appsService,
+		Normalize: proxies.NormalizeOptions{PanelPort: panelPort},
+	})
+	if err != nil {
+		logger.Error("初始化代理站点服务失败，拒绝启动", "error", err)
 		return 1
 	}
 
@@ -447,7 +486,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Containers:      containersReader,
 		// 应用运行摘要（P09.4）：元数据来自库里，运行事实来自服务与容器读取端。
 		// 演示模式下两个来源都是 nil，Resolver 会给每条应用 unknown + 理由。
-		AppRuntime:     &appruntime.Resolver{Services: servicesReader, Containers: containersReader},
+		AppRuntime: &appruntime.Resolver{Services: servicesReader, Containers: containersReader},
+		// 代理站点（P10.1）：定义来自库，Nginx 现状来自代理。演示模式下后者为 nil，
+		// 读写的行为差别见 internal/api/proxies.go 的文件头说明。
+		Proxies:        proxiesService,
+		NginxFacts:     nginxFactsSource,
 		AllowedOrigins: allowedOrigins,
 	})
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"upanel/internal/audit"
 	"upanel/internal/auth"
 	"upanel/internal/operations"
+	"upanel/internal/proxies"
 	"upanel/internal/storage"
 	"upanel/internal/store"
 	"upanel/migrations"
@@ -90,6 +91,23 @@ func newTestApps(t *testing.T, db *store.DB) *apps.Service {
 	})
 	if err != nil {
 		t.Fatalf("构造应用元数据服务失败: %v", err)
+	}
+	return svc
+}
+
+// newTestProxies 构造测试用的代理站点服务。
+//
+// facts 传 nil：测试里没有代理，所以**任何写入都会明确回 503**（判不了域名冲突），
+// 这正是演示模式下的真实行为。PanelPort 用生产端口 9443，让“上游不能指向面板”
+// 这条规则在测试里也是活的——它是这套系统里最不该被绕过的一条。
+func newTestProxies(t *testing.T, db *store.DB) *proxies.Service {
+	t.Helper()
+	svc, err := proxies.New(db, proxies.Options{
+		Apps:      newTestApps(t, db),
+		Normalize: proxies.NormalizeOptions{PanelPort: 9443},
+	})
+	if err != nil {
+		t.Fatalf("构造代理站点服务失败: %v", err)
 	}
 	return svc
 }

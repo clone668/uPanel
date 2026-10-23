@@ -51,6 +51,7 @@ func newAppsFixture(t *testing.T, build func(*store.DB) *apps.Service) *adminFix
 		Audit:           aud,
 		Operations:      newTestOperations(t, db, nil),
 		Apps:            build(db),
+		Proxies:         newTestProxies(t, db),
 		AllowedOrigins:  testOrigins(),
 	})
 	if err != nil {

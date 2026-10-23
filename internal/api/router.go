@@ -158,6 +158,25 @@ func (s *Server) routes() *gin.Engine {
 		ag.PATCH("/:id", s.requireAdmin(), s.requireCSRF(), s.handleUpdateAppGroup)
 		ag.DELETE("/:id", s.requireAdmin(), s.requireCSRF(), s.handleDeleteAppGroup)
 
+		// 反向代理站点（P10.1）：整组 admin（CONTRACTS.md 第 9 节）。
+		//
+		// 这一组只登记站点定义与读取 Nginx 现状，**一个字节都不写进 /etc/nginx**：
+		// 生成配置、原子写入、nginx -t、reload 是 P10.2 的 proxy.apply 任务。
+		// 因此这里没有 apply 入口，响应里也没有任何“已生效”字段——enabled 是意图，
+		// 不是事实。
+		//
+		// /proxies/nginx 与 /proxies/conflict 是静态段，gin 的树会先匹配它们，
+		// 所以不会被当成 id=nginx 或 id=conflict 的详情。
+		px := v1.Group("/proxies", s.auditRoute(audit.ActionProxyManage))
+		px.Use(s.requireSession(), s.requireAdmin())
+		px.GET("", s.handleListProxies)
+		px.GET("/nginx", s.handleProxyNginxFacts)
+		px.GET("/conflict", s.handleProxyDomainCheck)
+		px.GET("/:id", s.handleGetProxySite)
+		px.POST("", s.requireCSRF(), s.handleCreateProxySite)
+		px.PATCH("/:id", s.requireCSRF(), s.handleUpdateProxySite)
+		px.DELETE("/:id", s.requireCSRF(), s.handleDeleteProxySite)
+
 		// 服务与进程（P05.1）：权限 V（CONTRACTS.md 第 10 节）。只读路由在这里，
 		// 启停/重启/开机启动是写操作，走统一的预检 → 任务链路（POST /operations/preflight
 		// + POST /jobs，action=service.control），不在这里开一个“直接执行”的入口。

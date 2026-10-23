@@ -1,0 +1,117 @@
+== 1. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19495 启动
+PASS  监听 19495 的 Web 进程不是 root（pid=113792 uid=999）
+PASS  数据库迁移到第 9 版（0009_proxies）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+
+== 2. Nginx 现状：真的读出来了 ==
+PASS  夹具 taken 配置就位
+PASS  sites-enabled/default 是符号链接（去重要靠解析真实路径）
+PASS  GET /proxies/nginx 状态码
+PASS  nginx 可用
+PASS  配置目录不是“不存在”
+FAIL  读到 nginx 版本: 不该等于 ''
+      版本：
+PASS  读到 nginx.service 的状态
+PASS  server_names 里有夹具域名
+PASS  同一份配置只登记一次（default 只出现一条）
+PASS  文件路径互不重复
+PASS  files 里出现过 sites-enabled/default 或 nginx.conf
+PASS  读到的文件都带 server 块结构（至少一个块）
+
+== 3. 域名冲突判断 ==
+PASS  没人占的域名 → clear
+PASS  …clear 时没有 matches
+PASS  现有配置声明的域名 → taken
+PASS  …证据指向 server_name 那一行（不是 server 块开头）
+PASS  …证据带文件与原文
+PASS  通配符 *.x 会占住子域 → taken
+PASS  …通配符的原文被如实带出
+PASS  …通配符不占住它自己的上级域（*.x 不等于 x）
+PASS  有正则 server_name 时目标域名 → unknown
+PASS  …unknown 有理由
+PASS  …同一条正则也把无关域名压成 unknown（判不了就是判不了）
+PASS  …正则在场时连无关域名也拒绝写入（409）
+PASS  …库里没有留下记录
+PASS  删掉正则后同一域名恢复 clear（正对照）
+PASS  坏文件的结论 → unknown
+PASS  …broken_files 点出这份文件
+PASS  坏文件在场时登记被拒绝（409）
+PASS  …库里没有留下记录
+PASS  删掉坏文件后同一域名 → clear（证明拦住它的确实是那份文件）
+PASS  拿到 /etc/nginx 的内容摘要
+
+== 4. 站点登记：校验、面板端口、归一化、秘密 ==
+PASS  上游端口等于面板端口 → 400
+PASS  …错误说明指向面板端口
+PASS  通配符域名被拒绝（初期不支持）
+PASS  带协议的域名被拒绝
+PASS  非法目标标识被拒绝
+PASS  cidr 模式不给网段被拒绝
+PASS  public 模式给了网段也是错误（不静默存下）
+PASS  basic_auth 模式重复用户名被拒绝
+PASS  以上全部被拒绝后库里仍是 0 条
+PASS  登记成功
+PASS  站点标识形状正确（site_3fbe5433af6798b383a341722992780d）
+PASS  域名被归一化（小写、去掉末尾的点）
+PASS  默认 max_body_bytes = 1 MiB
+PASS  默认 read_timeout_seconds = 60
+PASS  默认访问模式 public
+PASS  默认上游协议 http
+PASS  首次登记 enabled=true、version=1
+PASS  没有关联应用时 app_id 是 null
+PASS  整组接口没有返回任何“已生效”字段
+PASS  同一域名重复登记被拒绝
+PASS  …库里仍只有 1 条
+PASS  登记 basic_auth 站点
+PASS  响应里没有 secret_ref
+PASS  响应里只有用户名
+PASS  审计里没有 secret_ref
+FAIL  审计记下了 proxy.create: 期望 '1'，实际 '2'
+FAIL  审计里写明 applied=false（P10.1 不写配置）: 期望 '1'，实际 '2'
+
+== 5. 修改与删除（乐观锁、冲突只看自己） ==
+PASS  只改超时（域名不变）成功
+PASS  …版本 +1、超时已改
+PASS  过期版本被拒绝（409）
+PASS  …错误码是 VERSION_CONFLICT
+PASS  空 patch 被拒绝（400）
+FAIL  改成一个被现有配置占用的域名 → 409: 期望 '409'，实际 '200'
+PASS  conflict 带 exclude_id 时自己是 clear
+PASS  缺 version 的删除被拒绝（400）
+PASS  版本不对的删除被拒绝（409）
+FAIL  删除成功: 期望 '200'，实际 '409'
+FAIL  …删除后详情 404: 期望 '404'，实际 '200'
+
+== 6. 权限与“没有代理”时的行为 ==
+PASS  viewer 登录
+PASS  viewer 读站点列表 → 403
+PASS  viewer 读 Nginx 现状 → 403
+PASS  viewer 登记站点 → 403
+PASS  未登录读站点列表 → 401
+PASS  代理已停止（模拟代理不可用）
+PASS  没有代理时列表仍是 200
+PASS  …nginx.read_error 写明读不到
+PASS  …不把“读不到”说成“主机上没有 Nginx”
+PASS  没有代理时登记被拒绝（503）
+PASS  …错误码 AGENT_UNAVAILABLE
+PASS  …库里没有留下记录
+PASS  没有代理时冲突判断 → 503
+PASS  代理已重新启动
+PASS  代理回来后事实读取恢复
+PASS  代理回来后登记恢复（201）
+
+== 7. 面板没有动过 Nginx ==
+PASS  /etc/nginx 内容摘要前后一致
+PASS  nginx -t 仍然通过（配置没有被改坏）
+PASS  conf.d 里没有留下任何夹具
+PASS  面板自己的配置文件数为 0（P10.1 不生成 upanel-*.conf）
+
+== 汇总 ==
+通过 93，失败 6，未执行 0
+失败项： | 读到 nginx 版本 | 审计记下了 proxy.create | 审计里写明 applied=false（P10.1 不写配置） | 改成一个被现有配置占用的域名 → 409 | 删除成功 | …删除后详情 404

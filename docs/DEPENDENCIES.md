@@ -54,6 +54,12 @@ P02.1 直接 import 后按 MVS 抬到表中的 v0.58.0 / v0.49.0，x/net 与 x/t
 v0.60.0 / v0.43.0。`golang.org/x/term` 冻结表里此前没有条目，本次作为**新增直接依赖**
 登记（用途：终端无回显读密码），版本 v0.47.0 由 `go get golang.org/x/term@v0.47.0` 确定。
 
+**P10.1 起直接依赖增加到 5 个**（反向代理的域名归一）：`golang.org/x/net v0.60.0`
+由传递依赖升为**直接依赖**，只用到 `golang.org/x/net/idna`。版本没有变化——它本来就是
+Gin 图里的 v0.60.0，本次只是 `go.mod` 里去掉 `// indirect` 标记，`go.sum` 未新增条目。
+理由：域名要落成文件名与 Nginx 配置（`upanel-<domain>.conf`），必须做 IDNA 到 A-label
+的归一，这件事没有标准库实现；自己写 Punycode 属于自造密码学风险的同类错误。
+
 下表标注为已引入的模块已写入 `go.mod`，其余模块尚未引入，仍属计划。
 
 | 模块 | 冻结版本 | 上游发布时间 | 用途 |
@@ -65,6 +71,7 @@ v0.60.0 / v0.43.0。`golang.org/x/term` 冻结表里此前没有条目，本次�
 | golang.org/x/crypto | v0.58.0 | 2026-10-09 | Argon2id（`crypto/argon2` 之外不自行实现密码学） |
 | golang.org/x/sys | v0.49.0 | 2026-10-06 | `openat2` / `SO_PEERCRED` 等系统调用 |
 | golang.org/x/term | v0.47.0 | 2026-10-08 | `upanelctl init-admin` 终端无回显读密码（P02.1 新增直接依赖） |
+| golang.org/x/net | v0.60.0 | 2026-10-08 | 域名 IDNA 归一（`golang.org/x/net/idna`，P10.1 升为直接依赖） |
 | github.com/google/uuid | v1.6.0 | 2024-01-23 | UUID v4 主键 |
 
 核实方式：`GET https://proxy.golang.org/<module>/@latest` 与 `@v/<version>.mod` 读取 `go` 指令。

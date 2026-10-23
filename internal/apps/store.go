@@ -387,6 +387,25 @@ func (s *Service) Get(ctx context.Context, userID int64, id string) (App, error)
 	return app, nil
 }
 
+// AppExists 判断一条应用是否存在，供别的模块做关联校验（代理站点引用 app_id）。
+//
+// 它不区分“形状不对”和“库里没有”：两种都是“这个应用不存在”。调用方拿到的是
+// 布尔值，不是错误——形状错误不是数据库故障，当成故障报 500 只会让人去查日志。
+func (s *Service) AppExists(ctx context.Context, id string) (bool, error) {
+	if !validAppID(id) {
+		return false, nil
+	}
+	var one int
+	err := s.queryRow(ctx, `SELECT 1 FROM apps WHERE id = ?`, id).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("apps: 查询应用是否存在失败: %w", err)
+	}
+	return true, nil
+}
+
 // ListOptions 是列表参数。
 type ListOptions struct {
 	// UserID 用于填充 favorite。

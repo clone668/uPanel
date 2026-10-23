@@ -25,6 +25,7 @@ import (
 	"upanel/internal/journal"
 	"upanel/internal/logging"
 	"upanel/internal/monitoring"
+	"upanel/internal/nginx"
 	"upanel/internal/platform"
 	"upanel/internal/processes"
 	"upanel/internal/services"
@@ -488,6 +489,35 @@ func run(args []string, stdout, stderr io.Writer) int {
 		logger.Warn("容器功能不可用，相关查询与动作不会登记", "reason", notice)
 	}
 
+	// Nginx 现状（P10.1）。只读：读 nginx.conf、conf.d/*.conf、sites-enabled/*，
+	// 外加 `nginx -v` 与 nginx.service 的状态。写配置、nginx -t、reload 是 P10.2 的
+	// 任务链路，这里一个字节都不写。
+	//
+	// 可执行文件按常见位置探测：找不到只影响版本号与服务状态的展示，配置照样能读，
+	// 面板照常能判冲突——**不会**因为版本读不到就说“这台机器上没有 Nginx”。
+	nginxPath := firstExistingFile("/usr/sbin/nginx", "/usr/bin/nginx",
+		"/usr/local/sbin/nginx", "/usr/local/bin/nginx", "/snap/bin/nginx")
+	nginxOpts := nginx.Options{}
+	if nginxPath != "" {
+		nginxOpts.NginxPath = nginxPath
+		nginxOpts.Version = agent.NginxVersionProbe(nginxPath)
+	}
+	if servicesCollector != nil {
+		nginxOpts.Unit = func(ctx context.Context) (string, bool, error) {
+			unit, found, err := servicesCollector.Unit(ctx, nginx.DefaultUnitName)
+			if err != nil {
+				return "", false, err
+			}
+			return unit.ActiveState, found, nil
+		}
+	}
+	nginxCollector := nginx.New(nginxOpts)
+	logger.Info("已启用 Nginx 现状读取",
+		"config_root", nginx.DefaultConfigRoot,
+		"binary", nginxPath,
+		"unit", nginx.DefaultUnitName,
+		"scope", "只读：nginx.conf / conf.d / sites-enabled；不跟随其它 include")
+
 	// 动作登记表：生产表自 P05.1 起有 service.control，P05.2 起有 process.signal（受保护名单与读回验证见 internal/services）。
 	// 验收表只能靠显式参数启用，且动作全部以 acceptance. 开头、不读写任何系统资源。
 	registry := agent.NewRegistry()
@@ -509,6 +539,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Shares:     sharesEngine,
 		Discovery:  discoveryCollector,
 		Containers: containersClient,
+		Nginx:      nginxCollector,
 	}
 	// 只在真的有时才赋给接口：把一个 nil 的 *terminal.Manager 塞进接口会得到
 	// 一个非 nil 的接口值，登记表于是多出一个调用就 panic 的能力。
@@ -697,4 +728,20 @@ func (c filesCapacity) Capacity(ctx context.Context, mountPath, fsType string) (
 		UsedPercent:    capv.UsedPercent,
 		CollectedAt:    capv.CollectedAt,
 	}, nil
+}
+
+// firstExistingFile 返回第一个存在的普通文件路径，全都不存在时返回空串。
+//
+// 用它来探测 nginx 可执行文件的位置：发行版把它放在 /usr/sbin，自编译的常在
+// /usr/local，snap 装的在 /snap/bin。探不到不是错误——配置照样能读，
+// 只是版本号与服务状态显示为“未知”。
+func firstExistingFile(candidates ...string) string {
+	for _, path := range candidates {
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		return path
+	}
+	return ""
 }

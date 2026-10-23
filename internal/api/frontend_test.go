@@ -38,6 +38,7 @@ func newServerWithFrontend(t *testing.T, frontend http.Handler) *Server {
 		Audit:           aud,
 		Operations:      newTestOperations(t, db, nil),
 		Apps:            newTestApps(t, db),
+		Proxies:         newTestProxies(t, db),
 		AllowedOrigins:  testOrigins(),
 	})
 	if err != nil {

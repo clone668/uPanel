@@ -44,6 +44,7 @@ func systemFixture(t *testing.T, mon Monitor) (*Server, *http.Cookie) {
 		Audit:           aud,
 		Operations:      newTestOperations(t, db, nil),
 		Apps:            newTestApps(t, db),
+		Proxies:         newTestProxies(t, db),
 		AllowedOrigins:  testOrigins(),
 		Monitor:         mon,
 	})

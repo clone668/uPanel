@@ -1,0 +1,148 @@
+== 1. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  init-admin 退出码
+FAIL  Web 启动: {"time":"2026-10-22T23:40:13.392695639Z","level":"INFO","msg":"启动","program":"upanel-web","version":"0.0.0-dev","commit":"unknown","go_version":"go1.27.3","mode":"production","os":"linux","arch":"amd64","config_source":"/etc/upanel/upanel.json"}
+{"time":"2026-10-22T23:40:13.496070851Z","level":"ERROR","msg":"数据库打开失败，拒绝启动","program":"upanel-web","error":"store: 连接数据库失败 /var/tmp/upanel-accept-p10-1/webdata/upanel.db: attempt to write a readonly database (1544)","path":"/var/tmp/upanel-accept-p10-1/webdata/upanel.db"}
+FAIL  监听 19495 的 Web 进程不是 root: pid=113030 uid=未知
+PASS  数据库迁移到第 9 版（0009_proxies）
+FAIL  管理员登录: 期望 '200'，实际 '000'
+FAIL  拿到 CSRF 令牌: 不该等于 ''
+
+== 2. Nginx 现状：真的读出来了 ==
+PASS  夹具 taken 配置就位
+PASS  sites-enabled/default 是符号链接（去重要靠解析真实路径）
+cp: cannot stat '/var/tmp/upanel-accept-p10-1/resp.json': No such file or directory
+FAIL  GET /proxies/nginx 状态码: 期望 '200'，实际 '000'
+FAIL  nginx 可用: 期望 'True'，实际 ''
+FAIL  配置目录不是“不存在”: 期望 'False'，实际 ''
+FAIL  读到 nginx 版本: 不该等于 ''
+      版本：
+FAIL  读到 nginx.service 的状态: 期望 'active'，实际 ''
+FAIL  server_names 里有夹具域名: 期望 'True'，实际 ''
+FAIL  符号链接不重复计入（sites-available 不出现在 files 里）: 期望 '0'，实际 ''
+FAIL  files 里出现过 sites-enabled/default 或 nginx.conf: 期望 'True'，实际 ''
+FAIL  读到的文件都带 server 块结构（至少一个块）: 期望 'True'，实际 ''
+
+== 3. 域名冲突判断 ==
+FAIL  没人占的域名 → clear: 期望 'clear'，实际 ''
+FAIL  …clear 时没有 matches: 期望 '0'，实际 ''
+FAIL  现有配置声明的域名 → taken: 期望 'taken'，实际 ''
+Traceback (most recent call last):
+  File "<stdin>", line 2, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: '/var/tmp/upanel-accept-p10-1/conflict.json'
+FAIL  …证据指向 server_name 那一行（不是 server 块开头）: 期望 '3'，实际 ''
+Traceback (most recent call last):
+  File "<stdin>", line 2, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: '/var/tmp/upanel-accept-p10-1/conflict.json'
+FAIL  …证据带文件与原文: 期望 '/etc/nginx/conf.d/p101-taken.conf|p101-taken.example.com'，实际 ''
+FAIL  通配符 *.x 会占住子域 → taken: 期望 'taken'，实际 ''
+Traceback (most recent call last):
+  File "<stdin>", line 2, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: '/var/tmp/upanel-accept-p10-1/conflict.json'
+FAIL  …通配符的原文被如实带出: 期望 '*.p101wild.example.com'，实际 ''
+FAIL  …通配符不占住它自己的上级域（*.x 不等于 x）: 期望 'clear'，实际 ''
+FAIL  有正则 server_name 时目标域名 → unknown: 期望 'unknown'，实际 ''
+Traceback (most recent call last):
+  File "<stdin>", line 2, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: '/var/tmp/upanel-accept-p10-1/conflict.json'
+FAIL  …unknown 有理由: 期望 'True'，实际 ''
+FAIL  …同一条正则也把无关域名压成 unknown（判不了就是判不了）: 期望 'unknown'，实际 ''
+FAIL  …正则在场时连无关域名也拒绝写入（409）: 期望 '409'，实际 '000'
+PASS  …库里没有留下记录
+FAIL  删掉正则后同一域名恢复 clear（正对照）: 期望 'clear'，实际 ''
+FAIL  坏文件的结论 → unknown: 期望 'unknown'，实际 ''
+FAIL  …broken_files 点出这份文件: 期望 'True'，实际 ''
+FAIL  坏文件在场时登记被拒绝（409）: 期望 '409'，实际 '000'
+PASS  …库里没有留下记录
+FAIL  删掉坏文件后同一域名 → clear（证明拦住它的确实是那份文件）: 期望 'clear'，实际 ''
+PASS  拿到 /etc/nginx 的内容摘要
+
+== 4. 站点登记：校验、面板端口、归一化、秘密 ==
+FAIL  上游端口等于面板端口 → 400: 期望 '400'，实际 '000'
+FAIL  …错误说明指向面板端口: 期望包含 '管理面板'，实际 ''
+FAIL  通配符域名被拒绝（初期不支持）: 期望 '400'，实际 '000'
+FAIL  带协议的域名被拒绝: 期望 '400'，实际 '000'
+FAIL  非法目标标识被拒绝: 期望 '400'，实际 '000'
+FAIL  cidr 模式不给网段被拒绝: 期望 '400'，实际 '000'
+FAIL  public 模式给了网段也是错误（不静默存下）: 期望 '400'，实际 '000'
+FAIL  basic_auth 模式重复用户名被拒绝: 期望 '400'，实际 '000'
+PASS  以上全部被拒绝后库里仍是 0 条
+FAIL  登记成功: 期望 '201'，实际 '000'
+FAIL  站点标识形状正确: 
+FAIL  域名被归一化（小写、去掉末尾的点）: 期望 'p101-ok.example.com'，实际 ''
+FAIL  默认 max_body_bytes = 1 MiB: 期望 '1048576'，实际 ''
+FAIL  默认 read_timeout_seconds = 60: 期望 '60'，实际 ''
+FAIL  默认访问模式 public: 期望 'public'，实际 ''
+FAIL  默认上游协议 http: 期望 'http'，实际 ''
+FAIL  首次登记 enabled=true、version=1: 期望 'True|1'，实际 '|'
+FAIL  没有关联应用时 app_id 是 null: 期望 'None'，实际 ''
+Traceback (most recent call last):
+  File "<string>", line 2, in <module>
+  File "/usr/lib/python3.12/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+           ^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 337, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 355, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 2 column 1 (char 1)
+FAIL  整组接口没有返回任何“已生效”字段: 期望 '0'，实际 ''
+FAIL  同一域名重复登记被拒绝: 期望 '409'，实际 '000'
+FAIL  …库里仍只有 1 条: 期望 '1'，实际 '0'
+FAIL  登记 basic_auth 站点: 期望 '201'，实际 '000'
+cat: /var/tmp/upanel-accept-p10-1/payloads/site-auth.json: No such file or directory
+PASS  响应里没有 secret_ref
+Traceback (most recent call last):
+  File "<stdin>", line 2, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: '/var/tmp/upanel-accept-p10-1/payloads/site-auth.json'
+FAIL  响应里只有用户名: 期望 'ops'，实际 ''
+PASS  审计里没有 secret_ref
+FAIL  审计记下了 proxy.create: 期望 '1'，实际 '0'
+FAIL  审计里写明 applied=false（P10.1 不写配置）: 期望 '1'，实际 '0'
+
+== 5. 修改与删除（乐观锁、冲突只看自己） ==
+FAIL  只改超时（域名不变）成功: 期望 '200'，实际 '000'
+FAIL  …版本 +1、超时已改: 期望 '2|30'，实际 '|'
+FAIL  过期版本被拒绝（409）: 期望 '409'，实际 '000'
+FAIL  …错误码是 VERSION_CONFLICT: 期望 'VERSION_CONFLICT'，实际 ''
+FAIL  空 patch 被拒绝（400）: 期望 '400'，实际 '000'
+FAIL  改成一个被现有配置占用的域名 → 409: 期望 '409'，实际 '000'
+FAIL  conflict 带 exclude_id 时自己是 clear: 期望 'clear'，实际 ''
+FAIL  缺 version 的删除被拒绝（400）: 期望 '400'，实际 '000'
+FAIL  版本不对的删除被拒绝（409）: 期望 '409'，实际 '000'
+FAIL  删除成功: 期望 '200'，实际 '000'
+FAIL  …删除后详情 404: 期望 '404'，实际 '000'
+
+== 6. 权限与“没有代理”时的行为 ==
+FAIL  viewer 登录: 期望 '200'，实际 '000'
+FAIL  viewer 读站点列表 → 403: 期望 '403'，实际 '000'
+FAIL  viewer 读 Nginx 现状 → 403: 期望 '403'，实际 '000'
+FAIL  viewer 登记站点 → 403: 期望 '403'，实际 '000'
+FAIL  未登录读站点列表 → 401: 期望 '401'，实际 '000'
+PASS  代理已停止（模拟代理不可用）
+FAIL  没有代理时列表仍是 200: 期望 '200'，实际 '000'
+FAIL  …nginx.read_error 写明读不到: 期望 'agent_unavailable'，实际 ''
+FAIL  …不把“读不到”说成“主机上没有 Nginx”: 期望 'False'，实际 ''
+FAIL  没有代理时登记被拒绝（503）: 期望 '503'，实际 '000'
+FAIL  …错误码 AGENT_UNAVAILABLE: 期望 'AGENT_UNAVAILABLE'，实际 ''
+PASS  …库里没有留下记录
+FAIL  没有代理时冲突判断 → 503: 期望 '503'，实际 '000'
+PASS  代理已重新启动
+PASS  代理回来后事实读取恢复
+FAIL  代理回来后登记恢复（201）: 期望 '201'，实际 '000'
+
+== 7. 面板没有动过 Nginx ==
+PASS  /etc/nginx 内容摘要前后一致
+PASS  nginx -t 仍然通过（配置没有被改坏）
+PASS  conf.d 里没有留下任何夹具
+FAIL  面板自己的配置文件数为 0（P10.1 不生成 upanel-*.conf）: 期望 '0'，实际 ''
+
+== 汇总 ==
+通过 20，失败 78，未执行 0
+失败项： | Web 启动 | 监听 19495 的 Web 进程不是 root | 管理员登录 | 拿到 CSRF 令牌 | GET /proxies/nginx 状态码 | nginx 可用 | 配置目录不是“不存在” | 读到 nginx 版本 | 读到 nginx.service 的状态 | server_names 里有夹具域名 | 符号链接不重复计入（sites-available 不出现在 files 里） | files 里出现过 sites-enabled/default 或 nginx.conf | 读到的文件都带 server 块结构（至少一个块） | 没人占的域名 → clear | …clear 时没有 matches | 现有配置声明的域名 → taken | …证据指向 server_name 那一行（不是 server 块开头） | …证据带文件与原文 | 通配符 *.x 会占住子域 → taken | …通配符的原文被如实带出 | …通配符不占住它自己的上级域（*.x 不等于 x） | 有正则 server_name 时目标域名 → unknown | …unknown 有理由 | …同一条正则也把无关域名压成 unknown（判不了就是判不了） | …正则在场时连无关域名也拒绝写入（409） | 删掉正则后同一域名恢复 clear（正对照） | 坏文件的结论 → unknown | …broken_files 点出这份文件 | 坏文件在场时登记被拒绝（409） | 删掉坏文件后同一域名 → clear（证明拦住它的确实是那份文件） | 上游端口等于面板端口 → 400 | …错误说明指向面板端口 | 通配符域名被拒绝（初期不支持） | 带协议的域名被拒绝 | 非法目标标识被拒绝 | cidr 模式不给网段被拒绝 | public 模式给了网段也是错误（不静默存下） | basic_auth 模式重复用户名被拒绝 | 登记成功 | 站点标识形状正确 | 域名被归一化（小写、去掉末尾的点） | 默认 max_body_bytes = 1 MiB | 默认 read_timeout_seconds = 60 | 默认访问模式 public | 默认上游协议 http | 首次登记 enabled=true、version=1 | 没有关联应用时 app_id 是 null | 整组接口没有返回任何“已生效”字段 | 同一域名重复登记被拒绝 | …库里仍只有 1 条 | 登记 basic_auth 站点 | 响应里只有用户名 | 审计记下了 proxy.create | 审计里写明 applied=false（P10.1 不写配置） | 只改超时（域名不变）成功 | …版本 +1、超时已改 | 过期版本被拒绝（409） | …错误码是 VERSION_CONFLICT | 空 patch 被拒绝（400） | 改成一个被现有配置占用的域名 → 409 | conflict 带 exclude_id 时自己是 clear | 缺 version 的删除被拒绝（400） | 版本不对的删除被拒绝（409） | 删除成功 | …删除后详情 404 | viewer 登录 | viewer 读站点列表 → 403 | viewer 读 Nginx 现状 → 403 | viewer 登记站点 → 403 | 未登录读站点列表 → 401 | 没有代理时列表仍是 200 | …nginx.read_error 写明读不到 | …不把“读不到”说成“主机上没有 Nginx” | 没有代理时登记被拒绝（503） | …错误码 AGENT_UNAVAILABLE | 没有代理时冲突判断 → 503 | 代理回来后登记恢复（201） | 面板自己的配置文件数为 0（P10.1 不生成 upanel-*.conf）

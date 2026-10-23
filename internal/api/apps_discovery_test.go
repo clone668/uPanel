@@ -73,6 +73,7 @@ func newDiscoveryFixture(t *testing.T, reader DiscoveryReader) *discoveryFixture
 		Audit:           aud,
 		Operations:      newTestOperations(t, db, nil),
 		Apps:            appSvc,
+		Proxies:         newTestProxies(t, db),
 		Discovery:       reader,
 		AllowedOrigins:  testOrigins(),
 	})

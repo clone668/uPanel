@@ -156,6 +156,7 @@ func filesSession(t *testing.T, reader FilesReader) (*Server, *http.Cookie, stri
 		Audit:           aud,
 		Operations:      newTestOperations(t, db, nil),
 		Apps:            newTestApps(t, db),
+		Proxies:         newTestProxies(t, db),
 		AllowedOrigins:  testOrigins(),
 		Files:           reader,
 	})
