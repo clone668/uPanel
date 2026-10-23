@@ -1,0 +1,44 @@
+Pebble 2026/10/23 07:54:15 Starting Pebble ACME server
+Pebble 2026/10/23 07:54:15 Generated new root issuer CN=Pebble Root CA 7444a2 with serial 09bea714cb2ea195 and SKI 4bae5cec1c4e0afac31fb4db9f9b56a31fd23c6c
+Pebble 2026/10/23 07:54:15 Generated new intermediate issuer CN=Pebble Intermediate CA 2c1545 with serial 5d0c1ecf2884bf0c and SKI 85a1316fdf64912fedd7ba64896d403033a84b8c
+Pebble 2026/10/23 07:54:15 Generated issuance chain: Pebble Root CA 7444a2 -> Pebble Intermediate CA 2c1545
+Pebble 2026/10/23 07:54:15 Loaded profile "default" with certificate validity period of 7776000 seconds (promote CN=false)
+Pebble 2026/10/23 07:54:15 Using system DNS resolver for ACME challenges
+Pebble 2026/10/23 07:54:15 No CAA identities configured, using default [pebble.letsencrypt.org]
+Pebble 2026/10/23 07:54:15 Configured to reject 5% of good nonces
+Pebble 2026/10/23 07:54:15 Configured to attempt authz reuse for each identifier 50% of the time
+Pebble 2026/10/23 07:54:15 Configured to show 3 orders per page
+Pebble 2026/10/23 07:54:15 Management interface listening on: 127.0.0.1:15000
+Pebble 2026/10/23 07:54:15 Root CA certificate available at: https://127.0.0.1:15000/roots/0
+Pebble 2026/10/23 07:54:15 Listening on: 127.0.0.1:14000
+Pebble 2026/10/23 07:54:15 ACME directory available at: https://127.0.0.1:14000/dir
+Pebble 2026/10/23 07:54:15 GET /dir -> calling handler()
+Pebble 2026/10/23 07:54:15 GET /dir -> calling handler()
+Pebble 2026/10/23 07:54:15 GET /dir -> calling handler()
+Pebble 2026/10/23 07:54:16 GET /dir -> calling handler()
+Pebble 2026/10/23 07:54:25 GET /dir -> calling handler()
+Pebble 2026/10/23 07:54:25 HEAD /nonce-plz -> calling handler()
+Pebble 2026/10/23 07:54:25 POST /sign-me-up -> calling handler()
+Pebble 2026/10/23 07:54:25 There are now 1 accounts in memory
+Pebble 2026/10/23 07:54:25 POST /order-plz -> calling handler()
+Pebble 2026/10/23 07:54:25 There are now 1 authorizations in the db
+Pebble 2026/10/23 07:54:25 Added order "KyhsHgfcpL_f4KxMRMTV9m4TLF6UQPFXNGXJu3Py8-A" to the db
+Pebble 2026/10/23 07:54:25 There are now 1 orders in the db
+Pebble 2026/10/23 07:54:25 POST /authZ/ -> calling handler()
+Pebble 2026/10/23 07:54:26 POST /chalZ/ -> calling handler()
+Pebble 2026/10/23 07:54:26 Pulled a task from the Tasks queue: &va.vaTask{Identifier:acme.Identifier{Type:"dns", Value:"p104a-1023-075414.example.test"}, Challenge:(*core.Challenge)(0x1406c58aca90), Account:(*core.Account)(0x1406c588e780), AccountURL:"https://127.0.0.1:14000/my-account/388402549edf5d4", Wildcard:false}
+Pebble 2026/10/23 07:54:26 Starting 3 validations.
+Pebble 2026/10/23 07:54:26 Sleeping for 4s seconds before validating
+Pebble 2026/10/23 07:54:26 Sleeping for 1s seconds before validating
+Pebble 2026/10/23 07:54:26 Sleeping for 0s seconds before validating
+Pebble 2026/10/23 07:54:26 Attempting to validate w/ HTTP: http://p104a-1023-075414.example.test:5002/.well-known/acme-challenge/QAoJOC6LDuckHgi_2CfJGKI3dN3a-qjhilZtSCL6gvs
+Pebble 2026/10/23 07:54:27 Attempting to validate w/ HTTP: http://p104a-1023-075414.example.test:5002/.well-known/acme-challenge/QAoJOC6LDuckHgi_2CfJGKI3dN3a-qjhilZtSCL6gvs
+Pebble 2026/10/23 07:54:27 POST /authZ/ -> calling handler()
+Pebble 2026/10/23 07:54:30 Attempting to validate w/ HTTP: http://p104a-1023-075414.example.test:5002/.well-known/acme-challenge/QAoJOC6LDuckHgi_2CfJGKI3dN3a-qjhilZtSCL6gvs
+Pebble 2026/10/23 07:54:30 authz _bT7_ESEy4Tk5_2TP-mt0OY9PVN2oNJhPdEkctc_ITY set VALID by completed challenge 4MPuvPSCH29rmwTxFJN3_xrjS9t1PBG9D6BEY5yifWs
+Pebble 2026/10/23 07:54:30 POST /authZ/ -> calling handler()
+Pebble 2026/10/23 07:54:30 POST /finalize-order/ -> calling handler()
+Pebble 2026/10/23 07:54:30 Order KyhsHgfcpL_f4KxMRMTV9m4TLF6UQPFXNGXJu3Py8-A is fully authorized. Processing finalization
+Pebble 2026/10/23 07:54:30 Issued certificate serial 737210ea5204445c for order KyhsHgfcpL_f4KxMRMTV9m4TLF6UQPFXNGXJu3Py8-A
+Pebble 2026/10/23 07:54:31 POST /my-order/ -> calling handler()
+Pebble 2026/10/23 07:54:31 POST /certZ/ -> calling handler()

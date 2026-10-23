@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"上游端口不能是管理面板自己的端口 9443：那等于把一个公网入口指向面板"},"request_id":"b9d2e092a700da1f764a334ffe7f9f1f"}

@@ -126,6 +126,19 @@ openssl x509 -in /etc/upanel/tls/panel.pem -noout -fingerprint -sha256
 看到 `PROXY_TLS_SERVED_STALE` 表示 nginx 实际服务的还是旧证书，需要 reload
 （应用站点时会自动尝试一次，仍不一致就说明有别的进程或配置在抢 443）。
 
+如果任务报告里出现「**问不到 nginx.service 的状态**（连问 3 次都没有得到一个可用的答案）」，
+意思是面板**没有**替你 reload：配置已经写对，但它手上没有证据说明这份配置被加载了，所以没往
+正在跑的服务上发信号。原因通常是这台机器上的 `systemctl` 太慢（2 vCPU 虚机上实测过单次
+11.4 秒、16.5 秒），三次都在 10 秒预算内没答上来。手工收尾即可：
+
+```sh
+systemctl is-active nginx && systemctl reload nginx   # 只 reload，不 restart
+```
+
+报告里的 `observed.unit_state_error` 带着每一次探测的耗时与原因，`observed.unit_state_attempts`
+是实际问了几次。同一份报告里 `served=false`：
+这只说明「此刻没有证据」，不等于配置错了。
+
 ---
 
 ## 3. 代理不工作（`AGENT_UNAVAILABLE`）

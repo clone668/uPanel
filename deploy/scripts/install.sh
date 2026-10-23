@@ -244,6 +244,27 @@ create_account() {
     ok "$1 已存在（保留现有设置）"
     return 0
   fi
+  # “组在、账号不在”是一种真实的半截状态：userdel 只在组里没有别的成员时才顺手删组，
+  # 而 useradd --system 看到同名组已经存在会直接报
+  #   useradd: group upanel-web exists - if you want to add this user to that group, use -g
+  # 并以 9 退出——安装器宣称幂等，就不能被这个状态卡死。但**也不能默默复用这个组**：
+  # 它正是 /etc/upanel/tls（0750 root:upanel-web）与面板数据目录的属组，组里多出来的
+  # 成员可以直接读面板私钥与会话数据。所以分成两种：
+  #   - 组存在但没有任何成员（含把该组当主组的用户）→ 复用它（-g）；
+  #   - 组存在且有成员 → 停下来点名，由操作者先处理（安装器不替人清别人的组）。
+  if getent group "$1" >/dev/null 2>&1; then
+    _gid=$(getent group "$1" | cut -d: -f3)
+    _members=$(getent group "$1" | cut -d: -f4 | tr ',' ' ')
+    _primary=$(awk -F: -v gid="$_gid" '$4 == gid { printf "%s ", $1 }' /etc/passwd)
+    _all=$(printf '%s %s' "$_members" "$_primary" | tr -s ' ' | sed 's/^ //; s/ $//')
+    if [ -n "$_all" ]; then
+      die "组 $1 已经存在，并且里面有成员（${_all}）：这些成员会获得 $TLS_DIR 与 $WEB_DATA 的读权限。
+      先把它们移出（gpasswd -d <账号> $1）再重跑；安装器不动别人的组成员关系"
+    fi
+    useradd --system --home-dir "$2" --shell "$3" --no-create-home --comment "$4" -g "$1" "$1" || return 1
+    ok "创建账号 $1（复用已存在的空组 $1，home $2，shell $3）"
+    return 0
+  fi
   useradd --system --home-dir "$2" --shell "$3" --no-create-home --comment "$4" "$1" || return 1
   ok "创建账号 $1（home $2，shell $3）"
 }

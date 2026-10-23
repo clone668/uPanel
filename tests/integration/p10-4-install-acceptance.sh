@@ -43,8 +43,9 @@
 #   - **apt 安装依赖**：VM 里 nginx/certbot 已经装好，--install-deps 会 `apt-get update`，
 #     在验收机上跑它只会证明“能联网”；依赖缺失时的“列出而不安装”行为由第 3 节
 #     （缺 curl/journalctl 的容器里）另有覆盖，不在本脚本重复。
-#   - **22.04 的同一套断言**：本脚本在 24.04 上跑；22.04 用同一个包、同一份脚本，
-#     由 p10-4-core-scenario.sh 的第 0 节 + 证据目录里的 22.04 运行记录覆盖。
+#   - **22.04 与 24.04 的差异**：同一份脚本、同一个包在两支上各跑一遍，两条运行记录各自
+#     进证据目录；脚本只打印它看到的是哪一支，不假设。22.04 上是 nginx 1.18 / certbot 1.21，
+#     24.04 上是 nginx 1.24 / certbot 2.9——差异由真实运行记录覆盖，不由断言掩盖。
 #   - **代理站点、WebSocket、站点证书**：在 p10-4-core-scenario.sh 里。
 #   - **Windows / macOS 宿主**：0.1 不支持。
 
@@ -116,11 +117,16 @@ for tool in curl openssl sha256sum systemctl python3; do
     exit 2
   fi
 done
-if [ "$(sed -n 's/^VERSION_ID=//p' /etc/os-release | tr -d '"')" != "24.04" ]; then
-  printf '本脚本预期在 24.04 上运行（当前 %s）；22.04 的验收见 p10-4-core-scenario.sh 第 0 节\n' \
-    "$(sed -n 's/^VERSION_ID=//p' /etc/os-release | tr -d '"')" >&2
-  exit 2
-fi
+# 0.1 的发布门槛要求 **22.04 与 24.04 都有安装/重启/核心运维证据**（STAGES 第 12 节），
+# 所以这脚本两支都要跑，只在别的发行版上拒绝——不要用“只在 24.04 上跑过”当 22.04 的证据。
+_DISTRO_VERSION=$(sed -n 's/^VERSION_ID=//p' /etc/os-release | tr -d '"')
+case "$_DISTRO_VERSION" in
+  22.04|24.04) ;;
+  *)
+    printf '本脚本只覆盖 0.1 支持的发行版（22.04 / 24.04），当前 %s\n' "$_DISTRO_VERSION" >&2
+    exit 2
+    ;;
+esac
 
 rm -rf "$WORK"
 mkdir -p "$LOGS"

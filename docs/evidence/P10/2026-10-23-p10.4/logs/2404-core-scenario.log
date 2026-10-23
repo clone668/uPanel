@@ -1,0 +1,155 @@
+==== P10.4 核心场景（第二部分）====
+
+--- 0. 环境与起点 ---
+      发行版：ubuntu 24.04
+      内核：6.8.0-147-generic
+      nginx：nginx version: nginx/1.24.0 (Ubuntu)
+      certbot：certbot 2.9.0
+      upanel-web sha256：e4e2d49c2511e2a96fe5e5ff8f605ea6d5afb3626757ba2c9a76bc59e1a81a1f
+      upanelctl sha256：b116c1867b22af53eb8538dc584ce2726536ce7fc486435cc690355955b0feae
+      upanel-agent sha256：8e4b7cf2d906ddc7f078c243190ab4f456596d5a2842e17b9202c3b953aa50b2
+PASS  发行版在支持范围内（24.04）
+PASS  upanel-web.service 处于 active
+PASS  upanel-agent.service 处于 active
+PASS  装机用的那张面板证书在
+      面板：https://127.0.0.1:9443（端口 9443）
+PASS  用安装的证书当 CA 取 health 返回 200
+PASS  nginx 正在运行
+PASS  起点：没有面板的托管配置
+PASS  起点：nginx -t 通过
+PASS  ACME 校验目录存在
+
+--- 1. 网络与测试 ACME 夹具 ---
+PASS  测试域名解析到本机（/etc/hosts，收尾还原）
+PASS  Pebble 启动并提供 ACME 目录（全新实例）
+PASS  测试 ACME 的随机拒绝比例（5%，Pebble 的既定行为）
+      清掉 certbot 里测试 ACME（127.0.0.1:14000）的旧账号登记：账号只活在 Pebble 内存里，重启即失效
+PASS  测试 ACME 目录里没有生产地址
+PASS  …也没有 Let's Encrypt 正式环境
+PASS  取到测试 ACME 的根证书
+PASS  系统信任库接受测试 ACME 的 API 证书（certbot 因此能连上）
+PASS  certbot 的 CA 包与系统信任库是同一个文件
+PASS  校验口重定向就位（5002 → 80，收尾删除）
+PASS  改过配置之后 check-config 仍然通过
+PASS  配置里的 staging 地址指向本地测试 ACME
+curl: (7) Failed to connect to 127.0.0.1 port 9443 after 2 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 9443 after 1 ms: Couldn't connect to server
+PASS  改配置并重启之后面板恢复 200
+
+--- 2. 登录（HTTPS + Cookie + CSRF）---
+PASS  管理员口令登录返回 200
+PASS  拿到 CSRF 令牌（后续写操作要用）
+
+--- 3. 被测应用与站点（域名 → nginx → 上游）---
+PASS  上游应用已就绪（http://127.0.0.1:18091 返回 marker）
+PASS  登记站点 p104a-1023-075425.example.test
+PASS  站点标识：site_b0a1d011f96926875207c7f33a5a78f9
+PASS  站点默认带 websocket_enabled
+PASS  应用站点：预检放行
+PASS  应用站点：作业终态 succeeded
+PASS  应用站点：结果 verified
+PASS  托管配置文件已写出
+PASS  脚本自己再跑一遍 nginx -t
+PASS  托管配置里带上了 Upgrade/Connection（WebSocket 那一对）
+PASS  托管配置不监听面板端口
+      等正文用了 212ms
+PASS  域名访问到的是这个上游（marker 命中）
+PASS  …不是 nginx 的默认欢迎页
+
+--- 4. WebSocket 不断流（域名 → nginx → 上游推流）---
+PASS  WS 握手返回 101（Upgrade 穿过了 nginx）
+PASS  Sec-WebSocket-Accept 校验通过（是真的代理到上游）
+PASS  收到的推流条数
+PASS  客户端发出的文本帧被 echo 回来
+PASS  过程没有异常结束
+PASS  相邻帧间隔没有异常拉长（max=505ms，节拍 500ms）
+PASS  整段连接没被服务端提前关闭
+
+--- 5. 同域名 / 端口冲突必须拒绝 ---
+PASS  重复登记同一个域名返回 409
+PASS  冲突说明点名域名
+PASS  上游端口填成面板自己的端口返回 400
+PASS  拒绝理由点明是面板端口
+PASS  …并且给出了面板的端口号
+
+--- 6. staging 签发、绑定与 443 ---
+      签发尝试次数：1
+PASS  签发：预检放行
+PASS  签发：作业终态 succeeded
+PASS  签发：结果 verified
+PASS  证书列表里出现这条记录
+PASS  记为 staging 签发（不是正式环境）
+PASS  签发者是测试环境（Pebble）
+      证书指纹：b61ec7ef6371e6ecd06790c06e8064e36ee47e2591f1eb45f7aa889431a978ff
+PASS  把证书绑定到站点
+PASS  站点记录的证书标识
+PASS  带证书应用：作业终态 succeeded
+PASS  带证书应用：这次确实 reload 了
+PASS  带证书应用：served=true
+PASS  托管配置开始监听 443
+      等状态码 301 用了 216ms（最后拿到 301）
+PASS  绑了证书之后 80 是 301 到 https
+PASS  301 指向同一个域名的 https
+PASS  80 上的 ACME 校验位置排在 301 之前（行 13 < 21）
+      等正文用了 843ms
+PASS  443 用系统信任链取到 marker（不给 -k）
+PASS  443 上服务的证书指纹与账本记录一致
+PASS  wss 握手返回 101
+PASS  wss 收到的推流条数
+PASS  wss 的 echo 回来
+PASS  wss 过程没有异常结束
+PASS  wss 走的是 TLS 1.2 及以上
+PASS  wss 对端证书指纹与账本一致
+PASS  upanel-web 读不到站点私钥（certbot 目录 0700 root）
+PASS  upanel-web 读得到托管配置（nginx 自己需要读）
+PASS  托管配置里没有私钥内容
+PASS  配置里给 nginx 的私钥路径就是账本里的那条
+PASS  配置里写的私钥路径面板账号读不到（/etc/letsencrypt/live/p104a-1023-075425.example.test/privkey.pem）
+PASS  证书详情响应里没有私钥内容
+PASS  证书详情响应里没有私钥路径
+PASS  面板库里搜不到私钥内容
+PASS  面板日志里搜不到私钥内容
+
+--- 7. 错误 Nginx 配置：不破坏已有站点，面板照常登录 ---
+PASS  夹具（不认识的指令）确实让 nginx -t 失败
+PASS  nginx 配置坏着的时候面板 health 仍然 200
+PASS  …而且仍然能登录
+      登录成功即证明：管理端不经过 nginx，配置写坏的最坏结果是站点不可用、面板照常
+PASS  坏配置在场时应用失败（不是 succeeded）
+PASS  失败理由点明是 nginx -t
+PASS  …并且带回了 nginx 自己说的话
+PASS  托管文件逐字节回到旧内容（回滚生效）
+PASS  worker 没有换（失败时绝不 reload）
+      等正文用了 1249ms
+PASS  旧站点仍在用旧配置提供服务
+PASS  删掉坏文件后 nginx -t 恢复
+PASS  恢复之后同一条记录再应用成功
+PASS  恢复之后 nginx -t 仍然通过
+      等正文用了 795ms
+PASS  恢复之后站点照常服务
+
+--- 8. 重启两个单元之后核心场景仍然成立 ---
+curl: (7) Failed to connect to 127.0.0.1 port 9443 after 1 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 9443 after 1 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 9443 after 4 ms: Couldn't connect to server
+PASS  重启后面板 health 200
+PASS  重启后代理 socket 就位
+PASS  重启后可以用口令登录
+      等正文用了 916ms
+PASS  重启后 HTTP 站点仍然服务
+      等正文用了 1154ms
+PASS  重启后 443 仍然服务
+PASS  重启后 wss 仍然 12 条不断流
+
+--- 9. 收尾 ---
+PASS  收尾：站点按 enabled=false → apply → DELETE 移除
+PASS  移除之后托管配置不在了
+PASS  移除之后站点记录也查不到了
+PASS  删除托管配置之后 nginx -t 通过
+PASS  nginx 在收尾之后仍然 active
+PASS  收尾后面板仍然 200（站点删除不影响管理端）
+
+==== P10.4 核心场景（第二部分）汇总 ====
+PASS=105 FAIL=0 NOT RUN=0
+日志：/var/tmp/upanel-accept-p10-4-core/logs
+      已还原 /etc/upanel/upanel.json 并重启两个单元

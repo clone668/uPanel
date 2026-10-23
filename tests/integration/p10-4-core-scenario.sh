@@ -29,7 +29,8 @@
 #
 # 环境变量：PASSWORD（默认装机器时那个口令）、WORK（默认 /var/tmp/upanel-accept-p10-4-core）、
 # WS_PORT（默认 18091）、PEBBLE_BIN（默认 /usr/local/bin/pebble）、
-# PEBBLE_CONFIG（默认 /opt/p103/pebble/config.json）、CERT_MODE（pebble|skip，默认 pebble）。
+# PEBBLE_CONFIG（默认 /opt/p103/pebble/config.json）、CERT_MODE（pebble|skip，默认 pebble）、
+# RUN_TAG（默认当前时间；决定测试域名 p104a-<RUN_TAG>.example.test 与幂等键前缀）。
 #
 # 退出码：0 全部通过；1 有失败项；2 环境不满足。
 #
@@ -39,8 +40,10 @@
 #     （原文件备份 → 还原 → restart）；
 #   - 系统信任库临时加 Pebble 的 API 证书与根证书（删掉并 update-ca-certificates）；
 #   - iptables nat 把 Pebble 的校验口 5002 引到 80（删掉那条规则）；
-#   - /etc/nginx/conf.d/upanel-*.conf、/etc/ssl/upanel、/etc/letsencrypt/live/p104*
+#   - /etc/nginx/conf.d/upanel-*.conf、/etc/ssl/upanel、/etc/letsencrypt/live/p104a-*
 #     下的验收产物（删掉）；
+#   - certbot 里**测试 ACME** 的账号登记目录（/etc/letsencrypt/accounts/<测试 host:port>/，
+#     起一个全新的 Pebble 时先删掉，好让 certbot 重新注册；真实 Let's Encrypt 的账号不碰）；
 #   - 起/停 Pebble 与测试上游。
 #
 # 明确不覆盖（NOT RUN，原因写在这里，不假装通过）：
@@ -84,6 +87,7 @@ LIVE_DIR=/etc/letsencrypt/live
 ACME_WEBROOT=/var/www/upanel-acme
 ACME_API_URL=https://127.0.0.1:14000/dir
 ACME_API_CERT=/opt/p103/pebble/certs/cert.pem
+ACME_API_KEY=/opt/p103/pebble/certs/key.pem
 ACME_ROOT_URL=https://127.0.0.1:15000/roots/0
 CA_TRUST_DIR=/usr/local/share/ca-certificates
 CA_API_FILE=$CA_TRUST_DIR/p104-acme-api.crt
@@ -91,7 +95,14 @@ CA_ROOT_FILE=$CA_TRUST_DIR/p104-acme-root.crt
 FIX_BROKEN=$NGINX_CONF_D/p104-broken.conf
 FIX_INVALID=$NGINX_CONF_D/p104-invalid.conf
 
-DOM_A=p104a.example.test
+# 每轮一个**唯一**的测试域名与幂等键。两个理由都是产品行为，不该为了跑第二遍去改产品：
+#   · ACME 对同一个域名一小时内只允许一次签发（失败的尝试也算一次），共用域名会让一小时
+#     内的第二次执行在“签发”那一步收到 429 RESOURCE_BUSY；
+#   · Idempotency-Key 绑定请求体：同一个键配另一份 request body 就是 409
+#     IDEMPOTENCY_CONFLICT —— 换成新站点 id 之后旧的 `p104-apply-a` 键必然撞车。
+# 所以每轮换域名、换幂等键（RUN_TAG 可以外部指定以复现某一轮）。
+RUN_TAG=${RUN_TAG:-$(date +%m%d-%H%M%S)}
+DOM_A=${DOM_A:-p104a-$RUN_TAG.example.test}
 WS_TICKS=12
 MARKER=p104-upstream-marker
 
@@ -174,16 +185,80 @@ managed_conf() { ls "$NGINX_CONF_D"/upanel-*.conf 2>/dev/null | sort | tr '\n' '
 nginx_workers() { pgrep -f 'nginx: worker process' 2>/dev/null | sort | tr '\n' ' '; }
 nginx_t_ok() { nginx -t >/dev/null 2>&1 && printf 'ok' || printf 'fail'; }
 
+# site_body：取站点正文。
+# §6 之后站点绑了证书，80 上只剩 ACME 校验位置和一个 301 到 https（见
+# internal/proxies/render.go 的 writeHTTPToHTTPSBlock），所以取正文一律跟跳转：
+# 既验证“旧配置里那条跳转还在”，也真的把 443 上的正文取回来。
+site_body() { curl -sSL --max-time 20 -H "Host: $DOM_A" http://127.0.0.1/ 2>/dev/null; }
+site_body_tls() { curl -sS --max-time 20 "https://$DOM_A/" 2>/dev/null; }
+
+# wait_body <期望文本> <超时秒> <取正文的命令>……：轮询到正文里出现期望文本为止。
+# 为什么不能用一个瞬时请求判“域名访问到的是这个上游”：nginx 的优雅 reload 有一个很短的
+# 窗口，reload 命令返回之后旧 worker 仍可能应答一两个**新**连接。22.04 / nginx 1.18 上实测：
+# 单次 reload 之后 6—111ms 内新配置开始应答（5 次取样），而连续 reload 时 20 次里有 7 次
+# 抓到旧配置。产品侧没有假装“reload 返回＝已经生效”（`verified` 的含义是落盘+读回+reload
+# 完成，见 internal/proxies/applyrun.go），验收侧也就不该把 10 毫秒的窗口当成功能坏了。
+# 这里等到出现为止，并把等了多少毫秒打出来——等得久就是信号，不是噪声。
+wait_body() {
+  _want=$1; _secs=$2; shift 2
+  _t0=$(date +%s%N)
+  _deadline=$(( $(date +%s) + _secs ))
+  _body=""
+  while :; do
+    _body=$("$@")
+    case "$_body" in *"$_want"*) break ;; esac
+    [ "$(date +%s)" -lt "$_deadline" ] || break
+    sleep 0.1
+  done
+  # 走 stderr：这两个函数的结果是**标准输出上的正文/状态码**，调用方常写成 $(…)。
+  # 把提示打进 stdout 就会被一起捕获，`expect_eq` 于是拿“提示 + 结果”去比“结果”（第一次改就踩了）。
+  note "等正文用了 $(( ($(date +%s%N) - _t0) / 1000000 ))ms" >&2
+  printf '%s' "$_body"
+}
+
+# wait_code <期望状态码> <秒> <curl 参数...>：等状态码**收敛**，再断言。
+# 用在“reload 之后应该变成什么状态”这类断言上：它断言的是“N 秒内收敛”，不是“这一刻已经是”。
+# 收敛不了照样红，并把最后拿到的码写进 note —— 不是把断言放松成“随便”。
+wait_code() {
+  _want=$1; _secs=$2; shift 2
+  _t0=$(date +%s%N)
+  _deadline=$(( $(date +%s) + _secs ))
+  _code=""
+  while :; do
+    _code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$@" 2>/dev/null)
+    [ "$_code" = "$_want" ] && break
+    [ "$(date +%s)" -lt "$_deadline" ] || break
+    sleep 0.1
+  done
+  note "等状态码 $_want 用了 $(( ($(date +%s%N) - _t0) / 1000000 ))ms（最后拿到 ${_code:-空}）" >&2
+  printf '%s' "$_code"
+}
+
 # panel <curl 参数...>：所有面板请求都带上安装的那张证书（不加 -k）。
 panel() { curl -sS --cacert "$PANEL_CERT" --max-time 20 "$@"; }
 
 login() {
   _jar=$1; _pw=$2
-  panel -c "$_jar" -o "$WORK/login.json" -w '%{http_code}' -X POST "$BASE/api/v1/auth/login" \
+  _code=$(panel -c "$_jar" -o "$WORK/login.json" -w '%{http_code}' -X POST "$BASE/api/v1/auth/login" \
     -H 'Content-Type: application/json' -H "Origin: $ORIGIN" -H 'X-UPanel-Request: 1' \
-    -d "{\"username\":\"admin\",\"password\":\"$_pw\"}"
+    -d "{\"username\":\"admin\",\"password\":\"$_pw\"}")
+  # CSRF 令牌跟会话绑定，每次登录换一枚。脚本中途会再登录一次（第 8 节“重启后还能用
+  # 口令登录”），那一步之后第 2 节拿到的令牌就属于旧会话了 —— 收尾的 PATCH 会回
+  # 403 CSRF_FAILED。那不是产品缺陷，是脚本举着一枚过期令牌去写。
+  # 令牌落在文件里而不是变量里：`$(login ...)` 是**子 shell**，里面赋值传不出来
+  # （第一次这样修，收尾照样 403），所以每次写操作都从文件里现读。
+  # 文件按 cookie jar 分：第 7 节会用另一个 jar 再登录一次（验证“配置坏着也能登录”），
+  # 那次登录换的是**另一个会话**的令牌，不能拿它盖掉主会话的令牌 —— 否则接下来用主 jar
+  # 发的预检全部 403 CSRF_FAILED（第二次这样修踩的坑）。
+  if [ "$_code" = '200' ]; then
+    _fresh=$(csrf_of)
+    case "$_fresh" in ''|ERR:*|None) ;; *) CSRF=$_fresh; printf '%s' "$_fresh" >"$(csrf_file "$_jar")" ;; esac
+  fi
+  printf '%s' "$_code"
 }
 csrf_of() { jget "$WORK/login.json" 'd["data"]["csrf_token"]'; }
+csrf_file() { printf '%s/csrf-%s.txt' "$WORK" "$(basename "$1")"; }
+csrf_now() { cat "$(csrf_file "$JAR")" 2>/dev/null; }
 
 # api <方法> <路径> [body]：响应体落在 $WORK/resp.json，回显状态码。
 api() {
@@ -191,11 +266,11 @@ api() {
   if [ -n "$_body" ]; then
     printf '%s' "$_body" >"$WORK/req.json"
     panel -b "$JAR" -o "$WORK/resp.json" -w '%{http_code}' -X "$_method" "$BASE$_path" \
-      -H 'Content-Type: application/json' -H "Origin: $ORIGIN" -H "X-CSRF-Token: $CSRF" \
+      -H 'Content-Type: application/json' -H "Origin: $ORIGIN" -H "X-CSRF-Token: $(csrf_now)" \
       -d @"$WORK/req.json"
   else
     panel -b "$JAR" -o "$WORK/resp.json" -w '%{http_code}' -X "$_method" "$BASE$_path" \
-      -H "Origin: $ORIGIN" -H "X-CSRF-Token: $CSRF"
+      -H "Origin: $ORIGIN" -H "X-CSRF-Token: $(csrf_now)"
   fi
 }
 
@@ -208,7 +283,7 @@ preflight() {
     printf '{"action":"%s","params":%s}' "$1" "$2" >"$WORK/pre.json"
     _out=$(panel -b "$JAR" -o "$WORK/resp.json" -w '%{http_code} %{time_total}' \
       -X POST "$BASE$PREFLIGHT_PATH" \
-      -H 'Content-Type: application/json' -H "Origin: $ORIGIN" -H "X-CSRF-Token: $CSRF" \
+      -H 'Content-Type: application/json' -H "Origin: $ORIGIN" -H "X-CSRF-Token: $(csrf_now)" \
       -d @"$WORK/pre.json")
     PRE_CODE=${_out%% *}
     PRE_TIME=${_out#* }
@@ -237,11 +312,21 @@ joutcome() { jobget 'd["data"]["result"]["outcome"]'; }
 jerrmsg() { jobget '(d["data"].get("error") or {}).get("message") or ""'; }
 jobdata() { jobget "d[\"data\"][\"result\"][\"data\"].get(\"$1\")"; }
 
+# issue_badnonce <作业开始时刻>：这一次签发失败是不是测试 ACME 的**随机 nonce 拒绝**。
+#
+# 判据只能取自代理的 journal：作业接口对这种失败只回“动作执行失败”（错误码 COMMAND_FAILED），
+# 真正的 ACME 原因写在 agent 日志里 —— 那正是 P10.3 修 certbot 错误透传时补的链路，
+# 它进日志、不进 API（这一点记在结果文件里，是产品的一个已知粗糙面，不是本轮要改的）。
+# 只搜“本次尝试开始之后”的日志，避免拿上一轮的旧记录触发重试。
+issue_badnonce() {
+  journalctl -u upanel-agent --since "$1" --no-pager 2>/dev/null | grep -q 'anti-replay nonce'
+}
+
 submit_job() {
   python3 -c 'import json,sys
 print(json.dumps({"preflight_id": sys.argv[1]}))' "$1" >"$WORK/jobreq.json"
   panel -b "$JAR" -o "$WORK/resp.json" -w '%{http_code}' -X POST "$BASE$JOBS" \
-    -H 'Content-Type: application/json' -H "Origin: $ORIGIN" -H "X-CSRF-Token: $CSRF" \
+    -H 'Content-Type: application/json' -H "Origin: $ORIGIN" -H "X-CSRF-Token: $(csrf_now)" \
     -H "Idempotency-Key: $2" -d @"$WORK/jobreq.json"
   cp "$WORK/resp.json" "$WORK/submit.json"
 }
@@ -278,7 +363,7 @@ run_action() {
     : >"$WORK/job.json"
     return 0
   fi
-  _jc=$(submit_job "$_pid" "p104-$3")
+  _jc=$(submit_job "$_pid" "$RUN_TAG-$3")
   cp "$WORK/submit.json" "$PAYLOADS/submit-$3.json"
   if [ "$_jc" = "202" ]; then
     JOB_ID=$(jget "$WORK/submit.json" 'd["data"]["job_id"]')
@@ -295,6 +380,41 @@ run_action() {
 # site_get <路径>：GET 一个站点，响应存 $WORK/site.json。
 site_get() { api GET "$PROXIES/$1" >/dev/null; cp "$WORK/resp.json" "$WORK/site.json"; }
 sget() { jget "$WORK/site.json" "d[\"data\"]$1"; }
+
+# remove_site <id> <幂等键后缀>：按**文档写的顺序**移除一个站点。
+#   ① PATCH enabled=false → proxy.apply 一次：这一步把托管配置从 /etc/nginx/conf.d 移除；
+#   ② 再 DELETE 记录（?version= 用第 ② 步之后的版本）。
+# 顺序不能反。记录删了而文件还在，就留下一份没有任何界面能解释、却仍在生效并代理流量的
+# server 块，所以服务端对这种删除回 409（P10.2 的孤儿配置门禁）。
+# 早先收尾是 "DELETE 然后 rm -f 配置文件"：DELETE 被 409 挡住没人看，rm 又把证据删了，
+# 结果记录留在库里，下一轮在“登记站点”那一步 409 —— 一次假失败掩盖一次真失败。
+# 返回 0/1，失败原因打在 note 里，由调用方决定算 FAIL 还是只是提示。
+remove_site() {
+  _rid=$1; _rsuf=$2
+  site_get "$_rid"
+  _rver=$(sget '["version"]')
+  case "$_rver" in ''|*ERR*|None) note "读不到站点 $_rid 的 version，没有移除"; return 1 ;; esac
+  if [ "$(sget '["enabled"]')" != 'False' ]; then
+    _rc=$(api PATCH "$PROXIES/$_rid" "{\"version\":$_rver,\"enabled\":false}")
+    if [ "$_rc" != '200' ]; then
+      note "置 enabled=false 失败：HTTP $_rc $(head -c 200 "$WORK/resp.json")"
+      return 1
+    fi
+    site_get "$_rid"
+    _rver=$(sget '["version"]')
+  fi
+  run_action proxy.apply "{\"site_id\":\"$_rid\"}" "$_rsuf"
+  case "$JOB_STATE" in
+    succeeded) ;;
+    *) note "移除托管配置的 apply 终态 $JOB_STATE：$(jerrmsg)"; return 1 ;;
+  esac
+  _rc=$(api DELETE "$PROXIES/$_rid?version=$_rver")
+  if [ "$_rc" != '200' ]; then
+    note "删除记录失败：HTTP $_rc $(head -c 200 "$WORK/resp.json")"
+    return 1
+  fi
+  return 0
+}
 
 # ws_run <名字> <url> [--ca 文件]：跑一次 WebSocket 透传，报告存 $WEBS/<名字>.json。
 ws_run() {
@@ -336,6 +456,7 @@ cleanup() {
   fi
   rm -f "$NGINX_CONF_D"/upanel-*.conf 2>/dev/null
   rm -rf "$NGINX_AUTH_D" 2>/dev/null
+  rm -rf "$LIVE_DIR"/p104a-* 2>/dev/null
   nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1
   return 0
 }
@@ -350,7 +471,7 @@ fi
 for f in "$CTL" "$WS_UPSTREAM" "$WS_CLIENT"; do
   if [ ! -e "$f" ]; then printf '缺少 %s\n' "$f" >&2; exit 2; fi
 done
-for tool in curl openssl python3 nginx systemctl iptables; do
+for tool in curl openssl python3 nginx systemctl iptables journalctl; do
   if ! command -v "$tool" >/dev/null 2>&1; then printf '缺少依赖：%s\n' "$tool" >&2; exit 2; fi
 done
 if [ ! -s "$SYS_CFG" ]; then
@@ -424,22 +545,72 @@ else
 fi
 
 if [ "$CERT_MODE" = "pebble" ] && [ -x "$PEBBLE_BIN" ] && [ -f "$PEBBLE_CONFIG" ]; then
+  # Pebble 的管理/ACME 接口本身走 TLS，那对证书**必须事先存在**：Pebble 会自己生成
+  # CA 链，但不会给自己生成 API 证书，缺了就直接退出：
+  #   Calling ListenAndServeTLS() for admin interface: open .../certs/cert.pem: no such file or directory
+  # 这是夹具的前置条件，不是产品行为——所以脚本自己补（与 24.04 上那份同形：自签、
+  # CN=localhost、SAN 含 127.0.0.1），缺了就在这里生成并说明。
+  if [ ! -s "$ACME_API_CERT" ] || [ ! -s "$ACME_API_KEY" ]; then
+    mkdir -p "$(dirname "$ACME_API_CERT")"
+    openssl req -x509 -newkey rsa:2048 -nodes \
+      -keyout "$ACME_API_KEY" -out "$ACME_API_CERT" \
+      -days 825 -subj /CN=localhost -addext subjectAltName=DNS:localhost,IP:127.0.0.1 \
+      >/dev/null 2>&1 \
+      && note "生成的测试 ACME 接口证书：$ACME_API_CERT（夹具前置条件，不是产品行为）"
+  fi
+  # 夹具必须**确定**：不沿用上一轮留下的 Pebble。
+  #
+  # 一开始这里是“已经在跑就直接用”，真机上因此红过一次：Pebble 把账号和 anti-replay
+  # nonce 都放在内存里，certbot 却把账号 URL 缓存在 /etc/letsencrypt/accounts/<host:port>/。
+  # 沿用一个不是本脚本起的实例，两边的状态就可能对不上——抓到过
+  #   JWS has an invalid anti-replay nonce: -r8ZYUQifyJKd7XYG4oAiQ
+  # （代理那边只报“certbot 退出码 1”，原因在 /var/log/letsencrypt/letsencrypt.log 里）。
+  # 而且“是不是我起的”这种状态会让两轮验收走不同的分支，这不是夹具该有的不确定性。
+  # 所以：有在跑的先停掉，一律起一个全新的，再清掉只属于测试 ACME 的账号登记。
   if curl -fsS --cacert "$ACME_API_CERT" "$ACME_API_URL" >/dev/null 2>&1; then
-    pass "测试 ACME（Pebble）已在运行"
-  else
-    nohup "$PEBBLE_BIN" -config "$PEBBLE_CONFIG" >"$PEBBLE_LOG" 2>&1 &
-    PEBBLE_PID=$!
-    PEBBLE_STARTED=1
-    _ok=0
-    for _ in $(seq 1 60); do
-      if curl -fsS --cacert "$ACME_API_CERT" "$ACME_API_URL" >/dev/null 2>&1; then _ok=1; break; fi
-      sleep 0.5
+    note "上一轮留下的测试 ACME 还在跑：停掉它，改为起一个全新的实例（夹具确定性）"
+    # 按进程名精确匹配（`-x pebble`）而不是只按路径：24.04 上抓到过上一轮是
+    # `pebble -config /opt/p103/pebble/config.json`（走 PATH 起的），
+    # `/usr/local/bin/pebble` 这个模式匹配不到它的 argv，pkill 于是“成功返回、什么都没杀”。
+    pkill -x pebble 2>/dev/null
+    pkill -f "$PEBBLE_BIN" 2>/dev/null
+    for _ in $(seq 1 40); do
+      curl -fsS --cacert "$ACME_API_CERT" "$ACME_API_URL" >/dev/null 2>&1 || break
+      sleep 0.25
     done
-    if [ "$_ok" = "1" ]; then
-      pass "Pebble 启动并提供 ACME 目录"
-    else
-      fail "Pebble 启动" "$(tail -n 5 "$PEBBLE_LOG" 2>/dev/null | tr '\n' ' ')"
+    if curl -fsS --cacert "$ACME_API_CERT" "$ACME_API_URL" >/dev/null 2>&1; then
+      fail "停掉上一轮的测试 ACME" "10 秒后 $ACME_API_URL 仍在响应：另一份 pebble 进程没被 pkill 带走（$(pgrep -a -f 'pebble -config' | tr '\n' ' ')）"
     fi
+  fi
+  # 这个 Pebble 会**随机拒绝 5% 的合法 nonce**（启动日志原话：
+  # 「Configured to reject 5% of good nonces」），本意是逼实现方把重试写对。
+  # 试过在派生配置里写 `"nonceErrPercent": 0` 把它关掉：**无效**——这一版把 0 当成“没配”，
+  # 实测日志仍是 5%（2026-10-23 在 24.04 上验过）。所以不在夹具里硬掰，
+  # 改为在第 6 节把“坏运气”与“产品坏”分开：只对 badNonce 重试，且每次记账。
+  nohup "$PEBBLE_BIN" -config "$PEBBLE_CONFIG" >"$PEBBLE_LOG" 2>&1 &
+  PEBBLE_PID=$!
+  PEBBLE_STARTED=1
+  _ok=0
+  for _ in $(seq 1 60); do
+    if curl -fsS --cacert "$ACME_API_CERT" "$ACME_API_URL" >/dev/null 2>&1; then _ok=1; break; fi
+    sleep 0.5
+  done
+  if [ "$_ok" = "1" ]; then
+    pass "Pebble 启动并提供 ACME 目录（全新实例）"
+  else
+    fail "Pebble 启动" "$(tail -n 5 "$PEBBLE_LOG" 2>/dev/null | tr '\n' ' ')"
+  fi
+  # 断言的是“这一次的随机拒绝比例就是 5%”：看 Pebble 自己打的配置行，不看我们传的参数。
+  # 它提醒读日志的人：偶发一次 badNonce 是夹具的既定随机性，不是产品缺陷（第 6 节据此重试）。
+  expect_contains "测试 ACME 的随机拒绝比例（5%，Pebble 的既定行为）" 'reject 5% of good nonces' \
+    "$(head -n 20 "$PEBBLE_LOG" 2>/dev/null | tr '\n' ' ')"
+  # 新实例的内存里没有任何账号，certbot 手里的旧登记必然失效，清掉让它在本次实例上重新注册。
+  # 只删这个测试目录那一层；机器上真实 Let's Encrypt 的账号一个字都不动。
+  _cb_host=${ACME_API_URL#https://}
+  _cb_host=${_cb_host%%/*}
+  if [ -d "/etc/letsencrypt/accounts/$_cb_host" ]; then
+    rm -rf "/etc/letsencrypt/accounts/$_cb_host"
+    note "清掉 certbot 里测试 ACME（$_cb_host）的旧账号登记：账号只活在 Pebble 内存里，重启即失效"
   fi
   expect_contains "测试 ACME 目录里没有生产地址" '127.0.0.1:14000' \
     "$(curl -fsS --cacert "$ACME_API_CERT" "$ACME_API_URL" 2>/dev/null | tr -d '\n')"
@@ -544,6 +715,21 @@ else
 fi
 
 SITE_BODY="{\"domain\":\"$DOM_A\",\"upstream_target_id\":\"local_$WS_PORT\",\"upstream_port\":$WS_PORT,\"websocket_enabled\":true}"
+
+# 起点：同名记录只可能是同一轮（同一个 RUN_TAG）中断留下的。按文档路径清掉，
+# 而不是绕过那道 409——否则“重复登记 409”这条断言会被自己的残留触发，看起来像产品缺陷。
+# 清掉之后重新登记，断言的仍然是“第一次登记”。
+EXISTING_ID=$(api GET "$PROXIES?domain=$DOM_A" >/dev/null; \
+  jget "$WORK/resp.json" 'd["data"]["items"][0]["id"] if d["data"]["items"] else ""')
+if [ -n "$EXISTING_ID" ] && [ "${EXISTING_ID#ERR:}" = "$EXISTING_ID" ]; then
+  note "发现上一轮留下的站点记录 $EXISTING_ID（上一轮中断在收尾之前），按文档路径移除"
+  if remove_site "$EXISTING_ID" cleanup-leftover; then
+    note "残留记录已按 enabled=false → apply → DELETE 移除"
+  else
+    fail "清掉上一轮的残留站点" "移除失败，见上面的 note"
+  fi
+fi
+
 SITE_CODE=$(api POST "$PROXIES" "$SITE_BODY")
 cp "$WORK/resp.json" "$PAYLOADS/site-create.json"
 expect_eq "登记站点 $DOM_A" '201' "$SITE_CODE"
@@ -562,7 +748,7 @@ expect_eq "脚本自己再跑一遍 nginx -t" 'ok' "$(nginx_t_ok)"
 expect_contains "托管配置里带上了 Upgrade/Connection（WebSocket 那一对）" 'Upgrade' "$(cat "$CONF_A" 2>/dev/null)"
 expect_not_contains "托管配置不监听面板端口" "listen $PANEL_PORT" "$(cat "$CONF_A" 2>/dev/null)"
 
-HTTP_BODY=$(curl -sS --max-time 10 -H "Host: $DOM_A" http://127.0.0.1/ 2>/dev/null)
+HTTP_BODY=$(wait_body "$MARKER" 15 site_body)
 expect_contains "域名访问到的是这个上游（marker 命中）" "$MARKER" "$HTTP_BODY"
 expect_not_contains "…不是 nginx 的默认欢迎页" 'Welcome to nginx' "$HTTP_BODY"
 
@@ -611,8 +797,33 @@ if [ "$CERT_MODE" != "pebble" ]; then
 elif [ "$CONFIG_PATCHED" != "1" ]; then
   notrun "staging 签发与 443" "测试 ACME 没起来（见第 1 节）"
 else
-  run_action certificate.issue \
-    "{\"domain\":\"$DOM_A\",\"email\":\"ops@example.test\",\"staging\":true}" issue-a
+  # 签发这一步要把**外部 CA 的随机失败**和产品缺陷分开。
+  #   · Pebble 故意随机拒绝 5% 的**合法** nonce（它自己启动日志里就写着
+  #     「Configured to reject 5% of good nonces」；这一版不接受把比例设成 0，
+  #     写进去也按默认 5% 处理，实测日志仍是 5%）；
+  #   · certbot 2.9 的 acme 在取证书那条路径（`poll_finalization` → `_post_as_get`）上**不重试**，
+  #     一次随机拒绝就把整个签发打成 failed（24.04 上抓到过，ACME 回 badNonce）。
+  # 这是外部 CA 的既定行为，不是产品的问题：产品把 CA 的拒绝如实报出来是对的。
+  # 所以脚本重试，但**只对 badNonce 重试**，最多 3 次，每次都记账并把失败那份作业另存；
+  # 其它任何错误（比如真的签发不下来）不重试，照样红。
+  # 幂等键每次不同：同一个键配同一份请求体会被服务端当成重放，拿回来的还是那份失败的作业。
+  ISSUE_TRY=0
+  while :; do
+    ISSUE_TRY=$((ISSUE_TRY + 1))
+    _suffix=issue-a
+    [ "$ISSUE_TRY" -gt 1 ] && _suffix="issue-a-try$ISSUE_TRY"
+    _JSTART=$(date '+%Y-%m-%d %H:%M:%S')
+    run_action certificate.issue \
+      "{\"domain\":\"$DOM_A\",\"email\":\"ops@example.test\",\"staging\":true}" "$_suffix"
+    [ "$JOB_STATE" = "succeeded" ] && break
+    if [ "$ISSUE_TRY" -lt 3 ] && issue_badnonce "$_JSTART"; then
+      cp "$PAYLOADS/job-$_suffix.json" "$PAYLOADS/job-$_suffix-failed.json" 2>/dev/null
+      note "第 $ISSUE_TRY 次签发被测试 ACME 的随机 nonce 拒绝（badNonce，Pebble 的既定行为）：重试" >&2
+      continue
+    fi
+    break
+  done
+  note "签发尝试次数：$ISSUE_TRY"
   expect_eq "签发：预检放行" 'True' "$PRE_ALLOWED"
   expect_eq "签发：作业终态 succeeded" 'succeeded' "$JOB_STATE"
   expect_eq "签发：结果 verified" 'verified' "$(joutcome)"
@@ -637,9 +848,36 @@ else
 
   run_action proxy.apply "{\"site_id\":\"$SITE_A\"}" apply-a-tls
   expect_eq "带证书应用：作业终态 succeeded" 'succeeded' "$JOB_STATE"
+  # 这次应用**必须真的 reload 过**：配置写对了但没人 reload，等于没生效。
+  # 以前这两个字段没人看，于是一次“单元状态读不到 → 跳过 reload”的缺陷要等到
+  # 443 拒绝连接、wss 失败、重启后失败一连串红才暴露（DECISIONS Q309）。
+  # 断言放在最靠近根因的地方：这条红会直接点名 reload，而不是让人从 16 条下游里倒推。
+  expect_eq "带证书应用：这次确实 reload 了" 'done' "$(jobdata reload)"
+  expect_eq "带证书应用：served=true" 'True' "$(jobdata served)"
   expect_contains "托管配置开始监听 443" 'listen 443' "$(cat "$CONF_A" 2>/dev/null)"
+  # 绑了证书之后 80 的行为必须被固定下来：只留 ACME 校验位置，其余 301 到 https。
+  # 后面第 7、8 节的“站点仍然服务”都按这个行为取正文（site_body 跟跳转）。
+  #
+  # 这一条**必须等收敛**，不能只问一次：`nginx -s reload` 返回 0 只说明新配置被接受并派给
+  # master，新 worker 接管连接是之后的事（交班窗口 P10.4 实测 6—111ms，Q308）。reload 之后
+  # 立刻问一次 301，问到的可能是还没交班的旧 worker —— 那是夹具的时间差，不是产品没生效。
+  # 22.04 上真机上红过一次：443、wss、重启后全部通过，只有这一条拿回了旧配置的 200。
+  expect_eq "绑了证书之后 80 是 301 到 https" '301' \
+    "$(wait_code 301 10 -H "Host: $DOM_A" http://127.0.0.1/)"
+  expect_contains "301 指向同一个域名的 https" "https://$DOM_A" \
+    "$(curl -sSI --max-time 10 -H "Host: $DOM_A" http://127.0.0.1/ 2>/dev/null | tr -d '\r')"
+  # http-01 续期走的是 http://<域名>/.well-known/acme-challenge/…：如果 301 排在
+  # 校验位置前面，续期那一刻就被跳到 https，而 https 上还是旧证书 —— 死锁。
+  # 所以这里比的是行号，不是“文件里有没有这个词”。
+  ACME_LINE=$(grep -n 'acme-challenge' "$CONF_A" 2>/dev/null | head -1 | cut -d: -f1)
+  REDIR_LINE=$(grep -n 'return 301' "$CONF_A" 2>/dev/null | head -1 | cut -d: -f1)
+  if [ -n "$ACME_LINE" ] && [ -n "$REDIR_LINE" ] && [ "$ACME_LINE" -lt "$REDIR_LINE" ]; then
+    pass "80 上的 ACME 校验位置排在 301 之前（行 $ACME_LINE < $REDIR_LINE）"
+  else
+    fail "80 上的 ACME 校验位置排在 301 之前" "acme=$ACME_LINE redirect=$REDIR_LINE"
+  fi
 
-  HTTPS_BODY=$(curl -sS --max-time 10 "https://$DOM_A/" 2>/dev/null)
+  HTTPS_BODY=$(wait_body "$MARKER" 15 site_body_tls)
   expect_contains "443 用系统信任链取到 marker（不给 -k）" "$MARKER" "$HTTPS_BODY"
 
   SERVED_FP=$(echo | openssl s_client -connect "$DOM_A:443" -servername "$DOM_A" 2>/dev/null \
@@ -647,7 +885,14 @@ else
   expect_eq "443 上服务的证书指纹与账本记录一致" \
     "$(printf '%s' "$CERT_FP" | tr 'A-F' 'a-f')" "$SERVED_FP"
 
-  WS_TLS=$(ws_run ws-tls "wss://$DOM_A/ws")
+  # wss 的 TLS 用**显式给的根**（Pebble 的根），不吃系统信任库：
+  #   22.04 这台机器上 `ssl.create_default_context()` 一个信任锚都没有（实测
+  #   `len(get_ca_certs())==0`；`load_verify_locations(capath="/etc/ssl/certs")` 也是 0，
+  #   而 24.04 上同一个调用是 120）—— 那是这台镜像的 OpenSSL/capath 行为，不是产品的问题。
+  #   “系统信任链可用”这一条已经由上面那条 curl 断言证明（curl 用同一个 bundle，能验通）；
+  #   WebSocket 这一段要证明的是**穿过 nginx 的推流不断**，所以把根明确交给客户端，
+  #   而不是让 TLS 结论取决于哪台机器的 python 怎么读 ca 目录。
+  WS_TLS=$(ws_run ws-tls "wss://$DOM_A/ws" --ca "$WORK/acme-root.pem")
   expect_eq "wss 握手返回 101" '101' "$(jget "$WS_TLS" 'd["status"]')"
   expect_eq "wss 收到的推流条数" "$WS_TICKS" "$(jget "$WS_TLS" 'd["ticks_seen"]')"
   expect_eq "wss 的 echo 回来" 'echo:p104-ping' "$(jget "$WS_TLS" 'd["echo"]')"
@@ -668,7 +913,20 @@ else
   else
     fail "upanel-web 读得到托管配置" '读不到'
   fi
-  expect_not_contains "托管配置里没有私钥路径" 'privkey' "$(cat "$CONF_A" 2>/dev/null)"
+  # 托管配置里**必然**有私钥路径：那是 nginx 的 ssl_certificate_key，不是泄漏。
+  # 早先这里断言“配置里不出现 privkey”，等于要求 nginx 不加载私钥 —— 判据本身错了。
+  # 该断言的是两件真事：① 配置里没有私钥内容（材料级泄漏）；② 配置里写的那个路径
+  # 面板账号读不到（只有 root 与 nginx master 能读）。
+  expect_not_contains "托管配置里没有私钥内容" 'PRIVATE KEY' "$(cat "$CONF_A" 2>/dev/null)"
+  CONF_KEYPATH=$(awk '/^[[:space:]]*ssl_certificate_key[[:space:]]/{print $2; exit}' \
+    "$CONF_A" 2>/dev/null | tr -d ';')
+  expect_eq "配置里给 nginx 的私钥路径就是账本里的那条" \
+    "$LIVE_DIR/$DOM_A/privkey.pem" "$CONF_KEYPATH"
+  if [ -n "$CONF_KEYPATH" ] && runuser -u "$WEB_USER" -- test -r "$CONF_KEYPATH"; then
+    fail "配置里写的私钥路径面板账号读不到" "竟然可读：$CONF_KEYPATH"
+  else
+    pass "配置里写的私钥路径面板账号读不到（$CONF_KEYPATH）"
+  fi
   DETAIL=$PAYLOADS/cert-detail.json
   panel -b "$JAR" -o "$DETAIL" "$BASE$CERT_PATH/$CERT_ID"
   expect_not_contains "证书详情响应里没有私钥内容" 'PRIVATE KEY' "$(cat "$DETAIL" 2>/dev/null)"
@@ -734,7 +992,7 @@ else
 fi
 expect_eq "托管文件逐字节回到旧内容（回滚生效）" "$HASH_GOOD" "$(file_hash "$CONF_A")"
 expect_eq "worker 没有换（失败时绝不 reload）" "$WORKERS_GOOD" "$(nginx_workers)"
-HTTP_STILL=$(curl -sS --max-time 10 -H "Host: $DOM_A" http://127.0.0.1/ 2>/dev/null)
+HTTP_STILL=$(wait_body "$MARKER" 15 site_body)
 expect_contains "旧站点仍在用旧配置提供服务" "$MARKER" "$HTTP_STILL"
 
 rm -f "$FIX_INVALID"
@@ -753,8 +1011,7 @@ case "$JOB_STATE" in
     ;;
 esac
 expect_eq "恢复之后 nginx -t 仍然通过" 'ok' "$(nginx_t_ok)"
-expect_contains "恢复之后站点照常服务" "$MARKER" \
-  "$(curl -sS --max-time 10 -H "Host: $DOM_A" http://127.0.0.1/ 2>/dev/null)"
+expect_contains "恢复之后站点照常服务" "$MARKER" "$(wait_body "$MARKER" 15 site_body)"
 
 # ---------------------------------------------------------------- 8. 重启
 printf '\n--- 8. 重启两个单元之后核心场景仍然成立 ---\n'
@@ -767,12 +1024,10 @@ done
 expect_eq "重启后面板 health 200" '1' "$_ok"
 expect_eq "重启后代理 socket 就位" 'yes' "$([ -S /run/upanel/agent.sock ] && echo yes || echo no)"
 expect_eq "重启后可以用口令登录" '200' "$(login "$JAR" "$PASSWORD")"
-expect_contains "重启后 HTTP 站点仍然服务" "$MARKER" \
-  "$(curl -sS --max-time 10 -H "Host: $DOM_A" http://127.0.0.1/ 2>/dev/null)"
+expect_contains "重启后 HTTP 站点仍然服务" "$MARKER" "$(wait_body "$MARKER" 15 site_body)"
 if [ -f "$NGINX_CONF_D/upanel-$DOM_A.conf" ] && grep -q 'listen 443' "$NGINX_CONF_D/upanel-$DOM_A.conf"; then
-  expect_contains "重启后 443 仍然服务" "$MARKER" \
-    "$(curl -sS --max-time 10 "https://$DOM_A/" 2>/dev/null)"
-  WS_AFTER=$(ws_run ws-after-restart "wss://$DOM_A/ws")
+  expect_contains "重启后 443 仍然服务" "$MARKER" "$(wait_body "$MARKER" 15 site_body_tls)"
+  WS_AFTER=$(ws_run ws-after-restart "wss://$DOM_A/ws" --ca "$WORK/acme-root.pem")
   expect_eq "重启后 wss 仍然 12 条不断流" "$WS_TICKS" "$(jget "$WS_AFTER" 'd["ticks_seen"]')"
 else
   notrun "重启后 443 / wss" "该站点没有绑定证书（第 6 节未执行）"
@@ -781,8 +1036,16 @@ fi
 # ---------------------------------------------------------------- 9. 收尾（显式，便于证据阅读）
 printf '\n--- 9. 收尾 ---\n'
 if [ -n "${SITE_A:-}" ]; then
-  api DELETE "$PROXIES/$SITE_A" >/dev/null 2>&1
+  if remove_site "$SITE_A" teardown; then
+    pass "收尾：站点按 enabled=false → apply → DELETE 移除"
+  else
+    fail "收尾：站点按文档路径移除" "见上面的 note（残留会被下一轮的起点清理接住）"
+  fi
+  expect_eq "移除之后托管配置不在了" 'no' "$([ -f "$CONF_A" ] && echo yes || echo no)"
+  expect_eq "移除之后站点记录也查不到了" '404' "$(api GET "$PROXIES/$SITE_A")"
 fi
+# 兜底：前面几节的夹具文件（p104-broken.conf / p104-invalid.conf）各节自己删，这里只清
+# 可能残留的托管配置。上面两条断言已经证明正常的移除路径把文件删掉了，这条 rm 不遮任何东西。
 rm -f "$NGINX_CONF_D"/upanel-*.conf
 rm -rf "$NGINX_AUTH_D"
 expect_eq "删除托管配置之后 nginx -t 通过" 'ok' "$(nginx_t_ok)"

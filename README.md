@@ -2,7 +2,10 @@
 
 uPanel 是面向单台 Ubuntu 服务器的 Web 管理面板，覆盖系统、磁盘、共享和 Web 应用管理。
 
-本目录当前处于 **P00、P01、P02 已通过、P03.4 已通过、P04.1 已通过** 的状态：Go 侧已有最小可运行骨架
+本目录当前处于 **P00—P10 全部通过（0.1 就绪，P10.4 为安装包与核心场景验收）** 的状态。下面的段落按阶段记录
+“现在能做什么”，是历史顺序，不是使用说明——要装机器请看 [docs/INSTALL.md](docs/INSTALL.md)，要访问面板与
+恢复口令请看 [docs/ACCESS.md](docs/ACCESS.md) 与 [docs/RECOVERY.md](docs/RECOVERY.md)：
+Go 侧已有最小可运行骨架
 ——两个服务入口（`upanel-web` 非 root / `upanel-agent` root 仅 Unix socket）加一个 CLI
 （`upanelctl`），带严格 JSON 配置、结构化日志、版本信息、`/api/v1/health/live` 与代理
 `capabilities`，Linux 与 mock 实现分离；持久层已有 SQLite（WAL / foreign_keys / busy_timeout

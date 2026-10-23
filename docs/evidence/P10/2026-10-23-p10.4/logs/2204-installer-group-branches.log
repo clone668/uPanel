@@ -1,0 +1,23 @@
+==== 安装器「组在、账号不在」两支 ====
+
+--- B. 组存在、里面有别的成员（不应该静默复用）---
+PASS  前置：账号 upanel-web 已删除（组有意保留）
+PASS  前置：组 upanel-web 还在，成员里有 p104probe
+PASS  组里有其他成员时安装器拒绝继续（退出码 2）
+PASS  拒绝理由点名了组里的那个成员
+PASS  拒绝理由给出了可执行的一行修复命令
+PASS  拒绝之后没有偷偷建账号（安装器不动别人的组成员关系）
+
+--- A. 组存在且为空（应该复用组、补建账号）---
+PASS  前置：组 upanel-web 存在且没有成员
+PASS  空组状态下安装器装完了（退出码 0）
+PASS  安装器说明了它复用的是已存在的空组
+PASS  账号 upanel-web 被补建出来
+PASS  补建的账号把 upanel-web 当主组（gid 997）
+PASS  upanel-web.service 起来并 active
+PASS  upanel-agent.service 起来并 active
+PASS  面板 HTTPS health 200（用安装的那张证书，不加 -k）
+PASS  补建账号之后管理员仍然能登录（数据库与权限没被换掉 uid 弄坏）
+
+==== 汇总 ====
+PASS=15 FAIL=0

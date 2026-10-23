@@ -154,6 +154,16 @@ if [ "$PURGE_ACCOUNTS" = "1" ]; then
     if id -u "$u" >/dev/null 2>&1; then
       userdel "$u" >/dev/null 2>&1 && echo "      删除账号 $u" || echo "      删除账号 $u 失败"
     fi
+    # 账号删了组常常还在：userdel 只在组里没有其他成员时才顺手删组。留着空组不会立刻
+    # 出问题，但下一次安装就会遇到“组在、账号不在”，旧版安装器在那里直接失败（22.04 上
+    # 抓到）。所以这里再试一次；删不掉（还有别的成员）就如实说明，不动别人的组。
+    if getent group "$u" >/dev/null 2>&1; then
+      if groupdel "$u" >/dev/null 2>&1; then
+        echo "      删除组 $u"
+      else
+        echo "      保留组 $u（里面还有其他成员，不是这台机器上本产品独占的组）"
+      fi
+    fi
   done
   [ -d "$SHELL_HOME" ] && rm -rf -- "$SHELL_HOME" && echo "      删除 $SHELL_HOME"
   [ -d "$WEB_DATA" ] && rm -rf -- "$WEB_DATA" && echo "      删除 $WEB_DATA"

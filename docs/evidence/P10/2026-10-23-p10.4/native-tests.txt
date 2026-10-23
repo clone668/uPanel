@@ -1,0 +1,35 @@
+P10.4 宿主侧检查（Windows 开发机，Go 1.27.3 windows/amd64，node v22.23.3）
+记录时间：2026-10-23（**收尾重跑**：P10.4 的全部修复与验收脚本改动都已进工作树之后又跑了一遍，
+下面的数字是这一次的输出，不是更早那一轮的）
+命令与结果都是真实执行；未执行的项目明确标 NOT RUN。
+
+1) gofmt（对 git 跟踪的全部 .go 文件）
+   $ gofmt -l $(git ls-files '*.go')
+   → 无输出（包内格式全部合规）
+
+2) go vet
+   $ go vet ./...
+   → 退出码 0，无诊断
+
+3) go test（-count=1，不走缓存）
+   $ go test ./... -count=1
+   → 36 个包 ok，0 个失败，3 个包 "no test files"（upanel/migrations、
+     upanel/migrations/agentdb，以及 webui 的静态资源包）
+   本轮新增/相关的用例：
+     internal/proxies  TestApplyUnitProbeRetriesBeforeGivingUp   PASS
+     internal/proxies  TestApplyUnitStateUnknownDoesNotClaimInactive PASS
+     internal/proxies  TestApplyUnitInactiveSkipsReload          PASS
+     internal/certificates  TestRunCertbotReportsStderrOnExitFailure PASS
+     internal/certificates  TestRunCertbotFailsLoudlyWhenReasonMissing PASS
+   完整输出见同目录 native-tests-raw.txt（本条文件是摘要）
+
+4) scripts/check.sh（前端 + Go 全套）
+   $ PATH=<node v22.23.3>:$PATH sh scripts/check.sh
+   → PASS 10 / FAIL 0 / SKIP 0（前端 production 预览构建与前端单测）
+   → PASS 13 / FAIL 0 / NOT RUN 0（Go 格式/vet/单测/嵌入资源等 13 项）
+   完整输出见同目录 check.txt
+
+5) 未执行（NOT RUN）
+   - macOS / Windows 上运行 agent 与 web：产品目标是 Linux，宿主只做交叉编译与单测。
+   - 真实公网 ACME（Let's Encrypt 正式环境）：验收一律走 staging/Pebble（CONTRACTS §10）。
+   - 分区、格式化、网络断连：按约束只在独立测试虚机里做，且不属于 P10 范围。

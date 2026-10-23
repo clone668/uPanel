@@ -206,11 +206,14 @@ def main():
         send_at = time.monotonic()
         last_text_at = None
         echo_deadline = time.monotonic() + args.timeout
-        frame_deadline = time.monotonic() + args.idle
 
         while True:
+            # idle 判的是“多久没有新帧就算断流”，不是“整段会话最多读这么久”。
+            # 必须在每读完一帧之后把 deadline 续到 now+idle：写成一个固定的绝对
+            # deadline 时，12 条 × 0.5s 的推流会在第 8 条之前被自己的 deadline 掐住，
+            # 报告成 ticks_seen=7 / error=timeout —— 把“节拍正常”误判成“断流”。
             try:
-                opcode, payload, _fin = read_frame(b, frame_deadline)
+                opcode, payload, _fin = read_frame(b, time.monotonic() + args.idle)
             except (TimeoutError, EOFError) as exc:
                 report["error"] = None if report["ticks_seen"] >= args.ticks else "%s" % exc
                 break

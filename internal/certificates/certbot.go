@@ -97,17 +97,37 @@ func (o *Ops) runCertbot(ctx context.Context, p IssueParams, force bool) (string
 			return certPath, keyPath, result,
 				fmt.Errorf("certbot 超过 %s 没有结束，且盘上没有证书", certbotTimeout)
 		}
+		// 非零退出是 syscmd 的 error（*ExitError），但 Result 里带着 certbot 自己的
+		// 输出——那才是运维能行动的原因（账号不存在、HTTP-01 打不通、限额）。
+		// 只报"以退出状态 1 结束"，面板上就是一个查不下去的失败：真机上遇到的正是
+		// 这种情形（测试 ACME 重启后账号没了，certbot 说 accountDoesNotExist，
+		// 而界面只显示“以退出状态 1 结束”）。
+		var exitErr *syscmd.ExitError
+		if errors.As(err, &exitErr) {
+			return certPath, keyPath, result,
+				fmt.Errorf("certbot 退出码 %d：%s", exitErr.ExitCode, certbotReason(result))
+		}
 		return certPath, keyPath, result, fmt.Errorf("跑 certbot 失败：%w", err)
 	}
 	if result.ExitCode != 0 {
-		reason := tail(result.Stderr, 600)
-		if reason == "" {
-			reason = tail(result.Stdout, 600)
-		}
 		return certPath, keyPath, result,
-			fmt.Errorf("certbot 退出码 %d：%s", result.ExitCode, reason)
+			fmt.Errorf("certbot 退出码 %d：%s", result.ExitCode, certbotReason(result))
 	}
 	return certPath, keyPath, result, nil
+}
+
+// certbotReason 取一段能读的失败原因：stderr 优先，空则 stdout，截至 600 字节；
+// 两个都空时明说去哪儿看，而不是留一个空白的"退出码 1"。
+// certbot 的 stderr 里没有私钥（私钥从头到尾没到它手里），只有域名、ACME 错误码与服务端 detail。
+func certbotReason(result syscmd.Result) string {
+	reason := tail(result.Stderr, 600)
+	if reason == "" {
+		reason = tail(result.Stdout, 600)
+	}
+	if reason == "" {
+		return "certbot 没有输出任何原因（certbot 的完整日志在 /var/log/letsencrypt/）"
+	}
+	return reason
 }
 
 // probeHTTP01 在本机的校验目录里放一个随机文件，再从外部按 URL 取回它。

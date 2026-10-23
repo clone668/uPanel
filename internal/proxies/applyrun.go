@@ -460,8 +460,14 @@ func (a *Applier) ExecuteApply(ctx context.Context, req WriteRequest) (WriteRepo
 	}
 
 	// ---- 6. reload ----
-	unit := a.unitState(ctx)
+	unit, unitAttempts, unitErr := a.unitState(ctx)
 	observed["unit_state"] = unit
+	observed["unit_state_attempts"] = unitAttempts
+	if unitErr != nil {
+		// 把“读不到”的原因留在报告里：它是下一次排障唯一的入口，
+		// 而“读不到”与“没在跑”是两件事，不能只留一个空串。
+		observed["unit_state_error"] = unitErr.Error()
+	}
 	reloadState := ReloadSkippedInactive
 	if unit == "active" || unit == "reloading" {
 		if !changedSomething && !certRotated {
@@ -501,9 +507,16 @@ func (a *Applier) ExecuteApply(ctx context.Context, req WriteRequest) (WriteRepo
 			}
 		}
 	} else if unit == "" {
+		hint := "问不到 nginx.service 的状态（连问 " + strconv.Itoa(unitProbeAttempts) +
+			" 次都没有得到一个可用的答案）：配置已经写对，但**这次没有 reload**，" +
+			"此刻手上没有任何证据说明这份配置被加载了。" +
+			"请人工确认服务状态后 `systemctl reload nginx`"
+		if unitErr != nil {
+			hint += "；最后一次的原因：" + unitErr.Error()
+		}
 		notes = append(notes, Blocker{
 			Code:    CodeUnitInactive,
-			Message: "读不到 nginx.service 的状态：配置已写入，但无法确认服务是否重载",
+			Message: hint,
 		})
 	} else {
 		notes = append(notes, Blocker{
@@ -797,25 +810,51 @@ func (a *Applier) nginxReload(ctx context.Context) (string, error) {
 	return ReloadDone, nil
 }
 
-// unitState 问一次 nginx.service 的 ActiveState。
+// unitState 问 nginx.service 的 ActiveState，问不到时重试几次。
 //
-// 返回空串表示读不到（不是“没在跑”）。判据与 internal/shares 一致：看打印出来的
-// 值，不看退出码——`is-active` 对未激活的 unit 以退出码 3 结束，那是一个正常答案。
-func (a *Applier) unitState(ctx context.Context) string {
-	res, err := a.opts.Runner.Run(ctx, syscmd.Spec{
-		Program: storage.DefaultSystemctlPath,
-		Args:    []string{"is-active", nginx.DefaultUnitName},
-	}, syscmd.Limits{Timeout: unitProbeTimeout})
-	var exitErr *syscmd.ExitError
-	if err != nil && !errors.As(err, &exitErr) {
-		return ""
+// 返回 (状态值, 实际问了几次, err)。拿到状态值时 err 为 nil；连问 unitProbeAttempts
+// 次都没得到一个可用答案是 ("", n, err)，err 里带着每次的耗时与原因。
+// 实际次数要报出去：重试有没有被用上，是事后判断“这台机器的 systemd 有多慢”的唯一线索。
+//
+// 空串**不等于**“没在跑”。P10.4 真机上抓到的缺陷就是这一步：单次 `systemctl is-active
+// nginx` 在 2 vCPU 虚机上耗时 11.4 秒（systemd 在排队），超过一次探测的 10 秒预算，
+// 于是“读不到”落到“没激活”那条分支——配置写进去了、reload 一步没做、报告写
+// skipped_service_inactive。80 口还是旧的 HTTP 块，443 根本没开。
+// 读不到是测量问题，先用重试解决测量问题；重试完仍然读不到，才按“读不到”如实报告。
+//
+// 判据与 internal/shares 一致：看打印出来的值，不看退出码——`is-active` 对未激活的
+// unit 以退出码 3 结束，那是一个正常答案。
+func (a *Applier) unitState(ctx context.Context) (string, int, error) {
+	var lastErr error
+	for attempt := 1; attempt <= unitProbeAttempts; attempt++ {
+		start := time.Now()
+		res, err := a.opts.Runner.Run(ctx, syscmd.Spec{
+			Program: storage.DefaultSystemctlPath,
+			Args:    []string{"is-active", nginx.DefaultUnitName},
+		}, syscmd.Limits{Timeout: unitProbeTimeout})
+		took := time.Since(start).Round(time.Millisecond)
+		var exitErr *syscmd.ExitError
+		if err != nil && !errors.As(err, &exitErr) {
+			lastErr = fmt.Errorf("第 %d 次 systemctl is-active %s 失败（耗时 %s）：%w",
+				attempt, nginx.DefaultUnitName, took, err)
+		} else {
+			value := strings.TrimSpace(strings.Split(res.Stdout, "\n")[0])
+			switch value {
+			case "active", "reloading", "inactive", "failed", "activating", "deactivating", "unknown":
+				return value, attempt, nil
+			}
+			lastErr = fmt.Errorf("第 %d 次 systemctl is-active %s 回了一个无法识别的答案 %q（耗时 %s）",
+				attempt, nginx.DefaultUnitName, value, took)
+		}
+		if attempt < unitProbeAttempts {
+			select {
+			case <-ctx.Done():
+				return "", attempt, ctx.Err()
+			case <-time.After(unitProbeBackoff):
+			}
+		}
 	}
-	value := strings.TrimSpace(strings.Split(res.Stdout, "\n")[0])
-	switch value {
-	case "active", "reloading", "inactive", "failed", "activating", "deactivating", "unknown":
-		return value
-	}
-	return ""
+	return "", unitProbeAttempts, lastErr
 }
 
 // readbackResult 是写完之后从主机读回来的核对结论。

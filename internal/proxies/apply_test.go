@@ -24,6 +24,7 @@ import (
 	"os"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -373,7 +374,10 @@ type fakeRunner struct {
 	testCalls  int
 	reloadExit int
 	unitOut    string
-	runErr     error
+	// unitFlaky 让前 N 次 systemctl is-active 以“执行失败”结束：真机上 systemd 排队
+	// 时探测会超时/报错，那正是“读不到状态”的来源。
+	unitFlaky int
+	runErr    error
 	// afterReload 在 reload 成功之后调用一次：模拟"Nginx 换了新一代 worker，
 	// 从此读的是新证书"——证书轮换用例要靠它把"reload 之前/之后"分开。
 	afterReload func()
@@ -387,6 +391,10 @@ func (r *fakeRunner) Run(_ context.Context, spec syscmd.Spec, _ syscmd.Limits) (
 	}
 	switch {
 	case spec.Program == storage.DefaultSystemctlPath:
+		if r.unitFlaky > 0 {
+			r.unitFlaky--
+			return syscmd.Result{Program: spec.Program}, fmt.Errorf("signal: killed（模拟 systemctl 超过预算）")
+		}
 		out := r.unitOut
 		if out == "" {
 			out = "active"
@@ -1086,6 +1094,72 @@ func TestApplyUnitInactiveSkipsReload(t *testing.T) {
 	}
 	if !strings.Contains(report.RecoveryHint, "inactive") {
 		t.Errorf("报告里应当说明服务状态：%q", report.RecoveryHint)
+	}
+}
+
+// TestApplyUnitProbeRetriesBeforeGivingUp 一次探测失败不等于服务没在跑。
+//
+// P10.4 真机缺陷：`systemctl is-active nginx` 偶尔耗时 11.4 秒（超过一次探测的 10 秒
+// 预算），于是“读不到”被当成“没激活”，配置写下去却没 reload。读不到是测量问题，
+// 先用重试解决测量问题——第一次失败、第二次答 active，就必须照常 reload。
+func TestApplyUnitProbeRetriesBeforeGivingUp(t *testing.T) {
+	f := newApplyFixture(t)
+	f.runner.unitFlaky = 1
+
+	report, err := f.execute(applyParamsOf(applyDefinition(applyDomain), 1))
+	if err != nil {
+		t.Fatalf("执行失败: %v", err)
+	}
+	if got := report.Data["reload"]; got != ReloadDone {
+		t.Errorf("reload = %v，期望 %s（一次探测失败不该跳过 reload）", got, ReloadDone)
+	}
+	if got := report.Data["served"]; got != true {
+		t.Errorf("served = %v，期望 true", got)
+	}
+	if report.Outcome != OutcomeVerified {
+		t.Errorf("outcome = %q，期望 verified", report.Outcome)
+	}
+	if got := report.Observed["unit_state_attempts"]; got != 2 {
+		t.Errorf("unit_state_attempts = %v，期望 2（第一次失败、第二次答 active）", got)
+	}
+	if _, present := report.Observed["unit_state_error"]; present {
+		t.Error("重试成功了，不该留下 unit_state_error")
+	}
+}
+
+// TestApplyUnitStateUnknownDoesNotClaimInactive 连问几次都读不到：不许说“服务没在跑”。
+func TestApplyUnitStateUnknownDoesNotClaimInactive(t *testing.T) {
+	f := newApplyFixture(t)
+	f.runner.unitFlaky = unitProbeAttempts
+
+	report, err := f.execute(applyParamsOf(applyDefinition(applyDomain), 1))
+	if err != nil {
+		t.Fatalf("执行失败: %v", err)
+	}
+	if got := report.Data["served"]; got != false {
+		t.Errorf("served = %v，期望 false（没有任何证据说明配置被加载了）", got)
+	}
+	if report.Outcome != OutcomeAccepted {
+		t.Errorf("outcome = %q，期望 accepted", report.Outcome)
+	}
+	if got := f.runner.count(DefaultNginxPath + " -s reload"); got != 0 {
+		t.Errorf("reload 调用 %d 次，期望 0（状态读不到时不猜）", got)
+	}
+	if got := report.Observed["unit_state"]; got != "" {
+		t.Errorf("unit_state = %v，期望空串（读不到）", got)
+	}
+	if got := report.Observed["unit_state_attempts"]; got != unitProbeAttempts {
+		t.Errorf("unit_state_attempts = %v，期望 %d（把重试预算用满）", got, unitProbeAttempts)
+	}
+	if _, present := report.Observed["unit_state_error"]; !present {
+		t.Error("读不到状态时必须在报告里留下原因")
+	}
+	if !strings.Contains(report.RecoveryHint, "问不到") ||
+		!strings.Contains(report.RecoveryHint, strconv.Itoa(unitProbeAttempts)) {
+		t.Errorf("报告要说清“问了几次都没问到”：%q", report.RecoveryHint)
+	}
+	if !strings.Contains(report.RecoveryHint, "systemctl reload nginx") {
+		t.Errorf("报告要给出下一步动作：%q", report.RecoveryHint)
 	}
 }
 

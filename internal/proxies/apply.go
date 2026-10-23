@@ -57,6 +57,14 @@ const (
 	reloadTimeout   = 20 * time.Second
 	// unitProbeTimeout 是一次 systemctl is-active 的预算。
 	unitProbeTimeout = 10 * time.Second
+	// unitProbeAttempts / unitProbeBackoff 是“问不到状态”时的重试预算。
+	//
+	// 真机上量到过单次 `systemctl is-active nginx` 耗时 11.4 秒（2 vCPU 虚机，
+	// systemd 在排队），而一次探测的预算是 10 秒——于是“读不到”被当成“没激活”，
+	// 配置写下去却不 reload，报告还写着 skipped_service_inactive。
+	// 读不到是**测量问题**，先用重试解决测量问题；重试完还读不到才是真读不到。
+	unitProbeAttempts = 3
+	unitProbeBackoff  = 300 * time.Millisecond
 
 	// OutcomeVerified / OutcomeAccepted 与 internal/agent 的结果闭集一致。
 	OutcomeVerified = "verified"
