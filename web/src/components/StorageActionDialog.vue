@@ -26,6 +26,7 @@ import {
   preflightRemainingSeconds,
   requiresConfirmation,
   submitJob,
+  submitTimeoutFor,
   type PreflightData,
 } from '@/api/preflights'
 import { useSessionStore } from '@/stores/session'
@@ -58,6 +59,15 @@ const emit = defineEmits<{ 'update:show': [boolean]; finished: [JobStatus] }>()
 
 const JOB_POLL_MS = 1000
 const JOB_POLL_LIMIT = 120
+// 软件包动作是分钟级的：24.04 上装 cowsay+sl 实测 6 分半（下载慢），代理给 apt 的写超时
+// 是 20 分钟。轮询 2 分钟就收手，等于每次装包都弹一句"120 秒内没有到达终态"；
+// 那不是错误，只是因为等待窗口比动作本身短。
+const PACKAGE_JOB_POLL_LIMIT = 1260
+
+/** 这个动作要轮询多久才放弃：按动作分档，不按"一般情况"分档。 */
+function jobPollLimitFor(action: string): number {
+  return action.startsWith('package.') ? PACKAGE_JOB_POLL_LIMIT : JOB_POLL_LIMIT
+}
 
 const session = useSessionStore()
 
@@ -161,6 +171,9 @@ async function submit(): Promise<void> {
       preflightId: current.preflight_id,
       ...(phrase.value === '' ? {} : { confirmationPhrase: phrase.value }),
       idempotencyKey: idempotencyKey.value,
+      // 包类动作提交时服务端还要再跑一次模拟复核（实测 38.7 秒），用默认的
+      // 20 秒会在前端掐断一个其实已经建好的任务。
+      timeoutMs: submitTimeoutFor(props.action),
     })
     jobStatus.value = 'queued'
     phase.value = 'tracking'
@@ -180,7 +193,8 @@ async function submit(): Promise<void> {
 }
 
 async function track(jobId: string): Promise<void> {
-  for (let attempt = 0; attempt < JOB_POLL_LIMIT; attempt += 1) {
+  const limit = jobPollLimitFor(props.action)
+  for (let attempt = 0; attempt < limit; attempt += 1) {
     if (disposed) return
     try {
       const result = await fetchJobStatus(jobId)
@@ -204,7 +218,7 @@ async function track(jobId: string): Promise<void> {
     }
     await new Promise((resolve) => setTimeout(resolve, JOB_POLL_MS))
   }
-  actionError.value = `任务在 ${(JOB_POLL_LIMIT * JOB_POLL_MS) / 1000} 秒内没有到达终态；请到任务中心查看最新状态。`
+  actionError.value = `任务在 ${(limit * JOB_POLL_MS) / 1000} 秒内没有到达终态；请到任务中心查看最新状态。`
   phase.value = 'done'
   stopTimer()
 }
