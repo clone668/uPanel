@@ -68,6 +68,11 @@ for ARCH in $ARCHES; do
     -o "$STAGE/bin/upanel-agent" ./cmd/upanel-agent
   CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build -trimpath -ldflags "$LDFLAGS" \
     -o "$STAGE/bin/upanelctl" ./cmd/upanelctl
+  # 打包机上可能是 Windows（没有 POSIX 权限位），tar 会把权限记成 0644：
+  # 那样的包解到 Ubuntu 上每个可执行文件都指向"Permission denied"，而
+  # 校验和却全是 OK —— 这正是 P10.4 验收第一次跑出来的问题。权限位是交付物的一部分，
+  # 所以在这里显式给，不指望文件系统替我们记住。
+  chmod 0755 "$STAGE/bin/upanel-web" "$STAGE/bin/upanel-agent" "$STAGE/bin/upanelctl"
 
   # 2) 单元、配置样例与脚本（可审阅：用户先看再跑）。
   cp deploy/systemd/upanel-agent.service deploy/systemd/upanel-web.service "$STAGE/deploy/systemd/"
@@ -76,7 +81,8 @@ for ARCH in $ARCHES; do
   chmod 0755 "$STAGE/deploy/scripts/install.sh" "$STAGE/deploy/scripts/uninstall.sh"
 
   # 3) 文档：装完之后机器上要有同一份，不能在面板不可用时无处可查。
-  for doc in INSTALL.md ACCESS.md RECOVERY.md LOCAL_START.md; do
+  #    顺序不重要，但 STORAGE_RECOVERY.md 必须带上——RECOVERY.md 里直接引用它。
+  for doc in INSTALL.md ACCESS.md RECOVERY.md STORAGE_RECOVERY.md SHARES_CLIENT.md LOCAL_START.md; do
     if [ -f "docs/$doc" ]; then
       cp "docs/$doc" "$STAGE/docs/"
     fi
@@ -91,7 +97,31 @@ for ARCH in $ARCHES; do
       echo "$($SHA256 "$f" | cut -d' ' -f1)  ${f#./}"
     done > SHA256SUMS )
 
-  tar czf "$OUT/$NAME.tar.gz" -C "$OUT" "$NAME"
+  # 打包：权限位显式写进归档，不依赖打包机的文件系统。
+  #
+  # P10.4 验收第一次跑出来的是：包是好的、校验和是好的，解到 Ubuntu 上三个二进制
+  # 全是 0644 —— 安装器第一句人话就是"跑不起来"。原因是打包机是 Windows，chmod 对
+  # 没有扩展名的文件不生效，tar 于是按 0644 记录。所以这里让 tar 自己写模式：
+  # 先按“文件 0644 / 目录 0755”收全部内容，再用 0755 追加那 5 个可执行文件。
+  # 每个成员只出现一次，解压出来就是它该有的样子。
+  TAR="$OUT/$NAME.tar"
+  rm -f "$TAR" "$TAR.gz"
+  tar cf "$TAR" --mode='u=rwX,go=rX' --owner=0 --group=0 --numeric-owner \
+    -C "$OUT" --exclude="$NAME/bin/*" --exclude="$NAME/deploy/scripts/*" "$NAME"
+  tar rf "$TAR" --mode=0755 --owner=0 --group=0 --numeric-owner -C "$OUT" \
+    "$NAME/bin/upanel-web" "$NAME/bin/upanel-agent" "$NAME/bin/upanelctl" \
+    "$NAME/deploy/scripts/install.sh" "$NAME/deploy/scripts/uninstall.sh"
+  gzip -9 -f "$TAR"
+  # 自检：包里的可执行文件必须带执行位。在上一次验收里，包是好的、校验和是好的，
+  # 但解到 Ubuntu 上每个二进制都是 0644 —— 安装器的第一句人话就是"跑不起来"。
+  # 这一条在打包机上就能拦住它。
+  BAD=$(tar tzvf "$OUT/$NAME.tar.gz" | awk '$1 ~ /^-/ && $1 !~ /x/ {print $NF}' |
+    grep -E '/(bin/upanel-(web|agent|ctl)|deploy/scripts/(install|uninstall)\.sh)$' | tr '\n' ' ')
+  if [ -n "$BAD" ]; then
+    printf '错误：包内这些文件没有执行权限：%s\n' "$BAD" >&2
+    exit 1
+  fi
+  echo "    自检: 包内可执行文件均带执行位"
   echo "    完成: $OUT/$NAME.tar.gz ($(wc -c < "$OUT/$NAME.tar.gz" | tr -d ' ') 字节)"
 done
 

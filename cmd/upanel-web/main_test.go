@@ -106,17 +106,18 @@ func TestBadConfigFileRejected(t *testing.T) {
 	}
 }
 
-func TestProductionRefusesNonLoopbackBeforeTLS(t *testing.T) {
-	// PLAN.md 第 6 节：面板自身要监听 HTTPS 9443；TLS 在 P10 接入。
-	// 在此之前 production 绑定非回环地址必须直接失败，而不是把明文管理界面暴露出去。
+func TestProductionRefusesNonLoopbackWithoutTLS(t *testing.T) {
+	// 面板自己要监听 HTTPS 9443（PLAN.md 第 6 节）。production 绑非回环地址而没配
+	// 证书时必须直接失败——拒绝的理由要指向 web.tls_cert_path，而不是一句“只有回环
+	// 才能用”：TLS 已经接进来了，用户要改的是配置里的两个字段。
 	for _, addr := range []string{"0.0.0.0:9443", "192.0.2.10:9443", "[::]:9443"} {
 		var out, errOut bytes.Buffer
 		code := testRun(t, []string{"--mode", "production", "--listen", addr}, &out, &errOut)
 		if code != 2 {
 			t.Fatalf("%s: 退出码 = %d，期望 2（stderr=%q）", addr, code, errOut.String())
 		}
-		if !strings.Contains(errOut.String(), "只能绑定回环地址") {
-			t.Fatalf("%s: stderr = %q", addr, errOut.String())
+		if !strings.Contains(errOut.String(), "tls_cert_path") {
+			t.Fatalf("%s: stderr = %q（拒绝理由要指向 web.tls_cert_path）", addr, errOut.String())
 		}
 	}
 }

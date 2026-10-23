@@ -762,7 +762,14 @@ func (a *Applier) nginxTest(ctx context.Context) (string, error) {
 		Args:    []string{"-t"},
 	}, syscmd.Limits{Timeout: validateTimeout})
 	if err != nil {
-		return "", err
+		// “nginx -t 退出码非 0”不是执行失败，那是**校验结论**：nginx 说了什么，
+		// 必须原样带出去。syscmd 对非零退出返回 *ExitError，如果把它当成传输层错误，
+		// 上层就只能报“校验失败：”，把 nginx 的原话丢掉——P10.4 的验收正是被这条
+		// 卡住过：作业说明里只有“回滚后的整棵树仍然校验失败：。”，没有人知道为什么。
+		var exitErr *syscmd.ExitError
+		if !errors.As(err, &exitErr) {
+			return "", err
+		}
 	}
 	if res.ExitCode == 0 {
 		return "", nil

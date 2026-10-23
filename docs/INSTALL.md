@@ -188,6 +188,18 @@ systemctl status upanel-web upanel-agent --no-pager
 # 面板是否真的在 HTTPS 上应答（用安装的证书做 CA，不加 -k）
 curl -sS --cacert /etc/upanel/tls/panel.pem https://127.0.0.1:9443/api/v1/health/live
 
+# 刚 restart 完不要用固定 sleep 猜：轮询到 200 为止。
+# 面板进程从 systemd 的 Started 到开始监听实测约 1.0–1.4 秒（10 次重启取样）；但 systemctl restart
+# 这条命令本身在这台机器上可能慢到 8 秒（停旧实例 + 起新实例 + 两个单元的作业排队），
+# 所以“restart 返回了”不等于“已经能应答”。
+for i in $(seq 1 60); do
+  code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 2 \
+    --cacert /etc/upanel/tls/panel.pem https://127.0.0.1:9443/api/v1/health/live)
+  [ "$code" = "200" ] && break
+  sleep 1
+done
+echo "health=$code（60 秒内没变成 200 就去看 journalctl -u upanel-web）"
+
 # 服务端证书指纹是否就是安装输出的那一串
 echo | openssl s_client -connect 127.0.0.1:9443 -servername "$(hostname -s)" 2>/dev/null \
   | openssl x509 -noout -fingerprint -sha256

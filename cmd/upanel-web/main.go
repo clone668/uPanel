@@ -123,10 +123,23 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	// PLAN.md 第 6 节要求面板自身监听 HTTPS 9443，TLS 在 P10 接入。在 TLS 就绪之前
-	// production 只允许回环地址：宁可启动失败，也不让管理面板以明文暴露在网络上。
-	if mode == platform.ModeProduction && !config.IsLoopbackAddress(listenAddr) {
-		fmt.Fprintf(stderr, "配置错误: web.listen_address: P10 接入 TLS 之前 production 只能绑定回环地址（当前 %q）\n", listenAddr)
+	// 面板传输层（P10.4）：监听地址与 TLS 配置这个组合能不能接受，由
+	// config.CheckTransport 一处判定 —— CLI 的 check-config 用的是同一个函数，
+	// 因此“CLI 说行、服务不启动”这种分裂不会出现。
+	//
+	// 曾经这里有一条“TLS 接入之前 production 只能绑回环”的临时保护：TLS 已经接进来了，
+	// 那条判断不但多余，还会把一份**合法**的非回环 + TLS 配置挡在一个过时的理由后面。
+	// 现在提前到这里，是为了在打开数据库之前就把配置拒绝掉（配置错误不该有副作用）。
+	var panelTLS *config.PanelTLS
+	if cfg.Web.TLSConfigured() {
+		panelTLS, err = cfg.Web.LoadTLS()
+		if err != nil {
+			fmt.Fprintf(stderr, "配置错误: %v\n", err)
+			return 2
+		}
+	}
+	if err := config.CheckTransport(listenAddr, cfg.Web.TLSConfigured()); err != nil {
+		fmt.Fprintf(stderr, "配置错误: %v\n", err)
 		return 2
 	}
 
@@ -250,20 +263,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 			"hint", "请在服务器本机运行 upanelctl init-admin 创建第一个管理员")
 	}
 
-	// 面板 HTTPS（P10.4）：配置给了证书路径就必须能加载成功，否则拒绝启动——
-	// “证书坏了但服务照跑”会让人以为面板在保护口令，实际并没有。
-	var panelTLS *config.PanelTLS
-	if cfg.Web.TLSConfigured() {
-		panelTLS, err = cfg.Web.LoadTLS()
-		if err != nil {
-			fmt.Fprintf(stderr, "配置错误: %v\n", err)
-			return 2
-		}
-	}
-	if err := config.CheckTransport(listenAddr, cfg.Web.TLSConfigured()); err != nil {
-		fmt.Fprintf(stderr, "配置错误: %v\n", err)
-		return 2
-	}
+	// 面板 HTTPS（P10.4）：证书已经在上面（打开数据库之前）加载过了，这里只留
+	// “没启用 TLS”的那句告警——它是回环 + SSH 隧道部署下唯一允许的形态。
 	if panelTLS == nil {
 		logger.Warn("面板未启用 HTTPS",
 			"listen", listenAddr,

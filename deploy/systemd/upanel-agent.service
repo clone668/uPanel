@@ -70,8 +70,19 @@ RestrictRealtime=yes
 RestrictNamespaces=yes
 LockPersonality=yes
 RemoveIPC=yes
-; 代理只通过 Unix socket 对外服务。
-RestrictAddressFamilies=AF_UNIX AF_NETLINK
+; 地址族：Unix socket 是它对外的唯一入口，但**不是它唯一需要的地址族**。
+; 代理要干活就必须能发起 IPv4/IPv6 连接与监听测试：
+;   - `nginx -t` 会打开配置里所有 `listen` 套接字，再关掉（校验的一部分）；
+;   - 应用发现与健康探测连 127.0.0.1:<端口>（PLAN.md 第 15 节）；
+;   - 证书签发前的 HTTP-01 可达性检查连 <域名>:80。
+; 曾经这里写成 `AF_UNIX AF_NETLINK`，读起来像“更安全”，实际效果是**装好的机器上
+; 每一次 proxy.apply 都失败**：`nginx -t` 报
+;   nginx: [emerg] socket() 0.0.0.0:80 failed (97: Address family not supported by protocol)
+; 而手工以 root 起的代理没有这个限制，所以 P04—P09 一直没暴露；是 P10.4 在**装好的
+; 单元**上跑核心场景才把它抓出来。
+; 注意：`RestrictAddressFamilies` 限制的是“能不能用这个地址族”，不是“能不能监听”：
+; “不监听 TCP”由代码保证（代理从不 ListenTCP），并被下表与 SO_PEERCRED 一起约束。
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6
 ; 刻意**不**启用 PrivateMounts / PrivateTmp / ProtectSystem=strict /
 ; PrivateDevices / MountFlags：代理必须看到真实的挂载命名空间与 /dev 里的块设备，
 ; 否则挂载只在代理内部生效（PLAN.md 第 4 节明确禁止盲目启用这些选项）。

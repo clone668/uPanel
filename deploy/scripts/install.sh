@@ -150,10 +150,16 @@ case "$ARCH" in
 esac
 # 包里的二进制必须真能在这台机器上跑：拿错架构时给一句人话，
 # 而不是等到 systemctl restart 才报 exec format error。
+#
+# 三种失败要分开说，因为修法完全不同：没有执行权限（包解压时丢了权限位）、
+# 架构不符（拿错包）、文件损坏（下载断了）。混成一句“跑不起来”要人多试一遍。
+if [ ! -x "$SOURCE/bin/upanelctl" ]; then
+  die "包里的 $SOURCE/bin/upanelctl 没有执行权限：解压方式丢了权限位。请 chmod 0755 $SOURCE/bin/upanel-* 后重跑（这也说明这个包不该被这样解压）"
+fi
 if "$SOURCE/bin/upanelctl" version >/dev/null 2>&1; then
   ok "发布包二进制可在本机执行（$ARCH）"
 else
-  die "包里的二进制跑不起来（架构不符或文件损坏）：请用 linux-$WANT_ARCH 的包"
+  die "包里的二进制跑不起来（架构不符或文件损坏）：本机是 $ARCH，请用 linux-$WANT_ARCH 的包"
 fi
 
 PORT=${LISTEN##*:}
@@ -161,9 +167,19 @@ case "$PORT" in
   ''|*[!0-9]*) die "--listen 需要 host:port 形式，当前为 $LISTEN" ;;
 esac
 if ss -Hltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$PORT\$"; then
-  die "端口 $PORT 已被占用：$(ss -Hltnp 2>/dev/null | grep -E "[:.]$PORT\$" | head -n 1)"
+  HOLDER=$(ss -Hltnp 2>/dev/null | awk -v p=":$PORT" '$4 ~ p"$"' | head -n 1)
+  HOLDER_PID=$(printf '%s' "$HOLDER" | sed -n 's/.*pid=\([0-9]*\).*/\1/p')
+  OWN_PID=$(systemctl show -p MainPID --value upanel-web.service 2>/dev/null || true)
+  # 重跑安装器时，占着这个端口的正是上一次装出来的 upanel-web。那不是“端口被占用”，
+  # 那是幂等：判据是“监听者就是这个单元的主进程”，而不是“端口空着才算能装”。
+  if [ -n "$HOLDER_PID" ] && [ "$HOLDER_PID" = "$OWN_PID" ]; then
+    ok "端口 $PORT 由已安装的 upanel-web（pid $HOLDER_PID）占用：这是重跑，继续"
+  else
+    die "端口 $PORT 已被占用：$HOLDER"
+  fi
+else
+  ok "端口 $PORT 空闲"
 fi
-ok "端口 $PORT 空闲"
 
 FREE_MB=$(df -Pm /usr /var 2>/dev/null | awk 'NR>1 {if (min=="" || $4<min) min=$4} END {print min+0}')
 [ "${FREE_MB:-0}" -ge 300 ] || die "/usr 或 /var 剩余空间不足 300 MiB（当前 ${FREE_MB}MiB）"
@@ -339,6 +355,22 @@ fi
 "$SOURCE/bin/upanelctl" check-config --config "$CONFIG_FILE" | sed 's/^/      /' \
   || die "配置校验没通过（上面是 check-config 的输出）"
 ok "upanelctl check-config 通过"
+
+# 后面几步都以“配置里实际生效的值”为准，而不是命令行参数：配置可能是上一次安装留下的，
+# --listen 这次未必被采用。--json 的输出是稳定契约，从这里读 scheme 与监听地址。
+CFG_JSON=$("$SOURCE/bin/upanelctl" check-config --config "$CONFIG_FILE" --json) \
+  || die "check-config --json 失败"
+CFG_LISTEN=$(printf '%s\n' "$CFG_JSON" | sed -n 's/.*"web_listen": *"\([^"]*\)".*/\1/p')
+[ -n "$CFG_LISTEN" ] || die "无法从 check-config --json 读出 web.listen_address"
+if printf '%s\n' "$CFG_JSON" | grep -q '"web_tls"'; then
+  CFG_SCHEME=https
+  ok "配置里已启用面板 TLS（监听 $CFG_LISTEN）"
+else
+  CFG_SCHEME=http
+  warn "配置里没有 TLS（监听 $CFG_LISTEN）：只允许回环访问，浏览器无法完成登录"
+  warn "本次安装生成的自签名证书已就位但没有被配置引用；要用它就把 web.tls_cert_path /"
+  warn "web.tls_key_path 指向 $CERT 与 $KEY 后 systemctl restart upanel-web（见 docs/ACCESS.md）"
+fi
 done_step "7 配置文件"
 
 # ---------------------------------------------------------------- 8. 代理密钥
@@ -486,17 +518,25 @@ done_step "11 systemd 单元"
 # ---------------------------------------------------------------- 12. 健康检查
 step "健康检查"
 # 探测走回环地址：自签名证书的 SAN 里固定带了 IP:127.0.0.1，
-# 所以这里可以**不加 -k** 校验证书——要证明的正是“证书配得上、指纹是那一串”。
-HOST_PART=${LISTEN%:*}
+# 所以 TLS 下这里可以**不加 -k** 校验证书——要证明的正是“证书配得上、指纹是那一串”。
+HOST_PART=${CFG_LISTEN%:*}
+CFG_PORT=${CFG_LISTEN##*:}
 case "$HOST_PART" in
   0.0.0.0|'::'|'[::]'|'') PROBE_HOST=127.0.0.1 ;;
   *) PROBE_HOST=$HOST_PART ;;
 esac
-HEALTH_URL="https://$PROBE_HOST:$PORT/api/v1/health/live"
+HEALTH_URL="$CFG_SCHEME://$PROBE_HOST:$CFG_PORT/api/v1/health/live"
+
+if [ "$CFG_SCHEME" = "https" ]; then
+  CURL_TLS="--cacert $CERT"
+else
+  CURL_TLS=""
+fi
 
 i=0
 while [ "$i" -lt 60 ]; do
-  if curl -sS --max-time 3 --cacert "$CERT" "$HEALTH_URL" >/dev/null 2>&1; then break; fi
+  # shellcheck disable=SC2086  # CURL_TLS 为空或恰好两个词，故意不加引号
+  if curl -sS --max-time 3 $CURL_TLS "$HEALTH_URL" >/dev/null 2>&1; then break; fi
   i=$((i + 1))
   sleep 1
 done
@@ -504,16 +544,21 @@ if [ "$i" -ge 60 ]; then
   journalctl -u upanel-web -n 30 --no-pager >&2
   die "面板 60 秒内没有在 $HEALTH_URL 上响应"
 fi
-HEALTH=$(curl -sS --max-time 3 --cacert "$CERT" "$HEALTH_URL") || die "健康检查请求失败"
+# shellcheck disable=SC2086
+HEALTH=$(curl -sS --max-time 3 $CURL_TLS "$HEALTH_URL") || die "健康检查请求失败"
 printf '%s' "$HEALTH" | grep -q '"status"' || die "健康检查返回了意外内容：$HEALTH"
-ok "HTTPS 健康检查通过：$HEALTH"
+ok "$CFG_SCHEME 健康检查通过：$HEALTH"
 
-SERVED=$(echo | openssl s_client -connect "$PROBE_HOST:$PORT" \
-  -servername "$(hostname -s 2>/dev/null || echo localhost)" 2>/dev/null \
-  | openssl x509 -noout -fingerprint -sha256 2>/dev/null | sed 's/^.*=//; s/://g' | tr 'A-F' 'a-f')
-[ -n "$SERVED" ] || die "握手后读不到服务端证书指纹（openssl s_client）"
-[ "$SERVED" = "$FINGERPRINT" ] || die "服务端证书指纹 $SERVED ≠ 安装的证书 $FINGERPRINT"
-ok "端口 $PORT 上服务的正是安装的那张证书"
+if [ "$CFG_SCHEME" = "https" ]; then
+  SERVED=$(echo | openssl s_client -connect "$PROBE_HOST:$CFG_PORT" \
+    -servername "$(hostname -s 2>/dev/null || echo localhost)" 2>/dev/null \
+    | openssl x509 -noout -fingerprint -sha256 2>/dev/null | sed 's/^.*=//; s/://g' | tr 'A-F' 'a-f')
+  [ -n "$SERVED" ] || die "握手后读不到服务端证书指纹（openssl s_client）"
+  [ "$SERVED" = "$FINGERPRINT" ] || die "服务端证书指纹 $SERVED ≠ 安装的证书 $FINGERPRINT"
+  ok "端口 $CFG_PORT 上服务的正是安装的那张证书"
+else
+  warn "跳过证书指纹比对：配置没有启用 TLS"
+fi
 
 WEB_PID=$(systemctl show -p MainPID --value upanel-web.service)
 WEB_UID=$(ps -o uid= -p "${WEB_PID:-0}" 2>/dev/null | tr -d ' ')
@@ -532,9 +577,9 @@ done_step "12 健康检查"
 # ---------------------------------------------------------------- 完成
 printf '\n==== 安装完成 ====\n'
 cat <<EOF
-面板监听:      $LISTEN（HTTPS）
-访问地址:      https://$LISTEN
-证书指纹:      $FINGERPRINT（有效期至 $NOT_AFTER）
+面板监听:      $CFG_LISTEN（$CFG_SCHEME）
+访问地址:      $CFG_SCHEME://$CFG_LISTEN
+证书指纹:      $FINGERPRINT（有效期至 $NOT_AFTER）$( [ "$CFG_SCHEME" = "https" ] || echo '  ← 注意：配置未启用 TLS，这个证书尚未被引用' )
 管理员账号:    $ADMIN_USER
 配置文件:      $CONFIG_FILE
 Web 数据库:    $WEB_DATA/upanel.db（属主 $WEB_USER）
@@ -542,8 +587,8 @@ Web 数据库:    $WEB_DATA/upanel.db（属主 $WEB_USER）
 代理密钥:      $KEYFILE（root 0600，必须离线备份）
 
 只监听回环地址时，从自己的电脑建 SSH 隧道再开浏览器：
-  ssh -N -L $PORT:127.0.0.1:$PORT 你的用户@这台主机
-  然后访问 https://127.0.0.1:$PORT
+  ssh -N -L $CFG_PORT:127.0.0.1:$CFG_PORT 你的用户@这台主机
+  然后访问 $CFG_SCHEME://127.0.0.1:$CFG_PORT
 
 要改成对管理网直接可达（会改变暴露面，先读 docs/ACCESS.md 与 docs/INSTALL.md）：
   1) 改 $CONFIG_FILE 里的 web.listen_address（例如 192.0.2.10:9443）
