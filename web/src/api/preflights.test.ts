@@ -18,8 +18,11 @@ import {
   preflightTimeoutFor,
   requiresConfirmation,
   submitJob,
+  submitTimeoutFor,
   PACKAGE_PREFLIGHT_TIMEOUT_MS,
+  PACKAGE_SUBMIT_TIMEOUT_MS,
   PREFLIGHT_TIMEOUT_MS,
+  SUBMIT_TIMEOUT_MS,
   type PreflightData,
 } from './preflights'
 
@@ -193,5 +196,41 @@ describe('预检超时', () => {
     timeout.mockClear()
     await createPreflight('service.control', { unit: 'cron.service', operation: 'start' })
     expect(timeout).toHaveBeenCalledWith(PREFLIGHT_TIMEOUT_MS)
+  })
+})
+
+// 提交的超时分层（同上，是同一个缺陷的另一半）。
+//
+// 提交时代理要再跑一次 `apt-get -s` 复核计划（24.04 实测 38.7 秒），Web 侧把写预算
+// 放到 100 秒。前端还写死 20 秒的话，屏幕上会是"请求超时"，而任务已经建好在跑。
+describe('提交超时', () => {
+  it('普通动作 20 秒，软件包动作放宽到服务端写预算之上', () => {
+    expect(SUBMIT_TIMEOUT_MS).toBe(20_000)
+    expect(submitTimeoutFor('service.control')).toBe(SUBMIT_TIMEOUT_MS)
+    expect(submitTimeoutFor('storage.volume.format')).toBe(SUBMIT_TIMEOUT_MS)
+    expect(submitTimeoutFor('package.install')).toBe(PACKAGE_SUBMIT_TIMEOUT_MS)
+    expect(submitTimeoutFor('package.remove')).toBe(PACKAGE_SUBMIT_TIMEOUT_MS)
+    // 代理的再模拟实测 38.7 秒，Web 写预算 100 秒：前端不能比服务端先放弃。
+    expect(PACKAGE_SUBMIT_TIMEOUT_MS).toBeGreaterThan(38_700)
+  })
+
+  it('submitJob 用调用方给的超时，没给就用默认值', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout')
+    const mock = vi.fn(() => Promise.resolve(new Response(
+      JSON.stringify({ data: {}, request_id: 'rid' }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    )))
+    vi.stubGlobal('fetch', mock)
+
+    await submitJob({ preflightId: 'pf_abc', idempotencyKey: 'k1' })
+    expect(timeout).toHaveBeenCalledWith(SUBMIT_TIMEOUT_MS)
+
+    timeout.mockClear()
+    await submitJob({
+      preflightId: 'pf_abc',
+      idempotencyKey: 'k2',
+      timeoutMs: submitTimeoutFor('package.install'),
+    })
+    expect(timeout).toHaveBeenCalledWith(PACKAGE_SUBMIT_TIMEOUT_MS)
   })
 })

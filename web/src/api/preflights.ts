@@ -34,6 +34,29 @@ export function preflightTimeoutFor(action: string): number {
   return action.startsWith('package.') ? PACKAGE_PREFLIGHT_TIMEOUT_MS : PREFLIGHT_TIMEOUT_MS
 }
 
+/**
+ * 提交任务的默认超时。
+ *
+ * 大多数动作的提交只是"建一条任务并让代理开始跑"，代理很快就把 201 交回来。
+ */
+export const SUBMIT_TIMEOUT_MS = 20_000
+
+/**
+ * 软件包动作提交的专用超时。
+ *
+ * 提交不是转发：代理要在这一刻**再跑一次 `apt-get -s`** 复核计划，因为它可能已经
+ * 是几十秒前的了（24.04 实测 38.7 秒）。Web 侧为此把写预算放到
+ * `slowOperationWriteBudget`（100 秒），代理侧放到 `PreflightTTL`（120 秒）；
+ * 前端如果还用 20 秒，用户看到"请求超时"，而任务其实已经建好并在跑——那一屏
+ * 会让人再点一次，于是多出一条任务。
+ */
+export const PACKAGE_SUBMIT_TIMEOUT_MS = 95_000
+
+/** 该动作的提交超时。 */
+export function submitTimeoutFor(action: string): number {
+  return action.startsWith('package.') ? PACKAGE_SUBMIT_TIMEOUT_MS : SUBMIT_TIMEOUT_MS
+}
+
 export interface PreflightNotice {
   code: string
   message: string
@@ -116,6 +139,8 @@ export function submitJob(input: {
   preflightId: string
   confirmationPhrase?: string
   idempotencyKey: string
+  /** 该动作的提交超时；包类动作请传 `submitTimeoutFor(action)`。 */
+  timeoutMs?: number
 }): Promise<ApiResult<JobSubmitData>> {
   const body: Record<string, string> = { preflight_id: input.preflightId }
   if (input.confirmationPhrase !== undefined && input.confirmationPhrase !== '') {
@@ -125,7 +150,7 @@ export function submitJob(input: {
     method: 'POST',
     body,
     idempotencyKey: input.idempotencyKey,
-    timeoutMs: 20_000,
+    timeoutMs: input.timeoutMs ?? SUBMIT_TIMEOUT_MS,
   })
 }
 
