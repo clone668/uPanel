@@ -1,0 +1,4 @@
+已生成密钥文件: /etc/upanel/agent.key（属主 root:root，权限 0600）
+密钥指纹: e2888bfc755b1e56
+该文件必须单独备份：丢失或损坏后，已保存的秘密将无法解密。
+不要把它放进 uPanel 自己的备份仓库，也不要让 Web 进程或 upanel-web 账号读到。

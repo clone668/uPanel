@@ -1,0 +1,49 @@
+== 6. 重启之后：boot_id 说了什么 ==
+      重启前的 boot_id：97057b04-52c6-4c3e-8a02-8e13cdb72e65
+      现在的 boot_id：  22486dd5-084e-42c6-b8d2-a5643ff8dd58
+      现在的 uptime：   24 秒
+PASS  boot-id-changed
+PASS  phase-pre-had-no-failures
+PASS  uptime-says-fresh-boot
+PASS  agent-restarted
+PASS  web-restarted
+PASS  post-login-admin
+PASS  power-state-200
+PASS  power-state-boot-id
+
+== 7. 任务记录跨过一次重启还在，而且说的是老实话 ==
+PASS  reboot-record-survives
+PASS  reboot-after-outcome
+PASS  reboot-after-boot-id-before
+PASS  reboot-no-verified-at
+PASS  reboot-command
+PASS  reboot-exit-code
+PASS  reboot-power-check-state
+PASS  reboot-power-check-changed
+PASS  reboot-power-check-boot-id-now
+PASS  reboot-power-check-says-confirmed
+      核对消息：重启已确认：boot_id 从 97057b04 变成 22486dd5。
+PASS  jobs-list-200
+PASS  jobs-list-no-power-check
+
+== 8. 下发关机（本阶段到此为止，机器不再回来）==
+PASS  poweroff-preflight-200
+PASS  poweroff-allowed
+PASS  poweroff-warns-manual-start
+PASS  poweroff-requires-reauth
+PASS  poweroff-no-phrase
+PASS  poweroff-impact-connection
+PASS  poweroff-no-boot-id-confirmation-claim
+PASS  reauth-3
+PASS  poweroff-submit-202
+      关机任务：job_24c81fa918969514665f2d3a4d136b7e（60 秒倒计时 + 下发）
+      25 秒观察窗内的状态：running
+PASS  poweroff-countdown-still-running
+PASS  poweroff-countdown-machine-still-up
+PASS  poweroff-countdown-has-no-result
+NOT RUN  poweroff-terminal-state-in-phase-post：脚本与那台机器是同一台：下发 poweroff 的同时它就被关掉了，终态只能等宿主重新上电之后读（见阶段三 §9）
+
+本阶段结束。机器将断电；宿主重新上电之后调用 --phase final。
+
+== 阶段二汇总 ==
+PASS 32 / FAIL 0 / NOT RUN 1（本阶段）

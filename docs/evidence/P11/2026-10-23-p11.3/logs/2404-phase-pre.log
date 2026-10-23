@@ -1,0 +1,88 @@
+== 0. 这台机器的现场 ==
+      发行版：Ubuntu 24.04.5 LTS
+      内核：6.8.0-147-generic
+      boot_id（重启前）：97057b04-52c6-4c3e-8a02-8e13cdb72e65
+      uptime：27 秒
+      systemd：running
+PASS  env-systemd-and-boot-id
+PASS  env-no-foreign-units
+
+== 0.1 装配：配置、代理密钥、管理员与 viewer ==
+PASS  agent-key-created
+PASS  agent-started
+PASS  init-admin
+PASS  web-started
+PASS  login-admin
+PASS  create-viewer
+PASS  login-viewer
+
+== 1. 拒收面：形状不对的电源请求一步都不许走 ==
+PASS  anon-preflight-401
+PASS  viewer-preflight-403
+PASS  reject-no-delay-400
+PASS  reject-delay-too-short-400
+PASS  reject-delay-too-long-400
+PASS  reject-delay-zero-400
+PASS  reject-bad-operation-400
+PASS  reject-unknown-field-400
+PASS  reject-extra-flag-400
+PASS  reject-leaves-no-job
+PASS  reject-is-audited
+
+== 2. 预检说的是真话：要再认证、不要短语、可取消、锁 power-global ==
+PASS  reboot-preflight-200
+PASS  reboot-allowed
+PASS  reboot-requires-reauth
+PASS  reboot-no-phrase
+PASS  reboot-cancellable
+PASS  reboot-locks-power-global
+PASS  reboot-impact-connection
+PASS  reboot-impact-power
+PASS  reboot-says-boot-id-confirmation
+PASS  reboot-target-is-this-boot
+PASS  reboot-target-names-boot-id
+      预检提示：["recently_booted"]
+
+== 3. 关键任务运行时拒绝（STAGES §13）==
+PASS  noreauth-submit-403
+PASS  noreauth-submit-code
+PASS  noreauth-did-not-execute
+PASS  reauth-1
+PASS  running-submit-202
+      倒计时中的任务：job_f92293967ca16749c9e7a7295e9acc00
+PASS  busy-preflight-200
+PASS  busy-not-allowed
+PASS  busy-blocker-jobs-running
+PASS  busy-blocker-names-the-job
+      阻塞项：["POWER_JOBS_RUNNING"]
+      消息：有写操作正在执行，现在关机会把它断在半路：system.power（op_14f5d83ed15c5c1475fbaa4ace281811）
+PASS  busy-submit-409
+PASS  busy-submit-code
+
+== 4. 倒计时取消：命令压根没发出去 ==
+PASS  cancel-202
+PASS  cancel-requested
+PASS  cancel-job-is-power
+PASS  cancel-terminal
+PASS  cancel-outcome-empty
+PASS  cancel-no-power-check
+PASS  cancel-boot-id-unchanged
+PASS  cancel-did-not-execute
+      uptime：33 秒（没有重启）
+
+== 5. 下发真实重启（本阶段到此为止）==
+PASS  run-preflight-200
+PASS  run-allowed
+PASS  run-preflight-allows
+PASS  run-submit-202
+      重启任务：job_6d9fb54eb7c32ad8f6f99eb0c36a73eb（60 秒倒计时 + 下发）
+      25 秒观察窗内的状态：running
+PASS  reboot-countdown-still-running
+PASS  reboot-countdown-did-not-restart-yet
+PASS  reboot-countdown-has-no-result
+NOT RUN  reboot-terminal-state-in-phase-pre：脚本与那台机器是同一台：下发 reboot 的同时它就被关掉了，终态只能等重启之后读（见阶段二 §7）
+
+本阶段结束。机器将在几十秒内重启；重启之后由宿主调用 --phase post。
+
+== 阶段一汇总 ==
+PASS 57 / FAIL 0 / NOT RUN 1

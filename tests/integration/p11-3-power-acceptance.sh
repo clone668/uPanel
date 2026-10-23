@@ -215,7 +215,17 @@ guard_foreign_units() {
   _foreign=$(systemctl list-unit-files --no-legend 'upanel*.service' 2>/dev/null | awk '{print $1}')
   for _u in $_foreign; do
     systemctl disable --now "$_u" >/dev/null 2>&1
-    systemctl mask "$_u" >/dev/null 2>&1
+    # mask 只对"单元文件在别处"的单元有效。装到 /etc/systemd/system 里的真实文件
+    # 会让 mask 直接失败（File ... already exists），那种情况把单元文件改名挪走，
+    # 效果同样是"起不来"，而且能看出来是谁挪的。
+    if ! systemctl mask "$_u" >/dev/null 2>&1; then
+      _frag=$(systemctl show -p FragmentPath --value "$_u" 2>/dev/null)
+      case $_frag in
+        /etc/systemd/system/*)
+          mv -f "$_frag" "$_frag.disabled-by-p11-3-acceptance" 2>/dev/null ;;
+      esac
+    fi
+    systemctl daemon-reload >/dev/null 2>&1
     _state=$(systemctl is-active "$_u" 2>/dev/null)
     case $_state in
       inactive|failed|unknown|"") ;;

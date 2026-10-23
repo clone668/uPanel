@@ -1,0 +1,41 @@
+版本与指纹（P11.3 第 2 轮，2026-10-23）
+======================================
+
+代码提交   7d4039e  fix(agent): 不抢正在服务的 socket；验收前清掉外来的 upanel 服务单元
+           （HEAD 就是它；跑验收时没有未提交的产品代码）
+
+构建       2026-10-23T18:25:40Z，go1.27.3，GOOS=linux GOARCH=amd64，CGO 默认关闭路径
+           命令见 env.txt；**没有** `-s -w`（加了会把 build date 剥成 unknown）
+
+二进制 sha256（两台虚机 /var/tmp/upanel-bin/ 上一致）
+    6ce5726f704839f3347c415515ad97799259864801075a9ab3dd945beaf41606  upanel-agent
+    876ce0a3073ed22486686366107fd93ef087317246674ff3deeef2982e94c51c  upanel-web
+    48c360ae24faef732e05e1a20c58e74dc608104c0557fa95e07c7b896f5881da  upanelctl
+
+自报版本（虚机上抓的原文）
+    upanel-agent 0.0.0-p11.3 (commit 7d4039e, built 2026-10-23T18:25:40Z, go1.27.3)
+    upanel-web   0.0.0-p11.3 (commit 7d4039e, built 2026-10-23T18:25:40Z, go1.27.3)
+    upanelctl    0.0.0-p11.3 (commit 7d4039e, built 2026-10-23T18:25:40Z, go1.27.3)
+
+验收脚本
+    tests/integration/p11-3-power-acceptance.sh
+    md5  93e7251c8bc04e150f053ab4b0bc3aa1（两台、四阶段全程同一版）
+
+VM 22.04.5（upanel-2204，ssh 2223，QEMU `-Accel tcg`）
+    os:      Ubuntu 22.04.5 LTS
+    kernel:  5.15.0-198-generic
+    systemd: 249 (249.11-0ubuntu3.23)
+    boot_id: 591a2533-7b00-48b3-95b7-fda2a6665700  阶段一（重启前）
+             5389231a-62d6-44a1-b9cb-c8ddb1ddb659  阶段二（重启后）
+             4a25a825-a399-4b9a-a71d-e14953776e41  阶段三（关机→宿主上电后）
+
+VM 24.04.5（upanel-2404，ssh 2222，QEMU `-Accel whpx`）
+    os:      Ubuntu 24.04.5 LTS
+    kernel:  6.8.0-147-generic
+    systemd: 255 (255.4-1ubuntu8.18)
+    boot_id: 97057b04-52c6-4c3e-8a02-8e13cdb72e65  阶段一（重启前）
+             22486dd5-084e-42c6-b8d2-a5643ff8dd58  阶段二（重启后；见 env.txt 环境干预②）
+             813e082b-7aed-4fd3-b744-71a23eb3fd0b  阶段三（关机→宿主上电后）
+
+宿主检查
+    scripts/check.sh  PASS 13 / FAIL 0 / NOT RUN 0（logs/host-check.txt）

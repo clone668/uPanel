@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"agent: 参数不合法: operation 只能是 reboot 或 poweroff（收到 \"halt\"）"},"request_id":"903876a377a962ae68aa5bfe213a737f"}

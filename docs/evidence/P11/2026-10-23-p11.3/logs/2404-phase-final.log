@@ -1,0 +1,35 @@
+== 9. 关机之后：能说什么、不能说什么 ==
+      关机前的 boot_id：22486dd5-084e-42c6-b8d2-a5643ff8dd58
+      现在的 boot_id：  813e082b-7aed-4fd3-b744-71a23eb3fd0b
+      现在的 uptime：   25 秒
+PASS  poweroff-machine-restarted-afterwards
+PASS  agent-restarted
+PASS  web-restarted
+PASS  final-login-admin
+PASS  poweroff-record-survives
+PASS  poweroff-after-outcome
+PASS  poweroff-after-boot-id-before
+PASS  poweroff-no-verified-at
+PASS  poweroff-command
+PASS  poweroff-exit-code
+PASS  poweroff-hint-says-manual-start
+PASS  poweroff-after-power-check
+PASS  poweroff-message-refuses-power-claim
+PASS  poweroff-message-no-success-claim
+PASS  poweroff-outcome-is-not-verified
+      关机核对消息：机器已经回来过：boot_id 从 22486dd5 变成 813e082b。这说明那次关机之后它重新启动过；但电源当时是否真的切断，面板给不出证据，只能由现场回答。
+
+== 10. 审计：三次下发、一次取消、一次被拒都在账上 ==
+PASS  audit-has-power-preflights
+PASS  audit-has-power-submits
+PASS  audit-has-power-cancel
+PASS  audit-without-password
+      审计行数：21；任务数：3
+
+== 11. 三条电源任务各自说清了什么 ==
+      reboot-after: status=succeeded outcome=accepted power_check=confirmed
+      poweroff-after: status=succeeded outcome=accepted power_check=confirmed
+PASS  three-power-tasks
+
+== 阶段三汇总 ==
+PASS 20 / FAIL 0 / NOT RUN 0（本阶段）

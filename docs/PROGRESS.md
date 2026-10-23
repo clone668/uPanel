@@ -152,8 +152,31 @@ P07.1 先把“该拒的都拒”证完（判决层、可靠身份、整盘锁�
 
 ## 1. 当前任务
 
-- 当前阶段：**P11（软件更新与电源）进行中：P11.1、P11.2 passed**，下一个子任务 **P11.3**
-  （重启/关机预检、再认证、倒计时与连接状态；`boot_id` 前后确认）。
+- 当前阶段：**P11（软件更新与电源）已完成：P11.1、P11.2、P11.3 全部 passed**，下一个子任务
+  **P12.1**（restic 本地/SFTP 仓库、秘密引用、SFTP 主机密钥验证、仓库初始化与容量检测）。
+  **P11.3（重启/关机：预检、再认证、倒计时与连接状态、`boot_id` 确认）passed**：电源是唯一
+  “执行者与被观察者是同一个”的动作——命令交出去，代理就随机器一起消失，所以全部功夫在
+  “能说什么、不能说什么”。结果只到 `accepted`，`verified_at` 为空；唯一站得住的证据是
+  `boot_id` 变了（`confirmed` / `unchanged` / `unreachable` / `unknown` 四个闭集，没有第五个），
+  关机则只承认“回来过”，电源是否真切断**只能由现场回答**（断言同时钉死“不许出现关机成功”）。
+  关键任务闸门：有写操作在跑 → 预检 `allowed=false` + 点名 blocker、提交 409
+  `POWER_JOBS_RUNNING`、机器不动；倒计时取消 → `canceled`、无 `power_check`、`boot_id` 不变
+  （“受理 ≠ 发生”的正面证据）。两台专用虚机各 **PASS 109 / FAIL 0 / NOT RUN 2**（多出的一条是
+  新增的 `env-no-foreign-units`；两条 NOT RUN 是“脚本与被测机器同一台”的位置问题，各自在
+  下一阶段被同一事实的 PASS 覆盖），逐节断言数两台完全相同；真机 `boot_id` 22.04
+  `591a2533→5389231a→4a25a825`、24.04 `97057b04→22486dd5→813e082b`（三个 id 互不相同，
+  才分得开“重启一次”与“断电后又上电”）。
+  真机抓出并修掉 **2 个产品缺陷**：①电源操作把自己算成在跑的关键任务，每个 `system.power`
+  都停在 `revalidate` 报 `POWER_JOBS_RUNNING`——修法是把 `OperationID` 从 `PlanInput` 递到
+  `InFlight(exclude)`，闸门判据一字未动；②代理起服时无条件 `os.Remove` 已存在的 socket，
+  把**正在服务**的那个代理的路径删掉（第 2 轮 22.04 上 6 条 503 的根因），修法是先探测再决定
+  ——连得上就拒绝启动且不碰文件，`ECONNREFUSED`/`ENOENT` 才算陈旧，说不清按有人处理。
+  另有 **1 条假绿**：审计查询漏了 `FROM audit_events`，
+  SQLite 报错被吞、`grep` 从空串里找不到口令就 PASS（“没查成 ≠ 清白”），已改成查询失败也算
+  失败并重跑阶段三。宿主 `check.sh` **PASS 13 / FAIL 0**（web 45 文件 820 用例，修完后重跑）。
+  证据 `docs/evidence/P11/2026-10-23-p11.3/`。24.04 的**客户机热重启本轮没验到**（QEMU 11.1
+  + WHPX 在这台宿主上 4/4 挂住，`WHPX: Unexpected VP exit code 4`；TCG 下 24.04 开不了机），
+  那次是 guest 已到 `reboot.target` 之后由宿主冷启动完成的——写在证据的限制②里，不折算成通过。
   **P11.2（刷新索引/安装/卸载/升级）passed**：模拟即准入（`apt-get -s` 的计划当准入依据）、
   执行后重读 dpkg 与计划逐条核对（`observed_state.verified`，退出码 0 不是证据）、锁只探测
   从不删除、非交互参数事先定死、四个动作全部不可取消、`remove` 额外要 `REMOVE` 短语。
@@ -647,7 +670,7 @@ P07.1 先把“该拒的都拒”证完（判决层、可靠身份、整盘锁�
 | P08 | SMB 与卷依赖 | **已完成**（P08.1—P08.4 全部 passed）| P08.1 **passed**：Samba 能力检测、受管理账号、密码秘密通道、POSIX ACL、共享定义与配置版本。VM 上 **PASS=382 / FAIL=0 / NOT RUN=4**；`share.apply` 只到 `accepted`（不写 `smb.conf`、不重载，`sha256` 首末一致），密码明文只走 `smbpasswd` 的 stdin（五处扫描 0 命中），账号与 ACL 均用系统自己的命令读回核验。真机修掉 4 个产品缺陷（Q214/Q220/Q221/Q223），钉死 P05.1 采集器性能问题（Q222，未根治），记下 5 处验收脚本缺陷；证据 `docs/evidence/P08/2026-10-22-p08.1/`。**P08.2 passed**：托管 `upanel.conf` 整份重写 + `smb.conf` 末尾只追加两行（原有内容逐字节前缀比对保留），候选/合并两次 `testparm`、备份 0600 留 40 份、rename + 目录 fsync 的原子更新、`smbd` 活着才 `smbcontrol all reload-config`、逐参数读回、真实 `smbclient` 读写与拒绝、`smbstatus` 会话表连接状态。VM 上 **PASS=237 / FAIL=0 / NOT RUN=0**（四遍）；真机抓出 **1 个**产品缺陷（Q233 上级目录 0700 导致真实客户端 `ACCESS_DENIED`，7 条断言 1 个根因）+ **1 个**契约事实（Q234 `hosts allow` 对环回永远放行），2 处验收脚本缺陷；证据 `docs/evidence/P08/2026-10-22-p08.2/`。**P08.3 passed**：共享与 `volume_id` 绑定、启用检查、启动依赖、运行时脱盘、卸载/格式化依赖阻断。挂载门（只有 `volume_state=mounted` 才渲染，`unknown`/空按没挂处理）、30 秒一轮**只撤不恢复**的监视循环（撤销现场 `runtime_revoked{at,volume_id,volume_name,volume_state,reason}` 落在共享记录上，人再应用才回来）、systemd drop-in `/etc/systemd/system/smbd.service.d/upanel-shares.conf`（`RequiresMountsFor=` 一行四路径、排序去重、原子写、`daemon-reload` 必做、清空即整份删除）、存储侧按 `purpose` 分档的反向约束（卸载只看启用中的共享，格式化/退出管理看任何共享，查不出依赖一律阻塞）。VM 上 **PASS=207 / FAIL=0 / NOT RUN=5**（三遍：184/14 → 203/2 → 207/0），另用三阶段脚本连同一次真 `reboot` 验完重启顺序（pre 18 / post 11 / clean 5，各 0 失败，挂载单元比 `smbd` 早 57.2 秒进入 active，`smb.conf` 重启前后逐字节相同）。真机抓出 **2 个**产品缺陷（Q240 少一列导致 `runtime_revoked` 从不落盘且幂等判据永远失效；Q243 `0644` 被 umask 掩成 `0600`），**2 处**脚本缺陷（Q241、Q244），1 处契约补记（Q242）；证据 `docs/evidence/P08/2026-10-22-p08.3/`。**P08.4 passed**：共享 UI、用户权限与客户端连接说明（不加接口、不改字段）。三个准备状态分开显示；卷的状态与开机依赖**都不在共享记录里**——卷的挂没挂由页面按 `volume_id` 从 `/storage/volumes` 的 `observed_state` join（取不到就少显示一行；`unknown`/`error`/`mismatch` 说“读不出来”而不是“没挂”），开机依赖在 `share.apply` 的 `result.data`；客户端说明四种（Windows/macOS/`mount.cifs`/`smbclient`），地址取自 `window.location.hostname`，命令里永远没有密码（`credentials=` + `0600` + here-doc 走 stdin）。VM 上 **PASS=190 / FAIL=0 / NOT RUN=4**（四遍：167/20 → 187/2 → 190/0），第 5 节逐字执行说明里的 11 行（真 `smbclient` + 真 `mount.cifs` 挂载、写入读回、`umount`），第 6 节四种身份全拿真实 `NT_STATUS_*`，第 7 节 58 份载荷 / 两个库 / `/proc` 两处 / `/proc/mounts` 命中 0。真机抓出 **2 个**产品缺陷（Q246 前端 DTO 写着后端从不发送的四个字段，“卷没挂”永远亮不了；Q247 “重新应用”这条唯一的出路走不通，`runtime_revoked` 从来没被清过），**5 处**验收脚本缺陷；宿主 `check.sh` PASS 13/0/0、前端 637 条用例全绿；证据 `docs/evidence/P08/2026-10-23-p08.4/`、回放夹具 `web/src/fixtures/p08-4-vm/`。`P00-VM-D`（独立 SMB 客户端 VM）仍未建立，跨机器真实网段访问属 **NOT RUN** |
 | P09 | 现有 Web 应用与 Docker | **已完成**（P09.1—P09.5 全部 passed）| P09.5 **passed**：应用卡片、搜索、分组、一键打开、状态区分与常用入口首页集成——**只动前端，不新增接口**。卡片四件事分开画（`runtime_state` / `http_state` / `dependency_protection` / `runtime_note`），「容器在跑但回 500」同时写“运行中”与“入口异常”；按钮按服务器给的 `capabilities` 画（link 只有 `open`、受保护单元只剩 `logs`、看不见的绑定一个都不给）；`open` 是锚点（`target="_blank"`、`noopener noreferrer`）不是请求，地址是服务器地址——真机入口 `http://10.0.2.15:18897/` 回 200 而同端口回环 000，回环/`localhost`/带凭据/`javascript:` 的入口在写入口就 400；启停只落 `service.control`/`container.control`（不引入 `app.control`，那条路会绕过依赖卷门禁）；收藏按用户、幂等；搜索在页面（`GET /apps?q=` 结果集不变）；非空分组删不掉且成员不被顺手移走；`group_id` 形状对但不存在 → 200 + 空、**形状不对 → 400**（Q277，改的是 openapi 的描述不是代码）。VM 上 **PASS=211 / FAIL=0 / NOT RUN=0**，真机**无产品缺陷**（4 处失败：1 处契约文字 + 3 处脚本毛病）；前端 40 文件 / 720 用例、真机载荷回放 51 条断言、宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P09/2026-10-22-p09.5/`、回放夹具 `web/src/fixtures/p09-5-vm/`。P09.4 **passed**：应用摘要里的状态/按钮/日志/依赖保护全部**来自底层对象的观测**，并在启动路径上加一道**只能收紧**的依赖卷门禁。`internal/appruntime` 一次请求内合成三件事：状态逐来源枚举（systemd `active`/`reloading`→`running`、`failed`→`failed`、`activating`/`deactivating`→`unknown`、单元不在列表→`unknown`；docker `running`→`running`、`stopped`→`stopped`、其余→`unknown`）、**能力来自对象自己的能力集合**（不再由 `type` 推导）、保护判定。三处容易写错的钉死了：**`unknown` 不是 `stopped`**（绑在不存在的单元/被重建的容器上要人重新确认绑定，而不是给一个点下去必然失败的按钮）、**受保护单元仍有日志能力**（`ssh.service` 三项生命周期全 false、`logs` 为 true）、**门禁只拦启动**（`stop` 永不拦——卷掉线时最想做的就是停机，拦它只会把人逼回命令行、绕过审计）。门禁 `internal/appruntime/gate.go` 跑在 `CreatePreflight` 已有判决**之后**，只能把 `allowed` 从 true 改成 false（Q273；依赖关系只在 Web 库里，代理不该知道应用元数据）：未挂载→`VOLUME_OFFLINE`、身份不符→`VOLUME_IDENTITY_CHANGED`、读不到卷清单→`VOLUME_CHECK_UNAVAILABLE`（fail closed），提交被钉住的预检是 409 `DEPENDENCY_BLOCKED`，真机用 `docker inspect` 现场对照容器确实没动。`managed` 只给「docker + `restart` 是 no/空 + 有依赖卷」（Q274）——它说的是“经面板发起的启动会被检查”，不是“依赖被接管了”；手工 `docker start`、开机自启、`systemctl enable` 过的单元、`restart: always` 四条绕过路径都在 note 里点名，这几种一律 `unmanaged`。`GET /api/v1/apps/{id}/logs` 按绑定判别 journal / docker，两种 `page` 形状各自与 `/logs`、`/containers/{id}/logs` 一致；`unit`/`source` 这类“想改对象”的参数一律 400（对象来自绑定）。两条**没做**的明写着而不拿门禁冒充（Q276、Q275）：运行时卷失联自动停止要代理侧常驻协调者，本轮不做；docker 的 `failed` 这一版不区分（DTO 里没有 ExitCode，非 running 一律 `stopped`）。VM 上 **PASS=165 / FAIL=0 / NOT RUN=0**（11 节），**真机没抓出产品缺陷**，10 处失败全是脚本自己的毛病（子壳变量、拿受保护单元当夹具、`/storage/volumes` 读成 `data.items`、`lsblk -r` 与 `-l` 在 util-linux 2.39 互斥、拿旧服务快照断言新单元、把“改完之后的版本号”当乐观锁、`pfget` 拼路径去跑表达式）；宿主 `check.sh` PASS 13/0/0、`go test -count=1 ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.4/`。P09.3 **passed**：Docker 只读查询（容器/镜像/网络/数据卷/部署）、容器日志（时间键集分页 + SSE 流，每账号 4 条并发）、现有受支持容器的 start/stop/restart。**Web 进程从不碰 `docker.sock`**——所有查询与动作在代理里用固定子命令完成，真机验了 Web 账号不在 docker 组、`docker ps` 被拒、`/proc/<pid>/fd` 里没有 sock。**容器身份只认完整 64 位小写十六进制**（唯一会进 argv 的可写字符串，名字只在输出里出现；短 ID 可猜，全 ID 不行），`^[0-9a-f]{64}$` 在 Web 与代理各校验一次。**风险是闭集而不是启发式**：privileged、host 网络/pid/ipc、危险 capability、挂 `docker.sock`、挂宿主 `/` → `risk.level=high` + `managed=false` + 三项能力全 false，并在预检（`CONTAINER_NOT_MANAGED`）与执行前复核（`controlBlockedError` → 409 `PREFLIGHT_STALE`）**两处**拒绝。**不该要的东西不请求**：inspect 格式串里没有 `Config.Env`、没有完整标签表（只取六个 `com.docker.compose.*`），真机放了唯一口令，清单/详情/日志/SSE/代理日志里都搜不到，日志正文经 `logging.Redact` 成 `[redacted]`。启停每条都“预检 → 任务 → 读回”并与 `docker inspect` 现场对照：**退出码 0 不算成功，读回状态一致才算**（`observed_state.verified`）。compose 项目是派生身份 `dep_`+sha256 前缀，只做精确匹配 GET，外部 YAML 不执行不解析不落盘。VM 上 **PASS=217 / FAIL=0 / NOT RUN=1**（五遍；唯一 NOT RUN 是“执行前复核（受理之后再变）”，需毫秒级可重复竞态，由 `TestContainerControlExecuteStaleState` 覆盖）；真机抓出并修掉 **3 个**产品缺陷（Q270 `--tail`/`--until` 顺序让往回翻页只剩边界一条 → 时间窗分页；Q271 套接字还在但守护进程死了被当成命令失败/500 → 按 `Cannot connect to the Docker daemon` 判 `UnavailableError`，清单降级 200 + `available=false`、预检 `allowed=false` + `DOCKER_UNAVAILABLE`；Q272 代理的 5xx 域内码被 Web 改写成 `AGENT_UNAVAILABLE`）；宿主 `check.sh` PASS 13/0/0、`go test ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.3/`。P09.2 **passed**：本机端口/服务/容器发现、管理员确认候选、普通健康检查与 SSRF 约束。三路来源（`/proc/net/tcp{,6}` LISTEN → inode → `/proc/<pid>/fd` → cgroup v2 → `.service`、裸监听、`docker ps -a --no-trunc`），候选 `target_id` 只有 `local_…`/`cntr_…` 两种形状；**SSRF 不是过滤而是写不出来**——探测地址一律由代理拼成 `http(s)://127.0.0.1:<port><path>`（`Proxy: nil`、不跟重定向、TLS 校验开、正文 64 KiB 截断），调用方没有任何位置能放主机名/IP/完整 URL；确认候选＝`POST /apps`（不另开接口）；结论只进 `app_health_results`（`0008`），定义仍在 `apps.health_json`；调度 5 秒一拍/一轮 60 秒/每应用 30—300 秒/最小间隔 5 秒，代理不可用写一条 `unknown` 即结束本轮。两条诚实性规矩：**“没看”不能变成“没有”**（探测侧 `unknown` vs `error`，入 Q257；绑定合并侧来源没采成不进 `missing_bindings`，Q260），**没发出去的探测不填 address/url**。为三条容器验收在测试机上装 `docker.io` 29.1.3 + `alpine:3.20` **夹具**（非依赖；无 docker 的机器上那三条仍是 NOT RUN）。VM 上 **PASS=120 / FAIL=0 / NOT RUN=1**（六遍 93/0 → 120/0；唯一 NOT RUN 属 P09.4）；真机抓出并修掉 **3 个**产品缺陷（Q258 pid 1 代持的 `.socket` 监听让端口出现两次、Q259 docker-proxy 在 `docker.service` cgroup 里让容器出现两次且抑制必须在单元分类之前、Q260 停 dockerd 后容器应用被误判“需重新确认”）+ 一条语义修正 Q257；宿主 `check.sh` PASS 13/0/0、`go test ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.2/`。**下一子任务 P09.3**（Docker 只读查询、日志、现有受支持容器的启停）。P09.1 **passed**：应用/分组/收藏元数据、link/systemd/docker/compose 判别模型、公共入口与内部目标分离。四张表（`apps`/`app_groups`/`app_favorites`/`app_volume_dependencies`，`0007_apps.sql`）；`type` 决定 `binding` 的唯一合法键，规范化 JSON + `uq_apps_binding`（`WHERE type <> 'link'`）+ `CHECK` 让唯一性由数据库保证；`public_url` 只受理浏览器能打开的地址（生产禁回环/通配），健康检查 `target_id` 形状写不出 IP/主机名/URL，`169.254.169.254` 真机试过；摘要字段只填“不知道”（link `not_applicable`，其余 `unknown` + `last_checked_at=null` + `dependency_protection=unmanaged`），`capabilities` 只有 `open`；依赖卷不建外键（Q248），写入经代理确认，503 不写库、422 带 `volume_id`；删除只删元数据，收藏按用户隔离且不写审计。VM 上 **PASS=210 / FAIL=0 / NOT RUN=0**（第八遍；第七遍复跑同样 210/0/0）。真机**无产品缺陷**，前几遍 23 个 FAIL 全为脚本自身问题（断言写错 4 处、破坏性动作漏再认证、夹具没清干净 1 处），并把“预检绑定快照”这条产品语义钉进脚本；宿主 `check.sh` PASS 13/0/0、`go test ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.1/`。|
 | P10 | 反向代理、HTTPS、0.1 发布 | **passed**（P10.1—P10.4 全部完成）| P10.3 **passed**：证书四件事——staging 必填（`staging *bool` 缺失即 400，默认值就等于"不小心调用正式 ACME"）、`--server` 只由 staging 推导（调用方给不了地址）、签发前先做 HTTP-01 可达性检查；手动导入拆两条通道（公钥走一次性上传，1 MiB、10 分钟、绑会话；私钥走 `POST /secrets`），私钥不进 argv/日志/库，落地前 `Take` + `CoversDomain`；账本按域名唯一、`crt_` 在预检展开期定死、**唯一写入点 `OnJobFinished`**；到期信息 `valid`/`expiring`（21 天窗）/`expired` 现场读盘；续期读 jobs 表做同域名 1 小时冷却（429 `RESOURCE_BUSY`）。**续期与生效分家**：续期只换盘上文件，生效靠下一次 `proxy.apply` 的轮换**实测**（SNI 握手取叶证书指纹，与盘上不一致就 reload，`reload_reason=cert_rotated`，12 × 250 ms settle 预算，仍不一致报 `PROXY_TLS_SERVED_STALE` 告警）。VM 上 **PASS=176 / FAIL=0 / NOT RUN=7**（四遍收敛 114/37 → 165/2 → 172/4 → 176/0），真机抓出 **1 个**产品缺口（续期之后新证书在任何路径上都不生效）。证据 `docs/evidence/P10/2026-10-23-p10.3/`。P10.2 **passed**：配置生成（纯函数渲染、确定性 apr1 盐）、原子写入（临时文件 + fsync + rename + fsync 目录）、`nginx -t` 整棵树门禁、失败回滚与回滚复验、`nginx -s reload`（只 reload 不 restart，单元没在跑就 skip）、`applied` 四态推导（不落库）、改名与停用的文件清理（先备份）、账号文件权限按 worker 用户定、删除记录的孤儿配置门禁 409、`proxy.apply` 参数服务端展开。VM 上 153 项断言全过，真机抓出 1 个缺陷（Q290 预检偶发 8 秒 → 单元探测排在采集扫掠后面，6.389s vs 0.17s）。证据 `docs/evidence/P10/2026-10-23-p10.2/`。P10.1 **passed**：Nginx 发现、域名冲突判断、站点定义登记（单域名单 upstream、WebSocket 开关、请求限制、访问策略）。事实与判断分家：代理登记 `nginx.state`（`{fresh}`）只给事实，`internal/proxies` 出判断；**展示用 5 秒快照、写入门禁用直读**（缓存窗口里刚手工加的 `server_name` 正是唯一需要判准的时刻）；冲突三态 `clear`/`taken`/`unknown`，**`unknown` 与 `taken` 一样 409 阻断**（`nginx reload` 不因 `server_name` 撞车失败，只会安静地用第一个块），证据带文件 + `server_name` 所在行 + 原文 + `broken_files`；读不到主机事实是 503 而不是“没有冲突”。符号链接按真实路径去重（`sites-enabled/default` 只算一次）；域名 IDNA 归一并禁通配符/协议/端口/路径；**上游端口不得等于面板真正监听的端口**（取自监听地址，不写死 9443）；默认值与 nginx 一致（`1m`/`60s`）；访问模式与附加字段双向一致（多给也 400）；`secret_ref` 只进不出。**P10.1 不写配置**：没有 `applied_*` 字段、审计固定 `"applied": false`、`/etc/nginx` 全部文件内容摘要前后相等（Q280）。VM 上 **PASS=100 / FAIL=0 / NOT RUN=0**，真机抓出 **1 个**产品缺陷（Q279：`nginx -v` 时限写成无单位 `5` → 5 纳秒，Windows 上被 `t.Skip` 的单测证明不了）；证据 `docs/evidence/P10/2026-10-22-p10.1/` |
-| P11 | 软件更新与电源 | **进行中**（P11.1、P11.2 passed；P11.3 未开始）| P11.2 **passed**：四个写动作（`package.refresh`/`install`/`remove`/`upgrade`）——模拟即准入（`apt-get -s` 的 `Inst`/`Remv`/`Conf` 与保留原因当依据）、执行后重读 dpkg 与计划逐条核对（`observed_state.verified`；退出码 0 不是证据）、四把 apt/dpkg 锁只探测从不删、非交互六件套（`noninteractive`/`--force-confdef`/`--force-confold`/`Use-Pty=0`/`LISTCHANGES=none`/`NEEDRESTART_MODE=l`）、四个动作全部不可取消、`remove` 额外要 `REMOVE` 短语、`upgrade` 只走 `--only-upgrade` 永不 `dist-upgrade`、删除保护名单硬编码在代码里。两台 VM 各 **PASS 169 / FAIL 0 / NOT RUN 4**、两次 `exit=0`；宿主 `check.sh` PASS 13 / FAIL 0（web 43 文件 791 用例）；`//go:build unix` 三个包首次在 Linux 真跑（`syscmd` 24+1 SKIP / `processes` 41 / `apt` 77）。真机抓出 **6 个缺陷**：退出码 -1 不说谁停的（`syscmd.Result.Signal`）、socket 尸体被当就绪（脚本抢跑）、锁探测单测与实现矛盾（分平台断言）、38.7s 再模拟被前端 20s 掐断、`wait_job` 按次数算的“300 秒”实际 400+、升级夹具靠“恰好有个可升级的包”（改自建 `file:` 源 + conffile 真冲突）。证据 `docs/evidence/P11/2026-10-23-p11.2/`。P11.1 **passed**：软件包与更新只读页——代理出事实（dpkg 登记 + `apt-cache policy` 候选 + 重启标志/`boot_id`）、Web 算判断（`candidate_relation`/`upgradable`/`security`/`pockets`/`counts`/分页/筛选），`internal/debversion` 做版本比较。真机抓出并修掉 **1 个产品缺陷**：arch 限定名（`bind9-libs:amd64`）在 `apt-cache policy` 里块头被 apt 剥成 `bind9-libs:`，按请求名索引必然落空 → 整类包的候选被谎报成“读不到”；修法是基础名回退 + 同名双架构时**不回退**（如实报 `unknown`），对账脚本自己也复刻了同一个 bug，改法不同之后才敢当对账。24.04 的 apt 比 22.04 慢 28 倍（26.6s vs 384ms / 731 与 676 个包名），超时分成 45s/60s/120s/30s 四层，**启动预热删掉**（26s→62s 反而误报不可用）。两台 VM 各 **PASS 64 / FAIL 0 / NOT RUN 7**，对账 0 失配；宿主 `check.sh` PASS 13 / FAIL 0。证据 `docs/evidence/P11/2026-10-23-p11.1/` |
+| P11 | 软件更新与电源 | **已完成**（P11.1、P11.2、P11.3 全部 passed）| P11.3 **passed**：`system.power`（`reboot`/`poweroff`）走既有预检→再认证→提交→执行→审计链路——结果只到 `accepted`、`verified_at` 为空，唯一站得住的证据是 `boot_id` 变了（`confirmed`/`unchanged`/`unreachable`/`unknown` 四个闭集，没有第五个）；**关机只承认“回来过”，电源是否真切断“只能由现场回答”**，断言同时钉死“不许出现关机成功 / 不许 `outcome=verified`”；关键任务闸门（有写操作在跑 → 预检 `allowed=false` 并点名 blocker、提交 409 `POWER_JOBS_RUNNING`、`boot_id` 不动）与倒计时取消（终态 `canceled`、无 `power_check`、`boot_id` 不变）互为正反面；`power-global` 锁串行化。两台 VM 各 **PASS 109 / FAIL 0 / NOT RUN 2**（多出的一条是新增的 `env-no-foreign-units`；两条 NOT RUN 是“脚本与被测机器同一台”的位置问题，各自在下一阶段被同一事实的 PASS 覆盖），逐节断言数两台完全相同；真机 `boot_id` `591a2533→5389231a→4a25a825`（22.04）与 `97057b04→22486dd5→813e082b`（24.04），24.04 关机后 QEMU 进程从宿主消失（真断电而非假关机；串口原文 `reboot: Power down` 留在证据里）；宿主 `check.sh` PASS 13 / FAIL 0（web 45 文件 820 用例，修完后在最终代码上重跑）。真机抓出并修掉 **2 个产品缺陷**：电源操作把自己算成在跑的关键任务（每个 `system.power` 停在 `revalidate` 报 `POWER_JOBS_RUNNING`，而前一步预检是 `allowed`）——修法是 `OperationID` 从 `PlanInput` 递到 `InFlight(exclude)`，闸门判据一字未动，两层回归测试钉住；**代理起服时抢走正在服务的 socket**（第 2 轮 22.04 的 6 条 503 根因：外层 systemd 单元每 3 秒重生并清 `/run`，`prepareSocketPath` 又无条件 `os.Remove`，删掉的是还活着的代理的路径）——修法是先探测：连得上拒绝启动、`ECONNREFUSED`/`ENOENT` 才算陈旧、说不清按有人处理，两个回归测试钉住“活的不许抢”和“陈旧的必须能清”；另有 **1 条假绿**：审计查询漏了 `FROM audit_events`，SQLite 报错被吞、空串里找不到口令就 PASS（“没查成 ≠ 清白”），改成查询失败也判失败并重跑阶段三；十条脚本与流程缺陷、九条限制见证据（其中第二条是 24.04 的客户机热重启本轮没验到）。证据 `docs/evidence/P11/2026-10-23-p11.3/`。P11.2 **passed**：四个写动作（`package.refresh`/`install`/`remove`/`upgrade`）——模拟即准入（`apt-get -s` 的 `Inst`/`Remv`/`Conf` 与保留原因当依据）、执行后重读 dpkg 与计划逐条核对（`observed_state.verified`；退出码 0 不是证据）、四把 apt/dpkg 锁只探测从不删、非交互六件套（`noninteractive`/`--force-confdef`/`--force-confold`/`Use-Pty=0`/`LISTCHANGES=none`/`NEEDRESTART_MODE=l`）、四个动作全部不可取消、`remove` 额外要 `REMOVE` 短语、`upgrade` 只走 `--only-upgrade` 永不 `dist-upgrade`、删除保护名单硬编码在代码里。两台 VM 各 **PASS 169 / FAIL 0 / NOT RUN 4**、两次 `exit=0`；宿主 `check.sh` PASS 13 / FAIL 0（web 43 文件 791 用例）；`//go:build unix` 三个包首次在 Linux 真跑（`syscmd` 24+1 SKIP / `processes` 41 / `apt` 77）。真机抓出 **6 个缺陷**：退出码 -1 不说谁停的（`syscmd.Result.Signal`）、socket 尸体被当就绪（脚本抢跑）、锁探测单测与实现矛盾（分平台断言）、38.7s 再模拟被前端 20s 掐断、`wait_job` 按次数算的“300 秒”实际 400+、升级夹具靠“恰好有个可升级的包”（改自建 `file:` 源 + conffile 真冲突）。证据 `docs/evidence/P11/2026-10-23-p11.2/`。P11.1 **passed**：软件包与更新只读页——代理出事实（dpkg 登记 + `apt-cache policy` 候选 + 重启标志/`boot_id`）、Web 算判断（`candidate_relation`/`upgradable`/`security`/`pockets`/`counts`/分页/筛选），`internal/debversion` 做版本比较。真机抓出并修掉 **1 个产品缺陷**：arch 限定名（`bind9-libs:amd64`）在 `apt-cache policy` 里块头被 apt 剥成 `bind9-libs:`，按请求名索引必然落空 → 整类包的候选被谎报成“读不到”；修法是基础名回退 + 同名双架构时**不回退**（如实报 `unknown`），对账脚本自己也复刻了同一个 bug，改法不同之后才敢当对账。24.04 的 apt 比 22.04 慢 28 倍（26.6s vs 384ms / 731 与 676 个包名），超时分成 45s/60s/120s/30s 四层，**启动预热删掉**（26s→62s 反而误报不可用）。两台 VM 各 **PASS 64 / FAIL 0 / NOT RUN 7**，对账 0 失配；宿主 `check.sh` PASS 13 / FAIL 0。证据 `docs/evidence/P11/2026-10-23-p11.1/` |
 | P12 | 备份恢复与计划任务 | not_started | 需恢复校验 |
 | P13 | 历史监控和告警 | not_started | — |
 | P14 | 网络、NFS、账号、TOTP | not_started | 需独立网络回滚验收 |
@@ -4532,6 +4555,95 @@ NOT RUN，理由是“验收机上没有这种包，自造要建源、会污染�
 结果与限制、六条真机缺陷，`logs/` 两台机器完整输出 + 宿主检查 + Linux-only 单测，
 `payloads/{2204,2404}/` 每一步的原始 JSON，`run-launcher.sh` 启动器原文）。
 
+### P11.3（2026-10-23）— 电源：唯一没人能旁观的动作，只能靠 `boot_id` 与"不吹"
+
+**重启和关机是这个面板里唯一"执行者与被观察者是同一个"的动作。** 别的写操作都能在事后
+把结果读回来对账（装了什么包、写了哪个文件、挂载点有没有真挂上），电源不行：命令交出去
+之后代理进程就随着机器一起消失，没有任何一方还在看着现场。所以这一段的全部功夫都花在
+"**能说什么、不能说什么**"上——预检说清影响面与需要什么（再认证、不要短语、可取消、
+占 `power-global` 锁），倒计时期间任务 `running`、命令还没发出去、随时可撤销，执行结果是
+`accepted`（命令已交出），`verified_at` 必须是空。
+
+**唯一站得住的证据是 `boot_id`。** 内核每次开机换一个，所以任务被读回时（只读单个任务时
+才现场核对，列表不核对——列表上每个任务都去问一次代理，等于让页面替代理发并发）面板去问
+"你此刻的 boot_id 是哪个"，与下发前记下的那个比：不同 → `confirmed`（这次重启确实发生过）；
+相同 → `unchanged`（受理了，但还在原来那次开机上，可能还在倒计时、可能被取消，**不猜是哪
+一种**）；连不上 → `unreachable`（关机后会这样，但**不构成关机成功的证据**）；读不出来 →
+`unknown`。四个值就是全部能站住的结论，没有第五个"应该差不多"。
+
+**关机这一侧只承认自己不知道。** 面板连电源灯都看不到，所以措辞是：机器已经回来过、
+`boot_id` 从谁变成谁、这说明关机之后它重新启动过，**但电源当时是否真的切断，面板给不出
+证据，只能由现场回答**。断言同时钉死"不许说什么"：不许出现"关机成功"、`outcome` 不许是
+`verified`、`verified_at` 不许有值。这一条不是措辞洁癖——是验收条件里"关机界面不伪称
+已验证"的原文落地。
+
+**关键任务闸门**照 STAGES §13 的原样实现：有别的写操作正在执行时，电源操作预检
+`allowed=false`、`blocker` 点出那个 job id，提交 409 + `POWER_JOBS_RUNNING`，机器不动
+（判据是 `boot_id` 没变，不是看返回码）。倒计时里取消则是这一条的反面证据：任务终态
+`canceled`、`outcome` 为空、**没有 `power_check`**（没发生的事没有核对）、`boot_id` 不变。
+
+**真机抓出的产品缺陷：每个重启都自己拒自己。** 现象是 `system.power` 的每个任务都停在
+执行前复核（`stage=failed, step=revalidate`，`started_at=0`），错误 `POWER_JOBS_RUNNING`，
+而它前面刚跑的预检是 `allowed=true`——表面像"预检放行、提交必失败"，也很容易被误读成
+"闸门太严"。根因在问法：`revalidate` 重算计划时不带操作 id，`power.Assess` 固定调
+`InFlight("")`，闸门于是把发起者**自己**算成了在跑的关键任务。修法是在接缝处把 id 递下去
+（`PlanInput.OperationID → AssessRequest.ExcludeOperationID → InFlight(exclude)`，
+预检传空串、执行前复核传 `op.ID`），闸门判据一个字没动。回归测试两层：power 层三支
+（预检拦自己、复核放行自己、别人照样拦）、agent 层一支（id 一路传到 `AssessRequest`）。
+
+**验收脚本自己抓出八条问题，其中一条是"假绿"。** 最该记的是 §10 的「审计不含明文口令」：
+查询写成 `SELECT group_concat(redacted_details)`，**漏了 `FROM audit_events`**，SQLite 在空
+作用域里找列直接报 `no such column`；dbq 的 stdout 是空的、stderr 只进了日志，`grep` 从空串
+里当然找不到口令，于是 **PASS**——没查成被当成了清白。修法是补 `FROM` 并让"查询失败"本身
+判失败（在 22.04 上用坏 SQL / 好 SQL / 含口令列三支证明这个闸门 fail-closed），两台 VM 的
+阶段三用修好的脚本重跑。两版脚本的差异是可验证的：把交付版那段换回第一版，md5 复算
+= `28eaba97…`，与 pre/post 实跑的那一版逐字节相同。其余七条：把 Windows PE 推给 Linux
+（`Exec format error`，脚本起不来、日志一行没有 → 手工构 `bin/linux-amd64/` + ELF magic
+守卫，起跑线拒跑）；30 秒倒计时与脚本自己的 25 秒观察窗抢命（改 60 秒、终态断言移到下一
+阶段并如实记 NOT RUN）；`cleanup()` trap 把代理优雅停掉、倒计时里的 reboot 变 `interrupted`
+（两阶段收尾 `KEEP_SERVICES=1`）；`jget` 的裸变量名 `NameError` 被吞成 `ERR:` 字符串让
+`expect_ne` 假通过（改 `d["boot_id"]` + `require_value`）；`fs.protected_regular` 让 root 也
+truncate 不了 upanel 在 sticky 目录里的文件，等待器于是读到**上一轮**日志、"阶段二 11 条
+FAIL"全是假的（日志写进 root 自己的目录，先看 mtime 与行数再信内容）；WHPX 下重启挂死
+（`WHPX: Unexpected VP exit code 4`，`reboot: Restarting system` 之后再也不回来 → `-Accel tcg`）。
+
+**重跑的第 2 轮抓出了真正的根因：一个产品缺陷在删别人正在用的 socket。** 22.04 的阶段二
+一开始就红了 6 条，全是 `GET /system/power-state` 返回 503（`AGENT_UNAVAILABLE`）。顺线查：
+Web 日志说 `dial unix /run/upanel/agent.sock: connect: no such file or directory`，而代理
+18:14:35 起就在 listen、18:15:11 还正常答过预检——**进程活着，socket 没了**。两个原因叠在
+一起：①环境里留着早前安装验收的 `upanel-agent.service` / `upanel-web.service`，`ExecStart`
+指向已被删除的二进制，`Restart=on-failure` 下每 3 秒重生一次（`203/EXEC`、`NRestarts=116`），
+它们的 `RuntimeDirectory=upanel` **每停一次就删掉 `/run/upanel`**；②产品侧
+`prepareSocketPath` 对已存在的 socket 一律 `os.Remove` 再 bind——"连得上"和"连不上"在它眼里
+一样，于是每个重生周期都在删还活着的代理的路径，抢输的那个退出时又把路径删了。修法是让它
+先问一句：连得上 → 已经有一个代理在服务，**拒绝启动且不碰文件**；`ECONNREFUSED`/`ENOENT`
+→ 陈旧，照旧清理；说不清（超时等）→ 按有人处理，同样不碰——**分不清就不删，删掉的可能是
+一个活着的代理**。两个回归测试分别钉住"活的不许抢"（原监听者拒绝启动后仍然可连）与"陈旧
+的必须能清"（否则代理崩一次就再也起不来）。环境那一半由脚本的 `guard_foreign_units` 兜住：
+每阶段停用 + mask 外来 `upanel*.service`（`/etc` 里的真实单元文件 mask 会失败，改为改名
+挪走），断言一个都不剩，停不掉就 exit 2——这就是 §0 新增的 `env-no-foreign-units`。
+第 1 轮的日志本来只用来证明这两个缺陷是真的，确认之后整份作废，两台从干净状态按
+"提交 → 构建 → 跑"的顺序重来（`7d4039e`）。
+
+**结果**：两台专用虚机、同一份二进制（`agent 6ce5726f…` / `web 876ce0a3…` /
+`ctl 48c360ae…`，自报 `0.0.0-p11.3 (commit 7d4039e)`）、同一份脚本（md5 `93e7251c…`
+四阶段全程一致），22.04.5 与 24.04.5 各 **PASS 109 / FAIL 0 / NOT RUN 2**，
+逐节断言数两台完全相同（§0 2、§0.1 7、§1 11、§2 11、§3 11、§4 8、§5 7+1N、§6 8、§7 12、
+§8 12+1N、§9 15、§10 4、§11 1）。两条 NOT RUN 不是漏跑，是**位置问题**：reboot 的终态只能
+在重启之后读、poweroff 的终态只能在上电之后读，各自在下一阶段被同一事实的 PASS 覆盖
+（`reboot-after` / `poweroff-after`：`accepted`、无 `verified_at`、命令与退出码、"人工开机"
+提示、核对消息拒绝声称）。真机事实：22.04 `591a2533 → 5389231a → 4a25a825`，24.04
+`97057b04 → 22486dd5 → 813e082b`——三个 id 互不相同，所以"重启过一次"与"断电后又上电"
+分得开；24.04 关机后 QEMU 进程从宿主上消失（串口 `reboot: Power down` 留在证据里），
+是真断电而不是假关机。宿主 `scripts/check.sh` **PASS 13 / FAIL 0**（web 45 文件 820 用例，
+修完之后在最终代码上重跑）。
+九条限制写进 §8（无浏览器渲染、**24.04 的客户机热重启没验到**、电源切断只能由现场回答、
+final 阶段必须人/宿主上电、`power-global` 的并发竞争未验、systemd inhibitor 未验、
+倒计时边界只验了校验层、"关键任务"口径是通用的、socket 守卫只验了单机语义）。证据
+`docs/evidence/P11/2026-10-23-p11.3/`（`env.txt` 构建/指纹/两台虚机的 boot_id 链与三处
+环境干预、`result.md` 结果与限制、`logs/` 四阶段完整输出 + 宿主检查 + 版本指纹 +
+24.04 的断电与重启挂死串口原文、`payloads/{2204,2404}/` 每一步原始 JSON）。
+
 ## 6. 未决问题与范围变更
 
 未批准任何范围变更。DECISIONS.md 第 8 节记录 Q1—Q80；P03.3 新增六条：Q67（阶段与事件必须同事务，
@@ -4978,6 +5090,11 @@ Q103（`cmd/upanel-web` 的用例会读机器上的 `/etc/upanel/upanel.json`，
 | P11.2-PROBE | P11 | 已执行（24.04 上 `apt-get -s` 预检 34.6/13.0/47.2/10.8/40.4s，提交时再模拟 38.7/33.9/29.0s，装 cowsay+sl ≈6 分半，升 `zlib1g` >6 分钟未终态；22.04 同批秒级、`figlet` 安装 <1.2s。据此定下 75s/120s/90s/100s/95s/21 分钟六层等待） | docs/evidence/P11/2026-10-23-p11.2/env.txt |
 | P11.2-SCRIPT | P11 | 已执行（`tests/integration/p11-2-package-write-acceptance.sh`，1103 行 16 节，md5 675b0eee…；脚本自建 `file:` 源夹具 + 两个 conffile 包；退出码由 `/root/run-p11-2.sh` 捕获，原文见 run-launcher.sh） | docs/evidence/P11/2026-10-23-p11.2/run-launcher.sh、tests/integration/p11-2-package-write-acceptance.sh |
 | P11.2-RESULT | P11 | 已产出（范围、代码清单、逐节 PASS/FAIL/NOT RUN、六条真机缺陷、8 条限制） | docs/evidence/P11/2026-10-23-p11.2/{env.txt,result.md} |
+| P11.3-VM | P11 | **已执行并通过（22.04.5 与 24.04.5 各 PASS=109 / FAIL=0 / NOT RUN=2，四阶段 exit=0）**；22.04 跨一次**真重启**（`591a2533→5389231a`，阶段二读到时 uptime 79 秒）与一次**真断电**（`4a25a825`）；24.04 的 boot_id 也换了（`97057b04→22486dd5→813e082b`），但**重启那一跳是宿主冷启动**——QEMU 11.1 + WHPX 4/4 挂住（`WHPX: Unexpected VP exit code 4`），TCG 下 24.04 开不了机（`IO-APIC + timer doesn't work!`），已写在证据限制②；24.04 关机后 QEMU 进程从宿主消失（串口 `reboot: Power down`）；逐节断言数两台完全相同（按 `== 节标题 ==` 分段从日志数出，非估算）；两条 NOT RUN 分别在阶段二 §7 与阶段三 §9 由同一事实的 PASS 覆盖 | docs/evidence/P11/2026-10-23-p11.3/logs/{2204,2404}-{phase-pre,phase-post,phase-final,results}.txt |
+| P11.3-FIX | P11 | 已执行（产品缺陷 A：电源操作把自己算成在跑的关键任务 → `POWER_JOBS_RUNNING`；修法 `PlanInput.OperationID → AssessRequest.ExcludeOperationID → InFlight(exclude)`，闸门判据不动。产品缺陷 B：`prepareSocketPath` 无条件删除已存在的 socket，把正在服务的代理的路径删掉（第 1 轮 22.04 的 6 条 503）——改成先探测后决定，`socketprobe_{linux,other}.go` 承载平台错误分类。回归：`TestAssessExcludesSelfWhenRevalidating` 三支、`TestPowerPlanPassesOperationIDToPower`、`TestPrepareSocketPathRefusesLiveSocket`、`TestPrepareSocketPathReplacesStaleSocket`。另修一条**假绿**：审计查询漏 `FROM audit_events`，改成查询失败也判失败，并在 22.04 上用坏 SQL / 好 SQL / 含口令列三支实测 fail-closed） | internal/power/{exec.go,exec_test.go}、internal/agent/{registry.go,operations.go,runner.go,poweraction.go,poweraction_test.go,server.go,server_test.go,socketprobe_linux.go,socketprobe_other.go}、tests/integration/p11-3-power-acceptance.sh |
+| P11.3-SCRIPT | P11 | 已执行（`tests/integration/p11-3-power-acceptance.sh`，909 行 11 节四阶段，本轮**两台四阶段全程同一版 md5 93e7251c…**；新增 `guard_foreign_units`：外来 `upanel*.service` 停用 + mask（`/etc` 里的真实单元文件 mask 会失败，改为改名挪走）并断言为 0，停不掉就 exit 2；不再 `rm -f` socket，陈旧/占用交给代理判断；ELF magic 守卫挡住“把 PE 推给 Linux”） | tests/integration/p11-3-power-acceptance.sh、docs/evidence/P11/2026-10-23-p11.3/env.txt |
+| P11.3-HOST | P11 | 已执行（`scripts/check.sh` PASS 13 / FAIL 0 / NOT RUN 0：`go vet`、`gofmt` 无输出、`go test ./...` ok、web typecheck/lint/build/smoke、web **45 文件 820 用例**、openapi lint 通过；node v22.23.3；这一份是修完之后在最终代码上重跑的） | docs/evidence/P11/2026-10-23-p11.3/logs/host-check.txt |
+| P11.3-RESULT | P11 | 已产出（范围、代码清单、逐节 PASS/FAIL/NOT RUN、2 个产品缺陷、1 条假绿、10 条脚本与流程缺陷、9 条限制——含“24.04 客户机热重启未验到”） | docs/evidence/P11/2026-10-23-p11.3/{env.txt,result.md} |
 | P00-VM-C（LVM 根） | P00/P04 | **NOT RUN**（未创建） | 需在 P04 前补齐 |
 | P00-VM-D（SMB 客户端） | P00/P08 | **NOT RUN**（未创建；P08.2 用同机真实 `smbclient` + netns 客户端替代，跨机器网络路径仍缺） | 需在 P08 前补齐 |
 
@@ -4988,7 +5105,8 @@ Q103（`cmd/upanel-web` 的用例会读机器上的 `/etc/upanel/upanel.json`，
 **但这句到今天已经不准了**：JOB 组现在有 `service.control`/`process.signal`/七个文件动作/
 `terminal.create`/四个磁盘动作/五个卷动作这些**真实业务动作**在执行（见 §8 的“已解除的历史限制”）；
 DISK 与 FILE、TERM 的实质内容分别在 P07 与 P06.1/P06.2、P06.3 有真机证据；SHARE/APP/PROXY
-在 P08/P09/P10 有真机证据，**PKG 的只读部分**在 P11.1 有真机证据（写动作要等 P11.2/P11.3）。
+在 P08/P09/P10 有真机证据，**PKG 的只读与写动作**在 P11.1/P11.2 有真机证据，**电源
+（重启/关机的闸门、倒计时取消、`boot_id` 确认与“不伪称已验证”）**在 P11.3 有真机证据。
 真正连只读都还没有的矩阵条目是
 BACKUP/TIMER/ALERT/NET/NFS/DEPLOY/RELEASE。**矩阵编号与已有断言的对应关系仍未建立**
 （这是账本的一个缺口，不是产品的缺口）。
@@ -5471,3 +5589,29 @@ BACKUP/TIMER/ALERT/NET/NFS/DEPLOY/RELEASE。**矩阵编号与已有断言的对�
   的包”会被上一轮验收消费掉，是运气不是夹具。这一条不是缺陷，但它意味着**没验过真实发行版包
   的升级**——24.04 上真升一次（`zlib1g`）实测超过 6 分钟仍未终态，被排除在自动化之外。
   ⑧ **Windows / macOS 宿主不在 0.1 范围**，这两台上的行为未验证。
+- **P11.3 的九条限制**：
+  ① **没有浏览器渲染验证**：验收 VM 上没有浏览器，`PowerControlCard` / `PowerCheckPanel` /
+  `JobsView` 只有 `vue-tsc`、组件逻辑单测与真机 JSON 回放，没人在浏览器里点过倒计时按钮。
+  ② **24.04 的客户机热重启本轮没验到**：QEMU 11.1 + WHPX 在这台宿主上无法完成 reset
+  （4/4 挂住，串口停在 `reboot: Restarting system`，stderr `WHPX: Unexpected VP exit code 4`），
+  TCG 下 24.04 又开不了机（6.8 内核 `IO-APIC + timer doesn't work!`，cpu 默认/`max`、
+  `hpet=on`、smp 1/2 都试过）。那一次 boot_id 变化是真的，但**是宿主在 guest 已到
+  `reboot.target` 之后冷启动完成的**——“客户机自己回来”只在 22.04 上验到。环境那一环
+  不许读成通过，串口原文在证据里。
+  ③ **“电源真的切断”面板证明不了，也不声称**：真机能证明的是“机器回来过且 `boot_id` 变了”；
+  24.04 关机后 QEMU 进程消失是**宿主侧**的观察，不是产品能力。所以措辞写的是“只能由现场
+  回答”——验收记录也不拿宿主观察冒充产品证据，两边分开写。
+  ④ **阶段三必须由人（或宿主脚本）重新上电**：`--phase final` 无法自证，两条 NOT RUN 的
+  根源在这里，是被测对象决定的，不是脚本偷懒。
+  ⑤ **电源操作只有一把全局锁**：`power-global` 串行化是对的，但只验了“有写操作在跑 → 拒绝”
+  与“同一预检只能提交一次”，**没有**验两个管理员同时抢电源时的真实竞争。
+  ⑥ **systemd inhibitor 未验**：别的进程（unattended-upgrades、外来的 `shutdown -r`）挡住
+  重启时 `systemctl` 会退出非 0，本轮只验了正常路径的 `exit_code=0`。
+  ⑦ **倒计时边界只验了校验层**：`delay_seconds` 的 0 / 太短 / 太长 / 未知字段 / 多余参数都被
+  拒收，但**没有**真跑一次 1 秒倒计时去看它在真机上的表现。
+  ⑧ **“关键任务”的口径是通用的**：判据是“有没有别的写操作在执行”，不是包管理器/磁盘任务
+  单独的特权规则；apt 锁、磁盘任务与电源的关系没有单独验。
+  ⑨ **socket 守卫只验了单机语义**：活 socket 拒绝启动、陈旧 socket 能清，这两条都有单测；
+  但“两个代理同时起、谁赢”只在第 1 轮真机上偶然复现过，没有做成一台机器的专门实验。
+  （版本号问题已在第 2 轮消除：二进制自报 `0.0.0-p11.3 (commit 7d4039e)`，代码指纹仍按
+  sha256 对：`agent 6ce5726f…` / `web 876ce0a3…` / `ctl 48c360ae…`，两台一致。）
