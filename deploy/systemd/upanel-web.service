@@ -4,6 +4,10 @@
 ;   二进制  /usr/local/bin/upanel-web、/usr/local/bin/upanelctl
 ;   配置    /etc/upanel/upanel.json（见 deploy/upanel.example.json）
 ;   数据库  /var/lib/upanel/upanel.db（由 StateDirectory 创建并授权）
+;   证书    /etc/upanel/tls/panel.pem（0644）、/etc/upanel/tls/panel.key（0640 root:upanel-web）
+;
+; 面板只以 HTTPS 对外（P10.4）：web.tls_cert_path / web.tls_key_path 必须成对给出；
+; 只有监听回环地址时才允许不配 TLS（回环 + SSH 隧道）。非回环监听缺 TLS 会拒绝启动。
 ;
 ; 权限边界（PLAN.md 第 2、4 节）：Web 以专用非 root 账号 upanel-web 运行，
 ; 无 sudo、无登录 shell、不加入 docker 组。系统写操作只能经 root 代理执行，
@@ -30,13 +34,15 @@ Restart=on-failure
 RestartSec=3s
 TimeoutStopSec=30s
 
-; 状态与配置目录由 systemd 创建并设定属主：
+; 状态目录由 systemd 创建并设定属主：
 ;   StateDirectory      → /var/lib/upanel（数据库与 WAL 文件）
-;   ConfigurationDirectory → /etc/upanel（只读使用）
+;
+; 刻意**不**声明 ConfigurationDirectory：一旦声明，systemd 会把 /etc/upanel
+; 的属主改成 upanel-web，Web 账号就能替换自己的配置与面板证书私钥。
+; /etc/upanel 由安装脚本建成 root:root 0755，配置与证书私钥为 0640 root:upanel-web，
+; 于是 Web 能读、不能改。ProtectSystem=strict 再保证本进程内看不到任何可写 /etc。
 StateDirectory=upanel
 StateDirectoryMode=0750
-ConfigurationDirectory=upanel
-ConfigurationDirectoryMode=0750
 
 ; 运行时目录 /run/upanel 归 root 代理所有（代理 socket 为 root:upanel-web 0660），
 ; Web 只读取该 socket，因此不在本单元里创建目录（代理单元在 P02 提供）。

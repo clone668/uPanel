@@ -2,6 +2,8 @@
   "web": {
     "mode": "production",
     "listen_address": "127.0.0.1:9443",
+    "tls_cert_path": "",
+    "tls_key_path": "",
     "shutdown_timeout_seconds": 10
   },
   "agent": {
