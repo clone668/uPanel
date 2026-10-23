@@ -179,3 +179,33 @@ func TestTimeoutSurfacesAsUnavailable(t *testing.T) {
 		t.Fatalf("应返回 *UnavailableError，实际 %v", err)
 	}
 }
+
+// TestWithTimeoutLiftsHeaderWait 锁住 WithTimeout 的两处生效点。
+//
+// 只改 http.Client.Timeout 不够：真正的门槛是 Transport 的 ResponseHeaderTimeout
+// （“等第一个字节”）。一次 26 秒才给出响应头的 `apt-cache policy` 在第 10 秒就被
+// 拨号层掐断了——软件包事实那条查询（packages.AgentQueryTimeout=45s）正是靠这里
+// 才等得到。流客户端仍然不继承：安静的长流不该被任何整体超时管着。
+func TestWithTimeoutLiftsHeaderWait(t *testing.T) {
+	c, err := New("/run/upanel/agent.sock", WithTimeout(45*time.Second))
+	if err != nil {
+		t.Fatalf("New 失败: %v", err)
+	}
+	if c.http.Timeout != 45*time.Second {
+		t.Fatalf("整体超时 = %v，期望 45s", c.http.Timeout)
+	}
+	tr, ok := c.http.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("Transport 类型 = %T", c.http.Transport)
+	}
+	if tr.ResponseHeaderTimeout != 45*time.Second {
+		t.Fatalf("等待响应头超时 = %v，期望跟着一起抬到 45s", tr.ResponseHeaderTimeout)
+	}
+	st, ok := c.stream.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("流 Transport 类型 = %T", c.stream.Transport)
+	}
+	if st.ResponseHeaderTimeout != 0 {
+		t.Fatalf("流客户端的等待响应头超时 = %v，期望 0", st.ResponseHeaderTimeout)
+	}
+}

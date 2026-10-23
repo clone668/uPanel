@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: uPanel API
-  version: 0.0.0-p10.3
+  version: 0.0.0-p11.1
   summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
   description: |
     uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。
@@ -23,7 +23,7 @@ info:
     name: Proprietary
     identifier: LicenseRef-Proprietary
 x-upanel-contract-status:
-  stage: P10.3
+  stage: P11.1
   implemented_paths:
     - get /api/v1/health/live
     - head /api/v1/health/live
@@ -104,6 +104,9 @@ x-upanel-contract-status:
     - get /api/v1/certificates
     - get /api/v1/certificates/{id}
     - post /api/v1/certificates/uploads
+    - get /api/v1/packages
+    - get /api/v1/packages/updates
+    - get /api/v1/system/power-state
   note: 只列出已实现并通过验收的接口；未实现模块不出现在 paths 中。
 servers:
   - url: https://127.0.0.1:9443/api/v1
@@ -4724,6 +4727,160 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/v1/packages:
+    get:
+      operationId: listPackages
+      summary: 已安装包与候选版本（仅 admin）
+      description: |
+        CONTRACTS.md 第 12.1 节（P11.1 起）。事实来自代理的两条源命令（`dpkg-query` 与
+        `apt-cache policy`），`upgradable` / `candidate_relation` / `security` / `pockets`
+        由面板判定。
+
+        `upgradable` 的含义是**候选版本比已安装的新**，不是"这一次会被升级"：分阶段推送
+        （phased）与被保留（held back）的包要 `apt-get -s upgrade` 才判得出，那是 P11.2。
+        因此这里不承诺 `upgradable=true` 的包在升级时会全部被升级。
+
+        `errors[]` 非空表示降级读取：典型是 `apt-cache` 不可用，此时包列表照出，
+        每个包的 `candidate_relation` 是 `unknown`，而不是拿已安装版本冒充候选版本。
+      tags: [system]
+      security:
+        - upanelSession: []
+      parameters:
+        - name: query
+          in: query
+          required: false
+          description: 包名子串匹配（大小写不敏感）；只允许可打印 ASCII，长度 ≤ 100。
+          schema:
+            type: string
+            maxLength: 100
+        - name: installed
+          in: query
+          required: false
+          description: 只看已安装（默认 true）。false 表示把仅有配置残留（`rc`）的包也算进来。
+          schema:
+            type: boolean
+            default: true
+        - name: upgradable
+          in: query
+          required: false
+          description: 只看候选版本比已安装新的包。
+          schema:
+            type: boolean
+            default: false
+        - name: security
+          in: query
+          required: false
+          description: 只看候选版本来自 `-security` 源的包（隐含 upgradable=true）。
+          schema:
+            type: boolean
+            default: false
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: 包列表与计数。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PackageList'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/packages/updates:
+    get:
+      operationId: listPackageUpdates
+      summary: 可升级清单（仅 admin）
+      description: |
+        CONTRACTS.md 第 12.1 节（P11.1 起）。安全更新排在前面，其余按包名升序。
+
+        不分页但一次最多 1000 条；超过时 `truncated=true`，并且不把"没列出的部分"
+        算进 `total` 之外的地方——`total` 始终是全量。
+
+        `reboot_required` 不在这里：重启标志是 `GET /system/power-state` 的字段。
+        这两个事实来源不同（一个来自 APT 缓存，一个来自包自己写的文件），
+        塞进同一个响应会让"升级之后要不要重启"看起来是一次查询的结论。
+      tags: [system]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 可升级清单。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PackageUpdates'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/system/power-state:
+    get:
+      operationId: getPowerState
+      summary: 重启标志与本 boot_id（仅 admin）
+      description: |
+        CONTRACTS.md 第 12.1 节（P11.1 起）。只读：`reboot_required` 是
+        `/run/reboot-required` 在不在，`reboot_required_packages` 是该文件旁边
+        `.pkgs` 的原文内容，`reboot_required_since` 是主文件的 mtime。
+
+        面板**不自己推断**"装了内核所以要重启"：那是包自己的 postinst 写的文件，
+        我们只报告它。`boot_id` 供 P11.3 确认一次重启真的发生过（同一个值说明没重启）。
+
+        本节没有重启/关机动作——它们是 P11.3 的 `system.power`（预检 → 任务）。
+      tags: [system]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 重启标志与 boot_id。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PowerState'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 components:
   securitySchemes:
     upanelSession:
@@ -9572,6 +9729,226 @@ components:
         expires_at:
           $ref: '#/components/schemas/Rfc3339Utc'
 
+    PackageSourceError:
+      type: object
+      additionalProperties: false
+      required: [source, message]
+      properties:
+        source:
+          type: string
+          enum: [dpkg_query, apt_cache, reboot_pkgs, boot_id]
+          description: |
+            哪一路来源失败了。`dpkg_query` 失败会让整个查询 503（它决定"装了什么"），
+            所以它不会出现在 `errors[]` 里——出现的一律是"降级但仍有内容"的来源。
+        message:
+          type: string
+          description: 给人看的一句话（含退出码或解析失败的位置），不含命令输出全文。
+
+    PackagePocket:
+      type: string
+      enum: [release, updates, security, backports, proposed, other]
+      description: |
+        候选版本所在源的类别，由 suite 名判定（`jammy-security` → security）。
+        `other` 表示认不出的第三方源名字——不猜成 release。
+
+    PackageEntry:
+      type: object
+      additionalProperties: false
+      required: [name, architecture, status, installed, installed_version, candidate_version,
+                 candidate_relation, upgradable, security, suites, pockets]
+      properties:
+        name:
+          type: string
+          description: dpkg 的二进制包名；多架构同名包在这里带 `:arch` 限定（与 dpkg 一致）。
+        architecture:
+          type: string
+          description: 已安装包的架构（`amd64`、`all` 等）。
+        status:
+          type: string
+          description: |
+            `dpkg-query` 的 `${db:Status-Abbrev}` 原文（`ii` = 已安装，`rc` = 只剩配置文件）。
+            原样返回，不在服务端翻译成枚举：dpkg 的状态组合比三段字母能表达的更细。
+        installed:
+          type: boolean
+          description: 状态以 `i` 开头（即认为已安装）。
+        installed_version:
+          type: string
+          description: dpkg 数据库里的版本（`0:1.2-3` 这类 epoch 前缀原样保留）。
+        candidate_version:
+          type: [string, 'null']
+          description: |
+            `apt-cache policy` 的 `Candidate:`。读不到时为 null——**不**用已安装版本顶替。
+        candidate_relation:
+          type: string
+          enum: [newer, same, older, unknown]
+          description: |
+            候选版本相对已安装版本的 Debian 版本序关系。`older` 是真实情形（pin、回退、
+            第三方源降级），页面要把"候选更旧"说出来；`unknown` 表示候选读不到。
+        upgradable:
+          type: boolean
+          description: |
+            等价于 `candidate_relation == newer`，**不**代表 `apt-get upgrade` 一定会升它
+            （分阶段推送与被保留的包由 P11.2 的模拟判定）。
+        security:
+          type: boolean
+          description: |
+            候选版本（不是别的版本）来自 `-security` 源，且候选比已安装新。
+            同一个包在 security 源里有更旧版本不算。
+        suites:
+          type: array
+          description: 候选版本那一条的来源 suite 原文（`jammy-updates` 等），去重后升序。
+          items:
+            type: string
+        pockets:
+          type: array
+          description: 由 suites 判定的类别，去重后按固定顺序排列。
+          items:
+            $ref: '#/components/schemas/PackagePocket'
+
+    PackageList:
+      type: object
+      additionalProperties: false
+      required: [collected_at, index_updated_at, counts, filters, matched, limit, next_cursor,
+                 packages, errors]
+      properties:
+        collected_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        index_updated_at:
+          $ref: '#/components/schemas/NullableRfc3339Utc'
+          description: |
+            `/var/lib/apt/lists` 的 mtime：这份候选版本是哪一刻算出来的。读不到时 null，
+            页面显示"索引时间未知"，而不是把它当成"刚刚刷新过"。
+        counts:
+          type: object
+          additionalProperties: false
+          required: [installed, upgradable, security]
+          properties:
+            installed:
+              type: integer
+              minimum: 0
+            upgradable:
+              type: integer
+              minimum: 0
+            security:
+              type: integer
+              minimum: 0
+        filters:
+          type: object
+          additionalProperties: false
+          required: [query, installed, upgradable, security]
+          properties:
+            query:
+              type: string
+            installed:
+              type: boolean
+            upgradable:
+              type: boolean
+            security:
+              type: boolean
+        matched:
+          type: integer
+          minimum: 0
+          description: 符合筛选条件的总条数（分页前）。
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 200
+        next_cursor:
+          type: [string, 'null']
+          description: 下一页游标；null 表示没有下一页。
+        packages:
+          type: array
+          items:
+            $ref: '#/components/schemas/PackageEntry'
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/PackageSourceError'
+
+    PackageUpdateEntry:
+      type: object
+      additionalProperties: false
+      required: [name, architecture, installed_version, candidate_version, security, suites, pockets]
+      properties:
+        name:
+          type: string
+        architecture:
+          type: string
+        installed_version:
+          type: string
+        candidate_version:
+          type: string
+        security:
+          type: boolean
+        suites:
+          type: array
+          items:
+            type: string
+        pockets:
+          type: array
+          items:
+            $ref: '#/components/schemas/PackagePocket'
+
+    PackageUpdates:
+      type: object
+      additionalProperties: false
+      required: [collected_at, index_updated_at, total, security, truncated, updates, errors]
+      properties:
+        collected_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        index_updated_at:
+          $ref: '#/components/schemas/NullableRfc3339Utc'
+        total:
+          type: integer
+          minimum: 0
+          description: 可升级包总数（全量，不受 1000 条上限影响）。
+        security:
+          type: integer
+          minimum: 0
+        truncated:
+          type: boolean
+          description: 超过 1000 条时为 true；`updates` 只给前 1000 条。
+        updates:
+          type: array
+          items:
+            $ref: '#/components/schemas/PackageUpdateEntry'
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/PackageSourceError'
+
+    PowerState:
+      type: object
+      additionalProperties: false
+      required: [collected_at, reboot_required, reboot_required_since, reboot_required_packages,
+                 boot_id]
+      properties:
+        collected_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        reboot_required:
+          type: boolean
+          description: |
+            `/run/reboot-required` 是否存在。这是包自己（postinst）写的文件，
+            面板只报告它，不推断"装了内核所以要重启"。
+        reboot_required_since:
+          $ref: '#/components/schemas/NullableRfc3339Utc'
+          description: 主文件的 mtime；文件不存在时为 null。
+        reboot_required_packages:
+          type: array
+          description: .pkgs 文件（/run/reboot-required.pkgs）的每一行原样（去空行）。
+          items:
+            type: string
+        reboot_required_packages_error:
+          type: string
+          description: 读 `.pkgs` 失败的原因；空串表示读到了（或该文件不存在）。
+        boot_id:
+          type: string
+          description: |
+            `/proc/sys/kernel/random/boot_id`。P11.3 用它确认重启真的发生过：
+            同一个值说明系统没有重启。
+        boot_id_error:
+          type: string
+          description: 读 boot_id 失败的原因；空串表示读到了。
   responses:
     BadRequest:
       description: 语法或参数错误（400）。

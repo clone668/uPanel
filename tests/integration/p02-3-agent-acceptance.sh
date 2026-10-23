@@ -53,9 +53,20 @@ OUTSIDER_USER=nobody
 
 # capabilities 的完整闭集。生产代理只要依赖齐备就会登记全部查询与动作，
 # 断言**完全等于**当前应有的集合：少报是隐藏能力，多报是编造能力，两种都算失败。
-# 新增查询/动作时同步改这两行（P05.1 加 service.control，P05.2 加 processes.list / process.signal）。
-EXPECTED_QUERIES="['logs.query', 'processes.list', 'services.list', 'services.unit', 'storage.topology', 'system.summary']"
-EXPECTED_ACTIONS="['process.signal', 'service.control']"
+#
+# 新增查询/动作时同步改这两行。这份清单已经落后过一次：它一直停在 P05 的样子，
+# 而 P06—P11 每轮都往登记表里加东西，于是脚本报失败的原因变成了"产品多了一条
+# 能力"，与它想防的"隐藏/编造能力"正好相反。当前值逐字取自 P11.1 真机验收抓回的
+# `docs/evidence/P11/2026-10-23-p11.1/payloads/capabilities.json`（24.04，29 查询 / 30 动作）。
+#
+# 两点如实说明：
+#   - 这套值成立的前提是"依赖齐备"（docker、nginx、apt、samba 都在）。缺任一项时，
+#     对应查询不会被登记，本断言就会以"少报"失败——那是**机器的差别**，不是产品的缺陷。
+#     所以这条断言只在按 P00.3 准备好的验收机上有效。
+#   - **本轮没有重跑本脚本**（它还要 go test -c 编出来的 Linux 测试二进制与整套 deploy 目录）。
+#     这次改的是期望值本身，改完未执行 = 未验证。
+EXPECTED_QUERIES="['apps.discovery', 'apps.probe', 'apt.packages', 'certificate.state', 'containers.get', 'containers.images', 'containers.list', 'containers.logs', 'containers.networks', 'containers.projects', 'containers.volumes', 'files.list', 'files.roots', 'files.text', 'logs.query', 'nginx.state', 'processes.list', 'services.list', 'services.unit', 'share.accounts', 'share.capability', 'share.connections', 'share.list', 'storage.topology', 'storage.volume.blockers', 'storage.volumes', 'system.power_state', 'system.summary', 'terminal.sessions']"
+EXPECTED_ACTIONS="['certificate.import', 'certificate.issue', 'certificate.renew', 'container.control', 'file.chmod', 'file.chown', 'file.commit_upload', 'file.copy', 'file.delete', 'file.mkdir', 'file.move', 'file.write_text', 'process.signal', 'proxy.apply', 'service.control', 'share.account.apply', 'share.account.delete', 'share.apply', 'share.delete', 'share.disable', 'storage.filesystem.format', 'storage.partition.create', 'storage.partition.delete', 'storage.partition_table.initialize', 'storage.volume.configure', 'storage.volume.forget', 'storage.volume.import', 'storage.volume.mount', 'storage.volume.unmount', 'terminal.create']"
 
 PASSED=0
 FAILED=0

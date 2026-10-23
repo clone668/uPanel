@@ -75,6 +75,9 @@ func (s *Server) routes() *gin.Engine {
 		system := v1.Group("/system")
 		system.Use(s.requireSession())
 		system.GET("/summary", s.handleSystemSummary)
+		// 重启标志（P11.1）：admin。它是一句"这台机器需要重启"，属于主机运维信息；
+		// 数据来自包自己写的文件，不是从"装了内核"推出来的。
+		system.GET("/power-state", s.requireAdmin(), s.handlePowerState)
 
 		// 存储只读视图（P04.2）：权限 V（CONTRACTS.md 第 6 节）。
 		// 三个路由读的是代理的同一份扫描快照，因此设备列表与拓扑永远一致；
@@ -160,6 +163,17 @@ func (s *Server) routes() *gin.Engine {
 		ag.POST("", s.requireAdmin(), s.requireCSRF(), s.handleCreateAppGroup)
 		ag.PATCH("/:id", s.requireAdmin(), s.requireCSRF(), s.handleUpdateAppGroup)
 		ag.DELETE("/:id", s.requireAdmin(), s.requireCSRF(), s.handleDeleteAppGroup)
+
+		// 软件包（P11.1）：整组 admin（CONTRACTS.md 第 12.1 节）。
+		//
+		// 全是只读。安装/卸载/升级/刷新索引是 P11.2 的动作，走预检 → 任务链路；
+		// 这里没有、也不会有一个"直接执行 apt-get"的入口。
+		//
+		// /packages/updates 是静态段，gin 的树会先匹配它，不会被当成某个包名。
+		pk := v1.Group("/packages")
+		pk.Use(s.requireSession(), s.requireAdmin())
+		pk.GET("", s.handleListPackages)
+		pk.GET("/updates", s.handleListPackageUpdates)
 
 		// 反向代理站点（P10.1）：整组 admin（CONTRACTS.md 第 9 节）。
 		//

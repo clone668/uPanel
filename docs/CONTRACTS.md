@@ -2003,6 +2003,116 @@ GET /schedules、GET /schedules/:id：admin；ScheduleDefinition 包含 name、k
 
 GET /scripts 只返回元数据，GET /scripts/:id 可读取管理员上传的内容，均为 admin。创建/修改/删除通过 script.apply/script.delete 预检与任务执行；content 为 UTF-8、最多 64 KiB，不能指定任意路径。代理保存为 root 所有且 upanel-shell 只读可执行的受管理脚本，运行前核对已批准内容哈希，以避免终端用户修改已获授权的定时脚本。script.run 执行时降权，永远不获得 root。
 
+### 12.1 P11.1 已实现范围：APT 事实读取（包、候选版本、安全更新、重启标志）
+
+本节只做**读**。刷新索引、安装、卸载、升级是动作（`package.refresh` / `package.install` /
+`package.remove` / `package.upgrade`，P11.2），重启关机是 P11.3。这里没有一条路由能改系统状态。
+
+| 方法与路径 | 权限 | 行为 |
+|---|---|---|
+| GET /packages?query=&installed=&upgradable=&security=&limit=&cursor= | admin | 已安装包、已安装版本、候选版本（`upgradable` / `candidate_relation` / `security` 派生） |
+| GET /packages/updates | admin | 可升级清单（安全更新排在前面），带总数、安全条数与 `truncated` |
+| GET /system/power-state | admin | `/run/reboot-required` 与其 `.pkgs` 列表、本次 `boot_id` |
+
+代理侧对应两条只读查询：`apt.packages`（参数 `{fresh}`）与 `system.power_state`（空参数）。
+
+**（1）代理给事实，面板给判断。** 代理只回源命令的原文事实：`dpkg-query` 的
+`${binary:Package}` / `${Version}` / `${Architecture}` / `${db:Status-Abbrev}`，`apt-cache policy`
+里每个包的 `Installed:` / `Candidate:` 与**候选版本那一条**的来源 suite（`jammy-updates`、
+`jammy-security` 这类原文）。`upgradable`、`security`、`pocket` 三个派生字段由面板
+`internal/packages` 算，理由是它们随判断规则变（例如“哪些 suite 算安全更新”是策略，
+不是主机事实），而事实不该跟着策略一起变。
+
+**（2）版本比较必须是 Debian 语义，不是字符串比较。** 真机上就有现成的反例：
+`open-vm-tools 2:12.3.5-3~ubuntu0.22.04.3` → `2:12.3.5-3~ubuntu0.22.04.4`，字符串比较会说
+`.3` 大于 `.4` 的前缀关系完全看不懂；`~` 在 Debian 里排在**空串之前**（`1.0~rc1` < `1.0`），
+epoch（`2:`）比 upstream 版本更优先。因此比较由 `internal/debversion` 实现（按 dpkg 的规则：
+epoch → upstream → revision，非数字段按“`~` < 空 < 字母 < 其他符号 < 数字”排序），
+并有针对性的单测锁住这些反例。字符串相等只用于“完全没变”这一个判断。
+
+**（3）`upgradable` 说的是“候选版本比已安装的新”。** `candidate_relation` 取
+`newer` / `same` / `older` / `unknown`；`upgradable` 等价于 `candidate_relation=newer`。
+候选比已安装**旧**是真实情形（pin、回退、第三方源降级），这时 `upgradable=false` 且
+`candidate_relation=older`，页面据此显示“候选版本更旧”，而不是假装没有候选。
+候选读不到（`apt-cache` 不可用或该包不在缓存里）时是 `unknown`，**不拿已安装版本冒充候选**。
+
+候选的查表规则有一条真机坑必须写明：`dpkg-query` 给的 `${binary:Package}` 带架构限定
+（`bind9-libs:amd64`），而 `apt-cache policy bind9-libs:amd64` 打出来的**表头是 `bind9-libs:`**
+（apt 自己把 `:arch` 剥掉了，`Candidate:` 与版本表仍是请求那个架构的内容）。因此按请求名查表
+必须允许回退到 base 名，且只在 base 名在本次采集里**唯一**时回退——同名双架构同时装着时，
+那个表头分不清是哪一边的版本，宁可报 `unknown`（读不到），也不给另一架构的版本。
+这条是 731 条里那一条谎报“候选读不到”的根因，误判的代价是把一条能升级的包藏起来。
+
+载荷里的 `name` 就是 `${binary:Package}` 原文，所以带限定的包名里已经有 `:arch`；
+`architecture` 是单独字段（`amd64` / `all` / …）。渲染时**不能再补一次** `:arch`，
+否则屏幕上会出现 `bind9-libs:amd64:amd64`。
+
+**（4）`security` 只看候选版本自己的来源。** 判定为：`candidate_relation=newer` 且候选版本那一条
+的某个 suite 以 `-security` 结尾（`jammy-security`、`noble-security` 及其 `-infra-security` 等变体，
+规则见 `internal/packages`）。**同一包的其它版本出现在 security 源里不算**——`apparmor` 在 22.04
+上就是这样：候选在 `jammy-updates`，而 `jammy-security` 里那个是**更旧的**版本，把它算成安全更新
+会让页面报一条根本不存在的安全更新。
+
+本节**不评估** phased update（分阶段推送）与 held back（被保留的包）。那两件事的判决是
+`apt-get -s upgrade` 给出的，属于 P11.2 的模拟；因此页面文案写的是“候选版本可用”，
+不写“本次会被升级”。这条区别在 22.04 的验收机上能直接看到：`nano`、`snapd` 的候选比已安装新，
+但 `apt-get -s upgrade` 把它们算作 kept back（仓库做了分阶段推送）。
+
+**（5）重启标志是读，不是算。** `/run/reboot-required` 存在即 `reboot_required=true`，
+`reboot_required_since` 取该文件的 mtime（“什么时候开始需要重启”），`/run/reboot-required.pkgs`
+的每一行原样进 `reboot_required_packages`。面板**不自己判断**“装了内核所以要重启”——
+那是包自己的 postinst 写的文件，我们只报告它。`boot_id` 来自
+`/proc/sys/kernel/random/boot_id`，P11.3 用它确认一次重启真的发生过（同一个值说明没重启）。
+读 `.pkgs` 失败不影响 `reboot_required`（文件本身在不在是主判据），失败原因进
+`reboot_required_packages_error`。
+
+**（6）读不到就说读不到，不降级成“没有”。** 三类边界分开处理：
+
+- 主机上没有 `dpkg-query`（不是 Debian 系）：代理启动时**不登记**这两条查询，
+  `capabilities.supported_queries` 里也就没有它们，接口回 503 并说明这台主机不支持；
+  不是给一份空包列表——空列表会被读成“这台机器上没装任何软件”。
+- `dpkg-query` 能跑但失败：查询直接报错（503），因为“装的什么”是这一页的全部内容。
+- `apt-cache policy` 失败（缓存损坏、权限、超时）：**包列表照出**，每个包的
+  `candidate_relation=unknown`，`errors[]` 里写明来源与原因，页面显式提示“候选版本读不到”。
+  已安装版本与候选版本是两个独立来源，一个坏了不该把另一个也变成空白。
+
+**（7）索引年代一起返回。** `index_updated_at` 取 `/var/lib/apt/lists` 的 mtime：页面要能说
+“这份候选版本是几点几分算出来的”，否则一个三天没刷索引的机器会让人以为“没有更新”。
+刷新索引是 `package.refresh`（P11.2），本节不做。
+
+**（8）代理侧 30 秒快照、单飞采集、按（已安装版本，索引时间）失效的候选缓存。**
+一次采集 = 一条 `dpkg-query` + 一条 `apt-cache policy`。翻页与筛选不该每次都跑命令，
+因此快照按 30 秒缓存；写操作前的判断用 `fresh=true` 绕过它。缓存窗口里变的是“装了什么”，
+而这 30 秒内装东西的只可能是别人在命令行里 apt 了一把——页面顶部显示的 `collected_at`
+就是这句话的依据。
+
+三层缓存的理由都是实测出来的，不是设计洁癖：
+
+- **候选缓存按包失效**（键：该包已安装版本；全局键：`/var/lib/apt/lists` 的 mtime）。
+  `apt-cache policy` 的成本随**参数个数**增长：22.04 的 apt 2.4 读 676 个名字只要 384ms，
+  24.04 的 apt 2.8 读 731 个名字在冷页缓存下要 26.6 秒（约 36ms/名）。有了按包失效，
+  快照过期重采时没变的包直接复用，稳定态回到 0.3 秒级；索引一刷（mtime 变）全部作废，
+  不会拿旧索引的候选冒充新的。
+- **单飞**：并发请求只跑一次采集，其他请求等这一份。否则十个标签页同时打开就是十次
+  `apt-cache policy`，把一台 2 vCPU 的机器按在地上。
+- **没有启动预热**。曾经加过，实测有害：开机时预热与 systemd 采集抢 `systemctl`，
+  把 26 秒拖到 62 秒；而请求会排在这份预热后面，直接顶穿 45 秒预算，于是“最需要它的那一次”
+  反而谎报“代理不可用”。冷一次（首次调用实测 12.5–15.6 秒）比在最需要的时候说谎好。
+
+超时分层：Web 侧单条查询预算 45 秒（`internal/packages.AgentQueryTimeout`），
+前端每个请求 60 秒（`PACKAGE_QUERY_TIMEOUT_MS`）；代理的 HTTP 写超时默认 15 秒，
+对这两条查询按请求延长到 120 秒；Web 的 HTTP 写超时 30 秒，同样按请求延长到 60 秒。
+不延长的话，冷采集正撞在写超时上，前端拿到的是一个没有响应体的连接中断。
+
+**（9）分页与上限。** 列表按 `(name, architecture)` 稳定升序，默认 `limit=50`、最大 200，
+`cursor` 是不透明串（`base64url(name + \0 + arch)`，指向“上一页最后一条”）。
+`/packages/updates` 不分页，但一次最多 1000 条并带 `truncated`——可升级项超过一千台的机器
+（长期没更新）会把列表读成一页长墙，而不是把响应撑爆。
+
+**（10）本节不覆盖的东西。** ESM / Ubuntu Pro 源里的包（要 `pro` 订阅才有条目）、snap 包、
+`apt-mark hold` 的状态、`/var/log/apt/history.log` 的历史：都不在 P11.1 里。页面不显示它们，
+也不显示“没有新版本”这种把未知说成已知的话。
+
 ## 13. 网络、账号与告警契约
 
 GET /network/interfaces、GET /network/routes、GET /network/listeners、GET /firewall、GET /accounts、GET /accounts/:id/ssh-keys：admin。
@@ -2090,7 +2200,7 @@ GET /alerts/events：V；POST /alerts/events/:id/ack：admin；GET/POST /notific
 | POST /internal/v1/streams | 创建受限日志/文件上传下载/终端流许可，绑定用途和参数 |
 | GET/PUT /internal/v1/streams/:id | 单次受限流；再次核验 socket 凭据、路径/UID/大小限制 |
 
-query 枚举按模块登记，例如 system.summary、storage.topology、services.list、files.list、logs.query；P10.1 起增加 nginx.state（参数 `{fresh}`，见 §9.1）；禁止 query=command。terminal 的字节通道只能连接已降权 PTY，不能进入代理的命令解释器。P14 增加 /internal/v1/totp/enroll、/confirm、/verify、/disable 四个专用接口，操作绑定用户与用途，种子不进入普通 query/secret 读取通道。
+query 枚举按模块登记，例如 system.summary、storage.topology、services.list、files.list、logs.query；P10.1 起增加 nginx.state（参数 `{fresh}`，见 §9.1）；P11.1 起增加 apt.packages（参数 `{fresh}`）与 system.power_state（空参数，见 §12.1）；禁止 query=command。terminal 的字节通道只能连接已降权 PTY，不能进入代理的命令解释器。P14 增加 /internal/v1/totp/enroll、/confirm、/verify、/disable 四个专用接口，操作绑定用户与用途，种子不进入普通 query/secret 读取通道。
 
 `/internal/v1/streams` 自 P05.3 起已实现，但目前只登记一种用途 **logs.stream**：`POST` 建许可（绑定用途与查询参数、单次使用、30 秒过期且到期即回收），`GET /streams/:id` 打开流式响应（`application/x-ndjson`，每行一帧 `{"type":"entry|end|error", ...}`；`entry` 帧的 `entry` 是日志条目本身，`end` 帧带 `reason`，`error` 帧带 `code`/`message`）。未登记的用途回 501，不回一条空流——多报一个用途等于把能力清单变成谎话。许可只用一次：第二次 `GET` 回 404，被放进地址栏或日志里的 URL 因此最多只能被用一次。流式消费端的「帧类型来自事件名」与外层 SSE 不同，是因为 NDJSON 是单条无名字的字节流，类型必须写在帧里。
 

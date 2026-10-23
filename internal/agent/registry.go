@@ -437,6 +437,21 @@ func RegisterProductionQueries(reg *Registry, deps ProductionDeps) error {
 			return err
 		}
 	}
+	if deps.Apt != nil {
+		// 两条一起登记：包列表与重启标志是同一个页面上的两半事实。只有真的能跑
+		// dpkg-query 时才登记——否则 supported_queries 会说"我能读包列表"，
+		// 而点开必然 503。CONTRACTS.md 第 12.1 节第 6 条。
+		if deps.Apt.Available() {
+			for _, q := range []Query{
+				newAptPackagesQuery(deps.Apt),
+				newPowerStateQuery(deps.Apt),
+			} {
+				if err := reg.RegisterQuery(q); err != nil {
+					return fmt.Errorf("代理登记 %s 失败: %w", q.Name, err)
+				}
+			}
+		}
+	}
 	if deps.Discovery != nil {
 		// 两条一起登记：发现与探测是一对。只有 apps.discovery 的结果里能找到的
 		// target_id，apps.probe 才可能解析成功；少任何一条，健康检查就只能显示

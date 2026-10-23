@@ -36,6 +36,7 @@ import (
 	"upanel/internal/logs"
 	"upanel/internal/monitoring"
 	"upanel/internal/operations"
+	"upanel/internal/packages"
 	"upanel/internal/platform"
 	"upanel/internal/processes"
 	"upanel/internal/proxies"
@@ -328,6 +329,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// nginx 那一块写明读不到；/proxies/nginx 与 /proxies/conflict 明确回 503，
 	// 而不是给一份“主机上没有配置文件”的空表。
 	var nginxFacts *proxies.AgentFacts
+	// 软件包事实的判断层（P11.1）。演示模式下保持 nil：那时 /packages、
+	// /packages/updates 与 /system/power-state 明确回 503，而不是给一份空包列表
+	// ——空列表会被读成"这台机器上一个包都没装"。
+	var packagesReader api.PackagesReader
 	// 证书现场事实（只读，P10.3）：只有 root 读得到 /etc/letsencrypt 与
 	// /etc/ssl/upanel。演示模式下保持 nil，详情页的 observed 会写"读不到"，
 	// 而不是给出"这张证书不存在"。
@@ -341,6 +346,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 		client, err := agentclient.New(cfg.Agent.SocketPath)
 		if err != nil {
 			logger.Error("初始化代理客户端失败，拒绝启动",
+				"error", err, "socket", cfg.Agent.SocketPath)
+			return 1
+		}
+		// 软件包事实单独一个客户端，只多一件事：更长的调用上限。
+		// `apt-cache policy` 在 24.04 上冷采一次 26 秒（量见 packages.AgentQueryTimeout），
+		// 10 秒的通用上限会把一次正常的冷采变成"代理不可用"。
+		pkgClient, err := agentclient.New(cfg.Agent.SocketPath,
+			agentclient.WithTimeout(packages.AgentQueryTimeout))
+		if err != nil {
+			logger.Error("初始化软件包代理客户端失败，拒绝启动",
 				"error", err, "socket", cfg.Agent.SocketPath)
 			return 1
 		}
@@ -410,6 +425,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		nginxFacts = nginxFactsClient
+		pkgFacts, err := packages.NewAgentFacts(pkgClient, logger)
+		if err != nil {
+			logger.Error("初始化软件包事实读取端失败，拒绝启动", "error", err)
+			return 1
+		}
+		pkgService, err := packages.New(pkgFacts)
+		if err != nil {
+			logger.Error("初始化软件包服务失败，拒绝启动", "error", err)
+			return 1
+		}
+		packagesReader = pkgService
 		certInspector, err := certificates.NewAgentInspector(client)
 		if err != nil {
 			logger.Error("初始化证书状态读取端失败，拒绝启动", "error", err)
@@ -564,6 +590,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Proxies:    proxiesService,
 		NginxFacts: nginxFactsSource,
 		PanelPort:  panelPort,
+		// 软件包（P11.1）：只读。判断在面板侧（internal/packages），
+		// 事实来自代理的 apt.packages / system.power_state。
+		Packages: packagesReader,
 		// 证书（P10.3）：记录读库；现场事实问代理；上传暂存在本进程内存里。
 		Certificates:      certService,
 		CertificateStages: certificates.NewStageStore(nil),

@@ -148,6 +148,10 @@ type Options struct {
 	// 时机是导入成功之后（那时证书已经从主机上读回来解析过一次）。暂存区让
 	// "上传了但没点确认"不留任何持久痕迹。
 	CertificateStages *certificates.StageStore
+	// Packages 是软件包事实的判断层（P11.1）。允许为 nil（演示模式不连代理）：
+	// 那时三个只读接口明确回 503 AGENT_UNAVAILABLE，而不是给一份空包列表——
+	// 空列表会被读成"这台机器上一个包都没装"，那是假话。
+	Packages PackagesReader
 	// CertificateState 读取主机上证书的现场事实（P10.3）。允许为 nil（演示模式不连
 	// 代理）：那时详情页的 observed 明确写 available=false 与原因，而不是给一份
 	// "证书不存在"的空事实——后者会被读成"这张证书被删了"。

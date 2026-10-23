@@ -98,6 +98,14 @@ export const appRoutes: readonly RouteRecordRaw[] = [
     meta: { moduleKey: 'jobs' },
   },
   {
+    // 更新页（P11.1）只读：包列表、可升级清单与重启标志。
+    // 分页游标是查询参数，所以路径里没有 :page 之类的段——游标是不透明的。
+    path: '/updates',
+    name: 'updates',
+    component: () => import('@/views/UpdatesView.vue'),
+    meta: { moduleKey: 'updates' },
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
     component: () => import('@/views/NotFoundView.vue'),

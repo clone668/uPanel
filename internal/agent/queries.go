@@ -7,12 +7,26 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"upanel/internal/httpx"
 )
 
 // 查询请求体的上限：参数上限加上信封字段的余量。
 const maxQueryRequestBytes = MaxParamsBytes + 4<<10
+
+// queryWriteBudget 是单条查询允许占用的写超时。
+//
+// 服务器的 WriteTimeout 是 15 秒（对其它接口是对的：一个响应不该拖那么久），
+// 但查询里有一条是**真的慢**：`apt-cache policy` 在 apt 2.8（24.04）上对每个参数
+// 做一次全库模式匹配，731 个已安装包名一次冷采 26 秒——实测（P11.1 验收，
+// 24.04 VM）。15 秒的写超时会在第 15 秒把连接掐掉，Web 侧收到的是一句 EOF，
+// 于是"这台机器装了什么包"被显示成"代理不可用"，两边都没说真话。
+//
+// 所以只给这条路由单独放长：用 ResponseController 覆盖这一个请求的写截止时间，
+// 不动全局值。上限取 120 秒，比采集器自己的最坏情况（dpkg-query 30s +
+// apt-cache 60s）还宽一截。
+const queryWriteBudget = 120 * time.Second
 
 // queryRequest 是 POST /internal/v1/queries 的请求体（CONTRACTS.md 第 15 节）。
 //
@@ -25,6 +39,11 @@ type queryRequest struct {
 
 // handleQueries 执行一个已登记的结构化只读查询。
 func (s *Server) handleQueries(w http.ResponseWriter, r *http.Request) {
+	// 单条查询可能很慢（见 queryWriteBudget）：把这一条请求的写截止时间单独放长。
+	// 失败就算了——不是所有 ResponseWriter 都支持，退回服务器自己的 15 秒。
+	if rc := http.NewResponseController(w); rc != nil {
+		_ = rc.SetWriteDeadline(time.Now().Add(queryWriteBudget))
+	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		httpx.WriteError(w, r, http.StatusMethodNotAllowed, httpx.CodeValidationError, "只支持 POST")

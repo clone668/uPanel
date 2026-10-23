@@ -93,7 +93,14 @@ export const MODULES: readonly ModuleDef[] = [
     summary: '定时任务',
   },
   { key: 'network', label: '网络', path: '/network', implementedIn: null, summary: '网卡、地址与连通性' },
-  { key: 'updates', label: '更新', path: '/updates', implementedIn: null, summary: '软件包更新' },
+  {
+    key: 'updates',
+    label: '更新',
+    path: '/updates',
+    implementedIn: 'P11.1',
+    summary:
+      '已安装软件包、候选版本与来源、可升级与安全更新、重启标志；全部只读，变更操作自 P11.2 起开放。',
+  },
   {
     key: 'alerts',
     label: '监控告警',

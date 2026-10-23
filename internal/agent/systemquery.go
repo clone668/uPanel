@@ -64,6 +64,11 @@ type ProductionDeps struct {
 	// 与 certificate.state：没有秘密存储读取端，手动导入装不上私钥；没有命令执行端，
 	// 签发根本跑不起来——两种情况下“证书”都会是一个点了才报错的入口。
 	Certificates certificateSource
+	// Apt 是 APT 事实读取端（P11.1）。为 nil 时不登记 apt.packages 与
+	// system.power_state：没有 dpkg 的机器上，一条“空包列表”会被读成
+	// “什么包都没装”，一个“没有重启标志”会被读成“不用重启”——
+	// 这两种假话都比一个诚实的 503 糟得多。
+	Apt AptFacts
 }
 
 // newSystemSummaryQuery 登记 system.summary：无参数，返回采集器最近一次快照。

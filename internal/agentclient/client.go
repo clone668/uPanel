@@ -57,8 +57,17 @@ func WithDialer(dial func(ctx context.Context, network, address string) (net.Con
 }
 
 // WithTimeout 替换单次调用超时。
+//
+// 两处都要改：http.Client.Timeout 管到"读完响应体"，而 Transport 的
+// ResponseHeaderTimeout 管"等第一个字节"。只改前者的话，一次需要 20 秒才给出
+// 响应头的查询仍然会在第 10 秒被拨号层掐断——两个门槛都得抬。
 func WithTimeout(d time.Duration) Option {
-	return func(c *Client) { c.http.Timeout = d }
+	return func(c *Client) {
+		c.http.Timeout = d
+		if t, ok := c.http.Transport.(*http.Transport); ok {
+			t.ResponseHeaderTimeout = d
+		}
+	}
 }
 
 // New 构造客户端。socketPath 必须是绝对路径。

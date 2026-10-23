@@ -20,6 +20,7 @@ import (
 
 	"upanel/internal/agent"
 	"upanel/internal/agentstore"
+	"upanel/internal/apt"
 	"upanel/internal/certificates"
 	"upanel/internal/config"
 	"upanel/internal/containers"
@@ -641,6 +642,33 @@ func run(args []string, stdout, stderr io.Writer) int {
 		"production_dir", firstNonEmpty(cfg.Agent.Certificates.ProductionDirectoryURL, certificates.ACMEDirectoryProduction),
 		"scope", "certificate.import / issue / renew / state；staging 默认，不碰 nginx 插件")
 
+	// APT 事实读取（P11.1）。只读：跑 dpkg-query / apt-cache policy、读
+	// /var/lib/apt/lists 的 mtime、读重启标志与 boot_id。这一层不装包、不卸包、
+	// 不刷新索引——那些是 P11.2 的动作，要预检、要锁、要审计。
+	//
+	// Available() 是登记条件：主机上没有 dpkg-query（非 Debian 系）时就不登记这两条
+	// 查询，capabilities 于是不会报告一个点开必然 503 的入口。
+	aptFacts := apt.New(apt.Options{})
+	if aptFacts.Available() {
+		logger.Info("已启用 APT 事实读取",
+			"snapshot_ttl", apt.DefaultCacheTTL.String(),
+			"dpkg_query", apt.DefaultDpkgQuery,
+			"apt_cache", apt.DefaultAptCache,
+			"scope", "只读：apt.packages / system.power_state；不安装、不卸载、不刷新索引")
+		// 这里**故意不做**开机预热采集。试过了，然后量出来的结论是它帮倒忙：
+		// 开机那一分钟里服务/进程/磁盘几个采集器正在密集跑 systemctl，同一时间再压一份
+		// 26 秒的 apt-cache，两边的 CPU 和 IO 互抢，预热实测从 26 秒拖到 62 秒；而
+		// Packages 是单飞的——用户这时点开"更新"页，请求会排队等这份 62 秒的预热，
+		// 越过面板 45 秒的查询预算，于是页面报"代理不可用"，而事实其实此刻正在被读。
+		// 不预热的话，第一次请求自己采一遍（24.04 实测 21 秒，与后台采集器并行时的时长），
+		// 落在预算内；之后就都是 0.3 秒的缓存命中。
+		// 慢一次比"在最需要它的那一次谎报不可用"好。
+	} else {
+		logger.Warn("APT 事实读取未启用",
+			"reason", "找不到可执行的 "+apt.DefaultDpkgQuery,
+			"hint", "这台机器不是 Debian 系发行版；包管理相关入口不会出现在能力表里")
+	}
+
 	// 动作登记表：生产表自 P05.1 起有 service.control，P05.2 起有 process.signal（受保护名单与读回验证见 internal/services）。
 	// 验收表只能靠显式参数启用，且动作全部以 acceptance. 开头、不读写任何系统资源。
 	registry := agent.NewRegistry()
@@ -665,6 +693,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Nginx:      nginxCollector,
 		// 证书（P10.3）。上面已经构造好；把它接进来，三个写动作与一条查询才会登记。
 		Certificates: certOps,
+		// APT 事实读取（P11.1）。Available() 为假时登记表里不会出现这两条查询。
+		Apt: aptFacts,
 	}
 	// 只在真的有时才赋给接口：nil 的 *proxies.Applier 塞进接口会变成一个非 nil
 	// 的接口值，能力表于是多出一个调用就 panic 的入口。
