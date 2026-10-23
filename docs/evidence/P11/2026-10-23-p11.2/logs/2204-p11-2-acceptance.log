@@ -1,0 +1,286 @@
+== 0. 这台机器的发行版与包管理现场 ==
+      发行版：Ubuntu 22.04.5 LTS
+      apt-get：apt 2.4.14 (amd64)
+      dpkg-query：/usr/bin/dpkg-query；锁文件：/var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock 
+PASS  env-has-apt-get
+PASS  env-cowsay-not-installed
+PASS  env-sl-not-installed
+PASS  env-fixture-repo-indexed
+PASS  env-fixture-installed-at-1.0
+PASS  env-fixture-a-at-1.0
+PASS  env-fixture-b-at-1.0
+PASS  env-conffile-locally-edited
+PASS  env-fixture-has-newer-candidate
+      升级目标：upanel-fixture-a（1.0 → 候选 2.0），旁边不动的是 upanel-fixture-b
+      ca-certificates 的模拟删除行数：23（其中 1 个是被点名的那个，其余是连带删除）
+
+== 1. 启动代理（root）与 Web（非 root） ==
+PASS  agent-key-present
+PASS  agent-started
+PASS  agent-runs-as-root
+PASS  agent-logs-apt-write-enabled
+PASS  init-admin
+PASS  web-started
+PASS  web-not-root
+
+== 2. 能力表报告四个写动作 ==
+PASS  capabilities-200
+      supported_actions=["package.install", "package.refresh", "package.remove", "package.upgrade"]
+PASS  capabilities-has-package.refresh
+PASS  capabilities-has-package.install
+PASS  capabilities-has-package.upgrade
+PASS  capabilities-has-package.remove
+
+== 3. 登录与权限 ==
+PASS  login-admin
+      已建 viewer 账号 pkg-watcher
+PASS  login-viewer
+PASS  viewer-forbidden-preflight
+PASS  anon-401
+
+== 4. 参数边界：这七种请求必须被拒，且不留任务 ==
+PASS  baseline-valid-preflight-200
+PASS  reject-install-allow-remove-essential
+PASS  reject-install-dist-upgrade
+PASS  reject-install-empty-packages
+PASS  reject-install-version-syntax
+PASS  reject-install-option-like
+PASS  reject-refresh-with-packages
+PASS  reject-remove-uppercase-name
+PASS  reject-install-too-many
+PASS  reject-leaves-dpkg-untouched
+PASS  reject-creates-no-jobs
+
+== 5. 保护名单：apt 愿意删的，面板必须拦（openssh-server） ==
+      apt-get -s remove openssh-server 的退出码：0
+      模拟里的删除行：1
+PASS  protected-openssh-preflight-200
+PASS  protected-openssh-blocked
+PASS  protected-openssh-code
+      阻塞项：["PACKAGE_PROTECTED"]
+      消息：这次操作会卸载受保护的包：openssh-server（ssh：SSH 远程登录：删掉之后当前会话照旧，断开就再也连不上）
+PASS  protected-openssh-says-ssh
+PASS  protected-openssh-cancellable-false
+PASS  protected-openssh-submit-blocked
+PASS  protected-openssh-error-code
+PASS  protected-openssh-still-installed
+PASS  protected-bash-preflight-200
+PASS  protected-bash-blocked
+PASS  protected-bash-code
+PASS  protected-bash-says-essential
+PASS  protected-bash-still-installed
+
+== 6. 连带删除：预检必须点名，且不提交（只读证据） ==
+PASS  cascade-preflight-200
+PASS  cascade-warns-collateral
+PASS  cascade-count-matches-apt-simulation
+      预检：这次操作还会删除 22 个没有点名的包：apport、certbot、cloud-init、landscape-common、pollinate、python3-acme、python3-apport、python3-certbot、python3-certifi、python3-httplib2、python3-launchpadlib、python3-lazr.restfulclient 等 22 个
+PASS  cascade-impacts-removal
+PASS  cascade-preflight-created-no-job
+
+== 7. 不成立的操作：找不到的包、没装的包 ==
+PASS  unmet-preflight-200
+PASS  unmet-blocked
+PASS  unmet-code
+      unmet 消息：apt 拒绝了这次操作：E: Unable to locate package upanel-no-such-package-p112
+PASS  upgrade-not-installed-preflight-200
+PASS  upgrade-not-installed-blocked
+PASS  upgrade-not-installed-code
+PASS  upgrade-not-installed-explains
+
+== 8. 资源锁：别人占着 dpkg 前端的锁时，预检必须拦下且一步不做 ==
+PASS  lock-busy-preflight-200
+PASS  lock-busy-blocked
+PASS  lock-busy-code
+      阻塞项：["APT_BUSY"]
+      locks：["apt-global"]
+PASS  lock-busy-names-the-path
+PASS  lock-busy-nothing-executed
+PASS  lock-busy-package-still-absent
+PASS  lock-released-before-install
+
+== 9. 真装：cowsay + sl（两个包，一次预检） ==
+      候选版本：cowsay=3.03+dfsg2-8  sl=5.02-1
+PASS  install-preflight-200
+PASS  install-allowed
+PASS  install-requires-reauth
+PASS  install-no-phrase
+PASS  install-not-cancellable
+PASS  install-locks-apt-global
+PASS  install-impact-software-change
+PASS  install-needs-reauth-first
+PASS  install-needs-reauth-code
+PASS  install-aborted-before-reauth
+PASS  install-reauth
+PASS  install-submit-accepted
+      任务 job_a8e0cd2f1447bcf5971cebcbbd3562a3 已提交，等待终态（要下载两个小包）
+PASS  install-job-succeeded
+PASS  install-outcome-verified
+PASS  install-observed-verified
+PASS  install-no-mismatch
+PASS  install-exit-code
+PASS  install-observed-pkg-a
+PASS  install-observed-pkg-b
+PASS  install-dpkg-says-a-installed
+PASS  install-dpkg-version-a
+PASS  install-dpkg-version-b
+PASS  install-mismatches-empty
+
+== 10. 不取消：不可取消的动作，取消请求必须被拒 ==
+PASS  cancel-not-allowed
+      取消请求的响应：{"error":{"code":"VERSION_CONFLICT","message":"任务已经结束，终态不可变更；重新操作请创建新的预检与任务"},"request_id":"182c819ccba2
+
+== 11. 真升：只升点名的包，不做发行版升级 ==
+PASS  upgrade-preflight-200
+PASS  upgrade-allowed
+PASS  upgrade-no-phrase
+PASS  upgrade-reauth
+PASS  upgrade-submit-accepted
+PASS  upgrade-job-succeeded
+PASS  upgrade-observed-verified
+PASS  upgrade-target-version
+PASS  upgrade-dpkg-version
+PASS  upgrade-bystander-untouched
+      upanel-fixture-a：1.0 → 2.0；upanel-fixture-b 仍是 1.0
+      版本表差集的行数：1（其中与 upanel-fixture-a 无关的：0）
+PASS  upgrade-changed-only-the-named-package
+PASS  upgrade-conffile-kept-local-edit
+PASS  upgrade-conffile-not-overwritten
+      conffile 现场：# uPanel 验收夹具的 conffile version=1.0 shipped=yes local_edit=yes ；dpkg-dist 备份：/etc/upanel-fixture-a.conf.dpkg-dist 
+
+== 12. 刷新索引：正常一次，坏源一次 ==
+PASS  refresh-preflight-200
+PASS  refresh-allowed
+PASS  refresh-no-reauth
+PASS  refresh-no-phrase
+PASS  refresh-not-cancellable
+PASS  refresh-submit-accepted
+PASS  refresh-idempotent-replay-same-job
+PASS  refresh-job-succeeded
+PASS  refresh-observed-verified
+PASS  refresh-no-error-lines
+      index_before=2026-10-23T14:17:22Z index_after=2026-10-23T14:18:07Z index_advanced=True（距现在 3 秒）
+PASS  refresh-advanced-index-is-fresh
+PASS  refresh-actually-ran-apt
+PASS  refresh-index-time-matches-lists-mtime
+PASS  refresh-broken-preflight-200
+PASS  refresh-broken-submit-accepted
+PASS  refresh-broken-job-failed
+PASS  refresh-broken-result-is-empty
+      坏源刷新的失败原因：COMMAND_FAILED / apt-get update 有错误行：Err:2 http://127.0.0.1:1/upanel-p11-2-nope ./ InRelease
+PASS  refresh-broken-error-message-carries-reason
+PASS  refresh-recovers-after-broken-source-removed
+
+== 13. 真卸：短语是硬门槛 ==
+PASS  remove-preflight-200
+PASS  remove-allowed
+PASS  remove-requires-phrase
+      确认短语：REMOVE G4JTGU
+PASS  remove-phrase-shape
+PASS  remove-reauth
+PASS  remove-wrong-phrase-400
+PASS  remove-wrong-phrase-code
+PASS  remove-wrong-phrase-nothing-removed
+PASS  remove-wrong-phrase-package-b-intact
+      拒绝原因：确认短语不正确
+PASS  remove-preflight-consumed
+PASS  remove-preflight-consumed-code
+PASS  remove-second-reauth
+PASS  remove-submit-accepted
+PASS  remove-job-succeeded
+PASS  remove-observed-verified
+PASS  remove-observed-pkg-a
+PASS  remove-dpkg-a-gone
+PASS  remove-dpkg-b-gone
+PASS  remove-no-leftover-config
+
+== 13.5 硬杀：apt 在事务中途被杀，面板必须说实话、不自动修复、不重试 ==
+PASS  kill-preflight-200
+PASS  kill-preflight-allowed
+PASS  kill-reauth
+PASS  kill-submit-accepted
+      硬杀的目标进程：/usr/bin/apt-get -y -q -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Use-Pty=0 install figlet
+PASS  kill-job-terminal
+PASS  kill-job-not-verified-claim
+PASS  kill-job-real-error
+      失败原因：apt-get install 被信号 SIGKILL 终止（退出码 -1），事务可能停在中间；先核对 dpkg 状态，再决定是否重试
+PASS  kill-reason-names-the-signal
+PASS  kill-no-auto-retry
+PASS  kill-no-auto-repair
+      dpkg --audit：
+PASS  kill-recovered-package-gone
+PASS  kill-apt-works-again
+
+== 14. 审计：预检、提交、被拒都留痕，且不含口令 ==
+PASS  audit-has-package-preflights
+PASS  audit-has-four-actions
+PASS  audit-has-job-submits
+PASS  audit-has-failed-submit
+PASS  audit-without-password
+      审计行数：42；任务数：8
+
+== 15. 收尾：机器回到此前的样子 ==
+PASS  final-a-gone
+PASS  final-b-gone
+PASS  final-ssh-still-there
+PASS  final-bash-still-there
+PASS  final-no-broken-source
+PASS  final-fixture-a-gone
+PASS  final-fixture-b-gone
+PASS  final-fixture-source-gone
+PASS  final-fixture-repo-gone
+
+== 16. 明确未覆盖 ==
+NOT RUN  APT_LOCK_UNREADABLE：root 造不出 EACCES；不挪 dpkg 的锁文件，分支由 internal/apt/locks_test.go 覆盖
+NOT RUN  重启执行与 boot_id 前后确认：P11.3
+NOT RUN  浏览器渲染：VM 上没有浏览器；每一步的原始响应在 /var/tmp/upanel-accept-p11-2/payloads，能力表在 /var/tmp/upanel-accept-p11-2/fixtures
+NOT RUN  Windows / macOS 宿主：0.1 不支持
+
+== 汇总 ==
+PASS 169  FAIL 0  NOT RUN 4
+载荷（原样抓取）：/var/tmp/upanel-accept-p11-2/payloads
+      capabilities.json
+      host-sim-remove-openssh.txt
+      job-install-kill.json
+      job-install-two.json
+      job-refresh-broken.json
+      job-refresh-recovered.json
+      job-refresh.json
+      job-remove-ok.json
+      job-submit-install-kill.json
+      job-submit-install-two-no-reauth.json
+      job-submit-install-two.json
+      job-submit-refresh-broken.json
+      job-submit-refresh-recovered.json
+      job-submit-refresh-replay.json
+      job-submit-refresh.json
+      job-submit-remove-after-wrong-phrase.json
+      job-submit-remove-ok.json
+      job-submit-remove-openssh.json
+      job-submit-remove-wrong-phrase.json
+      job-submit-upgrade.json
+      job-upgrade.json
+      preflight-baseline-valid.json
+      preflight-install-allow-remove-essential.json
+      preflight-install-busy.json
+      preflight-install-dist-upgrade.json
+      preflight-install-empty-packages.json
+      preflight-install-kill.json
+      preflight-install-option-like.json
+      preflight-install-too-many.json
+      preflight-install-two.json
+      preflight-install-unmet.json
+      preflight-install-version-syntax.json
+      preflight-refresh-broken.json
+      preflight-refresh-recovered.json
+      preflight-refresh-with-packages.json
+      preflight-refresh.json
+      preflight-remove-bash.json
+      preflight-remove-cascade.json
+      preflight-remove-ok.json
+      preflight-remove-openssh.json
+      preflight-remove-uppercase-name.json
+      preflight-remove.json
+      preflight-upgrade-not-installed.json
+      preflight-upgrade.json
+exit=0

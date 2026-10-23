@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"agent: 参数不合法: 包名 \"Bash\" 不合法（应为小写字母/数字加 . + -，可带 :架构 限定）"},"request_id":"70da1cbed4c60aa37ba6cc6f91057da0"}

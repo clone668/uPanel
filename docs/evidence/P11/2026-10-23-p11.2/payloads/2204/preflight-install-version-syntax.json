@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"agent: 参数不合法: 包名 \"bash=5.2\" 不合法（应为小写字母/数字加 . + -，可带 :架构 限定）"},"request_id":"8d94cbb307be57f3613ed87dbaf17769"}

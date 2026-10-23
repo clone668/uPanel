@@ -152,11 +152,17 @@ P07.1 先把“该拒的都拒”证完（判决层、可靠身份、整盘锁�
 
 ## 1. 当前任务
 
-- 当前阶段：**P11（软件更新与电源）进行中：P11.1 passed**，下一个子任务 **P11.2**
-  （刷新索引/安装/卸载/升级：`apt-get -s` 模拟、保护名单、资源锁、非交互配置、
-  不可取消阶段、结果校验）；再往后 **P11.3**（重启/关机预检、再认证、倒计时、
-  `boot_id` 前后确认）。
-  **P11.1（软件包与更新只读页、包名与版本展示）passed**：代理出事实（`apt.packages`
+- 当前阶段：**P11（软件更新与电源）进行中：P11.1、P11.2 passed**，下一个子任务 **P11.3**
+  （重启/关机预检、再认证、倒计时与连接状态；`boot_id` 前后确认）。
+  **P11.2（刷新索引/安装/卸载/升级）passed**：模拟即准入（`apt-get -s` 的计划当准入依据）、
+  执行后重读 dpkg 与计划逐条核对（`observed_state.verified`，退出码 0 不是证据）、锁只探测
+  从不删除、非交互参数事先定死、四个动作全部不可取消、`remove` 额外要 `REMOVE` 短语。
+  两台专用虚机各 **PASS 169 / FAIL 0 / NOT RUN 4**，两次 `exit=0`；宿主 `check.sh`
+  **PASS 13 / FAIL 0**（web 43 文件 791 用例）；`//go:build unix` 的三个包第一次在 Linux
+  上真跑（24+1 / 41 / 77 全过），并因此抓出一条与本包语义矛盾的锁探测断言。真机顺带抓出
+  **6 个缺陷**，其中三个产品缺陷：被信号停住的 apt 只说“退出码 -1”、写操作对话框把 38.7 秒
+  的再模拟当成 20 秒就该回来的请求、`--only-upgrade` 的夹具靠“恰好有个可升级的包”这种运气。
+  证据 `docs/evidence/P11/2026-10-23-p11.2/`。**P11.1（软件包与更新只读页、包名与版本展示）passed**：代理出事实（`apt.packages`
   给 dpkg 登记 + `apt-cache policy` 候选/套件/优先级，`system.power_state` 给重启标志与
   `boot_id`），Web 算判断（`candidate_relation`/`upgradable`/`security`/`pockets`/
   `counts`/分页/筛选），版本比较走 `internal/debversion`。两台专用虚机各
@@ -641,7 +647,7 @@ P07.1 先把“该拒的都拒”证完（判决层、可靠身份、整盘锁�
 | P08 | SMB 与卷依赖 | **已完成**（P08.1—P08.4 全部 passed）| P08.1 **passed**：Samba 能力检测、受管理账号、密码秘密通道、POSIX ACL、共享定义与配置版本。VM 上 **PASS=382 / FAIL=0 / NOT RUN=4**；`share.apply` 只到 `accepted`（不写 `smb.conf`、不重载，`sha256` 首末一致），密码明文只走 `smbpasswd` 的 stdin（五处扫描 0 命中），账号与 ACL 均用系统自己的命令读回核验。真机修掉 4 个产品缺陷（Q214/Q220/Q221/Q223），钉死 P05.1 采集器性能问题（Q222，未根治），记下 5 处验收脚本缺陷；证据 `docs/evidence/P08/2026-10-22-p08.1/`。**P08.2 passed**：托管 `upanel.conf` 整份重写 + `smb.conf` 末尾只追加两行（原有内容逐字节前缀比对保留），候选/合并两次 `testparm`、备份 0600 留 40 份、rename + 目录 fsync 的原子更新、`smbd` 活着才 `smbcontrol all reload-config`、逐参数读回、真实 `smbclient` 读写与拒绝、`smbstatus` 会话表连接状态。VM 上 **PASS=237 / FAIL=0 / NOT RUN=0**（四遍）；真机抓出 **1 个**产品缺陷（Q233 上级目录 0700 导致真实客户端 `ACCESS_DENIED`，7 条断言 1 个根因）+ **1 个**契约事实（Q234 `hosts allow` 对环回永远放行），2 处验收脚本缺陷；证据 `docs/evidence/P08/2026-10-22-p08.2/`。**P08.3 passed**：共享与 `volume_id` 绑定、启用检查、启动依赖、运行时脱盘、卸载/格式化依赖阻断。挂载门（只有 `volume_state=mounted` 才渲染，`unknown`/空按没挂处理）、30 秒一轮**只撤不恢复**的监视循环（撤销现场 `runtime_revoked{at,volume_id,volume_name,volume_state,reason}` 落在共享记录上，人再应用才回来）、systemd drop-in `/etc/systemd/system/smbd.service.d/upanel-shares.conf`（`RequiresMountsFor=` 一行四路径、排序去重、原子写、`daemon-reload` 必做、清空即整份删除）、存储侧按 `purpose` 分档的反向约束（卸载只看启用中的共享，格式化/退出管理看任何共享，查不出依赖一律阻塞）。VM 上 **PASS=207 / FAIL=0 / NOT RUN=5**（三遍：184/14 → 203/2 → 207/0），另用三阶段脚本连同一次真 `reboot` 验完重启顺序（pre 18 / post 11 / clean 5，各 0 失败，挂载单元比 `smbd` 早 57.2 秒进入 active，`smb.conf` 重启前后逐字节相同）。真机抓出 **2 个**产品缺陷（Q240 少一列导致 `runtime_revoked` 从不落盘且幂等判据永远失效；Q243 `0644` 被 umask 掩成 `0600`），**2 处**脚本缺陷（Q241、Q244），1 处契约补记（Q242）；证据 `docs/evidence/P08/2026-10-22-p08.3/`。**P08.4 passed**：共享 UI、用户权限与客户端连接说明（不加接口、不改字段）。三个准备状态分开显示；卷的状态与开机依赖**都不在共享记录里**——卷的挂没挂由页面按 `volume_id` 从 `/storage/volumes` 的 `observed_state` join（取不到就少显示一行；`unknown`/`error`/`mismatch` 说“读不出来”而不是“没挂”），开机依赖在 `share.apply` 的 `result.data`；客户端说明四种（Windows/macOS/`mount.cifs`/`smbclient`），地址取自 `window.location.hostname`，命令里永远没有密码（`credentials=` + `0600` + here-doc 走 stdin）。VM 上 **PASS=190 / FAIL=0 / NOT RUN=4**（四遍：167/20 → 187/2 → 190/0），第 5 节逐字执行说明里的 11 行（真 `smbclient` + 真 `mount.cifs` 挂载、写入读回、`umount`），第 6 节四种身份全拿真实 `NT_STATUS_*`，第 7 节 58 份载荷 / 两个库 / `/proc` 两处 / `/proc/mounts` 命中 0。真机抓出 **2 个**产品缺陷（Q246 前端 DTO 写着后端从不发送的四个字段，“卷没挂”永远亮不了；Q247 “重新应用”这条唯一的出路走不通，`runtime_revoked` 从来没被清过），**5 处**验收脚本缺陷；宿主 `check.sh` PASS 13/0/0、前端 637 条用例全绿；证据 `docs/evidence/P08/2026-10-23-p08.4/`、回放夹具 `web/src/fixtures/p08-4-vm/`。`P00-VM-D`（独立 SMB 客户端 VM）仍未建立，跨机器真实网段访问属 **NOT RUN** |
 | P09 | 现有 Web 应用与 Docker | **已完成**（P09.1—P09.5 全部 passed）| P09.5 **passed**：应用卡片、搜索、分组、一键打开、状态区分与常用入口首页集成——**只动前端，不新增接口**。卡片四件事分开画（`runtime_state` / `http_state` / `dependency_protection` / `runtime_note`），「容器在跑但回 500」同时写“运行中”与“入口异常”；按钮按服务器给的 `capabilities` 画（link 只有 `open`、受保护单元只剩 `logs`、看不见的绑定一个都不给）；`open` 是锚点（`target="_blank"`、`noopener noreferrer`）不是请求，地址是服务器地址——真机入口 `http://10.0.2.15:18897/` 回 200 而同端口回环 000，回环/`localhost`/带凭据/`javascript:` 的入口在写入口就 400；启停只落 `service.control`/`container.control`（不引入 `app.control`，那条路会绕过依赖卷门禁）；收藏按用户、幂等；搜索在页面（`GET /apps?q=` 结果集不变）；非空分组删不掉且成员不被顺手移走；`group_id` 形状对但不存在 → 200 + 空、**形状不对 → 400**（Q277，改的是 openapi 的描述不是代码）。VM 上 **PASS=211 / FAIL=0 / NOT RUN=0**，真机**无产品缺陷**（4 处失败：1 处契约文字 + 3 处脚本毛病）；前端 40 文件 / 720 用例、真机载荷回放 51 条断言、宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P09/2026-10-22-p09.5/`、回放夹具 `web/src/fixtures/p09-5-vm/`。P09.4 **passed**：应用摘要里的状态/按钮/日志/依赖保护全部**来自底层对象的观测**，并在启动路径上加一道**只能收紧**的依赖卷门禁。`internal/appruntime` 一次请求内合成三件事：状态逐来源枚举（systemd `active`/`reloading`→`running`、`failed`→`failed`、`activating`/`deactivating`→`unknown`、单元不在列表→`unknown`；docker `running`→`running`、`stopped`→`stopped`、其余→`unknown`）、**能力来自对象自己的能力集合**（不再由 `type` 推导）、保护判定。三处容易写错的钉死了：**`unknown` 不是 `stopped`**（绑在不存在的单元/被重建的容器上要人重新确认绑定，而不是给一个点下去必然失败的按钮）、**受保护单元仍有日志能力**（`ssh.service` 三项生命周期全 false、`logs` 为 true）、**门禁只拦启动**（`stop` 永不拦——卷掉线时最想做的就是停机，拦它只会把人逼回命令行、绕过审计）。门禁 `internal/appruntime/gate.go` 跑在 `CreatePreflight` 已有判决**之后**，只能把 `allowed` 从 true 改成 false（Q273；依赖关系只在 Web 库里，代理不该知道应用元数据）：未挂载→`VOLUME_OFFLINE`、身份不符→`VOLUME_IDENTITY_CHANGED`、读不到卷清单→`VOLUME_CHECK_UNAVAILABLE`（fail closed），提交被钉住的预检是 409 `DEPENDENCY_BLOCKED`，真机用 `docker inspect` 现场对照容器确实没动。`managed` 只给「docker + `restart` 是 no/空 + 有依赖卷」（Q274）——它说的是“经面板发起的启动会被检查”，不是“依赖被接管了”；手工 `docker start`、开机自启、`systemctl enable` 过的单元、`restart: always` 四条绕过路径都在 note 里点名，这几种一律 `unmanaged`。`GET /api/v1/apps/{id}/logs` 按绑定判别 journal / docker，两种 `page` 形状各自与 `/logs`、`/containers/{id}/logs` 一致；`unit`/`source` 这类“想改对象”的参数一律 400（对象来自绑定）。两条**没做**的明写着而不拿门禁冒充（Q276、Q275）：运行时卷失联自动停止要代理侧常驻协调者，本轮不做；docker 的 `failed` 这一版不区分（DTO 里没有 ExitCode，非 running 一律 `stopped`）。VM 上 **PASS=165 / FAIL=0 / NOT RUN=0**（11 节），**真机没抓出产品缺陷**，10 处失败全是脚本自己的毛病（子壳变量、拿受保护单元当夹具、`/storage/volumes` 读成 `data.items`、`lsblk -r` 与 `-l` 在 util-linux 2.39 互斥、拿旧服务快照断言新单元、把“改完之后的版本号”当乐观锁、`pfget` 拼路径去跑表达式）；宿主 `check.sh` PASS 13/0/0、`go test -count=1 ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.4/`。P09.3 **passed**：Docker 只读查询（容器/镜像/网络/数据卷/部署）、容器日志（时间键集分页 + SSE 流，每账号 4 条并发）、现有受支持容器的 start/stop/restart。**Web 进程从不碰 `docker.sock`**——所有查询与动作在代理里用固定子命令完成，真机验了 Web 账号不在 docker 组、`docker ps` 被拒、`/proc/<pid>/fd` 里没有 sock。**容器身份只认完整 64 位小写十六进制**（唯一会进 argv 的可写字符串，名字只在输出里出现；短 ID 可猜，全 ID 不行），`^[0-9a-f]{64}$` 在 Web 与代理各校验一次。**风险是闭集而不是启发式**：privileged、host 网络/pid/ipc、危险 capability、挂 `docker.sock`、挂宿主 `/` → `risk.level=high` + `managed=false` + 三项能力全 false，并在预检（`CONTAINER_NOT_MANAGED`）与执行前复核（`controlBlockedError` → 409 `PREFLIGHT_STALE`）**两处**拒绝。**不该要的东西不请求**：inspect 格式串里没有 `Config.Env`、没有完整标签表（只取六个 `com.docker.compose.*`），真机放了唯一口令，清单/详情/日志/SSE/代理日志里都搜不到，日志正文经 `logging.Redact` 成 `[redacted]`。启停每条都“预检 → 任务 → 读回”并与 `docker inspect` 现场对照：**退出码 0 不算成功，读回状态一致才算**（`observed_state.verified`）。compose 项目是派生身份 `dep_`+sha256 前缀，只做精确匹配 GET，外部 YAML 不执行不解析不落盘。VM 上 **PASS=217 / FAIL=0 / NOT RUN=1**（五遍；唯一 NOT RUN 是“执行前复核（受理之后再变）”，需毫秒级可重复竞态，由 `TestContainerControlExecuteStaleState` 覆盖）；真机抓出并修掉 **3 个**产品缺陷（Q270 `--tail`/`--until` 顺序让往回翻页只剩边界一条 → 时间窗分页；Q271 套接字还在但守护进程死了被当成命令失败/500 → 按 `Cannot connect to the Docker daemon` 判 `UnavailableError`，清单降级 200 + `available=false`、预检 `allowed=false` + `DOCKER_UNAVAILABLE`；Q272 代理的 5xx 域内码被 Web 改写成 `AGENT_UNAVAILABLE`）；宿主 `check.sh` PASS 13/0/0、`go test ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.3/`。P09.2 **passed**：本机端口/服务/容器发现、管理员确认候选、普通健康检查与 SSRF 约束。三路来源（`/proc/net/tcp{,6}` LISTEN → inode → `/proc/<pid>/fd` → cgroup v2 → `.service`、裸监听、`docker ps -a --no-trunc`），候选 `target_id` 只有 `local_…`/`cntr_…` 两种形状；**SSRF 不是过滤而是写不出来**——探测地址一律由代理拼成 `http(s)://127.0.0.1:<port><path>`（`Proxy: nil`、不跟重定向、TLS 校验开、正文 64 KiB 截断），调用方没有任何位置能放主机名/IP/完整 URL；确认候选＝`POST /apps`（不另开接口）；结论只进 `app_health_results`（`0008`），定义仍在 `apps.health_json`；调度 5 秒一拍/一轮 60 秒/每应用 30—300 秒/最小间隔 5 秒，代理不可用写一条 `unknown` 即结束本轮。两条诚实性规矩：**“没看”不能变成“没有”**（探测侧 `unknown` vs `error`，入 Q257；绑定合并侧来源没采成不进 `missing_bindings`，Q260），**没发出去的探测不填 address/url**。为三条容器验收在测试机上装 `docker.io` 29.1.3 + `alpine:3.20` **夹具**（非依赖；无 docker 的机器上那三条仍是 NOT RUN）。VM 上 **PASS=120 / FAIL=0 / NOT RUN=1**（六遍 93/0 → 120/0；唯一 NOT RUN 属 P09.4）；真机抓出并修掉 **3 个**产品缺陷（Q258 pid 1 代持的 `.socket` 监听让端口出现两次、Q259 docker-proxy 在 `docker.service` cgroup 里让容器出现两次且抑制必须在单元分类之前、Q260 停 dockerd 后容器应用被误判“需重新确认”）+ 一条语义修正 Q257；宿主 `check.sh` PASS 13/0/0、`go test ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.2/`。**下一子任务 P09.3**（Docker 只读查询、日志、现有受支持容器的启停）。P09.1 **passed**：应用/分组/收藏元数据、link/systemd/docker/compose 判别模型、公共入口与内部目标分离。四张表（`apps`/`app_groups`/`app_favorites`/`app_volume_dependencies`，`0007_apps.sql`）；`type` 决定 `binding` 的唯一合法键，规范化 JSON + `uq_apps_binding`（`WHERE type <> 'link'`）+ `CHECK` 让唯一性由数据库保证；`public_url` 只受理浏览器能打开的地址（生产禁回环/通配），健康检查 `target_id` 形状写不出 IP/主机名/URL，`169.254.169.254` 真机试过；摘要字段只填“不知道”（link `not_applicable`，其余 `unknown` + `last_checked_at=null` + `dependency_protection=unmanaged`），`capabilities` 只有 `open`；依赖卷不建外键（Q248），写入经代理确认，503 不写库、422 带 `volume_id`；删除只删元数据，收藏按用户隔离且不写审计。VM 上 **PASS=210 / FAIL=0 / NOT RUN=0**（第八遍；第七遍复跑同样 210/0/0）。真机**无产品缺陷**，前几遍 23 个 FAIL 全为脚本自身问题（断言写错 4 处、破坏性动作漏再认证、夹具没清干净 1 处），并把“预检绑定快照”这条产品语义钉进脚本；宿主 `check.sh` PASS 13/0/0、`go test ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.1/`。|
 | P10 | 反向代理、HTTPS、0.1 发布 | **passed**（P10.1—P10.4 全部完成）| P10.3 **passed**：证书四件事——staging 必填（`staging *bool` 缺失即 400，默认值就等于"不小心调用正式 ACME"）、`--server` 只由 staging 推导（调用方给不了地址）、签发前先做 HTTP-01 可达性检查；手动导入拆两条通道（公钥走一次性上传，1 MiB、10 分钟、绑会话；私钥走 `POST /secrets`），私钥不进 argv/日志/库，落地前 `Take` + `CoversDomain`；账本按域名唯一、`crt_` 在预检展开期定死、**唯一写入点 `OnJobFinished`**；到期信息 `valid`/`expiring`（21 天窗）/`expired` 现场读盘；续期读 jobs 表做同域名 1 小时冷却（429 `RESOURCE_BUSY`）。**续期与生效分家**：续期只换盘上文件，生效靠下一次 `proxy.apply` 的轮换**实测**（SNI 握手取叶证书指纹，与盘上不一致就 reload，`reload_reason=cert_rotated`，12 × 250 ms settle 预算，仍不一致报 `PROXY_TLS_SERVED_STALE` 告警）。VM 上 **PASS=176 / FAIL=0 / NOT RUN=7**（四遍收敛 114/37 → 165/2 → 172/4 → 176/0），真机抓出 **1 个**产品缺口（续期之后新证书在任何路径上都不生效）。证据 `docs/evidence/P10/2026-10-23-p10.3/`。P10.2 **passed**：配置生成（纯函数渲染、确定性 apr1 盐）、原子写入（临时文件 + fsync + rename + fsync 目录）、`nginx -t` 整棵树门禁、失败回滚与回滚复验、`nginx -s reload`（只 reload 不 restart，单元没在跑就 skip）、`applied` 四态推导（不落库）、改名与停用的文件清理（先备份）、账号文件权限按 worker 用户定、删除记录的孤儿配置门禁 409、`proxy.apply` 参数服务端展开。VM 上 153 项断言全过，真机抓出 1 个缺陷（Q290 预检偶发 8 秒 → 单元探测排在采集扫掠后面，6.389s vs 0.17s）。证据 `docs/evidence/P10/2026-10-23-p10.2/`。P10.1 **passed**：Nginx 发现、域名冲突判断、站点定义登记（单域名单 upstream、WebSocket 开关、请求限制、访问策略）。事实与判断分家：代理登记 `nginx.state`（`{fresh}`）只给事实，`internal/proxies` 出判断；**展示用 5 秒快照、写入门禁用直读**（缓存窗口里刚手工加的 `server_name` 正是唯一需要判准的时刻）；冲突三态 `clear`/`taken`/`unknown`，**`unknown` 与 `taken` 一样 409 阻断**（`nginx reload` 不因 `server_name` 撞车失败，只会安静地用第一个块），证据带文件 + `server_name` 所在行 + 原文 + `broken_files`；读不到主机事实是 503 而不是“没有冲突”。符号链接按真实路径去重（`sites-enabled/default` 只算一次）；域名 IDNA 归一并禁通配符/协议/端口/路径；**上游端口不得等于面板真正监听的端口**（取自监听地址，不写死 9443）；默认值与 nginx 一致（`1m`/`60s`）；访问模式与附加字段双向一致（多给也 400）；`secret_ref` 只进不出。**P10.1 不写配置**：没有 `applied_*` 字段、审计固定 `"applied": false`、`/etc/nginx` 全部文件内容摘要前后相等（Q280）。VM 上 **PASS=100 / FAIL=0 / NOT RUN=0**，真机抓出 **1 个**产品缺陷（Q279：`nginx -v` 时限写成无单位 `5` → 5 纳秒，Windows 上被 `t.Skip` 的单测证明不了）；证据 `docs/evidence/P10/2026-10-22-p10.1/` |
-| P11 | 软件更新与电源 | **进行中**（P11.1 passed；P11.2/P11.3 未开始）| P11.1 **passed**：软件包与更新只读页——代理出事实（dpkg 登记 + `apt-cache policy` 候选 + 重启标志/`boot_id`）、Web 算判断（`candidate_relation`/`upgradable`/`security`/`pockets`/`counts`/分页/筛选），`internal/debversion` 做版本比较。真机抓出并修掉 **1 个产品缺陷**：arch 限定名（`bind9-libs:amd64`）在 `apt-cache policy` 里块头被 apt 剥成 `bind9-libs:`，按请求名索引必然落空 → 整类包的候选被谎报成“读不到”；修法是基础名回退 + 同名双架构时**不回退**（如实报 `unknown`），对账脚本自己也复刻了同一个 bug，改法不同之后才敢当对账。24.04 的 apt 比 22.04 慢 28 倍（26.6s vs 384ms / 731 与 676 个包名），超时分成 45s/60s/120s/30s 四层，**启动预热删掉**（26s→62s 反而误报不可用）。两台 VM 各 **PASS 64 / FAIL 0 / NOT RUN 7**，对账 0 失配；宿主 `check.sh` PASS 13 / FAIL 0。证据 `docs/evidence/P11/2026-10-23-p11.1/` |
+| P11 | 软件更新与电源 | **进行中**（P11.1、P11.2 passed；P11.3 未开始）| P11.2 **passed**：四个写动作（`package.refresh`/`install`/`remove`/`upgrade`）——模拟即准入（`apt-get -s` 的 `Inst`/`Remv`/`Conf` 与保留原因当依据）、执行后重读 dpkg 与计划逐条核对（`observed_state.verified`；退出码 0 不是证据）、四把 apt/dpkg 锁只探测从不删、非交互六件套（`noninteractive`/`--force-confdef`/`--force-confold`/`Use-Pty=0`/`LISTCHANGES=none`/`NEEDRESTART_MODE=l`）、四个动作全部不可取消、`remove` 额外要 `REMOVE` 短语、`upgrade` 只走 `--only-upgrade` 永不 `dist-upgrade`、删除保护名单硬编码在代码里。两台 VM 各 **PASS 169 / FAIL 0 / NOT RUN 4**、两次 `exit=0`；宿主 `check.sh` PASS 13 / FAIL 0（web 43 文件 791 用例）；`//go:build unix` 三个包首次在 Linux 真跑（`syscmd` 24+1 SKIP / `processes` 41 / `apt` 77）。真机抓出 **6 个缺陷**：退出码 -1 不说谁停的（`syscmd.Result.Signal`）、socket 尸体被当就绪（脚本抢跑）、锁探测单测与实现矛盾（分平台断言）、38.7s 再模拟被前端 20s 掐断、`wait_job` 按次数算的“300 秒”实际 400+、升级夹具靠“恰好有个可升级的包”（改自建 `file:` 源 + conffile 真冲突）。证据 `docs/evidence/P11/2026-10-23-p11.2/`。P11.1 **passed**：软件包与更新只读页——代理出事实（dpkg 登记 + `apt-cache policy` 候选 + 重启标志/`boot_id`）、Web 算判断（`candidate_relation`/`upgradable`/`security`/`pockets`/`counts`/分页/筛选），`internal/debversion` 做版本比较。真机抓出并修掉 **1 个产品缺陷**：arch 限定名（`bind9-libs:amd64`）在 `apt-cache policy` 里块头被 apt 剥成 `bind9-libs:`，按请求名索引必然落空 → 整类包的候选被谎报成“读不到”；修法是基础名回退 + 同名双架构时**不回退**（如实报 `unknown`），对账脚本自己也复刻了同一个 bug，改法不同之后才敢当对账。24.04 的 apt 比 22.04 慢 28 倍（26.6s vs 384ms / 731 与 676 个包名），超时分成 45s/60s/120s/30s 四层，**启动预热删掉**（26s→62s 反而误报不可用）。两台 VM 各 **PASS 64 / FAIL 0 / NOT RUN 7**，对账 0 失配；宿主 `check.sh` PASS 13 / FAIL 0。证据 `docs/evidence/P11/2026-10-23-p11.1/` |
 | P12 | 备份恢复与计划任务 | not_started | 需恢复校验 |
 | P13 | 历史监控和告警 | not_started | — |
 | P14 | 网络、NFS、账号、TOTP | not_started | 需独立网络回滚验收 |
@@ -4481,6 +4487,51 @@ nonce，而 certbot 2.9 在取证书那条路径上不重试；重试仅限这�
 `logs/` 两台机器的完整输出与宿主检查、`payloads/` 每一步的原始 JSON）。
 前端回放夹具 `web/src/fixtures/p11-1-vm/`（7 份，真机原样抓取，`README.md` 里有清单）。
 
+### P11.2（2026-10-23）— 软件包写事务：模拟即准入、非交互事先定死、执行后逐包核对
+
+**写之前先模拟，写之后不比退出码比现场。** 预检跑一次 `apt-get -s`，把 apt 自己算出来的
+计划（`Inst`/`Remv`/`Conf`、保留包及原因、`E:` 行原文）当准入依据——面板不复刻依赖解析器，
+也不猜“删掉 A 大概会带走 B”。执行完**不看退出码**，再读一遍 dpkg 登记与计划逐条比对：
+装上的版本是不是 `-s` 写的那一版、该没的是不是真没了、有没有包变成 `iF`/`iU`；对不上就是
+`partial`，并点名“期望什么、实际是什么”。这一条把“命令成功了”和“系统真的变成了说的那样”
+分开——退出码 0 从来不是证据。
+
+**四个动作的策略在预检之前就定死**：`refresh` 只要锁、`install`/`upgrade` 要再认证、
+`remove` 额外要 `REMOVE` 短语（写死在代码里，与“这一次会删几个包”无关——预检之前根本还
+不知道连带删除有多大），四个全部**不可取消**：apt 拿到锁开始写 dpkg 之后，“取消”只会
+把一个包停在半配置状态。非交互也提前定死：`DEBIAN_FRONTEND=noninteractive` +
+`--force-confdef` + `--force-confold` + `Dpkg::Use-Pty=0` + `APT_LISTCHANGES_FRONTEND=none`
++ `NEEDRESTART_MODE=l`。锁只**探测**（自己也 `flock` 一次、拿到立刻放），从不删除：
+删锁不会让正在跑的那个人停下来，还会让下一个进程以为没人占用。
+
+**中断之后不自动修。** apt 被信号停住或超时被终止，面板不跑 `dpkg --configure -a`——那会
+把“为什么中断”这条线索抹掉。它做的是如实说出是谁停的。这条是被真机逼出来的：第一次硬杀
+之后，任务错误写的是 `退出码 -1：Reading package lists...`，等于什么都没说；于是
+`syscmd.Result` 多了一个 `Signal` 字段，`writer_exec.go` 把它变成
+`apt-get install 被信号 SIGKILL 终止（退出码 -1），事务可能停在中间；先核对 dpkg 状态，
+再决定是否重试`。超时也走 SIGKILL，所以区分“谁停的”要看 `TimedOut` 而不是看信号。
+
+**`--force-confold` 从“argv 里的一串字”变成了文件里还剩什么。** 上一版把 conffile 冲突写成
+NOT RUN，理由是“验收机上没有这种包，自造要建源、会污染现场”。这一轮升级路径本来就改用
+脚本自建的 `file:` 源（两个 8 KB 的夹具包 a/b，各 1.0 与 2.0，`Packages` 索引按 `.deb` 的
+实际字节算出大小/md5/sha256，不装 `dpkg-dev`）——**因为发行版里“恰好有个可升级的包”是
+上一轮验收消费掉的运气，不是夹具**。于是顺手把 conffile 一起做真了：装 1.0、本地改一行、
+升到 2.0，断言的是文件里**还剩什么**（本地那行还在、2.0 的版本行没进来、新的一份落在
+`.dpkg-dist`）。第一次做时 `DEBIAN/conffile` 少了个 s，dpkg 一声不响地当普通文件处理，
+升级直接覆盖——是断言把它抓出来的，不是人眼。
+
+**结果**：两台专用虚机、同一份二进制（`agent 511fd08e…` / `web 18d0fe00…` /
+`ctl 5ebfd18c…`，即提交 `0babda4`）、同一份脚本
+（`p11-2-package-write-acceptance.sh 675b0eee…`，1103 行，16 节），22.04.5 与 24.04.5
+各 **PASS 169 / FAIL 0 / NOT RUN 4**，两次 `exit=0`（退出码由启动器捕获，不再是字面量）。
+宿主 `scripts/check.sh` **PASS 13 / FAIL 0**（web 43 文件 791 用例）；`//go:build unix` 的
+三个包第一次在 Linux 上真跑：`syscmd` 24(+1 SKIP) / `processes` 41 / `apt` 77，全过——
+正是这一步抓出 `TestProbeLocksNeverRemoves` 与本包写明的语义冲突（unix 上 `ENOENT` 算空闲）。
+`NOT RUN` 的 4 项与七条限制写进 §8。证据
+`docs/evidence/P11/2026-10-23-p11.2/`（`env.txt` 机器/二进制/实测 apt 成本，`result.md`
+结果与限制、六条真机缺陷，`logs/` 两台机器完整输出 + 宿主检查 + Linux-only 单测，
+`payloads/{2204,2404}/` 每一步的原始 JSON，`run-launcher.sh` 启动器原文）。
+
 ## 6. 未决问题与范围变更
 
 未批准任何范围变更。DECISIONS.md 第 8 节记录 Q1—Q80；P03.3 新增六条：Q67（阶段与事件必须同事务，
@@ -4921,6 +4972,12 @@ Q103（`cmd/upanel-web` 的用例会读机器上的 `/etc/upanel/upanel.json`，
 | P11.1-HOST | P11 | 已执行（`scripts/check.sh` PASS 13 / FAIL 0 / NOT RUN 0：`go vet`、`gofmt` 无输出、`go test ./...` ok、web typecheck/lint/build/smoke、web 42 文件 759 用例、openapi lint 通过；node v22.23.3） | docs/evidence/P11/2026-10-23-p11.1/logs/host-check.txt |
 | P11.1-PROBE | P11 | 已执行（`apt-cache policy` 耗时：22.04 676 名 384ms、24.04 731 名冷缓存 26.6s；首次调用到响应 411ms / 11.6—15.6s；启动预热实测把 26s 拖成 62s 并触发 `AGENT_UNAVAILABLE`，已删除） | docs/evidence/P11/2026-10-23-p11.1/env.txt |
 | P11.1-RESULT | P11 | 已产出（范围、代码清单、按节 PASS/FAIL/NOT RUN、arch 限定名缺陷的真机证据与歧义保护、apt 成本实测与超时分层、5 条限制） | docs/evidence/P11/2026-10-23-p11.1/{env.txt,result.md} |
+| P11.2-VM | P11 | **已执行并通过（22.04.5 与 24.04.5 各 PASS=169 / FAIL=0 / NOT RUN=4，两次 exit=0）**；逐节断言数两台完全相同，按 `== 节标题 ==` 分段从日志数出（非估算）；真装 cowsay+sl、真升夹具包（conffile 本地改动保留、2.0 未覆盖、`.dpkg-dist` 落盘）、真卸、真硬杀 apt（`dpkg --audit` 空、之后 apt 可用）、收尾机器回到原样 | docs/evidence/P11/2026-10-23-p11.2/logs/{2204,2404}-p11-2-acceptance.log |
+| P11.2-HOST | P11 | 已执行（`scripts/check.sh` PASS 13 / FAIL 0 / NOT RUN 0：`go vet`、`gofmt` 无输出、`go test ./...` ok、web typecheck/lint/build/smoke、web 43 文件 791 用例、openapi lint 通过） | docs/evidence/P11/2026-10-23-p11.2/logs/host-check.txt |
+| P11.2-UNIT | P11 | 已执行（`//go:build unix` 的三个包交叉编译成 linux/amd64 测试二进制，在 22.04 上各自源码根目录（cwd 带 `testdata/`）原生跑：`syscmd` 24 通过 +1 SKIP、`processes` 41 通过、`apt` 77 通过；**首次在 Linux 上执行**，抓出 `TestProbeLocksNeverRemoves` 与本包语义矛盾的断言） | docs/evidence/P11/2026-10-23-p11.2/logs/linux-unit-tests.txt |
+| P11.2-PROBE | P11 | 已执行（24.04 上 `apt-get -s` 预检 34.6/13.0/47.2/10.8/40.4s，提交时再模拟 38.7/33.9/29.0s，装 cowsay+sl ≈6 分半，升 `zlib1g` >6 分钟未终态；22.04 同批秒级、`figlet` 安装 <1.2s。据此定下 75s/120s/90s/100s/95s/21 分钟六层等待） | docs/evidence/P11/2026-10-23-p11.2/env.txt |
+| P11.2-SCRIPT | P11 | 已执行（`tests/integration/p11-2-package-write-acceptance.sh`，1103 行 16 节，md5 675b0eee…；脚本自建 `file:` 源夹具 + 两个 conffile 包；退出码由 `/root/run-p11-2.sh` 捕获，原文见 run-launcher.sh） | docs/evidence/P11/2026-10-23-p11.2/run-launcher.sh、tests/integration/p11-2-package-write-acceptance.sh |
+| P11.2-RESULT | P11 | 已产出（范围、代码清单、逐节 PASS/FAIL/NOT RUN、六条真机缺陷、8 条限制） | docs/evidence/P11/2026-10-23-p11.2/{env.txt,result.md} |
 | P00-VM-C（LVM 根） | P00/P04 | **NOT RUN**（未创建） | 需在 P04 前补齐 |
 | P00-VM-D（SMB 客户端） | P00/P08 | **NOT RUN**（未创建；P08.2 用同机真实 `smbclient` + netns 客户端替代，跨机器网络路径仍缺） | 需在 P08 前补齐 |
 
@@ -5396,3 +5453,21 @@ BACKUP/TIMER/ALERT/NET/NFS/DEPLOY/RELEASE。**矩阵编号与已有断言的对�
   STAGES 里也**没有**列过这一项——P12.5 只写了“证书续期 timer、备份与定时任务 UI”。
   所以这一步现在只能靠 API 或 `curl` 走通；若 0.1 需要页面，那是范围变更，按规矩要在 §6 登记并
   得到批准，本轮不擅自加。
+- **P11.2 的八条限制**：
+  ① **`APT_LOCK_UNREADABLE` 与“读不到 dpkg”只在单测里验**：root 拿 dpkg 的锁文件不会被权限拦
+  （`CAP_DAC_OVERRIDE`），把锁文件挪走造 EACCES 会破坏验收机的包管理器；让 `dpkg-query` 失败
+  要动 `/var/lib/dpkg`。这两条在脚本里是 NOT RUN，不是 PASS。
+  ② **刷新索引的“网络真的断了”没验**：负例用的是不可达的 `file:` 源（路径不存在），
+  网络层中断不在本轮。
+  ③ **升级只验了单包与包内 conffile**：没有验“一次升多个包”，也没有验“依赖被连带升级”的差集
+  语义（连带删除那一侧验的是 `remove`）。
+  ④ **重启执行与 `boot_id` 前后确认是 P11.3**，本轮不涉及。
+  ⑤ **浏览器渲染没跑**：包写动作的页面（`UpdatesView` 的四个按钮 + `StorageActionDialog`）
+  只有类型检查与逻辑单测，没在浏览器里点过；VM 上没有浏览器，每一步的原始响应在
+  `payloads/`。
+  ⑥ **`StorageActionDialog` 没有组件测试**：它被存储与软件包两处共用，超时与轮询窗口的改动
+  由 `web/src/api/preflights.test.ts` 覆盖到函数一级，组件本身只经过 `vue-tsc`。
+  ⑦ **升级路径用的是脚本自建的 `file:` 源**（两个 1.0/2.0 的夹具包）：发行版里“恰好有个可升级
+  的包”会被上一轮验收消费掉，是运气不是夹具。这一条不是缺陷，但它意味着**没验过真实发行版包
+  的升级**——24.04 上真升一次（`zlib1g`）实测超过 6 分钟仍未终态，被排除在自动化之外。
+  ⑧ **Windows / macOS 宿主不在 0.1 范围**，这两台上的行为未验证。

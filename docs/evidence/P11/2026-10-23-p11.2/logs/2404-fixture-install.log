@@ -1,0 +1,37 @@
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following NEW packages will be installed:
+  upanel-fixture-a upanel-fixture-b
+0 upgraded, 2 newly installed, 0 to remove and 3 not upgraded.
+Need to get 0 B/1740 B of archives.
+After this operation, 16.4 kB of additional disk space will be used.
+Get:1 file:/var/tmp/upanel-accept-p11-2/fixture-repo ./ upanel-fixture-a 1.0 [874 B]
+Get:2 file:/var/tmp/upanel-accept-p11-2/fixture-repo ./ upanel-fixture-b 1.0 [866 B]
+Selecting previously unselected package upanel-fixture-a.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 77469 files and directories currently installed.)
+Preparing to unpack ..././upanel-fixture-a_1.0_all.deb ...
+Unpacking upanel-fixture-a (1.0) ...
+Selecting previously unselected package upanel-fixture-b.
+Preparing to unpack ..././upanel-fixture-b_1.0_all.deb ...
+Unpacking upanel-fixture-b (1.0) ...
+Setting up upanel-fixture-a (1.0) ...
+Setting up upanel-fixture-b (1.0) ...
+
+Running kernel seems to be up-to-date.
+
+Restarting services...
+
+Service restarts being deferred:
+ systemctl restart unattended-upgrades.service
+
+No containers need to be restarted.
+
+User sessions running outdated binaries:
+ upanel @ session #1191: networkd-dispat[247062], sshd[246819]
+ upanel @ session #739: sshd[143851]
+ upanel @ session #957: sshd[202148]
+ upanel @ session #963: sshd[203533]
+ upanel @ session #997: sshd[210637]
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.

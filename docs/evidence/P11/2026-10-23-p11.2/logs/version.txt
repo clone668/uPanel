@@ -1,0 +1,29 @@
+P11.2 产物与自报（2026-10-23）
+==============================
+
+宿主 bin/（scripts/build.sh 的产物，用 VERSION=0.0.0-p11.2 COMMIT=0babda4 构建）
+----
+511fd08e1ea5e355573efe46588f4df9d62a877ce2522c6c30ffd0469251d3e2 *bin/upanel-agent
+18d0fe00646f292897d261d12f48c528ce8231ac8ffece70203e99613c6b300f *bin/upanel-web
+5ebfd18c2cb06968e4bb5580752aa4442cb95b49f41e4b40925115b674b41200 *bin/upanelctl
+
+构建参数（scripts/build.sh 里的 ldflags）与构建时刻由二进制自报给出，见下。
+
+VM-A（Ubuntu 22.04）—— /var/tmp/upanel-bin/ 上的实际文件
+----
+511fd08e1ea5e355573efe46588f4df9d62a877ce2522c6c30ffd0469251d3e2  /var/tmp/upanel-bin/upanel-agent
+18d0fe00646f292897d261d12f48c528ce8231ac8ffece70203e99613c6b300f  /var/tmp/upanel-bin/upanel-web
+5ebfd18c2cb06968e4bb5580752aa4442cb95b49f41e4b40925115b674b41200  /var/tmp/upanel-bin/upanelctl
+upanel-agent 0.0.0-p11.2 (commit 0babda4, built 2026-10-23T13:51:09Z, go1.27.3)
+upanel-web 0.0.0-p11.2 (commit 0babda4, built 2026-10-23T13:51:09Z, go1.27.3)
+675b0eee1e25b4e7acfc30807083d007  /var/tmp/p11-2-package-write-acceptance.sh
+
+VM-B（Ubuntu 24.04）—— /var/tmp/upanel-bin/ 上的实际文件
+----
+511fd08e1ea5e355573efe46588f4df9d62a877ce2522c6c30ffd0469251d3e2  /var/tmp/upanel-bin/upanel-agent
+18d0fe00646f292897d261d12f48c528ce8231ac8ffece70203e99613c6b300f  /var/tmp/upanel-bin/upanel-web
+5ebfd18c2cb06968e4bb5580752aa4442cb95b49f41e4b40925115b674b41200  /var/tmp/upanel-bin/upanelctl
+upanel-agent 0.0.0-p11.2 (commit 0babda4, built 2026-10-23T13:51:09Z, go1.27.3)
+upanel-web 0.0.0-p11.2 (commit 0babda4, built 2026-10-23T13:51:09Z, go1.27.3)
+675b0eee1e25b4e7acfc30807083d007  /var/tmp/p11-2-package-write-acceptance.sh
+
