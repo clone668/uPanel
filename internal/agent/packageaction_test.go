@@ -426,6 +426,29 @@ func TestPackageExecuteFailureReasonReachesMessage(t *testing.T) {
 	}
 }
 
+// TestPackageRefreshFailureCarriesReason：刷新失败的原因同样要走 error.message。
+//
+// 22.04 验收抓到的：refresh 的 Execute 直接把 apt 的错误原样返回，没包 packageFailure，
+// 于是面板只说"动作执行失败"，而 apt 明明报了 `Err:1 http://127.0.0.1:1/... InRelease`。
+func TestPackageRefreshFailureCarriesReason(t *testing.T) {
+	src := newFakeWrites()
+	src.refreshErr = errors.New("apt-get update 有错误行：Err:1 http://127.0.0.1:1/upanel-p11-2-nope ./ InRelease")
+	reg := newPackageRegistry(t, src)
+	action, _ := reg.Action(PackageRefreshAction)
+
+	_, err := action.Execute(context.Background(), ExecuteInput{Params: packageRefreshParams{}})
+	if err == nil {
+		t.Fatal("刷新失败必须返回 error")
+	}
+	reason, ok := failureReasonOf(err)
+	if !ok {
+		t.Fatalf("刷新失败也要实现 FailureReasoner: %v", err)
+	}
+	if !strings.Contains(reason, "Err:1 http://127.0.0.1:1/upanel-p11-2-nope") {
+		t.Fatalf("原因里要带上 apt 那行错误: %q", reason)
+	}
+}
+
 // TestPackageExecuteRejectsEmptyNames：预检落库的参数被换空时明确拒绝。
 func TestPackageExecuteRejectsEmptyNames(t *testing.T) {
 	src := newFakeWrites()

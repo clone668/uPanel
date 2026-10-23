@@ -877,16 +877,23 @@ else
   # 1.2 秒内就装完了，杀了个空——任务于是 legitimately succeeded+verified，脚本却把它
   # 记成"面板声称已验证"的失败。判据修成轮询：进程一出现就杀，抓不到就如实 NOT RUN。
   KILL_LANDED=no
+  KILL_VICTIM=""
   _i=0
   while [ "$_i" -lt 500 ]; do
-    _kp=$(pgrep -f '(^|/)apt-get ' 2>/dev/null | head -1)
+    # 只杀**真的在装**的那一个。`apt-get -s ...` 是模拟——预检与提交复核都用它，
+    # 杀掉它只会让复核退化成告警，安装照样跑完。第一版按 `(^|/)apt-get ` 无差别匹配，
+    # 22.04 上杀到的正是复核用的模拟，任务于是 legitimately succeeded，脚本却判
+    # "面板声称已验证"。判据改成：排除带 `-s` 的，并且把被杀进程的 argv 记进证据。
+    _kp=$(pgrep -af '(^|/)apt-get ' 2>/dev/null | grep -v ' -s ' | awk '{print $1}' | head -1)
     if [ -n "$_kp" ]; then
+      KILL_VICTIM=$(ps -o args= -p "$_kp" 2>/dev/null | head -c 200)
       kill -9 "$_kp" 2>/dev/null && KILL_LANDED=yes
       break
     fi
     sleep 0.05
     _i=$((_i + 1))
   done
+  note "硬杀的目标进程：${KILL_VICTIM:-（25 秒内没抓到正在执行的 apt-get）}"
   ST=$(wait_job "install-kill" "$JOB_KILL" 180)
   AUDIT_AFTER_KILL=$(dpkg --audit 2>&1)
   if [ "$KILL_LANDED" = "yes" ]; then
@@ -896,12 +903,18 @@ else
       *) fail "kill-job-terminal" "硬杀之后任务的终态是 '$ST'" ;;
     esac
     expect_ne "kill-job-not-verified-claim" "True"       "$(jbf install-kill 'd["data"]["result"]["observed_state"]["verified"]' 2>/dev/null)"
-    if [ -n "$(jbf install-kill 'd["data"]["error"]["message"]' 2>/dev/null)" ]; then
-      pass "kill-job-real-error"
-      note "失败原因：$(jbf install-kill 'd["data"]["error"]["message"]' | cut -c1-200)"
-    else
-      fail "kill-job-real-error" "任务失败了却没给原因"
-    fi
+    # 用 `.get(...) or ""`：#jget 在键不存在时打印 "ERR:KeyError:..."，那是"读不到"，
+    # 不是"有原因"。第一版把 ERR 当成了非空，于是这条检查在明明没有 message 时也 PASS。
+    _kmsg=$(jbf install-kill 'd["data"]["error"].get("message") or ""')
+    case "$_kmsg" in
+      ""|ERR:*)
+        fail "kill-job-real-error" "任务失败了却没给原因（error.message = '$_kmsg'）"
+        ;;
+      *)
+        pass "kill-job-real-error"
+        note "失败原因：$(printf '%s' "$_kmsg" | cut -c1-200)"
+        ;;
+    esac
   else
     # 25 秒里没见到 apt-get 进程：这次什么都没杀到，"中断表现"无从谈起。
     notrun "kill-mid-flight" "25 秒内没抓到 apt-get 进程（$PKG_KILL 太小或任务已结束），硬杀这条没有证据"

@@ -160,7 +160,9 @@ func newPackageRefreshAction(src PackageWrites) Action {
 			}
 			res, err := src.Refresh(ctx, in.Progress)
 			if err != nil {
-				return Result{}, err
+				// 与 install/remove/upgrade 同一条规矩：失败任务的 result 是空对象，
+				// 原因只能走 error.message（见 packageFailure）。
+				return Result{}, packageFailure{err: err}
 			}
 			return refreshResult(res), nil
 		},
@@ -466,8 +468,15 @@ func refreshResult(res apt.ExecResult) Result {
 		"errors":      len(res.RefreshErrors),
 		"index_after": timeText(res.IndexUpdatedAt),
 	}
+	// 与 packageResult 同一条规矩：outcome 由"读回的事实"决定，不由"命令跑完了"决定。
+	// 现在 refresh 的错误行会让 Execute 走失败分支，所以这条分支只在真正成功时到这里；
+	// 但把它写成固定 verified 是在给以后的改动埋一个会撒谎的常量。
+	outcome := OutcomeVerified
+	if !res.Verified {
+		outcome = OutcomePartial
+	}
 	return Result{
-		Outcome:       OutcomeVerified,
+		Outcome:       outcome,
 		VerifiedAt:    res.VerifiedAt,
 		ObservedState: observed,
 		Data:          data,
