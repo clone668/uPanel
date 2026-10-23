@@ -77,6 +77,16 @@ type ProductionDeps struct {
 	// 没有 systemctl、没有 boot_id 读取端的机器上，“重启”这个按钮只能做到
 	// “点了以后面板说自己已经受理了”，而那正是 PLAN §16 禁止的表述。
 	Power PowerSource
+	// Backup 是备份仓库的实现端（P12.1）。为 nil 时不登记
+	// backup.repository.initialize 与 backup.repository.state：没有 restic、
+	// 没有秘密读取端、没有文件根登记表的机器上，“初始化仓库”只能做到
+	// “在某个不知道是什么的目录里跑一条命令”，而备份建立在那之上的每一次
+	// 快照与恢复都会跟着错。
+	//
+	// 注意它不控制 /internal/v1/backup/repositories：那条路由由
+	// Options.BackupRepositories 决定，因为镜像的写入（Web 登记定义）与执行能力
+	// 是两件事——一台机器可以先接受定义，等管理员装好 restic 再允许初始化。
+	Backup backupSource
 }
 
 // newSystemSummaryQuery 登记 system.summary：无参数，返回采集器最近一次快照。

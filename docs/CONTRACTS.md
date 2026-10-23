@@ -2199,8 +2199,12 @@ GET /alerts/events：V；POST /alerts/events/:id/ack：admin；GET/POST /notific
 | POST /internal/v1/schedules/:id/trigger | 仅 SO_PEERCRED UID=0 的本机 CLI 可调用；从代理已批准配置取动作，输入只允许触发 ID，不接受 action/params |
 | POST /internal/v1/streams | 创建受限日志/文件上传下载/终端流许可，绑定用途和参数 |
 | GET/PUT /internal/v1/streams/:id | 单次受限流；再次核验 socket 凭据、路径/UID/大小限制 |
+| GET/POST /internal/v1/backup/repositories | 备份仓库定义的代理镜像（P12.1）：只同步元数据，不传任何明文 |
+| GET/PATCH/DELETE /internal/v1/backup/repositories/:id | 单条镜像；PATCH 带 version 做乐观并发，DELETE 只删定义、不删数据 |
 
-query 枚举按模块登记，例如 system.summary、storage.topology、services.list、files.list、logs.query；P10.1 起增加 nginx.state（参数 `{fresh}`，见 §9.1）；P11.1 起增加 apt.packages（参数 `{fresh}`）与 system.power_state（空参数，见 §12.1）；禁止 query=command。terminal 的字节通道只能连接已降权 PTY，不能进入代理的命令解释器。P14 增加 /internal/v1/totp/enroll、/confirm、/verify、/disable 四个专用接口，操作绑定用户与用途，种子不进入普通 query/secret 读取通道。
+query 枚举按模块登记，例如 system.summary、storage.topology、services.list、files.list、logs.query；P10.1 起增加 nginx.state（参数 `{fresh}`，见 §9.1）；P11.1 起增加 apt.packages（参数 `{fresh}`）与 system.power_state（空参数，见 §12.1）；P12.1 起增加 backup.repository.state（参数 `{repository_id}`，见 §11 的仓库登记小节）；禁止 query=command。terminal 的字节通道只能连接已降权 PTY，不能进入代理的命令解释器。P14 增加 /internal/v1/totp/enroll、/confirm、/verify、/disable 四个专用接口，操作绑定用户与用途，种子不进入普通 query/secret 读取通道。
+
+**备份仓库定义的镜像（P12.1）。** 预检计划里的 `normalized_params` 是冻结的，只含 `repository_id` 与 `version`；执行时再向 Web 要一遍定义就等于让“被冻结的那个目标”可替换，所以代理自己持有一份仓库定义的镜像，预检与执行都从镜像里取。镜像只存元数据（名称、后端、位置、两份秘密的**引用**），不存也不接受任何明文；秘密仍只经 `POST /internal/v1/secrets` 进入代理的加密存储。这条路由的存在与“这台机器能不能初始化仓库”是两件事：镜像没接线时路由不存在（404），动作没接线时能力表里也不会出现 `backup.repository.initialize`，装配不谎报能力。路由只接受 `upanel-web` 的对端凭据，root 也会被拒——root 直接改镜像等于绕过 Web 的再认证与审计。
 
 `/internal/v1/streams` 自 P05.3 起已实现，但目前只登记一种用途 **logs.stream**：`POST` 建许可（绑定用途与查询参数、单次使用、30 秒过期且到期即回收），`GET /streams/:id` 打开流式响应（`application/x-ndjson`，每行一帧 `{"type":"entry|end|error", ...}`；`entry` 帧的 `entry` 是日志条目本身，`end` 帧带 `reason`，`error` 帧带 `code`/`message`）。未登记的用途回 501，不回一条空流——多报一个用途等于把能力清单变成谎话。许可只用一次：第二次 `GET` 回 404，被放进地址栏或日志里的 URL 因此最多只能被用一次。流式消费端的「帧类型来自事件名」与外层 SSE 不同，是因为 NDJSON 是单条无名字的字节流，类型必须写在帧里。
 

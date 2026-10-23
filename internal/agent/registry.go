@@ -608,10 +608,21 @@ func RegisterProductionActions(reg *Registry, deps ProductionDeps) error {
 			return err
 		}
 	}
+	if deps.Backup != nil {
+		// 备份仓库（P12.1）：一条写动作 + 一条只读查询成对登记。
+		//
+		// 只有 state 而没有 initialize 的仓库页只能显示“这里还不是仓库”，
+		// 只有 initialize 而没有 state 则让人无从判断该不该点——两者都登记才构成
+		// 「先看现状、再决定初始化」这条正常路径。
+		if err := RegisterBackupAction(reg, deps.Backup); err != nil {
+			return err
+		}
+		if err := RegisterBackupQueries(reg, deps.Backup); err != nil {
+			return err
+		}
+	}
 	return nil
 }
-
-// RegisterAction 登记一个动作。
 func (r *Registry) RegisterAction(a Action) error {
 	if err := validateName(a.Name); err != nil {
 		return err

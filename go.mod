@@ -10,6 +10,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/gin-gonic/gin v1.12.0
 	github.com/gorilla/websocket v1.5.3
+	github.com/pkg/sftp v1.13.9
 	golang.org/x/crypto v0.58.0
 	golang.org/x/net v0.60.0
 	golang.org/x/sys v0.49.0
@@ -33,6 +34,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
+	github.com/kr/fs v0.1.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect

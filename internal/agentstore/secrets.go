@@ -260,6 +260,32 @@ func (s *Secrets) Reference(ctx context.Context, ref, reference string) error {
 	return nil
 }
 
+// Purpose 返回一条秘密的用途与存在性，**不解密**（P12.1）。
+//
+// 为什么需要它：把一份秘密挂到某个配置上时，光“能解密”不够。拿一张 TLS 私钥当
+// 备份仓库口令，解密是成功的，直到 restic 说“口令不对”才暴露——而那时失败的
+// 原因已经离真正的原因很远了。用途在写入时就固定，正是为了在这里能被核对。
+func (s *Secrets) Purpose(ctx context.Context, ref string) (string, bool, error) {
+	if !ValidSecretRef(ref) {
+		return "", false, nil
+	}
+	var purpose, state string
+	err := s.db.store().SQL().QueryRowContext(ctx,
+		`SELECT purpose, state FROM secrets WHERE id = ?`, ref).Scan(&purpose, &state)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("agentstore: 读取秘密用途失败: %w", err)
+	}
+	// destroyed 是墓碑：行还在，但材料已清零，按“不存在”处理。这样“已销毁”
+	// 与“从未存在”在调用方看来是同一种回答——它们对配置的含义确实相同。
+	if state == StateDestroyed {
+		return "", false, nil
+	}
+	return purpose, true, nil
+}
+
 // DestroyExpired 销毁所有已到期的临时秘密：清空密文与 nonce，留下墓碑行。
 //
 // 返回本次销毁的条数。只碰 state='temporary' 且 expires_at 已到的行——被引用的

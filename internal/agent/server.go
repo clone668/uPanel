@@ -79,6 +79,10 @@ type Options struct {
 	ShareWatch sharesReconciler
 	// ShareWatchInterval 是监视间隔；<=0 时用 DefaultShareWatchInterval。
 	ShareWatchInterval time.Duration
+	// BackupRepositories 是备份仓库定义的代理镜像（P12.1）。为 nil 时
+	// /internal/v1/backup/repositories 一律 404：没有这份镜像，Web 开不出能初始化的
+	// 仓库，而代理也不该假装自己认得出 repository_id。
+	BackupRepositories BackupRepositoryMirror
 }
 
 // Server 是代理服务。
@@ -176,6 +180,12 @@ func New(opts Options) (*Server, error) {
 	// terminal.io 流；只有“关掉它”需要一条代理内部路由——Web 核对完归属之后
 	// 让代理执行，代理再核对一次。
 	mux.HandleFunc("/internal/v1/terminal/sessions/", s.handleTerminalSessionByID)
+	// 备份仓库定义镜像（P12.1）：只有 Web 账号能读写；动作按 id 从这里取定义，
+	// 因此 repository_id 不是一个可以随便编的字符串。
+	if opts.BackupRepositories != nil {
+		mux.HandleFunc("/internal/v1/backup/repositories", s.handleBackupRepositories)
+		mux.HandleFunc("/internal/v1/backup/repositories/", s.handleBackupRepositoryByID)
+	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, http.StatusNotFound, httpx.CodeNotFound, "代理接口不存在")
 	})

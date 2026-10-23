@@ -21,6 +21,7 @@ import (
 	"upanel/internal/agent"
 	"upanel/internal/agentstore"
 	"upanel/internal/apt"
+	"upanel/internal/backup"
 	"upanel/internal/certificates"
 	"upanel/internal/config"
 	"upanel/internal/containers"
@@ -227,6 +228,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 	shareStore, err := agentstore.NewShareStore(agentDB)
 	if err != nil {
 		logger.Error("初始化共享存储失败，拒绝启动", "error", err)
+		return 1
+	}
+	// 备份仓库定义的代理镜像（P12.1）。Web 登记或修改仓库时把定义同步进来，
+	// 动作执行时按 id 从这里取——repository_id 因此不是一个可以随便编的字符串。
+	backupStore, err := agentstore.NewBackupRepositoryStore(agentDB)
+	if err != nil {
+		logger.Error("初始化备份仓库存储失败，拒绝启动", "error", err)
 		return 1
 	}
 
@@ -711,6 +719,43 @@ func run(args []string, stdout, stderr io.Writer) int {
 		powerExec = nil
 	}
 
+	// 备份仓库（P12.1）。装配条件只有一条：这台机器上有 restic。
+	//
+	// 为什么不把“restic 缺失”留成预检阻塞项而干脆不登记：能用 restic 之前的每一次点击
+	// 都只能落在一个会被拒绝的预检上，而能力表会一直显示“我能初始化仓库”。装好 restic
+	// 之后重启代理，这两个入口才会出现——这与 apt/docker 的门槛是同一条规矩。
+	//
+	// ssh 缺失不阻止登记：本地后端不需要它，SFTP 定义会在预检里得到
+	// BACKUP_SSH_MISSING 这条明确阻塞项。
+	backupPaths := backup.DefaultPaths()
+	resticRunner := backup.NewRestic(backupPaths, nil)
+	var backupModule *backup.Module
+	if resticOK, resticWhy := resticRunner.Available(nil); resticOK {
+		backupOps, err := backup.NewOps(backup.Options{
+			Restic:  resticRunner,
+			Roots:   backupRoots(fileRoots(cfg.Agent.Files.Roots)),
+			Secrets: secrets,
+			Paths:   backupPaths,
+		})
+		if err != nil {
+			logger.Error("初始化备份模块失败，拒绝启动", "error", err)
+			return 1
+		}
+		backupModule = &backup.Module{Ops: backupOps, Repos: backupStore}
+		logger.Info("已启用备份仓库动作",
+			"restic", backupPaths.Restic,
+			"ssh", backupPaths.SSH,
+			"state_dir", backupPaths.StateDir,
+			"cache_dir", backupPaths.CacheDir,
+			"run_dir", backupPaths.RunDir,
+			"roots", len(cfg.Agent.Files.Roots),
+			"scope", "backup.repository.initialize / backup.repository.state；本地与 SFTP，"+
+				"目录必须是已登记文件根；仓库已存在时拒绝覆盖；建完用 restic cat config 核对")
+	} else {
+		logger.Warn("备份仓库动作未启用", "reason", resticWhy,
+			"hint", "apt install restic 后重启代理；备份相关入口不会出现在能力表里")
+	}
+
 	// 动作登记表：生产表自 P05.1 起有 service.control，P05.2 起有 process.signal（受保护名单与读回验证见 internal/services）。
 	// 验收表只能靠显式参数启用，且动作全部以 acceptance. 开头、不读写任何系统资源。
 	registry := agent.NewRegistry()
@@ -744,6 +789,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// 同上：只在真的有时才赋给接口，否则能力表会多出一个调用就 panic 的入口。
 	if powerExec != nil {
 		deps.Power = powerExec
+	}
+	// 备份仓库（P12.1）：restic 存在时才有实现端。
+	if backupModule != nil {
+		deps.Backup = backupModule
 	}
 	// 只在真的有时才赋给接口：nil 的 *proxies.Applier 塞进接口会变成一个非 nil
 	// 的接口值，能力表于是多出一个调用就 panic 的入口。
@@ -809,6 +858,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Containers: containersClient,
 		// P08.3：运行时脱盘监视。间隔取默认值（30 秒），循环自己拿 samba:config 锁。
 		ShareWatch: sharesEngine,
+		// P12.1：仓库定义镜像。给的是存储层本身（不是 Module）：镜像的读写与
+		// “能不能在这台机器上初始化”是两件事，后者由 deps.Backup 决定。
+		BackupRepositories: backupStore,
 	})
 	if err != nil {
 		logger.Error("初始化代理失败", "error", err)
@@ -896,6 +948,23 @@ func fileRoots(configured []config.FileRoot) []files.Root {
 		})
 	}
 	return out
+}
+
+// backupRoots 把已登记的文件根给备份模块当 RootSource（P12.1）。
+//
+// 用同一份配置（agent.files.roots）而不是另一张表：备份仓库只能落在面板已经
+// 接管、并且文件模块也在用的根里。多一张表就等于多一条“文件页看不见、备份却往
+// 里写”的隐藏路径。
+type backupRoots []files.Root
+
+// ResolveRoot 解析根标识。
+func (r backupRoots) ResolveRoot(rootID string) (string, bool, bool) {
+	for _, root := range r {
+		if root.ID == rootID {
+			return root.Path, root.Writable, false
+		}
+	}
+	return "", false, true
 }
 
 // discoveryUnits 把 P05.1 的服务单元快照接到发现模块上。
