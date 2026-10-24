@@ -563,6 +563,14 @@ func (s *Server) revalidate(ctx context.Context, action Action, plan agentstore.
 		codes := make([]string, 0, len(fresh.Blockers))
 		for _, b := range fresh.Blockers {
 			codes = append(codes, b.Code)
+			// 409 只带代码（它要能当机器可读的判据），原因进日志。
+			// 不落这一笔，运维在面板上只看到 "BACKUP_SFTP_UNREACHABLE"，
+			// 分不清是握手超时、主机密钥不对，还是远端路径读不到——
+			// P12.1 真机上就撞到过这种"只有结论没有原因"的 409。
+			s.opts.Logger.Warn("执行前复核被拒",
+				"action", action.Name,
+				"code", b.Code,
+				"reason", b.Message)
 		}
 		return &rejection{
 			status:  http.StatusConflict,

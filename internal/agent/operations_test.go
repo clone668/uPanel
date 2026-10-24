@@ -7,10 +7,13 @@ package agent
 // 不是对某个桩行为的断言。
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -42,6 +45,11 @@ type countingAction struct {
 	// slowPlanFrom 让第 N 次及以后的 Plan 调用一直等到 ctx 结束：模拟"预检快、
 	// 提交复核慢"的软件包动作（24.04 上 apt 模拟两次都慢，但测试不需要真的慢）。
 	slowPlanFrom int32
+	// blockFrom 让第 N 次及以后的 Plan 调用返回 Allowed=false：模拟"预检通过、
+	// 执行前复核时环境变了"（P12.1 的 SFTP 仓库在真机上就是这样被拒的）。
+	blockFrom    int32
+	blockCode    string
+	blockMessage string
 }
 
 func (c *countingAction) registry(t *testing.T) *Registry {
@@ -74,6 +82,18 @@ func (c *countingAction) registry(t *testing.T) *Registry {
 			if c.slowPlanFrom > 0 && n >= c.slowPlanFrom {
 				<-ctx.Done()
 				return Plan{}, ctx.Err()
+			}
+			if c.blockFrom > 0 && n >= c.blockFrom {
+				return Plan{
+					NormalizedParams: in.Params,
+					Target: Target{
+						DisplayName:         "计数对象",
+						IdentityFingerprint: nth(c.fingerprints, n),
+						StateVersion:        nth(c.stateVersions, n),
+					},
+					Allowed:  false,
+					Blockers: []Notice{{Code: c.blockCode, Message: c.blockMessage}},
+				}, nil
 			}
 			return Plan{
 				NormalizedParams: in.Params,
@@ -118,8 +138,21 @@ func (c *countingAction) registry(t *testing.T) *Registry {
 // operationServer 构造一个带真实库的代理服务，并返回操作存储以便直接查库。
 func newOperationServer(t *testing.T, reg *Registry) (*Server, *agentstore.Operations, *agentstore.PreflightPlans) {
 	t.Helper()
+	return newOperationServerWithLogger(t, reg, nil)
+}
+
+// newOperationServerWithLogger 同上，但把代理日志写到 w（nil 表示丢弃）。
+//
+// 需要看日志的用例只有"结论进了响应、原因进了日志"这一类：409 的正文是机器
+// 可读的判据，不该塞内部细节；细节必须有地方去，且那个地方要能被验证。
+func newOperationServerWithLogger(t *testing.T, reg *Registry, w io.Writer) (*Server, *agentstore.Operations, *agentstore.PreflightPlans) {
+	t.Helper()
 	if reg == nil {
 		reg = NewAcceptanceRegistry()
+	}
+	logger := quietLogger()
+	if w != nil {
+		logger = slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	}
 	db := newTestAgentDB(t)
 	ops := newTestOperationStoreOn(t, db)
@@ -127,7 +160,7 @@ func newOperationServer(t *testing.T, reg *Registry) (*Server, *agentstore.Opera
 	srv, err := New(Options{
 		SocketPath:      socketPathForTest(t),
 		Version:         version.Info{Version: "test", Commit: "test", BuildDate: "test", GoVersion: "test"},
-		Logger:          quietLogger(),
+		Logger:          logger,
 		ShutdownTimeout: time.Second,
 		Peer:            testPeer(),
 		Registry:        reg,
@@ -622,6 +655,41 @@ func TestOperationRevalidateBudgetTurnsIntoResourceBusy(t *testing.T) {
 	}
 	if _, err := srv.opts.Plans.Get(context.Background(), plan.PreflightRef); err != nil {
 		t.Fatalf("复核失败不该让预检消失: %v", err)
+	}
+}
+
+// TestRevalidateRejectionLogsBlockerReason：执行前复核被拒时，原因必须落日志。
+//
+// 409 的正文只带代码（`当前状态不允许执行：BACKUP_SFTP_UNREACHABLE`），这是机器可读
+// 的判据，不该塞内部细节。但对运维来说，只有一串代码等于没有原因：P12.1 在真机上
+// 撞到的那次，面板读到 409，代理日志里一个字都没有，分不清是握手超时、主机密钥不对，
+// 还是远端路径读不到——只能靠猜着重跑。所以这一条同时钉两头：细节不进正文，
+// 但一定进日志。
+func TestRevalidateRejectionLogsBlockerReason(t *testing.T) {
+	var logs bytes.Buffer
+	counter := &countingAction{
+		blockFrom:    2, // 第 1 次（预检）放行，第 2 次（提交复核）拒绝
+		blockCode:    "BACKUP_SFTP_UNREACHABLE",
+		blockMessage: "backup: 与 127.0.0.1:22 的握手失败（网络层）: i/o timeout",
+	}
+	srv, _, _ := newOperationServerWithLogger(t, counter.registry(t), &logs)
+	plan := mustPreflight(t, srv, "acceptance.count", `{"note":"revalidate-blocked"}`)
+	rec := submitOperation(t, srv, operationSubmitBody(opID("blocked"), plan.PreflightRef, "", testSessionHash, ""))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("提交状态码 = %d，期望 409；响应 %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "BACKUP_SFTP_UNREACHABLE") {
+		t.Fatalf("409 要带阻塞代码: %s", body)
+	}
+	if strings.Contains(body, "握手失败") {
+		t.Fatalf("409 正文不该带内部细节（那是日志的事）: %s", body)
+	}
+	if counter.calls.Load() != 0 {
+		t.Fatalf("复核被拒的动作不该执行（执行了 %d 次）", counter.calls.Load())
+	}
+	if got := logs.String(); !strings.Contains(got, "握手失败（网络层）") || !strings.Contains(got, "BACKUP_SFTP_UNREACHABLE") {
+		t.Fatalf("日志里没有阻塞原因：%q", got)
 	}
 }
 
