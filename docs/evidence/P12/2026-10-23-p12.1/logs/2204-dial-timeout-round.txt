@@ -1,0 +1,36 @@
+缺陷 B 的现场原文（拨号"一次抖动就判死"）
+==========================================
+
+来源：2026-10-23—24 之间 22.04（VM-A）上的一轮 P12.1 验收。那一轮的二进制包含 `1ae4e39`
+（"执行前复核被拒时把原因写进日志"），不含 `de3cef8`（"网络抖动时整轮重来一次"）。
+**那一轮的验收数字本身没有采用**：它卡在 SFTP 仓库初始化上，同一阶段后来重跑了。
+这里留下的是它给出的**原因**——这条原因正是 `1ae4e39` 加日志的目的。
+
+代理日志原文（`backup.repository.initialize` 执行前复核被拒），**逐字一行**：
+
+    {"level":"WARN","msg":"执行前复核被拒","action":"backup.repository.initialize","code":"BACKUP_SFTP_UNREACHABLE","reason":"backup: 与 127.0.0.1:22 的握手失败（网络层）: ssh: handshake failed: read tcp 127.0.0.1:56442->127.0.0.1:22: i/o timeout"}
+
+
+它说明了什么
+------------
+1. 不是"钥匙不对"：`code` 是 `BACKUP_SFTP_UNREACHABLE`，不是 `BACKUP_SFTP_AUTH`
+   （Q329 修的就是这条分类）。
+2. 不是"指纹不符"：没有任何 `BACKUP_HOST_KEY_MISMATCH`。
+3. 是**握手的读超时**——`read tcp` 卡满 15 秒（`DefaultDialTimeout`）后由 deadline 结束。
+   注意连接已经建起来了（有本地端口 56442），所以不是"连不上主机"，是"对面 15 秒没说话"。
+
+为什么判成"抖动"而不是"坏了"
+----------------------------
+同一台机器、同一个登记指纹、同一份 known_hosts，紧接着手动重放 6 次
+（宿主侧 3 次、虚机内 3 次）全部在数百毫秒内连上；sshd 侧 DEBUG2 日志没有鉴权失败，
+每秒一次的连接采样里也没有 ≥3 秒的断层——机器没被冻住，远端没被改配置。
+结论是这一条连接的握手被调度/CPU 抢走了一次。
+
+于是有 `de3cef8`：网络层的失败整轮再走一遍（两轮封顶、间隔 250 ms），认证失败与指纹
+不符不重试。回归测试见 `internal/backup/ssh_test.go` 的
+`TestDialRetriesOnceWhenHandshakeStalls` 与 `TestDialHandshakeTimeoutIsNotAuthFailure`。
+
+纪律
+----
+这轮的另一半原因是**两台虚机当时在并发跑验收**（Q329 已把"不并发"写成纪律）。
+所以这份原文证明的是"一次抖动会判死"这个产品脆弱点，不是"远端坏了"。

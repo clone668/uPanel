@@ -60,6 +60,15 @@ Gin 图里的 v0.60.0，本次只是 `go.mod` 里去掉 `// indirect` 标记，`
 理由：域名要落成文件名与 Nginx 配置（`upanel-<domain>.conf`），必须做 IDNA 到 A-label
 的归一，这件事没有标准库实现；自己写 Punycode 属于自造密码学风险的同类错误。
 
+**P12.1 起直接依赖增加到 6 个**（SFTP 后端的远端探测）：新增 `github.com/pkg/sftp v1.13.9`，
+并因此把 `github.com/kr/fs v0.1.0` 作为传递依赖引入（`go.mod` 标注 `// indirect`）。
+用途是备份仓库在 SFTP 上**初始化之前**的结构化探测：路径是否存在、是不是目录、`StatVFS` 的
+总容量与可用字节。不用 `sftp` 命令行的原因见 DECISIONS Q326（人类可读输出的格式随 OpenSSH
+版本变，22.04 的 8.9p1 与 24.04 的 9.6p1 并非一套话术，解析结果无法当证据）。
+版本由 `go get github.com/pkg/sftp@v1.13.9` 确定，未使用 `replace`；上游 `v1.13.9`
+发布时间 2025-03-25T13:30:11Z（`proxy.golang.org` 的 `@v/v1.13.9.info` 实读），
+其 go 指令为 `go 1.15`，低于本项目冻结的 1.27.3，不抬高下限。
+
 下表标注为已引入的模块已写入 `go.mod`，其余模块尚未引入，仍属计划。
 
 | 模块 | 冻结版本 | 上游发布时间 | 用途 |
@@ -73,6 +82,8 @@ Gin 图里的 v0.60.0，本次只是 `go.mod` 里去掉 `// indirect` 标记，`
 | golang.org/x/term | v0.47.0 | 2026-10-08 | `upanelctl init-admin` 终端无回显读密码（P02.1 新增直接依赖） |
 | golang.org/x/net | v0.60.0 | 2026-10-08 | 域名 IDNA 归一（`golang.org/x/net/idna`，P10.1 升为直接依赖） |
 | github.com/google/uuid | v1.6.0 | 2024-01-23 | UUID v4 主键 |
+| github.com/pkg/sftp | v1.13.9 | 2025-03-25 | SFTP 远端探测：路径存在/目录/`StatVFS` 容量（P12.1 新增直接依赖） |
+| github.com/kr/fs | v0.1.0 | 2018-05-06 | `pkg/sftp` 的传递依赖（`// indirect`，本项目不直接 import） |
 
 核实方式：`GET https://proxy.golang.org/<module>/@latest` 与 `@v/<version>.mod` 读取 `go` 指令。
 
@@ -149,7 +160,7 @@ Gin 图里的 v0.60.0，本次只是 `go.mod` 里去掉 `// indirect` 标记，`
 | VM 内 `go build` / `go test` | NOT RUN | VM 未装 Go（DECISIONS Q9）；需要时补装到 1.27.3 后再记录 |
 | 依赖之间的大版本运行时兼容性（vue-router 5 / pinia 4 / vite 8 / vitest 5 / xterm 6） | NOT RUN | 只按 registry 元数据与 peer 范围核实；必须由 P01.3 的真实 typecheck/build 证明 |
 | Playwright 浏览器二进制 | NOT RUN | 需要明确执行 `npx playwright install`（CI 与 VM 分开记录） |
-| 系统软件包版本（Nginx/Samba/Certbot/restic/smartmontools 等） | NOT RUN | 对应阶段记录 `apt-cache policy` 实际输出 |
+| 系统软件包版本（Nginx/Samba/Certbot/restic/smartmontools 等） | 部分已验证：restic 与 openssh-server（2026-10-23，两台 VM） | 其余包在各自阶段记录 `apt-cache policy` 实际输出。已记录（`apt-cache policy` 与程序自报两份原文，证据 `docs/evidence/P12/2026-10-23-p12.1/logs/system-packages.txt`）：22.04 `restic 0.12.1-2ubuntu0.3`（`restic 0.12.1 compiled with go1.18.1`）、`openssh-server 1:8.9p1-3ubuntu0.18`（`OpenSSH_8.9p1 Ubuntu-3ubuntu0.18, OpenSSL 3.0.2`）；24.04 `restic 0.16.4-2ubuntu0.24.04.3`（`restic 0.16.4 compiled with go1.22.2`）、`openssh-server 1:9.6p1-3ubuntu13.20`（`OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13`） |
 | Node 22.23.3 在 Linux 上的 ABI 兼容 | NOT RUN | VM 内使用官方二进制包，安装后 `node -v` 记录 |
 
 ## 6. 开发宿主偏差（事实记录）

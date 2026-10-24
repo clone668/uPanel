@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"backup: 仓库定义不合法: location 本地后端不接受 host/port/username/remote_path/host_key_fingerprint"},"request_id":"83c50f3b3e506e46f60937ed911af7d1"}

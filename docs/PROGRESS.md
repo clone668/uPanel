@@ -152,8 +152,23 @@ P07.1 先把“该拒的都拒”证完（判决层、可靠身份、整盘锁�
 
 ## 1. 当前任务
 
-- 当前阶段：**P11（软件更新与电源）已完成：P11.1、P11.2、P11.3 全部 passed**，下一个子任务
-  **P12.1**（restic 本地/SFTP 仓库、秘密引用、SFTP 主机密钥验证、仓库初始化与容量检测）。
+- 当前阶段：**P12（备份恢复与计划任务）进行中：P12.1 已 passed**，下一个子任务
+  **P12.2**（策略、运行、快照列表、文件一致性说明、停受管理应用备份、面板 SQLite 在线备份）。
+  **P12.1（restic 本地/SFTP 仓库、秘密引用、SFTP 主机密钥验证、仓库初始化与容量检测）
+  passed**：这一段只做"仓库"这一层——仓库真的建起来了（`restic cat config` 读回的 64 位
+  id 与脚本自己再读一次**逐字节相同**）、只建新仓库不覆盖已有数据、主机密钥由我们自己
+  核对（指纹只认登记的那把，known_hosts 核对通过才写 0600）、秘密按用途把关、容量读不到
+  就是 `supported=false` 而不是 0、口令错要说得出口令不对、root 碰镜像路由直接 403。
+  两台 VM 各 **PASS 133 / FAIL 0 / NOT RUN 5**、`EXIT=0`，逐节断言数两台完全相同；仓库 id
+  22.04 `5b2ac62d…`、24.04 `6044228b…`，两台都独立核对过。真机抓出并修掉 **3 个产品缺陷**：
+  ①主机密钥协商按服务器偏好先递 ECDSA，登记的是 ed25519 指纹 → 正确的那份也报不匹配
+  （改成不匹配时按算法逐个重握手，只有指纹相等才算通过）；②一次握手读超时（15 秒）就把
+  "连不上"定死，而同机手动重放 6 次全在数百毫秒内连上（改成网络层失败整轮再来一次，
+  两轮封顶）；③只读查询的 30 秒预算耗尽被写成"restic 以退出状态 -1 结束"——把"我们自己
+  收的工"说成"restic 崩了"，且那台慢机器上整串动作本来就要 30 秒（分出
+  `ErrBudgetExhausted`、预算提到 45 秒）。另有 3 条假绿与 3 条脚本缺陷被脚本自己抓出。
+  宿主 `check.sh` PASS 13 / FAIL 0（web 45 文件 820 用例）。**备份/恢复本身是 P12.2/P12.3**：
+  BACKUP-01 的"备份后恢复"本轮没有对象可验，写进 NOT RUN。
   **P11.3（重启/关机：预检、再认证、倒计时与连接状态、`boot_id` 确认）passed**：电源是唯一
   “执行者与被观察者是同一个”的动作——命令交出去，代理就随机器一起消失，所以全部功夫在
   “能说什么、不能说什么”。结果只到 `accepted`，`verified_at` 为空；唯一站得住的证据是
@@ -671,7 +686,7 @@ P07.1 先把“该拒的都拒”证完（判决层、可靠身份、整盘锁�
 | P09 | 现有 Web 应用与 Docker | **已完成**（P09.1—P09.5 全部 passed）| P09.5 **passed**：应用卡片、搜索、分组、一键打开、状态区分与常用入口首页集成——**只动前端，不新增接口**。卡片四件事分开画（`runtime_state` / `http_state` / `dependency_protection` / `runtime_note`），「容器在跑但回 500」同时写“运行中”与“入口异常”；按钮按服务器给的 `capabilities` 画（link 只有 `open`、受保护单元只剩 `logs`、看不见的绑定一个都不给）；`open` 是锚点（`target="_blank"`、`noopener noreferrer`）不是请求，地址是服务器地址——真机入口 `http://10.0.2.15:18897/` 回 200 而同端口回环 000，回环/`localhost`/带凭据/`javascript:` 的入口在写入口就 400；启停只落 `service.control`/`container.control`（不引入 `app.control`，那条路会绕过依赖卷门禁）；收藏按用户、幂等；搜索在页面（`GET /apps?q=` 结果集不变）；非空分组删不掉且成员不被顺手移走；`group_id` 形状对但不存在 → 200 + 空、**形状不对 → 400**（Q277，改的是 openapi 的描述不是代码）。VM 上 **PASS=211 / FAIL=0 / NOT RUN=0**，真机**无产品缺陷**（4 处失败：1 处契约文字 + 3 处脚本毛病）；前端 40 文件 / 720 用例、真机载荷回放 51 条断言、宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P09/2026-10-22-p09.5/`、回放夹具 `web/src/fixtures/p09-5-vm/`。P09.4 **passed**：应用摘要里的状态/按钮/日志/依赖保护全部**来自底层对象的观测**，并在启动路径上加一道**只能收紧**的依赖卷门禁。`internal/appruntime` 一次请求内合成三件事：状态逐来源枚举（systemd `active`/`reloading`→`running`、`failed`→`failed`、`activating`/`deactivating`→`unknown`、单元不在列表→`unknown`；docker `running`→`running`、`stopped`→`stopped`、其余→`unknown`）、**能力来自对象自己的能力集合**（不再由 `type` 推导）、保护判定。三处容易写错的钉死了：**`unknown` 不是 `stopped`**（绑在不存在的单元/被重建的容器上要人重新确认绑定，而不是给一个点下去必然失败的按钮）、**受保护单元仍有日志能力**（`ssh.service` 三项生命周期全 false、`logs` 为 true）、**门禁只拦启动**（`stop` 永不拦——卷掉线时最想做的就是停机，拦它只会把人逼回命令行、绕过审计）。门禁 `internal/appruntime/gate.go` 跑在 `CreatePreflight` 已有判决**之后**，只能把 `allowed` 从 true 改成 false（Q273；依赖关系只在 Web 库里，代理不该知道应用元数据）：未挂载→`VOLUME_OFFLINE`、身份不符→`VOLUME_IDENTITY_CHANGED`、读不到卷清单→`VOLUME_CHECK_UNAVAILABLE`（fail closed），提交被钉住的预检是 409 `DEPENDENCY_BLOCKED`，真机用 `docker inspect` 现场对照容器确实没动。`managed` 只给「docker + `restart` 是 no/空 + 有依赖卷」（Q274）——它说的是“经面板发起的启动会被检查”，不是“依赖被接管了”；手工 `docker start`、开机自启、`systemctl enable` 过的单元、`restart: always` 四条绕过路径都在 note 里点名，这几种一律 `unmanaged`。`GET /api/v1/apps/{id}/logs` 按绑定判别 journal / docker，两种 `page` 形状各自与 `/logs`、`/containers/{id}/logs` 一致；`unit`/`source` 这类“想改对象”的参数一律 400（对象来自绑定）。两条**没做**的明写着而不拿门禁冒充（Q276、Q275）：运行时卷失联自动停止要代理侧常驻协调者，本轮不做；docker 的 `failed` 这一版不区分（DTO 里没有 ExitCode，非 running 一律 `stopped`）。VM 上 **PASS=165 / FAIL=0 / NOT RUN=0**（11 节），**真机没抓出产品缺陷**，10 处失败全是脚本自己的毛病（子壳变量、拿受保护单元当夹具、`/storage/volumes` 读成 `data.items`、`lsblk -r` 与 `-l` 在 util-linux 2.39 互斥、拿旧服务快照断言新单元、把“改完之后的版本号”当乐观锁、`pfget` 拼路径去跑表达式）；宿主 `check.sh` PASS 13/0/0、`go test -count=1 ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.4/`。P09.3 **passed**：Docker 只读查询（容器/镜像/网络/数据卷/部署）、容器日志（时间键集分页 + SSE 流，每账号 4 条并发）、现有受支持容器的 start/stop/restart。**Web 进程从不碰 `docker.sock`**——所有查询与动作在代理里用固定子命令完成，真机验了 Web 账号不在 docker 组、`docker ps` 被拒、`/proc/<pid>/fd` 里没有 sock。**容器身份只认完整 64 位小写十六进制**（唯一会进 argv 的可写字符串，名字只在输出里出现；短 ID 可猜，全 ID 不行），`^[0-9a-f]{64}$` 在 Web 与代理各校验一次。**风险是闭集而不是启发式**：privileged、host 网络/pid/ipc、危险 capability、挂 `docker.sock`、挂宿主 `/` → `risk.level=high` + `managed=false` + 三项能力全 false，并在预检（`CONTAINER_NOT_MANAGED`）与执行前复核（`controlBlockedError` → 409 `PREFLIGHT_STALE`）**两处**拒绝。**不该要的东西不请求**：inspect 格式串里没有 `Config.Env`、没有完整标签表（只取六个 `com.docker.compose.*`），真机放了唯一口令，清单/详情/日志/SSE/代理日志里都搜不到，日志正文经 `logging.Redact` 成 `[redacted]`。启停每条都“预检 → 任务 → 读回”并与 `docker inspect` 现场对照：**退出码 0 不算成功，读回状态一致才算**（`observed_state.verified`）。compose 项目是派生身份 `dep_`+sha256 前缀，只做精确匹配 GET，外部 YAML 不执行不解析不落盘。VM 上 **PASS=217 / FAIL=0 / NOT RUN=1**（五遍；唯一 NOT RUN 是“执行前复核（受理之后再变）”，需毫秒级可重复竞态，由 `TestContainerControlExecuteStaleState` 覆盖）；真机抓出并修掉 **3 个**产品缺陷（Q270 `--tail`/`--until` 顺序让往回翻页只剩边界一条 → 时间窗分页；Q271 套接字还在但守护进程死了被当成命令失败/500 → 按 `Cannot connect to the Docker daemon` 判 `UnavailableError`，清单降级 200 + `available=false`、预检 `allowed=false` + `DOCKER_UNAVAILABLE`；Q272 代理的 5xx 域内码被 Web 改写成 `AGENT_UNAVAILABLE`）；宿主 `check.sh` PASS 13/0/0、`go test ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.3/`。P09.2 **passed**：本机端口/服务/容器发现、管理员确认候选、普通健康检查与 SSRF 约束。三路来源（`/proc/net/tcp{,6}` LISTEN → inode → `/proc/<pid>/fd` → cgroup v2 → `.service`、裸监听、`docker ps -a --no-trunc`），候选 `target_id` 只有 `local_…`/`cntr_…` 两种形状；**SSRF 不是过滤而是写不出来**——探测地址一律由代理拼成 `http(s)://127.0.0.1:<port><path>`（`Proxy: nil`、不跟重定向、TLS 校验开、正文 64 KiB 截断），调用方没有任何位置能放主机名/IP/完整 URL；确认候选＝`POST /apps`（不另开接口）；结论只进 `app_health_results`（`0008`），定义仍在 `apps.health_json`；调度 5 秒一拍/一轮 60 秒/每应用 30—300 秒/最小间隔 5 秒，代理不可用写一条 `unknown` 即结束本轮。两条诚实性规矩：**“没看”不能变成“没有”**（探测侧 `unknown` vs `error`，入 Q257；绑定合并侧来源没采成不进 `missing_bindings`，Q260），**没发出去的探测不填 address/url**。为三条容器验收在测试机上装 `docker.io` 29.1.3 + `alpine:3.20` **夹具**（非依赖；无 docker 的机器上那三条仍是 NOT RUN）。VM 上 **PASS=120 / FAIL=0 / NOT RUN=1**（六遍 93/0 → 120/0；唯一 NOT RUN 属 P09.4）；真机抓出并修掉 **3 个**产品缺陷（Q258 pid 1 代持的 `.socket` 监听让端口出现两次、Q259 docker-proxy 在 `docker.service` cgroup 里让容器出现两次且抑制必须在单元分类之前、Q260 停 dockerd 后容器应用被误判“需重新确认”）+ 一条语义修正 Q257；宿主 `check.sh` PASS 13/0/0、`go test ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.2/`。**下一子任务 P09.3**（Docker 只读查询、日志、现有受支持容器的启停）。P09.1 **passed**：应用/分组/收藏元数据、link/systemd/docker/compose 判别模型、公共入口与内部目标分离。四张表（`apps`/`app_groups`/`app_favorites`/`app_volume_dependencies`，`0007_apps.sql`）；`type` 决定 `binding` 的唯一合法键，规范化 JSON + `uq_apps_binding`（`WHERE type <> 'link'`）+ `CHECK` 让唯一性由数据库保证；`public_url` 只受理浏览器能打开的地址（生产禁回环/通配），健康检查 `target_id` 形状写不出 IP/主机名/URL，`169.254.169.254` 真机试过；摘要字段只填“不知道”（link `not_applicable`，其余 `unknown` + `last_checked_at=null` + `dependency_protection=unmanaged`），`capabilities` 只有 `open`；依赖卷不建外键（Q248），写入经代理确认，503 不写库、422 带 `volume_id`；删除只删元数据，收藏按用户隔离且不写审计。VM 上 **PASS=210 / FAIL=0 / NOT RUN=0**（第八遍；第七遍复跑同样 210/0/0）。真机**无产品缺陷**，前几遍 23 个 FAIL 全为脚本自身问题（断言写错 4 处、破坏性动作漏再认证、夹具没清干净 1 处），并把“预检绑定快照”这条产品语义钉进脚本；宿主 `check.sh` PASS 13/0/0、`go test ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.1/`。|
 | P10 | 反向代理、HTTPS、0.1 发布 | **passed**（P10.1—P10.4 全部完成）| P10.3 **passed**：证书四件事——staging 必填（`staging *bool` 缺失即 400，默认值就等于"不小心调用正式 ACME"）、`--server` 只由 staging 推导（调用方给不了地址）、签发前先做 HTTP-01 可达性检查；手动导入拆两条通道（公钥走一次性上传，1 MiB、10 分钟、绑会话；私钥走 `POST /secrets`），私钥不进 argv/日志/库，落地前 `Take` + `CoversDomain`；账本按域名唯一、`crt_` 在预检展开期定死、**唯一写入点 `OnJobFinished`**；到期信息 `valid`/`expiring`（21 天窗）/`expired` 现场读盘；续期读 jobs 表做同域名 1 小时冷却（429 `RESOURCE_BUSY`）。**续期与生效分家**：续期只换盘上文件，生效靠下一次 `proxy.apply` 的轮换**实测**（SNI 握手取叶证书指纹，与盘上不一致就 reload，`reload_reason=cert_rotated`，12 × 250 ms settle 预算，仍不一致报 `PROXY_TLS_SERVED_STALE` 告警）。VM 上 **PASS=176 / FAIL=0 / NOT RUN=7**（四遍收敛 114/37 → 165/2 → 172/4 → 176/0），真机抓出 **1 个**产品缺口（续期之后新证书在任何路径上都不生效）。证据 `docs/evidence/P10/2026-10-23-p10.3/`。P10.2 **passed**：配置生成（纯函数渲染、确定性 apr1 盐）、原子写入（临时文件 + fsync + rename + fsync 目录）、`nginx -t` 整棵树门禁、失败回滚与回滚复验、`nginx -s reload`（只 reload 不 restart，单元没在跑就 skip）、`applied` 四态推导（不落库）、改名与停用的文件清理（先备份）、账号文件权限按 worker 用户定、删除记录的孤儿配置门禁 409、`proxy.apply` 参数服务端展开。VM 上 153 项断言全过，真机抓出 1 个缺陷（Q290 预检偶发 8 秒 → 单元探测排在采集扫掠后面，6.389s vs 0.17s）。证据 `docs/evidence/P10/2026-10-23-p10.2/`。P10.1 **passed**：Nginx 发现、域名冲突判断、站点定义登记（单域名单 upstream、WebSocket 开关、请求限制、访问策略）。事实与判断分家：代理登记 `nginx.state`（`{fresh}`）只给事实，`internal/proxies` 出判断；**展示用 5 秒快照、写入门禁用直读**（缓存窗口里刚手工加的 `server_name` 正是唯一需要判准的时刻）；冲突三态 `clear`/`taken`/`unknown`，**`unknown` 与 `taken` 一样 409 阻断**（`nginx reload` 不因 `server_name` 撞车失败，只会安静地用第一个块），证据带文件 + `server_name` 所在行 + 原文 + `broken_files`；读不到主机事实是 503 而不是“没有冲突”。符号链接按真实路径去重（`sites-enabled/default` 只算一次）；域名 IDNA 归一并禁通配符/协议/端口/路径；**上游端口不得等于面板真正监听的端口**（取自监听地址，不写死 9443）；默认值与 nginx 一致（`1m`/`60s`）；访问模式与附加字段双向一致（多给也 400）；`secret_ref` 只进不出。**P10.1 不写配置**：没有 `applied_*` 字段、审计固定 `"applied": false`、`/etc/nginx` 全部文件内容摘要前后相等（Q280）。VM 上 **PASS=100 / FAIL=0 / NOT RUN=0**，真机抓出 **1 个**产品缺陷（Q279：`nginx -v` 时限写成无单位 `5` → 5 纳秒，Windows 上被 `t.Skip` 的单测证明不了）；证据 `docs/evidence/P10/2026-10-22-p10.1/` |
 | P11 | 软件更新与电源 | **已完成**（P11.1、P11.2、P11.3 全部 passed）| P11.3 **passed**：`system.power`（`reboot`/`poweroff`）走既有预检→再认证→提交→执行→审计链路——结果只到 `accepted`、`verified_at` 为空，唯一站得住的证据是 `boot_id` 变了（`confirmed`/`unchanged`/`unreachable`/`unknown` 四个闭集，没有第五个）；**关机只承认“回来过”，电源是否真切断“只能由现场回答”**，断言同时钉死“不许出现关机成功 / 不许 `outcome=verified`”；关键任务闸门（有写操作在跑 → 预检 `allowed=false` 并点名 blocker、提交 409 `POWER_JOBS_RUNNING`、`boot_id` 不动）与倒计时取消（终态 `canceled`、无 `power_check`、`boot_id` 不变）互为正反面；`power-global` 锁串行化。两台 VM 各 **PASS 109 / FAIL 0 / NOT RUN 2**（多出的一条是新增的 `env-no-foreign-units`；两条 NOT RUN 是“脚本与被测机器同一台”的位置问题，各自在下一阶段被同一事实的 PASS 覆盖），逐节断言数两台完全相同；真机 `boot_id` `591a2533→5389231a→4a25a825`（22.04）与 `97057b04→22486dd5→813e082b`（24.04），24.04 关机后 QEMU 进程从宿主消失（真断电而非假关机；串口原文 `reboot: Power down` 留在证据里）；宿主 `check.sh` PASS 13 / FAIL 0（web 45 文件 820 用例，修完后在最终代码上重跑）。真机抓出并修掉 **2 个产品缺陷**：电源操作把自己算成在跑的关键任务（每个 `system.power` 停在 `revalidate` 报 `POWER_JOBS_RUNNING`，而前一步预检是 `allowed`）——修法是 `OperationID` 从 `PlanInput` 递到 `InFlight(exclude)`，闸门判据一字未动，两层回归测试钉住；**代理起服时抢走正在服务的 socket**（第 2 轮 22.04 的 6 条 503 根因：外层 systemd 单元每 3 秒重生并清 `/run`，`prepareSocketPath` 又无条件 `os.Remove`，删掉的是还活着的代理的路径）——修法是先探测：连得上拒绝启动、`ECONNREFUSED`/`ENOENT` 才算陈旧、说不清按有人处理，两个回归测试钉住“活的不许抢”和“陈旧的必须能清”；另有 **1 条假绿**：审计查询漏了 `FROM audit_events`，SQLite 报错被吞、空串里找不到口令就 PASS（“没查成 ≠ 清白”），改成查询失败也判失败并重跑阶段三；十条脚本与流程缺陷、九条限制见证据（其中第二条是 24.04 的客户机热重启本轮没验到）。证据 `docs/evidence/P11/2026-10-23-p11.3/`。P11.2 **passed**：四个写动作（`package.refresh`/`install`/`remove`/`upgrade`）——模拟即准入（`apt-get -s` 的 `Inst`/`Remv`/`Conf` 与保留原因当依据）、执行后重读 dpkg 与计划逐条核对（`observed_state.verified`；退出码 0 不是证据）、四把 apt/dpkg 锁只探测从不删、非交互六件套（`noninteractive`/`--force-confdef`/`--force-confold`/`Use-Pty=0`/`LISTCHANGES=none`/`NEEDRESTART_MODE=l`）、四个动作全部不可取消、`remove` 额外要 `REMOVE` 短语、`upgrade` 只走 `--only-upgrade` 永不 `dist-upgrade`、删除保护名单硬编码在代码里。两台 VM 各 **PASS 169 / FAIL 0 / NOT RUN 4**、两次 `exit=0`；宿主 `check.sh` PASS 13 / FAIL 0（web 43 文件 791 用例）；`//go:build unix` 三个包首次在 Linux 真跑（`syscmd` 24+1 SKIP / `processes` 41 / `apt` 77）。真机抓出 **6 个缺陷**：退出码 -1 不说谁停的（`syscmd.Result.Signal`）、socket 尸体被当就绪（脚本抢跑）、锁探测单测与实现矛盾（分平台断言）、38.7s 再模拟被前端 20s 掐断、`wait_job` 按次数算的“300 秒”实际 400+、升级夹具靠“恰好有个可升级的包”（改自建 `file:` 源 + conffile 真冲突）。证据 `docs/evidence/P11/2026-10-23-p11.2/`。P11.1 **passed**：软件包与更新只读页——代理出事实（dpkg 登记 + `apt-cache policy` 候选 + 重启标志/`boot_id`）、Web 算判断（`candidate_relation`/`upgradable`/`security`/`pockets`/`counts`/分页/筛选），`internal/debversion` 做版本比较。真机抓出并修掉 **1 个产品缺陷**：arch 限定名（`bind9-libs:amd64`）在 `apt-cache policy` 里块头被 apt 剥成 `bind9-libs:`，按请求名索引必然落空 → 整类包的候选被谎报成“读不到”；修法是基础名回退 + 同名双架构时**不回退**（如实报 `unknown`），对账脚本自己也复刻了同一个 bug，改法不同之后才敢当对账。24.04 的 apt 比 22.04 慢 28 倍（26.6s vs 384ms / 731 与 676 个包名），超时分成 45s/60s/120s/30s 四层，**启动预热删掉**（26s→62s 反而误报不可用）。两台 VM 各 **PASS 64 / FAIL 0 / NOT RUN 7**，对账 0 失配；宿主 `check.sh` PASS 13 / FAIL 0。证据 `docs/evidence/P11/2026-10-23-p11.1/` |
-| P12 | 备份恢复与计划任务 | not_started | 需恢复校验 |
+| P12 | 备份恢复与计划任务 | **进行中**（P12.1 passed；P12.2—P12.5 未开始）| P12.1 **passed**：restic 仓库这一层——本地/SFTP 两种后端、秘密引用与用途把关、SFTP 主机密钥自验（按算法逐个重握手直到拿到登记的那把）、known_hosts 由我们写（0600，`StrictHostKeyChecking=no` 全链路一次不出现）、初始化后用 `restic cat config` 读回仓库 id 核对、容量检测（`statfs` / `StatVFS`，读不到是 `supported=false` 而不是 0）、现状查询三态（`initialized` 为 `null` 表示读不到）。两台 VM 各 **PASS 133 / FAIL 0 / NOT RUN 5**、`EXIT=0`，逐节断言数两台完全相同；仓库 id 两台独立核对（`5b2ac62d…` / `6044228b…`）。真机抓出并修掉 **3 个产品缺陷**：主机密钥协商按服务器偏好先递 ECDSA 导致登记指纹误报不匹配、一次握手读超时就把"连不上"定死、上层预算耗尽的超时被写成"restic 以退出状态 -1 结束"（并把只读查询预算从 30 秒提到 45 秒）。另有 3 条假绿与 3 条脚本缺陷。宿主 `check.sh` PASS 13 / FAIL 0（web 45 文件 820 用例）。**备份/恢复本身是 P12.2/P12.3**，BACKUP-01 的"备份后恢复"本轮无对象可验（NOT RUN）。证据 `docs/evidence/P12/2026-10-23-p12.1/` |
 | P13 | 历史监控和告警 | not_started | — |
 | P14 | 网络、NFS、账号、TOTP | not_started | 需独立网络回滚验收 |
 | P15 | 应用部署与更新 | not_started | — |
@@ -4644,6 +4659,66 @@ final 阶段必须人/宿主上电、`power-global` 的并发竞争未验、syst
 环境干预、`result.md` 结果与限制、`logs/` 四阶段完整输出 + 宿主检查 + 版本指纹 +
 24.04 的断电与重启挂死串口原文、`payloads/{2204,2404}/` 每一步原始 JSON）。
 
+### P12.1（2026-10-24）— 备份仓库：先证明"仓库是读回来的"，再谈备份
+
+**这一段只做"仓库"这一层，不做备份本身。** 写快照、还原、校验一致是 P12.2/P12.3，
+所以 BACKUP-01 的"备份后恢复"本轮**没有对象可验**——它进 NOT RUN，不冒充通过。
+能证明的是七件事：仓库真的建起来了（`restic cat config` 读回的 64 位 id 与脚本自己再读一次
+**逐字节相同**）、只建新仓库不覆盖已有数据（已存在就 `BACKUP_REPOSITORY_EXISTS` 拦住）、
+主机密钥是我们自己核对的（指纹只认登记的、known_hosts 由我们核对通过后写 0600、
+`StrictHostKeyChecking=no` 全链路一次不出现）、秘密按用途把关（TLS 私钥当口令 →
+`BACKUP_SECRET_PURPOSE`）、容量是读出来的不是 0、口令错要说得出口令不对、默认拒绝
+（root 碰镜像路由 → 403 `拒绝对端 UID 不在允许范围`）。
+
+产品面：`internal/backup`（定义、指纹、拨号核验、restic 调用、容量、判决、执行）、
+代理侧一个动作 `backup.repository.initialize` + 一个查询 `backup.repository.state` +
+**仓库定义镜像路由**（配置写入不该产生 job、不该要再认证；PATCH 带 `version` 做乐观并发，
+DELETE 只删定义不删数据），秘密用途闭集加两条。契约见 CONTRACTS §15。
+
+**真机抓出三个产品缺陷，一个比一个隐蔽：**
+
+① **A：登记的是指纹，服务器先递的是另一把。** 24.04 上第一遍 **PASS 88 / FAIL 33**，
+指纹**对**的仓库也报 `BACKUP_HOST_KEY_MISMATCH`（登记 `SHA256:R7OL…` 的 ed25519，
+握手递过来的却是 `ecdsa-sha2-nistp256`）。根因是 x/crypto 的 `defaultHostKeyAlgos`
+把 ECDSA 排在 Ed25519 **前面**，而 `HostKeyCallback` 只能对协商出的那一把表态，没有
+"换下一把"的钩子；管理员抄的 `ssh-keygen -lf` 第三列只有摘要没有类型，契约里表达不出
+"按类型钉死"。修法（`d99998c`）：不匹配时把 `HostKeyAlgorithms` 钉成一种算法逐个重握手，
+见过的类型不再试，**只有指纹相等才算通过**。
+
+② **B：一次握手抖动就把"连不上"定死。** `1ae4e39`（把"执行前复核被拒"的原因写进日志）
+先给了真原因：`BACKUP_SFTP_UNREACHABLE` + `read tcp 127.0.0.1:56442->127.0.0.1:22: i/o timeout`
+——连接建起来了，是握手读超时吃满 15 秒；紧接着在同一台机器上手动重放 6 次全部数百毫秒
+内连上，sshd DEBUG2 无鉴权失败、每秒连接采样无 ≥3 秒断层（机器没冻住）。修法（`de3cef8`）：
+`Dial` 拆成"网络层重试外壳 + 算法轮"，只对 `isNetworkFailure` 再走一轮（两轮封顶、
+间隔 250 ms），认证失败与指纹不符不重试。原文见证据 `logs/2204-dial-timeout-round.txt`。
+
+③ **C："我们没等完"被写成"restic 出错"。** 24.04 上用 `de3cef8` 跑是 **PASS 132 / FAIL 1**，
+唯一失败是口令错的现状查询，原因原文 `restic cat config 失败：backup: /usr/bin/restic
+以退出状态 -1 结束`。查下去是**只读查询自己的 30 秒预算先用尽**，上层 ctx 到期把整组
+进程一起杀掉，而 `runOutcome` 只判了"restic 自己的超时"，父 ctx 到期掉进 `ExitError`
+分支。同机量到：ssh 握手 3—9 秒、SFTP 逐次 stat 各一往返、`restic cat config` 5—12 秒，
+整串 30 秒上下——**30 秒的预算刚好卡在边界上**，把一次正常的查询判成超时。修法
+（`659ba02`）：`runOutcome` 分出 `ErrBudgetExhausted`（"这次没有结论，不等于仓库有问题"）
+与 `ErrExecTimeout`，`ExitError` 带上信号名，预算 30 → 45 秒（预检本来就是 40 秒）。
+**这不是把验收条件放宽**：脚本那条断言一字未改，改的是"到底谁把进程停掉的"这句话。
+
+另有**三条假绿**被脚本自己抓出来（`空等于空` 的 id 对账、上一轮留下的 known_hosts
+让"是我们写的"无条件成立、`run_op` 的响应被请求体覆盖），加上 `PREFLIGHT_STALE`
+每轮必现（`session_id_hash` 各随机一次）、`preflight-malformed-id` 断言错对象
+（形状校验属于镜像路由）、上一轮的定义连锁打红，六条都在 `d99998c` 里修掉。
+
+**结果**：22.04.5（`tcg,thread=multi`）与 24.04.5（`tcg,thread=single`）各
+**PASS 133 / FAIL 0 / NOT RUN 5**、`EXIT=0`，逐节断言数两台完全相同（§0 2、§1 4、§2 3、
+§3 25、§4 7、§5 19、§6 11、§7 13、§8 5、§9 5、§10 6、§10b 6、§11 13、§12 7、§13 6、
+证据卫生 1）。仓库 id 22.04 `5b2ac62d…`、24.04 `6044228b…`（两台的 `repo_version` 分别是
+1 与 2——restic 0.16 默认写 version 2，我们如实转述读到的值）。宿主 `scripts/check.sh`
+**PASS 13 / FAIL 0**（web 45 文件 820 用例）。五条 NOT RUN 写进 §8（备份与恢复、
+备份中途断网、存储满、目标不是目录、两个 restic 版本"行为一致"），另有三样本阶段根本
+没有的东西：Web 侧 `/api/v1/backup/*` 与页面（P12.2—P12.5）、定时任务（P12.4/P12.5）、
+`go test -race`（无 cgo）。证据 `docs/evidence/P12/2026-10-23-p12.1/`
+（`env.txt` 两台环境与二进制指纹、`result.md` 结果与三个缺陷、`logs/` 两台的完整输出与
+宿主检查、`payloads/{2204,2404}/` 各 42 个原始 JSON）。
+
 ## 6. 未决问题与范围变更
 
 未批准任何范围变更。DECISIONS.md 第 8 节记录 Q1—Q80；P03.3 新增六条：Q67（阶段与事件必须同事务，
@@ -5095,6 +5170,10 @@ Q103（`cmd/upanel-web` 的用例会读机器上的 `/etc/upanel/upanel.json`，
 | P11.3-SCRIPT | P11 | 已执行（`tests/integration/p11-3-power-acceptance.sh`，909 行 11 节四阶段，本轮**两台四阶段全程同一版 md5 93e7251c…**；新增 `guard_foreign_units`：外来 `upanel*.service` 停用 + mask（`/etc` 里的真实单元文件 mask 会失败，改为改名挪走）并断言为 0，停不掉就 exit 2；不再 `rm -f` socket，陈旧/占用交给代理判断；ELF magic 守卫挡住“把 PE 推给 Linux”） | tests/integration/p11-3-power-acceptance.sh、docs/evidence/P11/2026-10-23-p11.3/env.txt |
 | P11.3-HOST | P11 | 已执行（`scripts/check.sh` PASS 13 / FAIL 0 / NOT RUN 0：`go vet`、`gofmt` 无输出、`go test ./...` ok、web typecheck/lint/build/smoke、web **45 文件 820 用例**、openapi lint 通过；node v22.23.3；这一份是修完之后在最终代码上重跑的） | docs/evidence/P11/2026-10-23-p11.3/logs/host-check.txt |
 | P11.3-RESULT | P11 | 已产出（范围、代码清单、逐节 PASS/FAIL/NOT RUN、2 个产品缺陷、1 条假绿、10 条脚本与流程缺陷、9 条限制——含“24.04 客户机热重启未验到”） | docs/evidence/P11/2026-10-23-p11.3/{env.txt,result.md} |
+| P12.1-RESULT | P12 | 已产出（范围、代码清单、三个产品缺陷的原文与定位过程、3 条假绿 + 3 条脚本缺陷、逐节 PASS/FAIL/NOT RUN、5 条 NOT RUN、环境事故） | docs/evidence/P12/2026-10-23-p12.1/{env.txt,result.md} |
+| P12.1-VM | P12 | **已执行并通过（22.04.5 与 24.04.5 各 PASS=133 / FAIL=0 / NOT RUN=5，`EXIT=0`）**；逐节断言数两台完全相同（§0 2、§1 4、§2 3、§3 25、§4 7、§5 19、§6 11、§7 13、§8 5、§9 5、§10 6、§10b 6、§11 13、§12 7、§13 6、证据卫生 1）；仓库 id 两台独立核对（`5b2ac62d…` / `6044228b…`，`independent-cat-config.stderr` 为空且两边都非空才比）；一台一跑、不并发 | docs/evidence/P12/2026-10-23-p12.1/logs/{2204,2404}-{run.log,results.txt,agent.log}、payloads/{2204,2404}/*.json |
+| P12.1-FIX | P12 | 已执行（产品缺陷 A：主机密钥按算法逐个重握手（`d99998c`）；B：网络层失败整轮重试一次（`de3cef8`）；C：`ErrBudgetExhausted` + 信号名 + 只读查询预算 30→45 秒（`659ba02`）。回归：`TestDialAcceptsRegisteredKeyRegardlessOfNegotiatedPreference`、`TestDialHandshakeTimeoutIsNotAuthFailure`、`TestDialRetriesOnceWhenHandshakeStalls`、`TestRunOutcomeClassifiesWhoEndedTheCall`、`TestResticFailureSaysTimeInsteadOfWrongPassword`。另修观测缺口：`90a669b`（503 文案点名模块）、`1ae4e39`（执行前复核被拒不写明原因）） | internal/backup/{ssh.go,ssh_test.go,exec.go,exec_test.go,restic.go}、internal/agent/{backupquery.go,operations.go}、internal/api/packages.go |
+| P12.1-HOST | P12 | 已执行（`scripts/check.sh` PASS 13 / FAIL 0 / NOT RUN 0；web **45 文件 820 用例**；node v22.23.3 —— 默认 v24.15.0 会被版本闸门拦下，不是跳过） | docs/evidence/P12/2026-10-23-p12.1/logs/host-check.txt |
 | P00-VM-C（LVM 根） | P00/P04 | **NOT RUN**（未创建） | 需在 P04 前补齐 |
 | P00-VM-D（SMB 客户端） | P00/P08 | **NOT RUN**（未创建；P08.2 用同机真实 `smbclient` + netns 客户端替代，跨机器网络路径仍缺） | 需在 P08 前补齐 |
 
@@ -5108,7 +5187,11 @@ DISK 与 FILE、TERM 的实质内容分别在 P07 与 P06.1/P06.2、P06.3 有真
 在 P08/P09/P10 有真机证据，**PKG 的只读与写动作**在 P11.1/P11.2 有真机证据，**电源
 （重启/关机的闸门、倒计时取消、`boot_id` 确认与“不伪称已验证”）**在 P11.3 有真机证据。
 真正连只读都还没有的矩阵条目是
-BACKUP/TIMER/ALERT/NET/NFS/DEPLOY/RELEASE。**矩阵编号与已有断言的对应关系仍未建立**
+ALERT/NET/NFS/DEPLOY/RELEASE。**BACKUP 已经有"仓库"这一层的真机证据**（P12.1：本地/SFTP
+两种后端的建库、主机密钥自验、秘密用途、容量与现状三态），但 **BACKUP-01 的"备份后恢复"
+仍然没有对象**——写快照与还原是 P12.2/P12.3，在这之前不要把它读成"BACKUP 已验"；
+TIMER 同理，P12.1 不涉及任何定时器（P12.4 才接 timer，证书续期 timer 在 P12.5）。
+**矩阵编号与已有断言的对应关系仍未建立**
 （这是账本的一个缺口，不是产品的缺口）。
 
 ## 8. 已知限制
@@ -5615,3 +5698,27 @@ BACKUP/TIMER/ALERT/NET/NFS/DEPLOY/RELEASE。**矩阵编号与已有断言的对�
   但“两个代理同时起、谁赢”只在第 1 轮真机上偶然复现过，没有做成一台机器的专门实验。
   （版本号问题已在第 2 轮消除：二进制自报 `0.0.0-p11.3 (commit 7d4039e)`，代码指纹仍按
   sha256 对：`agent 6ce5726f…` / `web 876ce0a3…` / `ctl 48c360ae…`，两台一致。）
+- **P12.1 的九条限制**：
+  ① **仓库层有证据，“备份”还没有**：本轮证明的是仓库能建、能读回、口径不假（id 独立核对、
+  容量前后两次读数、`repo_version` 如实转述）。**没有跑过一次真备份**，也没有快照、没有还原，
+  BACKUP-01 里“备份后恢复”那半句要 P12.2/P12.3 才有对象。
+  ② **定时器完全没动**：TIMER-01 本轮没有 systemd timer、没有时间表、没验“到点自己跑”。
+  它跟 P12.1 排在同一阶段，但验收行要 P12.4/P12.5 才闭上。
+  ③ **“中途断网”不在本轮**：验到的是“连不上 / 指纹不对 / 口令错 → 预检拒绝且原因不编”。
+  备份跑到一半链路断掉、restic 自己重连，属于 P12.2 的执行阶段。
+  ④ **容量边界靠单测判决**：存储真满、目标路径存在但不是目录，这两条在真机上**没有**制造出来
+  （真填满会连 apt/journal 一起弄坏，挂 loop 设备要改 `/etc/fstab`），结论来自
+  `capacityVerdict` 的表驱动用例——是逻辑证据，不是环境证据。
+  ⑤ **两个 restic 版本不等于“两种行为一致”**：22.04 是 restic 0.12.1、24.04 是 0.16.4，
+  两台新建仓库的 `repo_version` 一个是 1、一个是 2。只证明这两台机器上这两条路径成立；
+  不声称各版本行为一致，也不声称我们兼容所有版本（版本原文记在 `payloads/*/restic-versions.txt`）。
+  ⑥ **只有 agent 侧，没有 Web 侧和 UI**：`/api/v1/backup/*`、备份页面、策略与快照列表
+  属 P12.2—P12.5。本轮在真机上能点到的只有 `upanel-ctl` 与 `/run/upanel/agent.sock`。
+  ⑦ **没有 `go test -race`**：宿主与两台 VM 都没有启用 cgo（`-race requires cgo`），
+  并发相关的结论来自单测的逻辑判定（全局锁、串行化）与真机的串行观察，不是 race detector 给的。
+  ⑧ **拨号重试是有限兜底，不是“总能连上”**：网络层失败整轮重来一次（`dialRounds = 2`，
+  两轮封顶，最坏 30.25 秒）。指纹不匹配、认证失败**不**重试。这条是取舍（Q334），
+  代价是“半开的慢网络”会让人等满两轮才拿到拒绝。
+  ⑨ **45 秒预算是按最慢现场定的**：它不能更短，是因为 24.04 在单线程 TCG 下整条只读查询
+  实测 30 秒上下（ssh 握手 3—9 秒、每次 `stat` 一个往返、`restic cat config` 5—12 秒）。
+  代价写在明面上：真出问题时用户最多等 45 秒才看到“这次没有结论”（Q335）。

@@ -367,3 +367,40 @@ sudo BIN_DIR=/tmp/upanel-bin sh tests/integration/p05-1-services-acceptance.sh
 一个环境侧的坑：这台 VM 出现过一次 PID 1（systemd）SIGSEGV（`panic-6`，随后由内核重启），
 发生在一次验收运行期间。复现不了，也无法排除是 QEMU/内核侧的问题；记录在案，
 若再出现，先看 `docs/evidence/` 里的对应日志再决定是否重建 VM。
+
+### 8.9 加速后端：`-accel whpx` 会随机 panic，`-accel tcg,thread=single` 才起得来（2026-10-24）
+
+两台 VM 都建在 `-accel whpx` 上，但**这台宿主的 whpx 对 Ubuntu 24.04 不稳定**：客户机里
+systemd 会在磁盘操作过程中 SIGSEGV，多次重试后变成
+`Kernel panic - not syncing: Attempted to kill init! exitcode=0x0000008b`，内核直接重启。
+2026-10-21 一天内 12 次，2026-10-24 又攒到第 10 次（`H:\Code\vms\upanel-2404\console.panic-*.log`，
+其中 `console.panic-10-2026-10-24.log` 是最近一次）。panic 发生在验收运行中间时，
+那一轮的结论只能作废重跑——它既不是产品缺陷也不是被测机器的状态。
+
+换 TCG 时踩到第二个坑：**多线程 TCG（`-accel tcg,thread=multi`，即默认）起不来**，
+客户机内核在时钟初始化阶段就死：
+
+```
+[    0.596417] ..MP-BIOS bug: 8254 timer not connected to IO-APIC
+[    0.609204] ....... failed.
+[    0.620000] ...trying to set up timer as Virtual Wire IRQ... failed.
+[    0.775682] ..... failed :(.
+[    0.776191] Kernel panic - not syncing: IO-APIC + timer doesn't work!
+```
+
+试过的两条都没用：`-smp 1`（消除 SMP 因素）、`-cpu max`（补 TSC-deadline）。**有用的是
+`-accel tcg,thread=single`**——单线程 TCG 下中断投递不走 MTTCG 的路径，同一个镜像、
+同一块盘，直接过 `check_timer` 进 systemd 正常引导（`console.tcg-multicore-apic-2026-10-24.log`、
+`console.tcg-singlecore-apic-2026-10-24.log`、`console.tcg-cpumax-apic-2026-10-24.log` 是三次失败尝试的原文）。
+
+```powershell
+# 24.04 客户机用这条起（慢，但能跑完一整轮验收）
+& H:/Code/vms/launch-vm.ps1 -Name upanel-2404 -SshPort 2222 -SeedPort 8899 -MemoryMB 4096 `
+    -Cpus 2 -Accel 'tcg,thread=single'
+```
+
+`launch-vm.ps1` 的 `-Accel` 现在接受任何 `tcg*` 字串（原样传给 QEMU），`-Cpu` / `-Machine`
+也可覆盖。**代价与纪律**：单线程 TCG 下单条命令慢数倍，拨号、超时类的断言会被宿主侧的
+负载放大——跑验收时不要在宿主上并发 `go test`、不要另一台 VM 同时跑验收、不要一边
+ssh 进去查东西（这一条我自己违反过两次，两次都制造了假失败，见 DECISIONS Q329）。
+每份 `env.txt` 都要写清这一轮用的是哪个加速后端。

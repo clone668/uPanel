@@ -1,0 +1,68 @@
+24.04 验收虚机（VM-B）的两次内核 panic 串口原文
+================================================
+
+事实：P12.1 的第一遍验收在 24.04 上跑完（PASS 127 / FAIL 0 / NOT RUN 5，
+结果读到了），随后 guest 内核 panic：systemd 在同一地址反复 segfault，
+最终 'Attempted to kill init'。宿主机杀掉 QEMU 重开虚机后，重开的那一遍
+ssh 一直连不上（banner exchange 超时），再后来同样 panic。
+
+处置：把虚机杀掉、重新上电，在**干净启动**上按原样重跑一遍。第一遍作废的
+直接原因是它的 payloads 里有 10 个文件是 0 字节（panic 丢掉页缓存），不是结论
+不一致——两遍的断言逐条相同。第二遍跑完立刻 sync 再打包，38 个 JSON 全部可解析。
+
+这不是产品缺陷：segfault 的是 guest 的 systemd，不是 upanel 的任何进程；
+同一台宿主在 P11.3 也记录过 WHPX 的异常（reboot 挂死、TCG 下开机 panic）。
+
+---- 第一次 panic（console.panic-20261024-040241.log 末尾）----
+[  722.774837] Call Trace:
+[  722.776410]  <TASK>
+[  722.777970]  dump_stack_lvl+0x27/0xa0
+[  722.780293]  dump_stack+0x10/0x20
+[  722.782377]  panic+0x366/0x3c0
+[  722.784364]  do_exit+0x513/0x530
+[  722.786453]  do_group_exit+0x35/0x90
+[  722.788707]  get_signal+0x96e/0x9b0
+[  722.790968]  ? signal_setup_done+0x183/0x1b0
+[  722.793800]  arch_do_signal_or_restart+0x42/0x210
+[  722.796685]  irqentry_exit_to_user_mode+0x154/0x1e0
+[  722.799662]  irqentry_exit+0x43/0x50
+[  722.801527]  exc_page_fault+0x94/0x1b0
+[  722.803921]  asm_exc_page_fault+0x27/0x30
+[  722.806444] RIP: 0033:0x6418cc65dfdf
+[  722.808832] Code: f5 41 54 41 89 fc 53 48 8d 9d 30 ff ff ff 48 89 df 48 81 ec 48 01 00 00 64 48 8b 04 25 28 00 00 00 48 89 45 c8 31 c0 f3 48 ab <e8> 8c 7b ff ff 83 f8 01 0f 85 5a 02 00 00 80 3d 7c 92 00 00 00 0f
+[  722.818155] RSP: 002b:00007fff64793f80 EFLAGS: 00010246
+[  722.821118] RAX: 0000000000000000 RBX: 00007fff64794020 RCX: 0000000000000000
+[  722.825528] RDX: 00007fff64794100 RSI: 00007fff64794230 RDI: 00007fff647940b8
+[  722.829431] RBP: 00007fff647940f0 R08: 0000000000000000 R09: 0000000000000004
+[  722.833355] R10: 00000000ffffffff R11: 0000000000000202 R12: 000000000000000b
+[  722.837232] R13: 00007fff64794230 R14: 000064190ba63270 R15: ffffffffffffffff
+[  722.841009]  </TASK>
+[  722.842683] Kernel Offset: 0x34800000 from 0xffffffff81000000 (relocation range: 0xffffffff80000000-0xffffffffbfffffff)
+[  722.848417] ---[ end Kernel panic - not syncing: Attempted to kill init! exitcode=0x0000008b ]---
+
+---- 第二次 panic（console.panic-20261024-0448.log 末尾）----
+[ 2765.215845] Hardware name: QEMU Standard PC (i440FX + PIIX, 1996), BIOS rel-1.17.0-0-gb52ca86e094d-prebuilt.qemu.org 04/01/2014
+[ 2765.221392] Call Trace:
+[ 2765.222905]  <TASK>
+[ 2765.224275]  dump_stack_lvl+0x27/0xa0
+[ 2765.226401]  dump_stack+0x10/0x20
+[ 2765.228458]  panic+0x366/0x3c0
+[ 2765.230358]  do_exit+0x513/0x530
+[ 2765.232300]  do_group_exit+0x35/0x90
+[ 2765.234399]  get_signal+0x96e/0x9b0
+[ 2765.236484]  arch_do_signal_or_restart+0x42/0x210
+[ 2765.239116]  irqentry_exit_to_user_mode+0x154/0x1e0
+[ 2765.241838]  irqentry_exit+0x43/0x50
+[ 2765.243952]  exc_page_fault+0x94/0x1b0
+[ 2765.245705]  asm_exc_page_fault+0x27/0x30
+[ 2765.247622] RIP: 0033:0x79d39d2ee2e3
+[ 2765.249411] Code: 25 10 00 00 00 be 18 00 00 00 48 8d b8 e0 02 00 00 66 48 0f 6e c7 66 0f 6c c0 0f 11 80 d8 02 00 00 b8 11 01 00 00 0f 05 89 d0 <c3> 0f 1f 40 00 48 8b 15 09 5b 11 00 f7 d8 64 89 02 ba ff ff ff ff
+[ 2765.257597] RSP: 002b:00007ffe1810d9c8 EFLAGS: 00010206
+[ 2765.260202] RAX: 0000000000004f4e RBX: 0000000000000002 RCX: 000079d39d2ee2a7
+[ 2765.263344] RDX: 0000000000004f4e RSI: 0000000000000000 RDI: 0000000001200011
+[ 2765.266538] RBP: 00007ffe1810dad0 R08: 0000000000000000 R09: 0000000000000000
+[ 2765.270079] R10: 000079d39d999c10 R11: 0000000000000246 R12: 0000000000000000
+[ 2765.273669] R13: 0000000000000001 R14: 00007ffe1810db20 R15: 00007ffe1810dba0
+[ 2765.277496]  </TASK>
+[ 2765.279401] Kernel Offset: 0x26000000 from 0xffffffff81000000 (relocation range: 0xffffffff80000000-0xffffffffbfffffff)
+[ 2765.284626] ---[ end Kernel panic - not syncing: Attempted to kill init! exitcode=0x0000008b ]---

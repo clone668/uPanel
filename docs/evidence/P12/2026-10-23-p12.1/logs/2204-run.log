@@ -1,0 +1,186 @@
+== 0. 这台机器上的 restic / ssh 现场 ==
+      restic：restic 0.12.1 compiled with go1.18.1 on linux/amd64
+      ssh：OpenSSH_8.9p1 Ubuntu-3ubuntu0.18, OpenSSL 3.0.2 15 Mar 2022
+PASS  env-records-versions
+PASS  sftp-target-account-present
+
+== 1. 启动代理（root） ==
+PASS  agent-key-present
+PASS  agent-started
+PASS  agent-runs-as-root
+PASS  agent-logs-backup-enabled
+
+== 2. 能力表如实报告一条动作与一条查询 ==
+PASS  capabilities-200
+PASS  capabilities-has-initialize
+PASS  capabilities-has-state
+      supported_actions=["backup.repository.initialize", "certificate.import", "certificate.issue", "certificate.renew", "container.control", "file.chmod", "file.chown", "file.commit_upload", "file.copy", "file.delete", "file.mkdir", "file.move", "file.write_text", "package.install", "package.refresh", "package.remove", "package.upgrade", "process.signal", "proxy.apply", "service.control", "share.account.apply", "share.account.delete", "share.apply", "share.delete", "share.disable", "storage.filesystem.format", "storage.partition.create", "storage.partition.delete", "storage.partition_table.initialize", "storage.volume.configure", "storage.volume.forget", "storage.volume.import", "storage.volume.mount", "storage.volume.unmount", "system.power", "terminal.create"]
+      supported_queries=["apps.discovery", "apps.probe", "apt.packages", "backup.repository.state", "certificate.state", "containers.get", "containers.images", "containers.list", "containers.logs", "containers.networks", "containers.projects", "containers.volumes", "files.list", "files.roots", "files.text", "logs.query", "nginx.state", "processes.list", "services.list", "services.unit", "share.accounts", "share.capability", "share.connections", "share.list", "storage.topology", "storage.volume.blockers", "storage.volumes", "system.power_state", "system.summary", "terminal.sessions"]
+
+== 3. 仓库镜像路由：只有 Web 能写，定义必须过形状校验 ==
+PASS  mirror-denies-root
+PASS  authorized-key-added
+PASS  secret-password
+PASS  secret-wrong-password
+PASS  secret-private-key
+PASS  secret-other-key
+PASS  secret-tls-key
+PASS  secret-ref-shape
+      仓库口令引用 sec_32d257e70b7194061b7ee44de4aec7a7；SFTP 私钥引用 sec_a8931ae377f4640ba26b65ba3efa6a06
+PASS  host-key-scanned
+      127.0.0.1:22 的 ed25519 主机密钥指纹：SHA256:cN3tDj8DI2S9UH5oqTtA15Y34i1hiaZI5vM1dA793Fs
+PASS  mirror-create-sftp
+PASS  mirror-id-shape
+PASS  mirror-create-version-1
+PASS  mirror-create-frozen-backend
+      SFTP 仓库定义 id：rep_f4a75bcec9c185cf5a7e8eb5e902309c
+PASS  mirror-rejects-mixed-backend
+PASS  mirror-rejects-mixed-backend-code
+PASS  mirror-rejects-mixed-backend-field
+PASS  mirror-rejects-traversal
+PASS  mirror-patch-version-conflict
+PASS  mirror-patch-version-conflict-code
+PASS  mirror-get-200
+PASS  mirror-get-same-id
+PASS  mirror-list-200
+PASS  mirror-list-contains
+PASS  mirror-get-unknown-404
+PASS  mirror-get-malformed-400
+
+== 4. 现状查询：连得上、主机密钥对、还没有仓库、容量读得到 ==
+PASS  state-query-200
+PASS  state-registered
+PASS  state-host-key-verified
+PASS  state-not-initialized-yet
+PASS  state-capacity-supported
+PASS  state-capacity-available-positive
+      远端可用 36279226368 字节 / 总量 41429692416 字节
+PASS  state-unregistered-registered-false
+
+== 5. 主机密钥与秘密：四种拒绝各自成立 ==
+PASS  mirror-create-badfp
+PASS  preflight-badfp-201
+PASS  preflight-badfp-blocked
+PASS  preflight-badfp-code
+PASS  preflight-badfp-shows-registered
+PASS  preflight-badfp-says-mismatch
+PASS  mirror-create-badkey
+PASS  preflight-badkey-201
+PASS  preflight-badkey-blocked
+PASS  preflight-badkey-code
+PASS  mirror-create-purpose
+PASS  preflight-purpose-201
+PASS  preflight-purpose-blocked
+PASS  preflight-purpose-code
+PASS  preflight-purpose-names-both
+PASS  mirror-create-ghost
+PASS  preflight-ghost-201
+PASS  preflight-ghost-blocked
+PASS  preflight-ghost-code
+
+== 6. 正确的那一份：预检放行、要再认证、不要短语 ==
+PASS  preflight-ok-201
+PASS  preflight-ok-allowed
+PASS  preflight-ok-no-blockers
+PASS  preflight-ok-requires-reauth
+PASS  preflight-ok-no-phrase
+PASS  preflight-ok-cancellable
+PASS  preflight-ok-has-lock
+PASS  preflight-ok-impact-create
+PASS  preflight-ok-impact-secret
+PASS  preflight-ok-params-are-frozen
+      preflight_ref：pf_c333f0ee4df56f597c01d92f30409a3f
+PASS  known_hosts-absent-before-init
+
+== 7. 初始化：结果必须是 verified，且仓库 id 与独立读回的一致 ==
+PASS  operation-stage-succeeded
+PASS  operation-outcome-verified
+PASS  operation-repo-id-matches-observed
+PASS  operation-verified-flag
+PASS  operation-verified-by-restic
+PASS  operation-repo-id-is-64-hex
+      仓库 id（代理读回）：5b2ac62df10e3348d82aefb12176f4dc69fd02cc462816b14334911aa0f41ec2
+PASS  known_hosts-written
+      known_hosts：/var/lib/upanel-agent/backup/known_hosts/1a8546568fdcbcdc
+PASS  known_hosts-mode-0600
+PASS  known_hosts-has-host-key
+PASS  known_hosts-names-host
+PASS  no-trust-on-first-use
+PASS  independent-repo-id-not-empty
+PASS  independent-read-repo-id
+
+== 8. 容量真的读了，不是 0 ==
+PASS  capacity-after-supported
+PASS  capacity-after-positive
+PASS  capacity-before-supported
+PASS  capacity-before-positive
+PASS  capacity-after-not-more-than-before
+
+== 9. 已存在的仓库不许覆盖 ==
+PASS  preflight-again-201
+PASS  preflight-again-blocked
+PASS  preflight-again-code
+PASS  state-now-initialized
+PASS  state-now-reports-repo-id
+
+== 10. 口令错：现状查询要说出口令不对，不假装是空仓库 ==
+PASS  mirror-create-wrongpass
+PASS  state-wrongpass-200
+PASS  state-wrongpass-sees-repository
+PASS  state-wrongpass-reports-error
+PASS  state-wrongpass-no-repo-id
+      口令不对时的原因原文：仓库口令不正确（RESTIC 拒绝了这次解密）
+PASS  state-wrongpass-says-password-wrong
+
+== 10b. 连不上的主机：现状查询必须说“不知道”，不许说“没有仓库” ==
+PASS  mirror-create-unreachable
+PASS  state-unreachable-200
+PASS  state-unreachable-initialized-is-null
+PASS  state-unreachable-reports-error
+PASS  state-unreachable-no-repo-id
+PASS  state-unreachable-capacity-unsupported
+
+== 11. 本地后端：受管理根内建仓库 ==
+PASS  mirror-create-local
+PASS  preflight-local-201
+PASS  preflight-local-allowed
+PASS  preflight-local-no-host-key-blocker
+PASS  operation-local-succeeded
+PASS  operation-local-verified
+PASS  local-absolute-path-reported
+PASS  local-repo-config-exists
+PASS  local-repo-mode-0700
+PASS  local-repo-id-matches
+PASS  local-capacity-positive
+PASS  preflight-local-again-201
+PASS  preflight-local-again-code
+
+== 12. 未登记的 id 与陈旧版本：预检拒绝，不去评估现场 ==
+PASS  preflight-ghostrep-201
+PASS  preflight-ghostrep-blocked
+PASS  preflight-ghostrep-code
+PASS  preflight-stale-201
+PASS  preflight-stale-blocked
+PASS  preflight-stale-code
+PASS  preflight-stale-still-locks
+
+== 13. 参数层：id 形状与未知字段在解码时就被拒 ==
+PASS  preflight-malformed-id-201
+PASS  preflight-malformed-id-blocked
+PASS  preflight-malformed-id-code
+PASS  preflight-unknown-field-400
+PASS  preflight-unknown-field-code
+PASS  preflight-unknown-field-names-it
+
+== 证据卫生：把含秘密明文的载荷替换成说明 ==
+PASS  evidence-secrets-scrubbed
+
+== NOT RUN（本阶段不该假装通过的项目） ==
+NOT RUN  备份与恢复：P12.2/P12.3 才实现；BACKUP-01 的『备份后恢复』要到那时才有东西可验
+NOT RUN  备份跑到一半网络断开：属于 P12.2 的备份执行；本阶段只验连不上/认证失败时预检拒绝
+NOT RUN  存储满：要真把验收机的文件系统填满或挂 loop 设备；由 internal/backup 的 capacityVerdict 单测覆盖
+NOT RUN  目标路径存在但不是目录：与文件模块用例重复，由评估逻辑单测覆盖
+NOT RUN  两个 restic 版本行为一致：22.04 与 24.04 的 restic 版本不同；原文记在 payloads/restic-versions.txt
+
+== 汇总 ==
+PASS 133  FAIL 0  NOT RUN 5

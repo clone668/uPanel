@@ -1,0 +1,56 @@
+验收机系统软件包实际版本（2026-10-23）
+两份原文：apt-cache policy 的 Installed/Candidate/Version table，以及 restic / ssh 自报版本。
+采集命令（在各虚机上以 upanel 身份）：apt-cache policy restic openssh-server; restic version; ssh -V 2>&1
+
+=== VM-2204（Ubuntu 22.04.5 LTS，ssh 端口 2223）
+restic:
+  Installed: 0.12.1-2ubuntu0.3
+  Candidate: 0.12.1-2ubuntu0.3
+  Version table:
+ *** 0.12.1-2ubuntu0.3 500
+        500 http://archive.ubuntu.com/ubuntu jammy-updates/universe amd64 Packages
+        500 http://security.ubuntu.com/ubuntu jammy-security/universe amd64 Packages
+        100 /var/lib/dpkg/status
+     0.12.1-2 500
+        500 http://archive.ubuntu.com/ubuntu jammy/universe amd64 Packages
+openssh-server:
+  Installed: 1:8.9p1-3ubuntu0.18
+  Candidate: 1:8.9p1-3ubuntu0.18
+  Version table:
+ *** 1:8.9p1-3ubuntu0.18 500
+        500 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 Packages
+        500 http://security.ubuntu.com/ubuntu jammy-security/main amd64 Packages
+        100 /var/lib/dpkg/status
+     1:8.9p1-3 500
+        500 http://archive.ubuntu.com/ubuntu jammy/main amd64 Packages
+--- restic version
+restic 0.12.1 compiled with go1.18.1 on linux/amd64
+--- ssh -V
+OpenSSH_8.9p1 Ubuntu-3ubuntu0.18, OpenSSL 3.0.2 15 Mar 2022
+
+=== VM-2404（Ubuntu 24.04.5 LTS，ssh 端口 2222）
+restic:
+  Installed: 0.16.4-2ubuntu0.24.04.3
+  Candidate: 0.16.4-2ubuntu0.24.04.3
+  Version table:
+ *** 0.16.4-2ubuntu0.24.04.3 500
+        500 http://archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages
+        500 http://security.ubuntu.com/ubuntu noble-security/universe amd64 Packages
+        100 /var/lib/dpkg/status
+     0.16.4-2 500
+        500 http://archive.ubuntu.com/ubuntu noble/universe amd64 Packages
+openssh-server:
+  Installed: 1:9.6p1-3ubuntu13.20
+  Candidate: 1:9.6p1-3ubuntu13.20
+  Version table:
+ *** 1:9.6p1-3ubuntu13.20 500
+        500 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages
+        500 http://security.ubuntu.com/ubuntu noble-security/main amd64 Packages
+        100 /var/lib/dpkg/status
+     1:9.6p1-3ubuntu13 500
+        500 http://archive.ubuntu.com/ubuntu noble/main amd64 Packages
+--- restic version
+restic 0.16.4 compiled with go1.22.2 on linux/amd64
+--- ssh -V
+OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024
+

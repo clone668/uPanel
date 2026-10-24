@@ -1,0 +1,27 @@
+# apt-cache policy restic
+restic:
+  Installed: 0.16.4-2ubuntu0.24.04.3
+  Candidate: 0.16.4-2ubuntu0.24.04.3
+  Version table:
+ *** 0.16.4-2ubuntu0.24.04.3 500
+        500 http://archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages
+        500 http://security.ubuntu.com/ubuntu noble-security/universe amd64 Packages
+        100 /var/lib/dpkg/status
+     0.16.4-2 500
+        500 http://archive.ubuntu.com/ubuntu noble/universe amd64 Packages
+
+# restic version
+restic 0.16.4 compiled with go1.22.2 on linux/amd64
+
+# ssh -V
+OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024
+
+# ssh-keyscan -p 22 127.0.0.1
+# 127.0.0.1:22 SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.20
+# 127.0.0.1:22 SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.20
+# 127.0.0.1:22 SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.20
+# 127.0.0.1:22 SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.20
+# 127.0.0.1:22 SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.20
+127.0.0.1 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBOHFtWzh10CS7ZcFYoPE3izos835EUW4zy1a2DqKus+cNuckJsqSBFKgT+VADZoLq4cSIwEyGKZvKk+RCEVc6lQ=
+127.0.0.1 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCUFBais9e9AodqRPcLZqNASmzSNIOp96c8PP1o80nZIvTVZE5FFGSxA4zlqw4QlP6O6kCQPJpIRTcGVMXidA81Zye1OWb+aFYttpJrWBYC7R0noNB4ilqsgZE0Jj4rgugFLKGY7pYmX1GdwM5fFGlgwEUyQ46mBu72JFTYrUyzIYONUfI690FD/54EURWvpeEcvsbDtYrax2tEFaJXGI2Porcu3i7KLyQgPLQ7fApPyFmLB/QpBNSZsqAxbaqxgySykpwNpiX45CT2s8mmLsjONLONUbFwXIpiE+w7Oikp4DcznjRhNx+T5mpBy3d9kuzhq8V26dvz97taUUNKitygR3gM2Apw+fu6e4A64SHdPnKKo9Uy7KG7kvobFOCJqIMdZ1li6DLLX4drmgUsoGrnhN0UUg9anSEXeDcmgZWu4W3n5iATGjnipAx9O8Yc5qVJPCG9LdBPYPLYembTuZvS8bvzJ5FpSZ6VSOKzqLPqOC0FYv/dFH0nCfIuWrWsRjM=
+127.0.0.1 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO2PdWGtq1+7XS4Oe202nIpjt5Nq2C1TZTvcITyvHhYh

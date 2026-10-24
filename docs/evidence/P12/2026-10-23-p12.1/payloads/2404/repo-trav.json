@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"backup: 仓库定义不合法: location.relative_path 不合法：不能含路径段 \"..\""},"request_id":"d8168b9861d1a5ededf6e212638f0205"}
