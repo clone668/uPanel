@@ -24,9 +24,16 @@ type backupStateParams struct {
 	RepositoryID string `json:"repository_id"`
 }
 
-// backupStateBudget 是只读查询的预算：一次 restic version（可选）+ 一次 SFTP 连接。
-// 与预检同一量级，但不需要给 init 留余量。
-const backupStateBudget = 30 * time.Second
+// backupStateBudget 是只读查询的预算：一次 restic version、一次 SFTP 拨号与探测、
+// 再用 restic 读一次仓库 config。
+//
+// 45 秒不是拍的：P12.1 在 24.04 那台虚机（单线程 TCG，CPU 比真机慢一个量级）上实测
+// 同一串动作要 30 秒上下——`ssh` 握手 3—9 秒、SFTP 逐次 stat 各一个往返、restic
+// `cat config` 5—12 秒。原来给 30 秒，恰好在这台机器上把一次**正常的**查询卡成超时，
+// 而超时又被报成"restic 以退出状态 -1 结束"（见 internal/backup/exec.go 的
+// ErrBudgetExhausted）。预算按最慢的合理现场定，不按"我这台机器跑得飞快"定；
+// 真连不上时先到的是拨号自己的 15 秒上限（最多两轮），不会被这条预算拖住。
+const backupStateBudget = 45 * time.Second
 
 // RegisterBackupQueries 登记备份只读查询。
 func RegisterBackupQueries(reg *Registry, src backupSource) error {

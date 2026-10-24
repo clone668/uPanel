@@ -85,13 +85,22 @@ type ExecResult struct {
 	Duration        time.Duration
 }
 
-// ErrExecTimeout 表示 restic 超出时限被终止。
+// ErrExecTimeout 表示 restic 超出运行时限被终止。
 var ErrExecTimeout = errors.New("backup: restic 超过运行时限，已终止")
+
+// ErrBudgetExhausted 表示**上层**的时间预算在 restic 给出结论之前用尽。
+//
+// 它和 ErrExecTimeout 是两件事：那条是"restic 自己跑太久"，这条是"调用方没等到它
+// 说完"。真机上撞到过：只读查询的 30 秒预算用尽，restic 被一起杀掉，而面板上写的
+// 是"restic 以退出状态 -1 结束"——读起来像 restic 崩了，其实是我们自己收的工。
+// 没有结论就是没有结论，不能说成仓库或口令有问题。
+var ErrBudgetExhausted = errors.New("backup: 请求的时间预算用尽，restic 被中止（这次没有结论，不等于仓库有问题）")
 
 // RunRestic 执行一次 restic 命令。
 //
 // 返回 nil error 表示正常退出；非零退出码返回 *ExitError（restic 自己的报错在
-// Stderr 里，调用方据此给出人话），超时返回 ErrExecTimeout。
+// Stderr 里，调用方据此给出人话）；restic 自己跑太久返回 ErrExecTimeout；
+// 上层 ctx 先到期返回 ErrBudgetExhausted（两种超时不是一回事，见 runOutcome）。
 func RunRestic(ctx context.Context, spec ExecSpec) (ExecResult, error) {
 	res := ExecResult{Program: spec.Program, ExitCode: -1}
 	if spec.Program == "" {
@@ -152,21 +161,36 @@ func RunRestic(ctx context.Context, spec ExecSpec) (ExecResult, error) {
 		res.ExitCode = cmd.ProcessState.ExitCode()
 		res.Signal = processSignalName(cmd.ProcessState)
 	}
+	return runOutcome(ctx, runCtx, timeout, res, err)
+}
 
+// runOutcome 把一次 cmd.Run() 的结果翻译成我们自己的错误分类。
+//
+// 单独拆成一个纯函数是为了让这张判定表能被钉死：真机上撞到的正是"上层预算用尽"
+// 被翻译成"restic 以退出状态 -1 结束"。它不碰进程，只读三个 ctx 状态、res 与 err。
+func runOutcome(ctx, runCtx context.Context, timeout time.Duration, res ExecResult, err error) (ExecResult, error) {
 	switch {
 	case errors.Is(runCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil:
 		res.TimedOut = true
 		res.ExitCode = -1
 		return res, fmt.Errorf("%w（上限 %s）", ErrExecTimeout, timeout)
+	case ctx.Err() != nil:
+		// 上层先到期或先取消：这不是 restic 的退出，也不是它的错。
+		res.ExitCode = -1
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			res.TimedOut = true
+			return res, ErrBudgetExhausted
+		}
+		return res, fmt.Errorf("backup: restic 调用被取消: %w", ctx.Err())
 	case errors.Is(runCtx.Err(), context.Canceled):
 		return res, fmt.Errorf("backup: restic 调用被取消: %w", runCtx.Err())
 	}
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
-		return res, &ExitError{Program: spec.Program, ExitCode: res.ExitCode}
+		return res, &ExitError{Program: res.Program, ExitCode: res.ExitCode, Signal: res.Signal}
 	}
 	if err != nil {
-		return res, fmt.Errorf("backup: 启动 %s 失败: %w", spec.Program, err)
+		return res, fmt.Errorf("backup: 启动 %s 失败: %w", res.Program, err)
 	}
 	return res, nil
 }
@@ -175,9 +199,17 @@ func RunRestic(ctx context.Context, spec ExecSpec) (ExecResult, error) {
 type ExitError struct {
 	Program  string
 	ExitCode int
+	// Signal 是被终止时的信号名（正常退出为空）。
+	//
+	// 单独留一个字段：`ExitCode` 为 -1 时那句"以退出状态 -1 结束"什么都没说——
+	// 谁停的、是崩溃还是被杀，读的人只能猜。P11.2 在 syscmd 里修过同一类问题。
+	Signal string
 }
 
 func (e *ExitError) Error() string {
+	if e.Signal != "" {
+		return fmt.Sprintf("backup: %s 被 %s 终止（不是它自己退出的，可能是崩溃或被系统杀掉）", e.Program, e.Signal)
+	}
 	return fmt.Sprintf("backup: %s 以退出状态 %d 结束", e.Program, e.ExitCode)
 }
 

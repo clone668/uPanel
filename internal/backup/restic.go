@@ -212,6 +212,11 @@ func (f *resticFailure) Error() string  { return f.FailureReason() }
 func (f *resticFailure) Unwrap() error  { return f.err }
 func (f *resticFailure) Reason() string { return f.FailureReason() }
 func (f *resticFailure) FailureReason() string {
+	// 时间上的事直接照说：这两句本身已经是完整的话，再加"restic cat config 失败："
+	// 只会让人以为是仓库或口令的问题。
+	if errors.Is(f.err, ErrBudgetExhausted) || errors.Is(f.err, ErrExecTimeout) {
+		return f.err.Error()
+	}
 	line := lastLine(f.res.Stderr)
 	if line == "" {
 		line = lastLine(f.res.Stdout)
