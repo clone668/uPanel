@@ -14,7 +14,9 @@ package backup
 //  2. 服务器首选的正好是登记的那把时，一次握手搞定，不多连；
 //  3. 谁都没登记过的指纹 → ErrHostKeyMismatch，且把见过的每把钥匙都报出来；
 //  4. 指纹对了但认证被拒 → ErrSSHAuth，且不因为换算法而重试；
-//  5. 握手根本走不完（超时/断连）→ 既不是 mismatch 也不是 auth，且只连一次。
+//  5. 握手根本走不完（超时/断连）→ 既不是 mismatch 也不是 auth，整轮重来一次
+//     就收手，如实报网络层失败；
+//  6. 上一轮卡住、下一轮通了 → 连上（一次抖动不等于仓库坏了）。
 
 import (
 	"context"
@@ -290,7 +292,8 @@ func TestDialRejectsUnreachableHost(t *testing.T) {
 //
 // 真机上撞到过这一条：两台虚机同时跑验收，CPU 被抢到握手超时，而结论写的是
 // "SFTP 认证失败"——把一次网络超时说成钥匙不对，人会先去换钥匙。它必须落到
-// "连不上"（BACKUP_SFTP_UNREACHABLE），而且不能因为"换算法"把超时乘以十次。
+// "连不上"（BACKUP_SFTP_UNREACHABLE）。重试只能是**整轮有限次**：既不能因为
+// "换算法"把超时乘以算法表长度，也不能无限重来把一次请求拖成几分钟。
 func TestDialHandshakeTimeoutIsNotAuthFailure(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -339,10 +342,102 @@ func TestDialHandshakeTimeoutIsNotAuthFailure(t *testing.T) {
 	if errors.Is(err, ErrHostKeyMismatch) {
 		t.Fatalf("握手超时不该报成主机密钥不匹配: %v", err)
 	}
-	if got := attempts.Load(); got != 1 {
-		t.Fatalf("连了 %d 次，应为 1 次（网络失败不该逐个算法重试）", got)
+	if got := attempts.Load(); got != int32(dialRounds) {
+		t.Fatalf("连了 %d 次，应为 %d 次（网络失败整轮重来，不逐个算法重试）", got, dialRounds)
 	}
 	if elapsed := time.Since(started); elapsed > 5*time.Second {
 		t.Fatalf("用了 %s 才失败：重试把超时叠起来了", elapsed)
+	}
+}
+
+// TestDialRetriesOnceWhenHandshakeStalls 锁住这次修复：第一轮握手卡到超时，
+// 第二轮拿到登记的钥匙就算成功。
+//
+// 依据是 22.04 真机上的那一次：同一台机器、同一个登记指纹，执行前的复核卡了整整
+// 15 秒的 `read tcp 127.0.0.1:56442->127.0.0.1:22: i/o timeout`，紧接着手动重放
+// 6 次全在 300 毫秒内连上。一次调度打嗝不该等于"仓库坏了"。
+func TestDialRetriesOnceWhenHandshakeStalls(t *testing.T) {
+	_, hostPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("生成主机密钥失败: %v", err)
+	}
+	signer, err := ssh.NewSignerFromKey(hostPriv)
+	if err != nil {
+		t.Fatalf("主机密钥转 signer 失败: %v", err)
+	}
+	cfg := &ssh.ServerConfig{
+		PublicKeyCallback: func(ssh.ConnMetadata, ssh.PublicKey) (*ssh.Permissions, error) {
+			return &ssh.Permissions{}, nil
+		},
+	}
+	cfg.AddHostKey(signer)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("监听失败: %v", err)
+	}
+	defer ln.Close()
+
+	attempts := &atomic.Int32{}
+	var (
+		mu      sync.Mutex
+		stalled []net.Conn
+	)
+	// 第一条连接只收下、不回一个字节（客户端会读到超时），之后的正常服务。
+	go func() {
+		for {
+			raw, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			if attempts.Add(1) == 1 {
+				mu.Lock()
+				stalled = append(stalled, raw)
+				mu.Unlock()
+				continue
+			}
+			go func(raw net.Conn) {
+				defer raw.Close()
+				srv, chans, reqs, err := ssh.NewServerConn(raw, cfg)
+				if err != nil {
+					return
+				}
+				defer srv.Close()
+				go ssh.DiscardRequests(reqs)
+				for ch := range chans {
+					_ = ch.Reject(ssh.Prohibited, "")
+				}
+			}(raw)
+		}
+	}()
+	t.Cleanup(func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, conn := range stalled {
+			_ = conn.Close()
+		}
+	})
+
+	host, portStr, _ := net.SplitHostPort(ln.Addr().String())
+	port, _ := strconv.Atoi(portStr)
+	registered := fingerprintOf(t, signer.PublicKey())
+	started := time.Now()
+	client, hostKey, err := Dial(context.Background(), DialOptions{
+		Host: host, Port: port, User: "backup", PrivateKey: clientKeyPEM(t),
+		Timeout: 600 * time.Millisecond,
+	}, registered)
+	if err != nil {
+		t.Fatalf("第一轮卡住、第二轮正常，却判定连不上: %v", err)
+	}
+	defer client.Close()
+
+	if hostKey.Fingerprint != registered.String() {
+		t.Fatalf("核对通过的是 %s，登记的是 %s", hostKey.Fingerprint, registered.String())
+	}
+	if got := attempts.Load(); got != 2 {
+		t.Fatalf("连了 %d 次，应为 2 次（第一次卡住，第二次成功）", got)
+	}
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Fatalf("用了 %s：重试把等待叠得太长了", elapsed)
 	}
 }

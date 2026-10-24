@@ -111,6 +111,45 @@ func Dial(ctx context.Context, opts DialOptions, registered Fingerprint) (*ssh.C
 
 	// 第一次走默认算法表（服务器挑它最喜欢的那把，常见情况下正好是登记的那把），
 	// 之后逐个算法钉住。已经被看见过的类型不再试：它只会给出同一把公钥。
+	//
+	// 网络层的失败（连不上、握手读超时、连接被断）整轮再走一遍：拨号没有副作用，
+	// 重来一次没有风险。这条不是防御性编程的洁癖——P12.1 在 22.04 真机上撞到过，
+	// 同一台机器、同一个登记指纹，执行前的复核卡了整整 15 秒的
+	// `read tcp 127.0.0.1:56442->127.0.0.1:22: i/o timeout`，而紧接着手动重放
+	// 6 次全部在 300 毫秒内连上。一次抖动就判"连不上"，等于把一次调度打嗝当成仓库坏了。
+	// 只重试网络层：认证失败、指纹不符重来一次还是同一个结果，只是让人多等。
+	var lastNetErr error
+	for round := 0; round < dialRounds; round++ {
+		if round > 0 {
+			select {
+			case <-time.After(dialRetryDelay):
+			case <-ctx.Done():
+				return nil, HostKey{}, lastNetErr
+			}
+		}
+		client, hostKey, err := dialAlgorithms(ctx, opts, signer, registered)
+		if err == nil {
+			return client, hostKey, nil
+		}
+		if !isNetworkFailure(err) {
+			return nil, HostKey{}, err
+		}
+		lastNetErr = err
+	}
+	return nil, HostKey{}, lastNetErr
+}
+
+// dialRounds / dialRetryDelay 决定网络层失败后还要不要再试一次。
+//
+// 两轮封顶：远端真的不通时，第二轮一样会在 DialTimeout 内失败，最坏情况下调用方
+// 多等一个"握手超时 + 一点抖动"，而不是被拖成几分钟。
+const (
+	dialRounds     = 2
+	dialRetryDelay = 250 * time.Millisecond
+)
+
+// dialAlgorithms 是"逐个主机密钥算法试到登记的那把"这一轮。
+func dialAlgorithms(ctx context.Context, opts DialOptions, signer ssh.Signer, registered Fingerprint) (*ssh.Client, HostKey, error) {
 	seen := make([]string, 0, 4)
 	seenType := make(map[string]bool, 4)
 	pending := make([]string, 0, len(hostKeyAlgorithms))
