@@ -111,6 +111,18 @@ func (p DeviceSignatureProber) timeout() time.Duration {
 // 拿到错误并继续，判决会按“读不出来”拒绝（Q169 的教训：不要指望 close 回收阻塞中的 fd，
 // 要指望自己不再等它）。
 func readAtTimeout(ctx context.Context, f *os.File, buf []byte, off int64, timeout time.Duration) (int, error) {
+	// 已经取消的 context 先判一次，不进 goroutine。
+	//
+	// 不判的话这里是一场抛硬币：`f.ReadAt` 对一个普通文件是微秒级，调用方在
+	// `cancel()` 之后立刻进来，读很可能在 select 之前就完成了——那时 `ctx.Done()`
+	// 与 `done` **同时就绪**，Go 的 select 均匀随机挑一个，于是同一份输入有时给出
+	// 数据、有时给出 `context.Canceled`。宿主机满载时（`go test ./...` 并行编译）
+	// 这个窗口会真的被撞上，`TestDeviceSuperblockProberCancelledContext` 就有过一次
+	// 红。已经取消的调用不该再去读盘，也不该把"读到了"当成成功。
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+
 	type result struct {
 		n   int
 		err error

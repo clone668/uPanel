@@ -112,6 +112,9 @@ type OperationStore interface {
 	AppendEvent(ctx context.Context, id, kind string, payload map[string]any, now time.Time) error
 	Events(ctx context.Context, id string) ([]agentstore.OperationEvent, error)
 	ListUnfinished(ctx context.Context) ([]agentstore.Operation, error)
+	// ListByActor 返回某个操作者从 since 起（含）创建的操作，按创建时间升序。
+	// 定时触发的操作是代理自己产生的，Web 只能反过来问"这段时间你替我跑了什么"。
+	ListByActor(ctx context.Context, userID int64, since time.Time, limit int) ([]agentstore.Operation, error)
 }
 
 // handleOperations 处理 POST /internal/v1/operations：接受一次操作。
@@ -123,8 +126,16 @@ func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
 	if rc := http.NewResponseController(w); rc != nil {
 		_ = rc.SetWriteDeadline(time.Now().Add(submitWriteBudget))
 	}
+	// GET 是 P12.4 加的那一半：不是"列出所有操作"，而是回答一个具体问题——
+	// 定时触发（代理自己产生的操作）这段时间跑了什么，Web 要靠它导入任务表
+	// （CONTRACTS §15）。所以 actor 只接受 scheduler 这一个值，别的值直接 400，
+	// 这里不会变成一张可以随便翻的执行流水账。
+	if r.Method == http.MethodGet {
+		s.handleListScheduledOperations(w, r)
+		return
+	}
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "GET, POST")
 		httpx.WriteError(w, r, http.StatusMethodNotAllowed, httpx.CodeValidationError, "只支持 POST")
 		return
 	}

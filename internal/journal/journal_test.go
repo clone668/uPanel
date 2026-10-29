@@ -103,6 +103,17 @@ func (f *fakeStreamer) Start(_ context.Context, spec syscmd.Spec, _ syscmd.Limit
 	return s, nil
 }
 
+// started 报告 Start 有没有被调用过。
+//
+// 测试里有一段"等子进程真的起来再取消"的轮询，跑在测试自己的协程里，而 Start 在
+// Query.Stream 的协程里写 stream——直接读字段就是数据竞争（2026-10-28 的 P16 全量 -race
+// 就是这么报的，TestStreamClientClosedStops）。轮询必须走这把锁。
+func (f *fakeStreamer) started() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.stream != nil
+}
+
 // readFixture 读 tests/fixtures/journal 下的真实采集样本。
 //
 // 用 testsupport 而不是 "testdata/xxx"：验收 VM 上测试二进制在 /tmp 下执行，
@@ -686,7 +697,7 @@ func TestStreamClientClosedStops(t *testing.T) {
 	}()
 	// 等子进程真的起来了再取消，避免测到“还没启动就取消”的空路径。
 	deadline := time.Now().Add(2 * time.Second)
-	for streamer.stream == nil && time.Now().Before(deadline) {
+	for !streamer.started() && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	cancel()
@@ -808,5 +819,59 @@ func TestQueryCursorAdvancesWhenPageFallsOutsideWindow(t *testing.T) {
 	}
 	if page.NextCursor != nil && *page.NextCursor == "s=a;i=6;b=b;m=1;t=1;x=6" {
 		t.Fatal("next_cursor 不能还是请求时那个游标（会原地打转）")
+	}
+}
+
+// TestQueryArgsTimeIsJournalctlCompatible 把传给 journalctl 的时间形状钉死。
+//
+// 为什么需要这条：参数是"我们自己格式化出来的"，所以它看起来不值一测——
+// 但 RFC3339Nano（`2026-10-27T13:29:43.1270959Z`）在 Ubuntu 22.04 的
+// journalctl（systemd 249）上 exit 1："Failed to parse timestamp"，
+// 于是那台机器上**每一条** /logs 查询都是 400；24.04（systemd 255）却全对。
+// 只在一个客户机版本上验收时，这种差异会被读成"日志功能没问题"。
+//
+// 这里同时钉三件事：空格分隔（不是 T）、固定微秒精度、显式 UTC 时区。
+func TestQueryArgsTimeIsJournalctlCompatible(t *testing.T) {
+	from := time.Date(2026, 10, 27, 13, 29, 43, 127095900, time.UTC)
+	to := from.Add(time.Hour)
+	args := queryArgs(Normalized{Source: SourceJournal, From: from, To: to, Limit: 10})
+
+	find := func(prefix string) string {
+		for _, arg := range args {
+			if strings.HasPrefix(arg, prefix) {
+				return strings.TrimPrefix(arg, prefix)
+			}
+		}
+		t.Fatalf("参数里没有 %s：%q", prefix, args)
+		return ""
+	}
+
+	gotFrom := find("--since=")
+	gotTo := find("--until=")
+	if gotFrom != "2026-10-27 13:29:43.127095 UTC" {
+		t.Fatalf("--since = %q，期望 \"2026-10-27 13:29:43.127095 UTC\"", gotFrom)
+	}
+	if gotTo != "2026-10-27 14:29:43.127095 UTC" {
+		t.Fatalf("--until = %q，期望 \"2026-10-27 14:29:43.127095 UTC\"", gotTo)
+	}
+	// 形状本身再查一遍：ISO 的 T 分隔符是 22.04 上的那个坑。
+	// 只看第 10 个字符（日期与时间之间），不要搜 "T"——末尾的 "UTC" 里就有一个。
+	for _, value := range []string{gotFrom, gotTo} {
+		if len(value) < 11 || value[10] != ' ' {
+			t.Fatalf("时间 %q 的第 11 个字符不是空格：ISO 的 T 分隔符 systemd 249 不认", value)
+		}
+		body := strings.TrimSuffix(value, " UTC")
+		if _, err := time.Parse("2006-01-02 15:04:05.000000", body); err != nil {
+			t.Fatalf("时间 %q 不符合 journalctl 认得的微秒精度形状：%v", value, err)
+		}
+	}
+	// 非 UTC 的输入也必须写成 UTC：不带时区时 journalctl 按客户机本地时区解释，
+	// 窗口会整体偏移，页面上看到的时间段就不是用户以为的那一段。
+	shanghai := time.FixedZone("CST", 8*3600)
+	zoneArgs := queryArgs(Normalized{Source: SourceJournal, From: from.In(shanghai), To: to.In(shanghai), Limit: 10})
+	for _, arg := range zoneArgs {
+		if strings.HasPrefix(arg, "--since=") && arg != "--since=2026-10-27 13:29:43.127095 UTC" {
+			t.Fatalf("非 UTC 输入被写成 %q，期望同一时刻的 UTC 形式", arg)
+		}
 	}
 }

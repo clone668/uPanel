@@ -69,14 +69,23 @@ var fixedEnvKeys = func() map[string]bool {
 // `PATH`、`BASH_ENV`…）。这里只接受下面这几个键，值还必须在 allowedEnvValues 里。
 // 任何其他键直接拒绝，不做“忽略掉继续跑”——静默丢掉一个调用方以为生效的策略，
 // 比报错更危险。
+//
+// `TZ` 是 P12.4 加的，只有一个取值 `UTC`：`systemd-analyze calendar` 用**进程时区**
+// 打印 `Next elapse`，而它在进程时区就是 UTC 时会**省掉** `(in UTC)` 那一行。
+// 时区随宿主机而变，输出形状就跟着变——同一个表达式在 UTC 机器上读不出下次触发
+// 时刻（P12.4 的 24.04 验收现场：`SCHEDULE_CALENDAR_INVALID`，而表达式完全合法）。
+// 把时区钉死成 UTC，输出形状与机器无关，`Next elapse` 那一行本身就是 UTC。
+// 它不是执行参数，不能加载任何东西，取值也不是调用方给的。
 var allowedEnvKeys = map[string]bool{
 	"DEBIAN_FRONTEND":          true,
 	"APT_LISTCHANGES_FRONTEND": true,
 	"NEEDRESTART_MODE":         true,
+	"TZ":                       true,
 }
 
 // allowedEnvValues 是上面那些键的固定取值。
 var allowedEnvValues = map[string]map[string]bool{
+	"TZ":                       {"UTC": true},
 	"DEBIAN_FRONTEND":          {"noninteractive": true},
 	"APT_LISTCHANGES_FRONTEND": {"none": true},
 	"NEEDRESTART_MODE":         {"a": true, "l": true, "n": true},
@@ -126,7 +135,27 @@ type Spec struct {
 	// 它**不覆盖** fixedEnv 里的 PATH/LANG/LC_ALL：同名键会被拒绝，而不是悄悄替换——
 	// 能改 PATH 就等于能让程序以另一个身份被找到。
 	Env []string
+	// Credential 让子进程以另一个身份运行（P12.4 的 script.run）。
+	//
+	// 它是**降权**通道，不是提权通道：UID 为 0 会被直接拒绝。受管理脚本以
+	// upanel-shell 运行，永远拿不到 root（CONTRACTS §5 script.run 那一行）。
+	//
+	// 不用 `sudo -u` 或 `setpriv` 完成这件事：那会把"以谁的身份运行"交给另一个
+	// 程序的参数解析，而这里只需要内核的 setuid 语义。降权发生在 fork 之后、
+	// exec 之前，子进程从第一条指令起就已经是目标身份。
+	Credential *Credential
 }
+
+// Credential 是子进程的运行身份。
+type Credential struct {
+	UID uint32
+	GID uint32
+	// Groups 是要设置的附加组；为空时只设主组（不从父进程继承）。
+	Groups []uint32
+}
+
+// ErrRootCredential 表示试图用这个通道以 root 身份运行。
+var ErrRootCredential = errors.New("syscmd: 降权通道不接受 UID 0")
 
 // validateEnv 校验调用方追加的环境变量。
 func validateEnv(env []string) error {
@@ -228,6 +257,9 @@ func Run(ctx context.Context, spec Spec, limits Limits) (Result, error) {
 	if err := validateEnv(spec.Env); err != nil {
 		return res, err
 	}
+	if spec.Credential != nil && spec.Credential.UID == 0 {
+		return res, ErrRootCredential
+	}
 	limits = limits.withDefaults()
 
 	runCtx, cancel := context.WithTimeout(ctx, limits.Timeout)
@@ -252,7 +284,10 @@ func Run(ctx context.Context, spec Spec, limits Limits) (Result, error) {
 	cmd.Stderr = stderr
 
 	// 终止时杀掉整个进程组，避免子进程派生的孙进程继续运行。
-	setProcAttr(cmd)
+	// 降权（P12.4）与进程组在同一处设置：两者都只能写一次 SysProcAttr。
+	if err := setProcAttr(cmd, spec.Credential); err != nil {
+		return res, err
+	}
 	cmd.Cancel = func() error { return killProcessGroup(cmd) }
 	cmd.WaitDelay = killWaitDelay
 

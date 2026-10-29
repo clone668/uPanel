@@ -14,6 +14,7 @@ import (
 	"upanel/internal/certificates"
 	"upanel/internal/config"
 	"upanel/internal/platform"
+	"upanel/internal/store"
 	"upanel/internal/version"
 )
 
@@ -22,6 +23,14 @@ func quietLogger() *slog.Logger {
 }
 
 func newTestServer(t *testing.T, mode platform.Mode, listen string) *Server {
+	t.Helper()
+	srv, _ := newTestServerWithDB(t, mode, listen)
+	return srv
+}
+
+// newTestServerWithDB 与 newTestServer 相同，但把数据库句柄也交给用例。
+// 需要直接改表来模拟“时间过去了”的用例用它，避免为了一个续期断言造第二套装配。
+func newTestServerWithDB(t *testing.T, mode platform.Mode, listen string) (*Server, *store.DB) {
 	t.Helper()
 	authSvc, aud, db := newTestServicesWithDB(t)
 	srv, err := New(Options{
@@ -42,7 +51,7 @@ func newTestServer(t *testing.T, mode platform.Mode, listen string) *Server {
 	if err != nil {
 		t.Fatalf("New 失败: %v", err)
 	}
-	return srv
+	return srv, db
 }
 
 func TestHealthLiveShape(t *testing.T) {
@@ -255,5 +264,18 @@ func TestServeBindsAndStops(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Serve 未在超时内退出")
+	}
+}
+
+// TestWriteTimeoutCoversWorstCaseAuth 钉住写超时的下限。
+//
+// 登录要算 Argon2id（128 MiB、3 轮）：开发宿主上约 110 ms，单核慢机器上实测
+// 22—30 秒。写超时一旦比这短，net/http 会在 handler 算完之后把连接关掉，
+// 客户端只看到"连接被断开"（curl 拿到 000），连"密码错了"都读不到——
+// 24.04 验收机上一轮就是这么红的：服务端日志写着 200，客户端拿到的却是 000。
+func TestWriteTimeoutCoversWorstCaseAuth(t *testing.T) {
+	srv := newTestServer(t, platform.ModeProduction, config.ListenProduction)
+	if got := srv.http.WriteTimeout; got < 2*time.Minute {
+		t.Fatalf("写超时必须容得下一次最慢的认证校验（实测 30 秒），实际 %s", got)
 	}
 }

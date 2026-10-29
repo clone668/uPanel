@@ -19,6 +19,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"upanel/internal/alerts"
 	"upanel/internal/appruntime"
 	"upanel/internal/apps"
 	"upanel/internal/audit"
@@ -26,6 +27,7 @@ import (
 	"upanel/internal/certificates"
 	"upanel/internal/config"
 	"upanel/internal/httpx"
+	"upanel/internal/notifications"
 	"upanel/internal/operations"
 	"upanel/internal/platform"
 	"upanel/internal/proxies"
@@ -74,12 +76,20 @@ type Options struct {
 	// Operations 是预检与任务服务（P03.1）。必需依赖：没有它就没有“先看影响再执行”的入口。
 	// 代理不可用属于运行时状态（服务返回 503），不是启动条件。
 	Operations *operations.Service
+	// Capabilities 是代理侧外部程序探测的读取端（P16.1）。允许为 nil
+	// （演示模式不连代理）：那时 GET /system/capabilities 明确回 503，
+	// 而不是给一份空清单——空清单会被读成“这台机器什么都没装”。
+	Capabilities CapabilitiesReader
 	// Monitor 是系统基础资源读取端（P04.1）。允许为 nil（演示模式不连代理）：
 	// 那时 GET /system/summary 明确回 503 AGENT_UNAVAILABLE，而不是给一份空摘要。
 	Monitor Monitor
 	// Storage 是存储只读视图读取端（P04.2）。允许为 nil（不连代理）：
 	// 那时 /storage/* 明确回 503 AGENT_UNAVAILABLE，而不是给一份空拓扑。
 	Storage StorageReader
+	// Metrics 是历史监控读取端（P13.1）。允许为 nil：演示模式下这个进程不记历史，
+	// 那时 /system/metrics 回 200 + enabled=false（说清“未开启”），而不是空曲线——
+	// 空曲线会被读成“这段时间没有数据”。
+	Metrics MetricsReader
 	// Services 是服务只读视图读取端（P05.1）。允许为 nil（不连代理）：
 	// 那时 /services* 明确回 503 AGENT_UNAVAILABLE，而不是给一份空服务列表。
 	Services ServicesReader
@@ -102,6 +112,18 @@ type Options struct {
 	// 那时 /shares*、/share-accounts 与 /secrets 明确回 503 AGENT_UNAVAILABLE，
 	// 而不是给一份空共享列表——空列表会被读成“这台机器上没有共享”。
 	Shares SharesReader
+	// Accounts 是受管理 Linux 账号的只读视图（P14.5）。允许为 nil（不连代理）：
+	// 那时 /accounts 与 /accounts/:id/ssh-keys 明确回 503 AGENT_UNAVAILABLE，
+	// 而不是给一份空账号列表——空列表会被读成“这台机器上一个账号都没有”。
+	//
+	// 与 Shares 分开：账号的判决与执行要 useradd/visudo/sudo 那一整套系统工具，
+	// 只装了 Samba 的机器上它不存在，而共享页照样该能看。
+	Accounts AccountsReader
+	// Totp 是二次验证的代理调用端（P14.6）。允许为 nil（不连代理的演示模式）：
+	// 那时三条 /auth/totp* 路由明确回 503 AGENT_UNAVAILABLE。**已经启用了二次验证的
+	// 账号在 Totp 为 nil 时登录一律失败关闭**（见 verifySecondFactor）：放行等于
+	// "把代理弄坏就能绕过二次验证"。
+	Totp TotpAgent
 	// Apps 是应用与分组元数据服务（P09.1）。必需依赖：它是纯数据库元数据，
 	// 不连代理也能工作；缺了它 /apps 与 /app-groups 就没有落脚点，
 	// 而“回 503 的空实现”会让人以为功能已经做好了。
@@ -115,6 +137,14 @@ type Options struct {
 	// /container-volumes、/deployments* 明确回 503 AGENT_UNAVAILABLE，
 	// 而不是给一份空容器清单——空清单会被读成“这台机器上没有容器在跑”。
 	Containers ContainersReader
+	// Deployments 是**管理面**的部署读取端（P15.4）：面板管着哪些 Compose 部署、
+	// 它们现在是什么状态（配置在不在、记录里钉的是哪个镜像、单元 enabled/active）。
+	//
+	// 与上面的 Containers 分开一个字段，因为它们回答的不是同一个问题：Containers
+	// 那条读 docker（这台机器上跑着什么），这条读配置目录与 systemd（面板管着什么）。
+	// 允许为 nil（演示模式不连代理）：那时 /deployments/managed* 回 503
+	// AGENT_UNAVAILABLE，而不是给一份空列表——空列表会被读成"这台机器上还没有部署"。
+	Deployments DeploymentsReader
 	// AppRuntime 把应用元数据与主机运行事实拼成 AppSummary（P09.4）。允许为 nil
 	// （演示模式不连代理）：那时每条应用的 runtime_state 都是 unknown、能力全为
 	// false，并写明“未配置代理连接”。/apps 本身是纯数据库元数据，不会因为代理
@@ -122,8 +152,7 @@ type Options struct {
 	AppRuntime *appruntime.Resolver
 	// Proxies 是代理站点元数据服务（P10.1）。必需依赖：站点定义存在面板库里，
 	// 读列表与详情不依赖代理。
-	Proxies *proxies.Service
-	// NginxFacts 读取主机 Nginx 现状（P10.1）。允许为 nil（演示模式不连代理）：
+	Proxies *proxies.Service // NginxFacts 读取主机 Nginx 现状（P10.1）。允许为 nil（演示模式不连代理）：
 	// 那时 /proxies 仍返回站点定义，nginx 那一块写明 ReadError；/proxies/nginx
 	// 与 /proxies/conflict 明确回 503，而不是给一份“没有配置文件”的空表。
 	NginxFacts NginxFactsReader
@@ -156,12 +185,51 @@ type Options struct {
 	// 代理）：那时详情页的 observed 明确写 available=false 与原因，而不是给一份
 	// "证书不存在"的空事实——后者会被读成"这张证书被删了"。
 	CertificateState CertificateStateReader
+	// Backup 是备份定义镜像与快照查询的调用端（P12.2）。允许为 nil（演示模式不连代理）：
+	// 那时 /backup/* 明确回 503 AGENT_UNAVAILABLE，而不是给一份空列表——空列表会被
+	// 读成"这台机器上还没有配置备份"。
+	//
+	// 与 Monitor/Storage 那一批不同，这里**没有**"回落到本地副本"这条路：备份定义
+	// 只有代理那一份（见 internal/agentstore/backupstore.go），面板不存第二份。
+	Backup BackupManager
+	// Schedules / Scripts 是计划任务与受管理脚本镜像的读取端（P12.4）。允许为 nil
+	// （演示模式不连代理）：那时 /schedules* 与 /scripts* 明确回 503
+	// AGENT_UNAVAILABLE，而不是给一份空列表——空列表会被读成"这台机器上没有定时任务"。
+	//
+	// 分成两个字段而不是合成一个：代理可以只启用其中一个镜像（见 internal/agent
+	// 的 Schedules/Scripts 选项），装配不谎报能力。生产里两个都指向同一个
+	// *agentclient.Client。
+	Schedules SchedulesReader
+	Scripts   ScriptsReader
 	// TLS 是面板 HTTPS 材料（P10.4）。为 nil 表示不开 TLS——只有回环监听允许这样
 	// （config.CheckTransport 判定），本服务不再自己重复判断。
 	//
 	// 材料在 New 里就已经加载并校验过（证书能配私钥、没过期），因此 Serve 阶段的
 	// 失败只可能是监听本身的问题，不会出现“服务起来了但证书是坏的”。
 	TLS *config.PanelTLS
+	// Alerts 是告警规则、事件与维护静默服务（P13.2）。允许为 nil（测试或未接数据库
+	// 的进程）：那时 /alerts/* 明确回 503 NOT_IMPLEMENTED 并说明“这个进程没有装配
+	// 告警”，而不是给一份空规则列表——空列表会被读成“这台机器上没配任何告警”，
+	// 那会让一次真实故障看起来像是“没人配规则”而不是“功能没开”。
+	//
+	// 生产里它是必需依赖：告警的判定、事件与静默都在面板库里，没有代理也能工作。
+	Alerts *alerts.Service
+	// Notifications 是通知通道与投递账（P13.3）。同样允许为 nil，理由与 Alerts 一致：
+	// 未装配时 /notification-channels 明确说“这个进程没有装配通知”，而不是给一份
+	// 空通道列表——空列表会被读成“这台机器上一条通知都没配”。
+	//
+	// 注意它**不包含发送端**：真正发信的是代理（internal/agent/notify.go），
+	// 面板这边只知道“发到哪、说什么”。演示模式下服务在，发送端不在，投递会停在
+	// pending 而不是伪装成失败。
+	Notifications *notifications.Service
+	// Network 是网络与防火墙只读查询的读取端（P14.1）。允许为 nil（演示模式不连代理）：
+	// 那时 /network/interfaces、/network/routes、/network/listeners 与 /firewall
+	// 明确回 503 AGENT_UNAVAILABLE，而不是给一份空网卡列表或空规则表——空列表会被
+	// 读成"这台机器没有网卡""防火墙没有任何规则"，两种假话都比 503 糟。
+	//
+	// 这里**没有**"本地降级"这条路：网卡、路由、监听端口与防火墙规则只存在于代理
+	// 那一侧（/proc、/sys、ufw 的实时状态），面板不镜像它们。
+	Network NetworkReader
 }
 
 // Server 是 Web HTTP 服务。
@@ -252,10 +320,20 @@ func New(opts Options) (*Server, error) {
 		Handler:           s.engine,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		MaxHeaderBytes:    1 << 20,
-		ErrorLog:          slog.NewLogLogger(opts.Logger.Handler(), slog.LevelWarn),
+		// 写超时必须**大于一次认证校验的最坏耗时**。
+		//
+		// 登录要算 Argon2id（默认 128 MiB、3 轮、2 路），在开发宿主上约 110 ms，
+		// 在单核慢机器上实测一次要 22—30 秒。原来的 30 秒写超时正好卡在这条线上：
+		// handler 算完、状态码已经定了，但响应写不出去，net/http 直接把连接关掉，
+		// 客户端只看到"连接被断开"（curl 拿到 000），连"密码错了"都读不到——
+		// 一次慢机器上的正常登录被表现成连接故障。
+		//
+		// 2 分钟是按"最慢实测 30 秒"的 4 倍留的余量；长任务（备份、恢复）本来就走
+		// 任务队列，不占着这个连接。
+		WriteTimeout:   2 * time.Minute,
+		IdleTimeout:    120 * time.Second,
+		MaxHeaderBytes: 1 << 20,
+		ErrorLog:       slog.NewLogLogger(opts.Logger.Handler(), slog.LevelWarn),
 	}
 	return s, nil
 }

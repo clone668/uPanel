@@ -1,11 +1,17 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/gin-gonic/gin"
 
 	"upanel/internal/config"
 	"upanel/internal/platform"
@@ -122,7 +128,10 @@ func TestLoginEntryChecks(t *testing.T) {
 		{"未知字段", nil, `{"username":"admin","password":"correct-horse-9","extra":1}`, http.StatusBadRequest, "VALIDATION_ERROR"},
 		{"非法 JSON", nil, `{`, http.StatusBadRequest, "VALIDATION_ERROR"},
 		{"尾部多余内容", nil, `{"username":"admin","password":"correct-horse-9"} {"x":1}`, http.StatusBadRequest, "VALIDATION_ERROR"},
-		{"提交 totp", nil, `{"username":"admin","password":"correct-horse-9","totp":"123456"}`, http.StatusBadRequest, "VALIDATION_ERROR"},
+		// totp 的形状检查（P14.6）：非数字与超长都拒。形状对但值不对不在这里判——
+		// 那是代理的活，见 TestLoginWithTotp。未启用二次验证的账号即使带 totp 也照常登录。
+		{"totp 非数字", nil, `{"username":"admin","password":"correct-horse-9","totp":"abcdef"}`, http.StatusBadRequest, "VALIDATION_ERROR"},
+		{"totp 超长", nil, `{"username":"admin","password":"correct-horse-9","totp":"1234567890"}`, http.StatusBadRequest, "VALIDATION_ERROR"},
 		{"空用户名", nil, loginBody("", testUserPass), http.StatusBadRequest, "VALIDATION_ERROR"},
 		{"空密码", nil, loginBody(testUser, ""), http.StatusBadRequest, "VALIDATION_ERROR"},
 	}
@@ -286,6 +295,76 @@ func TestLogoutRequiresCSRFAndInvalidatesSession(t *testing.T) {
 	}
 }
 
+// TestSessionTouchRefreshesCookie 覆盖一个只在真机上暴露过的问题：
+// 会话在库里按空闲时间滑动续期，但 Cookie 的 Expires 只在登录时下发过一次。
+// 结果是“一直在用，30 分钟后照样被踢”——库里会话还活着，浏览器里的 Cookie 已经到期。
+// 续期时必须重发 Cookie，让两边同步。
+func TestSessionTouchRefreshesCookie(t *testing.T) {
+	srv, db := newTestServerWithDB(t, platform.ModeProduction, config.ListenProduction)
+	seedTestUser(t, srv.opts.Auth, testUser, testUserPass)
+	cookie, _ := loginOK(t, srv)
+
+	doGet := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/session", nil)
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("session 状态码 = %d，响应 = %s", rec.Code, rec.Body.String())
+		}
+		return rec
+	}
+
+	// 登录后立刻访问，仍在一分钟节流窗口内：不续期，也就不该重发 Cookie。
+	if rec := doGet(); rec.Header().Get("Set-Cookie") != "" {
+		t.Fatalf("节流窗口内不应重发 Cookie，实际 %s", rec.Header().Get("Set-Cookie"))
+	}
+
+	// 把会话回退成“上次活动是一分半前、库里到期时间只剩 5 分钟”。
+	now := time.Now().UTC()
+	if _, err := db.SQL().ExecContext(context.Background(),
+		`UPDATE sessions SET last_seen_at = ?, expires_at = ?`,
+		now.Add(-90*time.Second).Format(time.RFC3339),
+		now.Add(5*time.Minute).Format(time.RFC3339)); err != nil {
+		t.Fatalf("回退会话时间失败: %v", err)
+	}
+
+	rec := doGet()
+	raw := rec.Header().Get("Set-Cookie")
+	if raw == "" {
+		t.Fatal("滑动续期后必须重发 Cookie，否则浏览器里的 Cookie 仍按登录时刻到期")
+	}
+	var refreshed *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == SessionCookieName {
+			refreshed = c
+		}
+	}
+	if refreshed == nil {
+		t.Fatalf("响应里没有会话 Cookie: %s", raw)
+	}
+	if refreshed.Value != cookie.Value {
+		t.Fatalf("续期必须沿用同一个会话令牌，实际被换成别的值")
+	}
+	if !refreshed.Expires.After(now.Add(25 * time.Minute)) {
+		t.Fatalf("续期 Cookie 的 Expires 应推进到约 30 分钟后，实际 %s", refreshed.Expires)
+	}
+
+	// 库里到期时间也一起前移，两边不能各说各话。
+	var expires string
+	if err := db.SQL().QueryRowContext(context.Background(),
+		`SELECT expires_at FROM sessions ORDER BY id DESC LIMIT 1`).Scan(&expires); err != nil {
+		t.Fatalf("读取会话到期时间失败: %v", err)
+	}
+	got, err := time.Parse(time.RFC3339, expires)
+	if err != nil {
+		t.Fatalf("到期时间格式不合法: %v", err)
+	}
+	if !got.After(now.Add(25 * time.Minute)) {
+		t.Fatalf("库里到期时间应推进到约 30 分钟后，实际 %s", expires)
+	}
+}
+
 func TestOriginGuardRejectsForeignOriginOnWrites(t *testing.T) {
 	srv := authedServer(t)
 	cookie, csrf := loginOK(t, srv)
@@ -328,5 +407,52 @@ func TestForgedOrRevokedSessionIsRejected(t *testing.T) {
 	srv.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("已作废会话状态码 = %d，期望 401", rec.Code)
+	}
+}
+
+// 浏览器导航或组件卸载时会把还在飞的请求 abort 掉，会话读取随之以 context.Canceled 收尾。
+// 那条路径**不能**记成 500：没有人在接这个响应，日志里说"服务内部错误"是假话，
+// 而 P15.4 的真机验收上正是靠读日志才抓到过一次（三条请求同一秒内消失）。
+func TestClientAbortedRequestIsNotReportedAsServerFault(t *testing.T) {
+	srv := authedServer(t)
+	cookie, _ := loginOK(t, srv)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // 请求还没进中间件，客户端就已经走了
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/session", nil).WithContext(ctx)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != clientClosedRequest {
+		t.Fatalf("客户端已取消的请求状态码 = %d，期望 %d（不能是 5xx）", rec.Code, clientClosedRequest)
+	}
+	if rec.Body.Len() != 0 {
+		t.Fatalf("客户端已走，不应再写响应体，实际 %d 字节: %s", rec.Body.Len(), rec.Body.String())
+	}
+}
+
+func TestClientGoneRecognisesCancellationOnly(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"原始 context.Canceled", context.Canceled, true},
+		{"被包过的取消（会话读取就是这么包的）", fmt.Errorf("auth: 读取会话失败: %w", context.Canceled), true},
+		{"超时是另一回事，得有人看", context.DeadlineExceeded, false},
+		{"普通错误", errors.New("disk on fire"), false},
+		{"没有错误", nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/system/summary", nil)
+			if got := clientGone(c, tc.err); got != tc.want {
+				t.Fatalf("clientGone(%v) = %v，期望 %v", tc.err, got, tc.want)
+			}
+		})
 	}
 }

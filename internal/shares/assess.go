@@ -85,7 +85,7 @@ type definitionContext struct {
 //
 // 它不提前返回：一次预检要能看到**全部**问题。只报第一条的话，用户修完一条再点一次，
 // 又得到下一条，来回十次才知道这个共享到底哪里不对。
-func (e *Engine) resolveDefinition(ctx context.Context, def ShareDefinition) (definitionContext, []Blocker, []Blocker, error) {
+func (e *Engine) resolveDefinition(ctx context.Context, def ShareDefinition, shareID string) (definitionContext, []Blocker, []Blocker, error) {
 	var (
 		blockers []Blocker
 		warnings []Blocker
@@ -143,6 +143,18 @@ func (e *Engine) resolveDefinition(ctx context.Context, def ShareDefinition) (de
 		pathBlockers, pathWarnings := e.checkSharePath(out.MountPath, dir)
 		blockers = append(blockers, pathBlockers...)
 		warnings = append(warnings, pathWarnings...)
+	}
+
+	// NFS 到这里就分头了：它没有 Samba 账号那一层，也没有 hosts allow 那条本机例外
+	// （NFS 的客户端是按网段与 IP 判的，127.0.0.1 只有名单里写了才放行）。
+	if def.Protocol == ProtocolNFS {
+		nb, nw, err := e.exportsAssessment(ctx, def, dir, shareID)
+		if err != nil {
+			return out, blockers, warnings, err
+		}
+		blockers = append(blockers, nb...)
+		warnings = append(warnings, nw...)
+		return out, blockers, warnings, nil
 	}
 
 	// 账号：定义引用的每一个账号都必须是受管理账号。
@@ -219,6 +231,88 @@ func (e *Engine) resolveDefinition(ctx context.Context, def ShareDefinition) (de
 	}
 
 	return out, blockers, warnings, nil
+}
+
+// exportsAssessment 判决 NFS 导出这一半（P14.4）。
+//
+// 与 Samba 那一半的区别不是“少做几件事”，而是判据换了：
+//   - 阻塞项只有两条来源：能力不可用（缺 exportfs）与路径冲突（同一条路径被导出
+//     两次，会让 exportfs 整份刷新失败，连别人的导出一起停摆）；
+//   - “此刻在不在导出表里”“服务在不在跑”都是告警：应用这个动作本身就是来改变
+//     前者的，而后者不影响配置正确性（服务起来之后导出就生效）。
+func (e *Engine) exportsAssessment(ctx context.Context, def ShareDefinition, dir, shareID string) ([]Blocker, []Blocker, error) {
+	var blockers, warnings []Blocker
+
+	capv := e.Capability(ctx)
+	if capv.NFS.Status != CapabilityAvailable {
+		msg := "本机的 NFS 能力不可用"
+		if capv.NFS.Reason != "" {
+			msg += "：" + capv.NFS.Reason
+		}
+		blockers = append(blockers, Blocker{Code: NoticeNFSUnavailable, Message: msg})
+	}
+
+	// 冲突检查。读不到别人的导出文件时不能断言“没有冲突”，但那也不该阻塞：
+	// 执行期会用同一份数据再查一次，而且那一步失败会自动回滚。
+	cb, cw, err := e.exportPathConflicts(ctx, []ManagedExport{{Name: def.Name, Dir: dir}})
+	if err != nil {
+		warnings = append(warnings, Blocker{Code: NoticeExportsUnparsable, Message: err.Error()})
+	} else {
+		blockers = append(blockers, cb...)
+		warnings = append(warnings, cw...)
+	}
+
+	// 同目录：面板自己的另一条共享是否已经占着这个目录。
+	//
+	// 这条与上面那条是同一个危害的两半，却各有各的来源：上面比的是“别人的导出文件”，
+	// 这里比的是“登记表里的别的共享”。漏掉任何一半，用户都会在预检里看到 allowed，
+	// 然后在执行时收到一句 exportfs 的 duplicated。
+	if def.Enabled {
+		names, err := e.sharesSharingDir(ctx, def, dir, shareID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(names) > 0 {
+			blockers = append(blockers, Blocker{
+				Code:    NoticeExportPathConflict,
+				Message: describeSameDirShares(map[string][]string{dir: names}),
+			})
+		}
+	}
+
+	// 此刻在不在导出表里。禁用的共享不需要这条：应用它正是为了把它摘掉。
+	if def.Enabled && capv.NFS.Status == CapabilityAvailable {
+		want := ManagedExport{Dir: dir, CIDRs: def.AllowedCIDRs, ReadOnly: def.ReadOnly}
+		table, err := e.readExportTable(ctx)
+		switch {
+		case err != nil:
+			warnings = append(warnings, Blocker{
+				Code: NoticeExportsUnreadable,
+				Message: "读不到当前的实际导出表（exportfs -v）：" + err.Error() +
+					"；这条共享此刻有没有在被导出，无法确认",
+			})
+		default:
+			if why := VerifyExport(table, want); why != "" {
+				warnings = append(warnings, Blocker{
+					Code: NoticeExportsNotApplied,
+					Message: "这条共享此刻不在导出表里（" + why + "）：应用会写进 " +
+						e.paths().Exports + " 并让 exportfs 重新读一遍",
+				})
+			}
+		}
+	}
+
+	if capv.NFS.ServiceState != ServiceStateActive {
+		msg := "nfs-server 现在不是 active"
+		if capv.NFS.ServiceState == ServiceStateUnknown {
+			msg = "问不出 nfs-server 的运行状态"
+		}
+		warnings = append(warnings, Blocker{
+			Code:    NoticeNFSServiceInactive,
+			Message: msg + "：导出会照写并被 exportfs 接受，但客户端连不上，执行结果只能是 accepted",
+		})
+	}
+	return blockers, warnings, nil
 }
 
 // checkSharePath 检查共享目录路径上的符号链接与非目录成分。
@@ -404,7 +498,12 @@ func (e *Engine) assessShareApply(ctx context.Context, p ShareApplyParams) (Asse
 		out.StateVersion = absentStateVersion(def.Name)
 	}
 
-	dctx, blockers, warnings, err := e.resolveDefinition(ctx, def)
+	// 新建时没有 id：同目录冲突的判定按名字排除自己（登记表里名字唯一）。
+	var assessingID string
+	if p.ShareID != nil {
+		assessingID = *p.ShareID
+	}
+	dctx, blockers, warnings, err := e.resolveDefinition(ctx, def, assessingID)
 	if err != nil {
 		return out, definitionContext{}, err
 	}
@@ -413,13 +512,35 @@ func (e *Engine) assessShareApply(ctx context.Context, p ShareApplyParams) (Asse
 
 	// 配置侧的判决：现有 smb.conf 里有没有同名段、工具齐不齐、全局项会不会被改写。
 	// 它只看、不写：预检做的每一个观察都必须是可重复的。
-	configBlockers, configWarnings := e.configAssessment(ctx, def)
-	out.Blockers = append(out.Blockers, configBlockers...)
-	out.Warnings = append(out.Warnings, configWarnings...)
+	//
+	// NFS 不走这一段：它没有 smb.conf 可读，同名判断对导出也没有意义（导出的身份是
+	// 目录，不是名字）。它的现场判决在 resolveDefinition 的 exportsAssessment 里做完。
+	if def.Protocol != ProtocolNFS {
+		configBlockers, configWarnings := e.configAssessment(ctx, def)
+		out.Blockers = append(out.Blockers, configBlockers...)
+		out.Warnings = append(out.Warnings, configWarnings...)
+	}
 
 	out.TargetID = def.Name
 	out.DisplayName = def.Name
 	out.IdentityFingerprint = dctx.VolumeUUID
+
+	if def.Protocol == ProtocolNFS {
+		out.Impacts = append(out.Impacts,
+			Impact{Kind: ImpactConfigChange,
+				Description: "共享定义会写入代理登记表（配置版本 = 导出行的 sha256）"},
+			Impact{Kind: ImpactConfigChange,
+				Description: "托管导出文件 " + DefaultExportsFile + " 会被整份重写（只含面板自己那几条），" +
+					"随后 exportfs 重新读取导出表；nfs-server 不在运行时导出仍然写下去，但客户端连不上"},
+		)
+		// 锁按“共享名 + 卷 + 导出文件”取。导出文件是整份重写的，并发写会让后一个
+		// 把前一个的导出行覆盖掉；它与 Samba 那把锁分开，因为两者写的是不同文件，
+		// 互相排队只会让“改一份 NFS 共享”白等一次 SMB 应用。
+		out.Locks = []string{"share:" + def.Name, "volume:" + def.VolumeID, ExportsLockName}
+		sort.Strings(out.Locks)
+		out.Allowed = len(out.Blockers) == 0
+		return out, dctx, nil
+	}
 
 	out.Impacts = append(out.Impacts,
 		Impact{Kind: ImpactConfigChange,
@@ -474,6 +595,11 @@ func (e *Engine) assessShareRef(ctx context.Context, action string, p ShareRefPa
 		})
 	}
 
+	// NFS 的撤销在这一步就分头：判据、影响面、锁全都不一样。
+	if rec.Definition.Protocol == ProtocolNFS {
+		return e.assessShareRefNFS(ctx, action, rec, p, out), nil
+	}
+
 	if action == ActionShareDisable {
 		if !rec.Definition.Enabled {
 			out.Blockers = append(out.Blockers, Blocker{
@@ -522,6 +648,59 @@ func (e *Engine) assessShareRef(ctx context.Context, action string, p ShareRefPa
 
 	out.Allowed = len(out.Blockers) == 0
 	return out, nil
+}
+
+// assessShareRefNFS 判决 NFS 共享的 share.disable / share.delete（P14.4）。
+//
+// 单独一段而不是在 SMB 那条里塞条件，因为三件东西换掉了：
+//   - **影响面**：没有 POSIX ACL 可收。拿掉导出行之后网段内就再也连不上，
+//     目录权限原样留着——说成“ACL 会被清空”是一句会让人以为目录已经锁死的假话；
+//   - **阻塞判据**：缺 exportfs 才是阻塞（摘不掉那一行、也刷不了表，客户端还连得上）；
+//     缺 setfacl 与它无关；
+//   - **锁**：托管导出文件是整份重写的，所以要取 ExportsLockName。取 ConfigLockName
+//     看起来“也算拿了把锁”，但它管的是 smb.conf——两个 NFS 操作的锁一旦错开，
+//     同一份导出文件就可能被并发重写，后一个把前一个的导出行抹掉。
+func (e *Engine) assessShareRefNFS(ctx context.Context, action string, rec ShareRecord, p ShareRefParams, out Assessment) Assessment {
+	if action == ActionShareDisable && !rec.Definition.Enabled {
+		out.Blockers = append(out.Blockers, Blocker{
+			Code:    NoticeShareVersionMismatch,
+			Message: "共享 " + rec.Definition.Name + " 已经是禁用状态，导出表里本来就没有它",
+		})
+	}
+	if action == ActionShareDisable {
+		out.Impacts = append(out.Impacts, Impact{Kind: ImpactAccessChange,
+			Description: "导出行会从 " + DefaultExportsFile + " 摘掉并让 exportfs 重新读一遍：" +
+				"网段内的客户端将连不上（可能还挂着旧句柄，卸载重挂才断）；目录与里面的文件不会被动"})
+	} else {
+		out.Impacts = append(out.Impacts, Impact{Kind: ImpactAccessChange,
+			Description: "共享登记会被删除，导出行会从 " + DefaultExportsFile + " 摘掉；" +
+				"目录与里面的文件**不会**被删除"})
+	}
+
+	capv := e.Capability(ctx)
+	if capv.NFS.Status != CapabilityAvailable {
+		msg := "本机的 NFS 能力不可用"
+		if capv.NFS.Reason != "" {
+			msg += "：" + capv.NFS.Reason
+		}
+		out.Blockers = append(out.Blockers, Blocker{
+			Code:    NoticeNFSUnavailable,
+			Message: msg + "；摘不掉导出行也刷不了表，客户端会继续按旧导出连进来",
+		})
+	}
+	// 服务没在跑不阻塞：摘一行配置是安全方向的动作，而且没有 exportfs 才是硬阻塞。
+	if capv.NFS.ServiceState != ServiceStateActive {
+		out.Warnings = append(out.Warnings, Blocker{
+			Code: NoticeNFSServiceInactive,
+			Message: "nfs-server 现在不是 active（" + capv.NFS.ServiceState +
+				"）：导出表仍会被刷新，但客户端此刻本来就连不上",
+		})
+	}
+
+	out.Locks = []string{"share:" + rec.Definition.Name, "volume:" + rec.Definition.VolumeID, ExportsLockName}
+	sort.Strings(out.Locks)
+	out.Allowed = len(out.Blockers) == 0
+	return out
 }
 
 // assessAccountApply 判决 share.account.apply。

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -54,6 +55,8 @@ type loginResponse struct {
 	User      userDTO `json:"user"`
 	CSRFToken string  `json:"csrf_token"`
 	ExpiresAt string  `json:"expires_at"`
+	// TotpEnabled 告诉前端这次登录之后该不该显示"已启用二次验证"（P14.6）。
+	TotpEnabled bool `json:"totp_enabled"`
 }
 
 // sessionResponse 是 GET /auth/session 的返回体。
@@ -62,6 +65,7 @@ type sessionResponse struct {
 	CSRFToken       string  `json:"csrf_token"`
 	ExpiresAt       string  `json:"expires_at"`
 	ReauthExpiresAt *string `json:"reauth_expires_at"`
+	TotpEnabled     bool    `json:"totp_enabled"`
 }
 
 // handleLogin 处理 POST /api/v1/auth/login。
@@ -103,9 +107,9 @@ func (s *Server) handleLogin(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, httpx.CodeValidationError, "请求体在首个 JSON 对象之后仍有内容")
 		return
 	}
-	if req.TOTP != nil {
-		// 二次验证在 P14 落地；在此之前不接受该字段，避免前端误以为已生效。
-		writeError(c, http.StatusBadRequest, httpx.CodeValidationError, "二次验证尚未启用，不能提交 totp")
+	// totp 的形状只做"明显不是六位数"的快速判断；对不对由代理算（见 verifySecondFactor）。
+	if req.TOTP != nil && !totpCodeShapeOK(*req.TOTP) {
+		writeError(c, http.StatusBadRequest, httpx.CodeValidationError, "验证码应为六位数字")
 		return
 	}
 	if strings.TrimSpace(req.Username) == "" || req.Password == "" {
@@ -117,23 +121,46 @@ func (s *Server) handleLogin(c *gin.Context) {
 		return
 	}
 
-	issued, err := s.opts.Auth.Login(c.Request.Context(), auth.LoginInput{
-		Username:      req.Username,
-		Password:      req.Password,
-		RemoteAddr:    remoteIP(c.Request),
-		PreviousToken: sessionToken(c.Request),
+	// 口令与二次验证分两步（P14.6）：口令过了但验证码没过，**一个会话都不签发**。
+	// 先发会话再补校验看起来一样，实际上是给了一条"拿到半张票"的路。
+	user, err := s.opts.Auth.VerifyCredentials(c.Request.Context(), auth.LoginInput{
+		Username:   req.Username,
+		Password:   req.Password,
+		RemoteAddr: remoteIP(c.Request),
 	})
 	if err != nil {
 		s.writeLoginError(c, err)
 		return
 	}
+	if !s.verifySecondFactor(c, user, req.TOTP) {
+		return
+	}
+	issued, err := s.opts.Auth.FinishLogin(c.Request.Context(), user, sessionToken(c.Request))
+	if err != nil {
+		s.internalError(c, "签发会话失败", err)
+		return
+	}
 
 	setSessionCookie(c, issued.Token, issued.ExpiresAt)
 	httpx.WriteData(c.Writer, c.Request, http.StatusOK, loginResponse{
-		User:      userOf(issued.User),
-		CSRFToken: issued.CSRF,
-		ExpiresAt: issued.ExpiresAt.UTC().Format(time.RFC3339),
+		User:        userOf(issued.User),
+		CSRFToken:   issued.CSRF,
+		ExpiresAt:   issued.ExpiresAt.UTC().Format(time.RFC3339),
+		TotpEnabled: s.totpEnabled(c, issued.User.ID),
 	})
+}
+
+// totpEnabled 返回账号是否启用了二次验证。读不出来时按"没有启用"回答：
+// 这个值只用于界面提示，真正的判定在 verifySecondFactor 里另有一次查询与代理校验，
+// 所以这里出错不会放行任何东西。
+func (s *Server) totpEnabled(c *gin.Context, userID int64) bool {
+	state, exists, err := s.opts.Auth.TotpState(c.Request.Context(), userID)
+	if err != nil {
+		s.opts.Logger.Error("读取二次验证状态失败", "error", err,
+			"user_id", userID, "request_id", c.GetString(ctxKeyRequestID))
+		return false
+	}
+	return exists && state.Enabled
 }
 
 // writeLoginError 把认证错误映射成契约里的错误码。
@@ -169,9 +196,10 @@ func (s *Server) handleSession(c *gin.Context) {
 		return
 	}
 	resp := sessionResponse{
-		User:      userOf(sess.User),
-		CSRFToken: csrf,
-		ExpiresAt: sess.ExpiresAt.UTC().Format(time.RFC3339),
+		User:        userOf(sess.User),
+		CSRFToken:   csrf,
+		ExpiresAt:   sess.ExpiresAt.UTC().Format(time.RFC3339),
+		TotpEnabled: s.totpEnabled(c, sess.User.ID),
 	}
 	if !sess.ReauthUntil.IsZero() {
 		v := sess.ReauthUntil.UTC().Format(time.RFC3339)
@@ -197,6 +225,12 @@ func (s *Server) requireSession() gin.HandlerFunc {
 		switch {
 		case err == nil:
 			c.Set(ctxKeySession, sess)
+			// 会话滑动续期后必须同时续期 Cookie。Cookie 的 Expires 只在登录时下发过，
+			// 库里会话已经滑到新的到期时间，浏览器/脚本那份却还在按登录时刻到期——
+			// 表现就是"一直在用，30 分钟后照样被踢"。续期时重发一次，两者保持同步。
+			if sess.Extended() {
+				setSessionCookie(c, sessionToken(c.Request), sess.ExpiresAt)
+			}
 			c.Next()
 		case errors.Is(err, auth.ErrSessionInvalid):
 			writeError(c, http.StatusUnauthorized, httpx.CodeUnauthenticated, "未登录或会话已过期")
@@ -205,6 +239,15 @@ func (s *Server) requireSession() gin.HandlerFunc {
 			writeError(c, http.StatusForbidden, httpx.CodeForbidden, "账号已被禁用")
 			c.Abort()
 		default:
+			// 浏览器导航或组件卸载会 abort 掉还在飞的请求，会话读取随之以 context.Canceled
+			// 收尾。那不是服务端故障——没有人接这个响应——记成 500 + ERROR 只会让后来读日志
+			// 的人（和做验收的人）去追一个不存在的故障。这一支单独记，别混进 internalError。
+			if clientGone(c, err) {
+				s.opts.Logger.Warn("客户端已断开，会话校验中止",
+					"error", err, "request_id", c.GetString(ctxKeyRequestID), "path", c.Request.URL.Path)
+				c.AbortWithStatus(clientClosedRequest)
+				return
+			}
 			s.internalError(c, "会话校验失败", err)
 			c.Abort()
 		}
@@ -311,6 +354,21 @@ func (s *Server) internalError(c *gin.Context, msg string, err error) {
 	s.opts.Logger.Error(msg, "error", err,
 		"request_id", c.GetString(ctxKeyRequestID), "path", c.Request.URL.Path)
 	writeError(c, http.StatusInternalServerError, httpx.CodeInternalError, "服务内部错误")
+}
+
+// clientClosedRequest 是 nginx 惯用的 499：客户端在响应写回之前就断开或放弃了请求。
+// 它不是一个真正会送到客户端的状态码——没人接了——写它只是为了让访问日志说实话。
+const clientClosedRequest = 499
+
+// clientGone 判断这次失败是不是"客户端先走了"造成的：请求上下文已取消，或者错误链里
+// 是 context.Canceled（会话读取会被包成 "auth: 读取会话失败: %w"）。
+//
+// 只看取消，不看 DeadlineExceeded：后者可能是服务端自己的超时，那是真需要人看的故障。
+func clientGone(c *gin.Context, err error) bool {
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+	return errors.Is(c.Request.Context().Err(), context.Canceled)
 }
 
 // isJSONContentType 判断 Content-Type 是否为 application/json（允许带 charset 参数）。

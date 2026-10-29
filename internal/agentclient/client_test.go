@@ -209,3 +209,96 @@ func TestWithTimeoutLiftsHeaderWait(t *testing.T) {
 		t.Fatalf("流客户端的等待响应头超时 = %v，期望 0", st.ResponseHeaderTimeout)
 	}
 }
+
+func TestBackupQueryTimeoutOutlivesAgentSnapshotBudget(t *testing.T) {
+	const agentSnapshotBudget = 90 * time.Second
+	if BackupQueryTimeout <= agentSnapshotBudget {
+		t.Fatalf("备份客户端超时 = %v，必须先让代理自己的 %v 预算说话",
+			BackupQueryTimeout, agentSnapshotBudget)
+	}
+	c, err := New("/run/upanel/agent.sock", WithTimeout(BackupQueryTimeout))
+	if err != nil {
+		t.Fatalf("New 失败: %v", err)
+	}
+	if c.http.Timeout != BackupQueryTimeout {
+		t.Fatalf("整体超时 = %v，期望 %v", c.http.Timeout, BackupQueryTimeout)
+	}
+	tr, ok := c.http.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("Transport 类型 = %T", c.http.Transport)
+	}
+	if tr.ResponseHeaderTimeout != BackupQueryTimeout {
+		t.Fatalf("等待响应头超时 = %v，期望 %v", tr.ResponseHeaderTimeout, BackupQueryTimeout)
+	}
+}
+
+// TestNetworkConfigParsesPayload：network.config 的响应能解出来，且未导出的结构
+// （panel_file / netplan_files）也能跨包解——JSON 只看字段是不是导出的，不看类型名。
+func TestNetworkConfigParsesPayload(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/internal/v1/queries" {
+			t.Errorf("意外请求 %s %s", r.Method, r.URL.Path)
+		}
+		body, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(body), "network.config") {
+			t.Errorf("请求体没带查询名: %s", body)
+		}
+		io.WriteString(w, `{"data":{"collected_at":"2026-10-26T12:00:00Z",
+			"capability":{"backend":"netplan-networkd","editable":true,"target":"ens4","reasons":[]},
+			"interface":"ens4","config_hash":"sha256:abc","mode":"static",
+			"ipv4":{"address":"192.168.1.10","prefix_length":24,"gateway":"192.168.1.1","dns":null},
+			"panel_file":{"name":"90-upanel-ens4.yaml","sha256":"deadbeef"},
+			"netplan_files":[{"name":"50-cloud-init.yaml","sha256":"cafe"}],
+			"unsupported":[],
+			"pending":{"token":"nrb_0123456789abcdef0123456789abcdef","interface":"ens4","mode":"static",
+				"candidate_address":"192.168.1.50","applied_at":"2026-10-26T12:00:00Z",
+				"deadline":"2026-10-26T12:02:00Z","seconds_left":90,"state":"pending"},
+			"issues":[]},"request_id":"rid"}`)
+	}))
+
+	cfg, err := c.NetworkConfig(context.Background())
+	if err != nil {
+		t.Fatalf("调用失败: %v", err)
+	}
+	if cfg.ConfigHash != "sha256:abc" || cfg.Interface != "ens4" || !cfg.Capability.Editable {
+		t.Fatalf("响应解错：%+v", cfg)
+	}
+	if cfg.PanelFile == nil {
+		t.Fatal("panel_file 应当解出来（不是 null）")
+	}
+	if cfg.Pending == nil || cfg.Pending.SecondsLeft != 90 || cfg.Pending.State != "pending" {
+		t.Fatalf("待确认的回滚解错：%+v", cfg.Pending)
+	}
+}
+
+// TestNetworkConfigRejectsIncompletePayload：形状不全就报 unavailable，不给零值。
+func TestNetworkConfigRejectsIncompletePayload(t *testing.T) {
+	cases := []string{
+		// 缺 collected_at
+		`{"data":{"capability":{"backend":"netplan-networkd","editable":false,"reasons":[]},
+			"mode":"unknown","panel_file":null,"netplan_files":[],"unsupported":[],"pending":null,
+			"issues":[]},"request_id":"rid"}`,
+		// 缺 backend：闭集里的"未知"不能用零值表达
+		`{"data":{"collected_at":"2026-10-26T12:00:00Z",
+			"capability":{"editable":false,"reasons":[]},"mode":"unknown","panel_file":null,
+			"netplan_files":[],"unsupported":[],"pending":null,"issues":[]},"request_id":"rid"}`,
+		// 说可以改，却没有 config_hash：页面据此提交，缺了它必被拒
+		`{"data":{"collected_at":"2026-10-26T12:00:00Z",
+			"capability":{"backend":"netplan-networkd","editable":true,"target":"ens4","reasons":[]},
+			"mode":"static","panel_file":null,"netplan_files":[],"unsupported":[],"pending":null,
+			"issues":[]},"request_id":"rid"}`,
+	}
+	for _, payload := range cases {
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			io.WriteString(w, payload)
+		}))
+		if _, err := c.NetworkConfig(context.Background()); err == nil {
+			t.Fatalf("形状不全的响应应当报错：%s", payload)
+		} else {
+			var un *UnavailableError
+			if !errors.As(err, &un) {
+				t.Fatalf("应当是 *UnavailableError，得到 %T: %v", err, err)
+			}
+		}
+	}
+}

@@ -75,6 +75,11 @@ func (s *stubAgent) CancelOperation(_ context.Context, operationID string) (agen
 	return s.cancelOp, nil
 }
 
+// ListScheduledOperations 默认回空：这些用例不涉及定时触发（P12.4 的导入有自己的用例）。
+func (s *stubAgent) ListScheduledOperations(_ context.Context, _ time.Time, _ int) ([]agentclient.ScheduledOperation, error) {
+	return nil, nil
+}
+
 func (s *stubAgent) OperationEvents(_ context.Context, operationID string) ([]agentclient.OperationEvent, error) {
 	s.eventCalls = append(s.eventCalls, operationID)
 	if s.eventsErr != nil {

@@ -36,6 +36,13 @@ const (
 	// （那会被包升级覆盖），只在旁边加一份只属于自己的片段。
 	StartupDropinPath = "/etc/systemd/system/smbd.service.d/upanel-shares.conf"
 
+	// ExportsStartupDropinPath 是 nfs-server 的开机依赖 drop-in（P14.4）。
+	//
+	// 同一个理由、另一份单元：nfs-server 与卷的 .mount 单元之间也没有任何先后关系。
+	// 它比 smbd 更在意这件事——NFS 的导出是“路径 + 客户端”，路径背后没挂上时
+	// 客户端读到的是系统盘上的空目录，而且不会报错。
+	ExportsStartupDropinPath = "/etc/systemd/system/nfs-server.service.d/upanel-exports.conf"
+
 	// startupDepDirMode / startupDepFileMode 是 drop-in 的权限。
 	// 0644：systemd 以 root 读它，管理员也该能读；没有可写位——只有面板写。
 	startupDepDirMode  os.FileMode = 0o755
@@ -109,7 +116,7 @@ type startupDepResult struct {
 	Changed bool
 }
 
-// applyStartupDeps 把 drop-in 写成“这些路径必须先就位”。
+// applyStartupDeps 把 smbd 的 drop-in 写成“这些路径必须先就位”。
 //
 // 传空路径 = 现在没有任何共享需要一个挂载点：文件若存在就删掉，并把
 // daemon-reload 跑一遍，让 systemd 忘掉旧的要求。
@@ -117,6 +124,14 @@ type startupDepResult struct {
 // 失败**不**回滚配置：配置本身是对的，缺的只是开机顺序这一层额外保护。说清楚，
 // 不假装成功，也不把一份正确的配置丢掉。
 func (e *Engine) applyStartupDeps(ctx context.Context, mountPaths []string) startupDepResult {
+	return e.applyStartupDropin(ctx, e.paths().StartupDep, "smbd", mountPaths)
+}
+
+// applyStartupDropin 是两种协议共用的那一份实现。
+//
+// unit 是日志与提示里点名的服务名（smbd / nfs-server）。它不参与渲染——drop-in 的
+// 内容只有 RequiresMountsFor，服务是谁由**文件放在哪个 .d 目录**决定。
+func (e *Engine) applyStartupDropin(ctx context.Context, dep, unit string, mountPaths []string) startupDepResult {
 	fs := e.fs()
 	res := startupDepResult{Status: StartupDepsSkipped, Paths: dedupeStrings(append([]string(nil), mountPaths...))}
 	sort.Strings(res.Paths)
@@ -128,14 +143,13 @@ func (e *Engine) applyStartupDeps(ctx context.Context, mountPaths []string) star
 		return res
 	}
 
-	dep := e.paths().StartupDep
 	existing, readErr := fs.ReadFile(dep)
 	present := readErr == nil
 	if readErr != nil && !os.IsNotExist(readErr) {
 		res.Status = StartupDepsFailed
 		res.Notes = append(res.Notes, Blocker{
 			Code:    NoticeStartupDepFailed,
-			Message: "读不到开机依赖 " + dep + "：没有改动它，因此 smbd 的开机顺序仍然按原来的来",
+			Message: "读不到开机依赖 " + dep + "：没有改动它，因此 " + unit + " 的开机顺序仍然按原来的来",
 		})
 		return res
 	}

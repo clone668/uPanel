@@ -337,9 +337,9 @@ func (s *Server) handleReauth(c *gin.Context) {
 		s.recordDenied(c, &sess, action, target, "validation", httpx.CodeValidationError)
 		return
 	}
-	if req.TOTP != nil {
+	if req.TOTP != nil && !totpCodeShapeOK(*req.TOTP) {
 		s.recordDenied(c, &sess, action, target, "validation", httpx.CodeValidationError)
-		writeError(c, http.StatusBadRequest, httpx.CodeValidationError, "二次验证尚未启用，不能提交 totp")
+		writeError(c, http.StatusBadRequest, httpx.CodeValidationError, "验证码应为六位数字")
 		return
 	}
 	if req.Password == "" {
@@ -348,15 +348,28 @@ func (s *Server) handleReauth(c *gin.Context) {
 		return
 	}
 
+	// 两步（P14.6）：先口令，再二次验证。任何一步不过都不推进再认证窗口——
+	// "再认证"的全部意义就是"刚刚有人当场证明过两样东西"。
+	user, err := s.opts.Auth.VerifyReauthPassword(c.Request.Context(), sess, req.Password, remoteIP(c.Request))
+	if err != nil {
+		s.failReauth(c, &sess, action, target, &errDenied{err})
+		return
+	}
+	if !s.verifySecondFactor(c, user, req.TOTP) {
+		s.recordDenied(c, &sess, action, target, "second_factor", httpx.CodeUnauthenticated)
+		return
+	}
+
 	var until time.Time
-	err := s.opts.Auth.InTransaction(c.Request.Context(), func(ctx context.Context) error {
-		u, err := s.opts.Auth.Reauthenticate(ctx, sess, req.Password, remoteIP(c.Request))
+	err = s.opts.Auth.InTransaction(c.Request.Context(), func(ctx context.Context) error {
+		u, err := s.opts.Auth.MarkReauthenticated(ctx, sess.ID)
 		if err != nil {
 			return &errDenied{err}
 		}
-		// 口令不进审计：只记窗口到期时间。
+		// 口令与验证码都不进审计：只记窗口到期时间。
 		if err := s.recordAuditInTx(ctx, c, sess, action, target, map[string]any{
 			"reauth_expires_at": u.UTC().Format(time.RFC3339),
+			"second_factor":     req.TOTP != nil,
 		}); err != nil {
 			return err
 		}
@@ -367,6 +380,7 @@ func (s *Server) handleReauth(c *gin.Context) {
 		s.failReauth(c, &sess, action, target, err)
 		return
 	}
+	s.opts.Auth.ResetLoginSuccess(sess.User.Username)
 	httpx.WriteData(c.Writer, c.Request, http.StatusOK, reauthResponse{
 		ReauthExpiresAt: until.UTC().Format(time.RFC3339),
 	})
@@ -613,6 +627,17 @@ func denyTarget(c *gin.Context, action string) string {
 			return "app_group:" + id
 		}
 		return "app_group"
+	case audit.ActionScheduleManage:
+		// 列表没有 :id，指向 "schedule" 比指向凭空的 "user" 准确；详情才追到具体一条。
+		if id := c.Param("id"); id != "" {
+			return scheduleAuditTarget(id)
+		}
+		return "schedule"
+	case audit.ActionScriptManage:
+		if id := c.Param("id"); id != "" {
+			return scriptAuditTarget(id)
+		}
+		return "script"
 	}
 	return "user"
 }

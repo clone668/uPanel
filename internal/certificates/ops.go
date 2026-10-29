@@ -130,21 +130,45 @@ func (p ImportParams) StateVersionOf() string {
 
 // IssueParams 是 certificate.issue / certificate.renew 的参数。
 type IssueParams struct {
-	CertificateID string `json:"certificate_id"`
+	// CertificateID 与 Email 在定时续期里是空的，`omitempty` 让它们在
+	// normalized_params 里**不出现**，而不是出现成 `""`。
+	//
+	// 这不是为了好看：面板把代理交上来的定时任务导入任务表时，会把参数按这个结构体
+	// 重新编码一遍，于是计划里本来没有的两个字段会以空值出现在审计行里。真机验收
+	// §5 的断言"定时续期的参数里不该有 certificate_id"就是这么红的——字段在，值空。
+	// 一条审计记录应当长得像它记录的那次操作，而不是像解码它的那个结构体。
+	CertificateID string `json:"certificate_id,omitempty"`
 	Domain        string `json:"domain"`
 	// Email 是 ACME 账号邮箱（Let's Encrypt 用它发到期提醒）。
-	Email string `json:"email"`
+	Email string `json:"email,omitempty"`
 	// Staging 为 true 时用测试环境。**默认就是它**：正式签发有速率限额
 	// （同一域名每周 5 张），一次参数写错就能把域名卡一周。
 	Staging bool `json:"staging"`
+	// Scheduled 表示这次续期由计划任务触发（P12.5），而不是有人在面板上点的。
+	//
+	// 它改变三件事，每一件都是"定时"这个前提逼出来的：
+	//
+	//	证书 id 与邮箱可以空着   触发发生在 systemd 里，那一刻没有面板可问；
+	//	                         域名就够了（ACME 账号在 /etc/letsencrypt，
+	//	                         证书账本在面板，两边都不是这里能读的）。
+	//	不强制重签               `--force-renewal` 每晚跑一次，一周就把 Let's
+	//	                         Encrypt 的速率限额烧光；定时续期只做"该续才续"
+	//	                         （`--keep-until-expiring` 本来就是这个意思）。
+	//	结果自己说话             定时那次没有人看返回值，账本要靠 result 里的
+	//	                         observed 回写（面板侧按域名对账）。
+	Scheduled bool `json:"scheduled,omitempty"`
 }
 
 // Normalize 校验并归一化签发参数。
 func (p IssueParams) Normalize() (IssueParams, error) {
 	out := p
 	out.CertificateID = strings.TrimSpace(out.CertificateID)
-	if !ValidID(out.CertificateID) {
-		return IssueParams{}, invalidParams("certificate_id", "证书标识必须是 crt_ 加 32 位小写十六进制")
+	// 定时续期没有证书 id（面板库里的账本是触发那一刻问不到的东西）。空着可以，
+	// 但填了就必须合法——"可空"不能变成"随便填"。
+	if out.CertificateID != "" || !out.Scheduled {
+		if !ValidID(out.CertificateID) {
+			return IssueParams{}, invalidParams("certificate_id", "证书标识必须是 crt_ 加 32 位小写十六进制")
+		}
 	}
 	domain, err := normalizeDomain(out.Domain)
 	if err != nil {
@@ -158,8 +182,10 @@ func (p IssueParams) Normalize() (IssueParams, error) {
 		return IssueParams{}, invalidParams("domain", "ACME 签发需要一个带点的完整域名")
 	}
 	out.Email = strings.TrimSpace(out.Email)
-	if !ValidEmail(out.Email) {
-		return IssueParams{}, invalidParams("email", "ACME 账号邮箱不合法")
+	if out.Email != "" || !out.Scheduled {
+		if !ValidEmail(out.Email) {
+			return IssueParams{}, invalidParams("email", "ACME 账号邮箱不合法")
+		}
 	}
 	return out, nil
 }
@@ -420,6 +446,23 @@ func (o *Ops) ExecuteImport(ctx context.Context, req proxies.WriteRequest) (prox
 
 // ---- 签发与续期 ----
 
+// targetIdentity 是预检绑定的目标身份。
+//
+// 手工签发/续期用证书 id：那是能复核到具体一条账本记录的东西。**定时续期没有 id**
+// （触发发生在 systemd 里，那一刻没有面板可问，见 IssueParams.Scheduled 的注释），
+// 目标就是那个域名本身——盘上 live/<domain> 那一份，除此之外没有第二个候选。
+//
+// 少了这个回退，定时触发在预检层就被判成"实现错误"而不是"被拒绝"：判决说
+// allowed=true 却没有绑定，注册表按 internal/agent/preflight.go 的规则回
+// 500 INTERNAL_ERROR，systemd 只看到单元失败，人到手的是一个数字。P12.5 第四轮
+// 真机验收撞到的就是这个形状（journal 里是"定时触发的预检失败：缺少目标身份指纹"）。
+func (p IssueParams) targetIdentity() string {
+	if p.CertificateID != "" {
+		return p.CertificateID
+	}
+	return "domain:" + p.Domain
+}
+
 // AssessIssue 计算一次签发/续期的判决。
 func (o *Ops) AssessIssue(ctx context.Context, in IssueParams, action string) (proxies.Assessment, error) {
 	p, err := in.Normalize()
@@ -431,7 +474,7 @@ func (o *Ops) AssessIssue(ctx context.Context, in IssueParams, action string) (p
 		NormalizedParams:    p,
 		TargetID:            p.CertificateID,
 		DisplayName:         p.Domain,
-		IdentityFingerprint: p.CertificateID,
+		IdentityFingerprint: p.targetIdentity(),
 		StateVersion:        p.StateVersionOf(action),
 		Locks:               []string{LockACMEClient, LockPrefixCert + p.Domain},
 	}
@@ -490,6 +533,16 @@ func (o *Ops) AssessIssue(ctx context.Context, in IssueParams, action string) (p
 	return assess, nil
 }
 
+// forceRenewal 报告这一次要不要让 certbot 无条件重签。
+//
+// 只有"人在面板上点续期"那一下要：他要的是立刻重签，certbot 的"还没到期、
+// 跳过"会让按钮看起来没反应。签发与**定时**续期都用 --keep-until-expiring——
+// 一张还没到期的证书不会被无谓地重签，这正是速率限额的用法（每晚
+// --force-renewal，一周就能把 Let'"'"'s Encrypt 对某个域名的限额烧光）。
+func forceRenewal(action string, p IssueParams) bool {
+	return action == ActionRenew && !p.Scheduled
+}
+
 // ExecuteIssue 执行一次签发或续期。
 func (o *Ops) ExecuteIssue(ctx context.Context, req proxies.WriteRequest, action string) (proxies.WriteReport, error) {
 	params, ok := req.Params.(IssueParams)
@@ -514,9 +567,7 @@ func (o *Ops) ExecuteIssue(ctx context.Context, req proxies.WriteRequest, action
 	}
 
 	now := o.now()
-	// force 只在续期时开：让 certbot 无条件重签。签发时用 --keep-until-expiring，
-	// 一张还没到期的证书不会被无谓地重签——这正是速率限额的用法。
-	force := action == ActionRenew
+	force := forceRenewal(action, p)
 	certPath, keyPath, result, err := o.runCertbot(ctx, p, force)
 	if err != nil {
 		observed := map[string]any{
@@ -529,10 +580,13 @@ func (o *Ops) ExecuteIssue(ctx context.Context, req proxies.WriteRequest, action
 			"attempted_at":   now.UTC().Format(time.RFC3339),
 		}
 		return proxies.WriteReport{
-			Outcome:      OutcomeUnknown,
-			Observed:     observed,
-			RecoveryHint: "Certbot 没有成功。上面 stderr_tail 是它自己的最后一段输出；常见原因：域名没有解析到本机、80 端口不通、速率限额、邮箱无效。",
-		}, fmt.Errorf("%w: %v", ErrCertbotFailed, err)
+				Outcome:      OutcomeUnknown,
+				Observed:     observed,
+				RecoveryHint: "Certbot 没有成功。上面 stderr_tail 是它自己的最后一段输出；常见原因：域名没有解析到本机、80 端口不通、速率限额、邮箱无效。",
+			}, certbotFailure{
+				err:    fmt.Errorf("%w: %v", ErrCertbotFailed, err),
+				reason: oneLine(err.Error(), 300),
+			}
 	}
 
 	raw, err := o.opts.FS.ReadFile(certPath)
@@ -754,6 +808,36 @@ func tail(s string, n int) string {
 	}
 	return "…" + strings.TrimSpace(s[len(s)-n:])
 }
+
+// oneLine 把多行原因压成一行：error.message 在界面上按一行显示，换行会被吃掉，
+// 而 certbot 的 stderr 是多行的。
+func oneLine(text string, limit int) string {
+	if fields := strings.Fields(text); len(fields) > 0 {
+		text = strings.Join(fields, " ")
+	}
+	return truncateRunes(text, limit)
+}
+
+// certbotFailure 把 certbot 已经核实过的原因带进任务的 error.message。
+//
+// 为什么需要它：注册表（internal/agent/runner.go）在动作失败时只写 error.message，
+// 失败任务的 result 按契约是空对象——报告里的 stderr_tail 到不了管理员眼前。没有
+// FailureReason()，面板与账本上留下的就是一句"动作执行失败"：一次每晚都在失败的
+// 定时续期，界面上看不出是 80 端口不通、账号失效还是速率限额。
+//
+// 这个接口是结构性的（agent 侧用 errors.As 找 FailureReason() string），所以这里
+// 不必反向依赖 internal/agent。
+type certbotFailure struct {
+	err    error
+	reason string
+}
+
+func (f certbotFailure) Error() string { return f.err.Error() }
+
+func (f certbotFailure) Unwrap() error { return f.err }
+
+// FailureReason 是 agent 侧 FailureReasoner 要的那一句人话。
+func (f certbotFailure) FailureReason() string { return f.reason }
 
 // QueryStaging 让导入参数的 staging 声明参与判决（证书自己说了算的部分在
 // judgeCertPEM 里，这里只把用户的声明带过去）。

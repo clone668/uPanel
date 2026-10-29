@@ -68,11 +68,17 @@ type SweepStats struct {
 	Failed int
 	// SkippedInflight 是提交还在途中、本次刻意跳过的任务数。
 	SkippedInflight int
+	// Imported 是本次从代理导入的定时操作数（P12.4）。
+	//
+	// 它不是"任务数"，是"这次从无到有出现在任务中心的操作数"：定时触发那条路径
+	// 面板没参与，只能反过来问代理（CONTRACTS §15）。
+	Imported int
 }
 
 // settled 表示这次扫描什么都没做（包括“跳过提交途中”的情形按需归入 Deferred）。
 func (s SweepStats) settled() bool {
-	return s.Advanced == 0 && s.Unconfirmed == 0 && s.Unknown == 0 && s.Failed == 0 && s.Deferred == 0
+	return s.Advanced == 0 && s.Unconfirmed == 0 && s.Unknown == 0 && s.Failed == 0 &&
+		s.Deferred == 0 && s.Imported == 0
 }
 
 // reconcileOutcome 是一次单任务对账的结论，只用于计数与日志。
@@ -103,6 +109,21 @@ func (s *Service) SweepPending(ctx context.Context, limit int) (SweepStats, erro
 
 	s.sweepMu.Lock()
 	defer s.sweepMu.Unlock()
+
+	// 先把代理侧"定时触发跑过的操作"导进任务表（P12.4），再扫待对账任务。
+	//
+	// 顺序有意：导入落下的任务带着 needs_sync=1，同一轮的扫描就能顺手核对一遍，
+	// 页面不必等下一轮（最多 30 秒）才看到它。反过来先扫再导，刚进来的任务会在
+	// 库外多躺半分钟——那段时间里任务中心对它一无所知。
+	//
+	// 导入失败不算扫描失败：它是"另一件事"没做成，记在日志里，扫描照常进行。
+	if imported, importErr := s.ImportScheduled(ctx, limit); importErr != nil {
+		if ctx.Err() == nil {
+			s.logger.Warn("导入定时操作失败（本轮继续对账）", "error", importErr)
+		}
+	} else if imported.Imported > 0 {
+		stats.Imported = imported.Imported
+	}
 
 	// 先把 id 取干净再逐条处理：modernc sqlite 的连接池很小，一边遍历游标一边在同一连接池上
 	// 开写事务会互相等。分两步也让“扫描范围”在整轮里稳定，不受本轮自己的写影响。

@@ -36,6 +36,10 @@ type fakeStore struct {
 	accounts map[string]AccountRecord
 	saves    int
 	deletes  int
+	// saveErr / deleteErr 让落库这一步失败（P14.4 真机修正要用的场景）：
+	// 22.04 验收 VM 上就是 SaveShare 被 CHECK 约束挡住，而导出文件已经写好并生效了。
+	saveErr   error
+	deleteErr error
 }
 
 func newFakeStore() *fakeStore {
@@ -73,6 +77,9 @@ func (s *fakeStore) GetShareByName(_ context.Context, name string) (ShareRecord,
 func (s *fakeStore) SaveShare(_ context.Context, rec ShareRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.saveErr != nil {
+		return s.saveErr
+	}
 	s.shares[rec.ID] = rec
 	s.saves++
 	return nil
@@ -81,6 +88,9 @@ func (s *fakeStore) SaveShare(_ context.Context, rec ShareRecord) error {
 func (s *fakeStore) DeleteShare(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.deleteErr != nil {
+		return s.deleteErr
+	}
 	delete(s.shares, id)
 	s.deletes++
 	return nil
@@ -402,6 +412,11 @@ var testTools = ToolPaths{
 	Smbstatus:  "/usr/bin/smbstatus",
 	Setfacl:    "/usr/bin/setfacl",
 	Getfacl:    "/usr/bin/getfacl",
+	// NFS 的两个工具（P14.4）。放在这里而不是只在 NFS 专用测试里给：
+	// `share.capability` 是一份报告，两种协议的能力同时出现在里面——
+	// 让 SMB 的测试跑在一台“没装 NFS”的假机器上，就没法验证这份报告会漏掉谁。
+	Exportfs:  "/usr/sbin/exportfs",
+	Showmount: "/usr/sbin/showmount",
 }
 
 type harness struct {
@@ -431,6 +446,11 @@ type harness struct {
 	statusJSON string
 	// fsyncs 记录目录 fsync 被调了几次。
 	fsyncs int
+	// exportfs 是假的 NFS 导出表（P14.4）。
+	//
+	// 它是**有状态**的：`exportfs -ra` 真的去读那个临时文件再重算表，`-v` 再把表
+	// 打印出来。“写了什么”与“生效了什么”因此是两件可以被分开断言的事。
+	exportfs *fakeExportfs
 }
 
 // fakeSystem 是 getent/passwd/useradd/userdel/smbpasswd/pdbedit 的一台“小系统”。
@@ -606,6 +626,12 @@ func newHarness(t *testing.T) *harness {
 		// 开机依赖也落在这个临时目录里：/etc/systemd 是 root 的，而且
 		// “内容没变就不重载”“路径非法就不写”这些判断必须能在测试里反复跑。
 		StartupDep: filepath.Join(dir, "systemd", "smbd.service.d", "upanel-shares.conf"),
+		// 导出这一半的四个路径（P14.4），同样落在临时目录里：
+		// “候选写坏时正式文件不动”“读回不符就还原”这些判断必须能反复跑。
+		Exports:           filepath.Join(dir, "exports.d", "upanel.exports"),
+		ExportsDir:        filepath.Join(dir, "exports.d"),
+		ExportsMain:       filepath.Join(dir, "exports"),
+		ExportsStartupDep: filepath.Join(dir, "systemd", "nfs-server.service.d", "upanel-exports.conf"),
 	}
 	if err := os.WriteFile(h.cfg.Main, []byte("[global]\n   workgroup = WORKGROUP\n"), 0o644); err != nil {
 		t.Fatalf("准备 smb.conf 失败: %v", err)
@@ -614,6 +640,8 @@ func newHarness(t *testing.T) *harness {
 	h.statusJSON = `{"timestamp":"2026-10-22T12:55:52.192073+0000","version":"4.19.5-Ubuntu",` +
 		`"sessions":{},"tcons":{},"open_files":{}}`
 	h.installConfigPrograms()
+	h.exportfs = &fakeExportfs{}
+	h.exportfs.install(h.runner, h.cfg.Exports)
 
 	prober := NewProber(ProberOptions{
 		// 能力探针问的是固定常量路径，测试里把它们映射到临时目录：
@@ -621,6 +649,9 @@ func newHarness(t *testing.T) *harness {
 		Stat: func(name string) (os.FileInfo, error) {
 			if name == DefaultIncludeDir {
 				return os.Stat(h.cfg.IncludeDir)
+			}
+			if name == DefaultExportsDir {
+				return os.Stat(h.cfg.ExportsDir)
 			}
 			fi := fakeFile{isDir: true}
 			return &fi, nil
@@ -631,6 +662,10 @@ func newHarness(t *testing.T) *harness {
 				return os.ReadFile(h.cfg.Main)
 			case ManagedConfigPath:
 				return os.ReadFile(h.cfg.Managed)
+			case DefaultExportsFile:
+				return os.ReadFile(h.cfg.Exports)
+			case DefaultExportsMain:
+				return os.ReadFile(h.cfg.ExportsMain)
 			}
 			return nil, os.ErrNotExist
 		},

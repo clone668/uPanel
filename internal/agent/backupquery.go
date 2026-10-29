@@ -31,9 +31,10 @@ type backupStateParams struct {
 // 同一串动作要 30 秒上下——`ssh` 握手 3—9 秒、SFTP 逐次 stat 各一个往返、restic
 // `cat config` 5—12 秒。原来给 30 秒，恰好在这台机器上把一次**正常的**查询卡成超时，
 // 而超时又被报成"restic 以退出状态 -1 结束"（见 internal/backup/exec.go 的
-// ErrBudgetExhausted）。预算按最慢的合理现场定，不按"我这台机器跑得飞快"定；
-// 真连不上时先到的是拨号自己的 15 秒上限（最多两轮），不会被这条预算拖住。
-const backupStateBudget = 45 * time.Second
+// ErrBudgetExhausted）。预算按最慢的合理现场定，不按"我这台机器跑得飞快"定。
+// 拨号上限现在是 30 秒、最多两轮；75 秒仍能容下两轮拨号后再读一次 config，
+// 并且小于 BackupQueryTimeout（100 秒），先说话的是这里的预算而不是 Web 的客户端。
+const backupStateBudget = 75 * time.Second
 
 // RegisterBackupQueries 登记备份只读查询。
 func RegisterBackupQueries(reg *Registry, src backupSource) error {

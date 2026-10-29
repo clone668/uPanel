@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -81,6 +82,16 @@ func (f *adminFixture) do(t *testing.T, method, path, body string) *httptest.Res
 // doAs 用指定会话发送请求（用于 viewer 越权用例）。
 func (f *adminFixture) doAs(t *testing.T, cookie *http.Cookie, csrf, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
+	return f.doAsFrom(t, cookie, csrf, "", method, path, body)
+}
+
+// doAsFrom 与 doAs 相同，但把"这条连接到达的本地地址"放进请求上下文。
+//
+// 生产里这个值是 net/http 自己填的（http.LocalAddrContextKey）；httptest.NewRequest
+// 不走真实连接，所以必须显式补上——network.confirm 的展开正是靠它拿到凭据
+// （CONTRACTS §13.6），补不上的请求会被**正确地**拒绝。
+func (f *adminFixture) doAsFrom(t *testing.T, cookie *http.Cookie, csrf, local, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	req.Header.Set("Origin", testOrigin)
 	req.Header.Set("Cookie", cookie.String())
@@ -89,6 +100,10 @@ func (f *adminFixture) doAs(t *testing.T, cookie *http.Cookie, csrf, method, pat
 		if body != "" {
 			req.Header.Set("Content-Type", "application/json")
 		}
+	}
+	if local != "" {
+		req = req.WithContext(context.WithValue(req.Context(),
+			http.LocalAddrContextKey, &net.TCPAddr{IP: net.ParseIP(local), Port: 443}))
 	}
 	rec := httptest.NewRecorder()
 	f.srv.Handler().ServeHTTP(rec, req)

@@ -41,9 +41,19 @@ func signalName(ps *os.ProcessState) string {
 	return fmt.Sprintf("信号 %d", int(sig))
 }
 
-// setProcAttr 让子进程进入独立进程组，终止时可以连同它派生的进程一起杀掉。
-func setProcAttr(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+// setProcAttr 让子进程进入独立进程组，终止时可以连同它派生的进程一起杀掉；
+// 给了 Credential 时同时把子进程降到那个身份（fork 之后、exec 之前生效）。
+func setProcAttr(cmd *exec.Cmd, cred *Credential) error {
+	attr := &syscall.SysProcAttr{Setpgid: true}
+	if cred != nil {
+		attr.Credential = &syscall.Credential{
+			Uid:    cred.UID,
+			Gid:    cred.GID,
+			Groups: cred.Groups,
+		}
+	}
+	cmd.SysProcAttr = attr
+	return nil
 }
 
 // killProcessGroup 向整个进程组发送 SIGKILL。

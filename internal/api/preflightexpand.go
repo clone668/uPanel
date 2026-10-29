@@ -26,9 +26,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"upanel/internal/backup"
 	"upanel/internal/certificates"
 	"upanel/internal/httpx"
+	"upanel/internal/network"
 	"upanel/internal/proxies"
+	"upanel/internal/schedules"
 )
 
 // proxyApplyParamsRequest 是调用方交给 proxy.apply 的唯一字段。
@@ -41,12 +44,23 @@ type proxyApplyParamsRequest struct {
 // 返回 false 表示已经写出错误响应，调用方应当直接 return。
 func (s *Server) expandPreflightParams(c *gin.Context, action string, params json.RawMessage) (json.RawMessage, bool) {
 	// 证书的三个动作各有自己的展开规则（P10.3），见 certificateexpand.go。
+	// backup.run 要把策略里的 app_ids 解析成运行对象（P12.2），见 backupexpand.go。
 	// 其余动作（含 proxy.apply）落到下面。
 	switch action {
 	case certificates.ActionImport:
 		return s.expandCertificateImport(c, params)
 	case certificates.ActionIssue, certificates.ActionRenew:
 		return s.expandCertificateIssue(c, action, params)
+	case schedules.ActionApply:
+		// 证书续期计划要把域名与 ACME 环境按证书记录填进去（P12.5），见 scheduleexpand.go。
+		return s.expandScheduleApply(c, params)
+	case backup.ActionRun:
+		return s.expandBackupRun(c, params)
+	case backup.ActionRestore:
+		return s.expandBackupRestore(c, params)
+	case network.ActionConfirm:
+		// 确认的凭据是"这次请求到达了哪个地址"，只能从连接取（P14.2），见 networkexpand.go。
+		return s.expandNetworkConfirm(c, params)
 	case proxies.ActionProxyApply:
 		// 继续往下，走站点定义的展开。
 	default:

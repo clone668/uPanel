@@ -57,8 +57,19 @@ func RegisterShareActions(reg *Registry, src sharesSource) error {
 	return nil
 }
 
+// writeSource 是预检与执行适配器真正需要的最小能力：一次判决、一次执行。
+//
+// 收窄到这个形状而不是整个 sharesSource，是为了让 P14.5 的账号动作也能用同一对
+// 适配器——账号复用 shares 的 Assessment/WriteReport 形状（DECISIONS Q475），
+// 但它既没有 Capability 也没有 Connections，要求它实现整个 sharesSource 只能
+// 逼出一个空实现。
+type writeSource interface {
+	Assess(ctx context.Context, action string, params any) (shares.Assessment, error)
+	ExecuteWrite(ctx context.Context, req shares.WriteRequest) (shares.WriteReport, error)
+}
+
 // sharesPlanner 把共享判决映射成预检计划。
-func sharesPlanner(src sharesSource, action string) func(context.Context, PlanInput) (Plan, error) {
+func sharesPlanner(src writeSource, action string) func(context.Context, PlanInput) (Plan, error) {
 	return func(ctx context.Context, in PlanInput) (Plan, error) {
 		assessment, err := src.Assess(ctx, action, in.Params)
 		if err != nil {
@@ -98,7 +109,7 @@ func sharesPlanner(src sharesSource, action string) func(context.Context, PlanIn
 // share.apply 在 P08.1 只能给出 accepted（目录与 ACL 准备好了，共享还没被提供）。
 // 如果这里像存储执行器那样硬写 verified，任务中心会显示“已核验”，而事实是配置
 // 还没写进 Samba。
-func sharesExecutor(src sharesSource, action string) func(context.Context, ExecuteInput) (Result, error) {
+func sharesExecutor(src writeSource, action string) func(context.Context, ExecuteInput) (Result, error) {
 	return func(ctx context.Context, in ExecuteInput) (Result, error) {
 		report, err := src.ExecuteWrite(ctx, shares.WriteRequest{
 			Action:               action,
@@ -124,7 +135,7 @@ func sharesExecutor(src sharesSource, action string) func(context.Context, Execu
 		case shares.OutcomeAccepted:
 			out.Outcome = OutcomeAccepted
 		default:
-			return Result{}, fmt.Errorf("%w: 共享执行器返回了未知 outcome %q",
+			return Result{}, fmt.Errorf("%w: 执行器返回了未知 outcome %q",
 				ErrInvalidResult, report.Outcome)
 		}
 		return out, nil

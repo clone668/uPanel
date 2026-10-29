@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"upanel/internal/schedules"
 )
 
 // 账号管理相关错误（P02.2）。
@@ -18,6 +20,14 @@ var (
 	// ErrSelfModification 表示管理员试图改动自己的角色或启用状态。
 	ErrSelfModification = errors.New("auth: 不能修改自己的角色或启用状态")
 )
+
+// isSystemAccount 判断 id 是否是定时触发的保留账号（P12.4）。
+//
+// 那一行在 users 里存在，只因为 jobs.user_id 是 NOT NULL 外键：定时触发需要一个
+// "操作者"，而它不可能是任何真实管理员。它对账号管理**不存在**——列表里不出现、
+// 按 id 查是"没有这个账号"、改和删都以同样的回答拒绝。这样就没有一条路径能让
+// 它变成一个能登录的账号，也没有一条路径能删掉它把历史任务的外键拔掉。
+func isSystemAccount(id int64) bool { return id == schedules.SystemUserID }
 
 // ListUsers 返回当页账号（按用户名排序）与下一页游标。
 //
@@ -37,7 +47,8 @@ func (s *Service) ListUsers(ctx context.Context, limit int, cursor string) ([]Us
 
 	rows, err := s.db.SQL().QueryContext(ctx, `
 		SELECT id, username, display_name, role, disabled, version, created_at, updated_at
-		FROM users WHERE username > ? ORDER BY username LIMIT ?`, after, limit+1)
+		FROM users WHERE username > ? AND id <> ? ORDER BY username LIMIT ?`,
+		after, schedules.SystemUserID, limit+1)
 	if err != nil {
 		return nil, "", fmt.Errorf("auth: 查询账号列表失败: %w", err)
 	}
@@ -101,7 +112,12 @@ func decodeUserCursor(cursor string) (string, error) {
 }
 
 // GetUser 按 id 查询账号。
+//
+// 保留账号在这里等同于"不存在"：它不是一个可以被查看、授予角色或启用的账号。
 func (s *Service) GetUser(ctx context.Context, id int64) (User, error) {
+	if isSystemAccount(id) {
+		return User{}, ErrUserNotFound
+	}
 	return scanUser(s.db.SQL().QueryRowContext(ctx, `
 		SELECT id, username, display_name, role, disabled, version, created_at, updated_at
 		FROM users WHERE id = ?`, id))
@@ -127,6 +143,11 @@ type UpdateUserInput struct {
 //   - 不得让系统失去最后一个可用管理员（demote 或禁用最后一个 admin 都拒绝）；
 //   - version 不匹配返回 ErrVersionConflict，调用方映射为 409。
 func (s *Service) UpdateUser(ctx context.Context, in UpdateUserInput) (User, error) {
+	if isSystemAccount(in.UserID) {
+		// 改它没有意义也没有好结果：启用它等于造出一个没有密码的账号，
+		// 提成 admin 等于给"定时任务"一份不该有的身份。答案同"不存在"。
+		return User{}, ErrUserNotFound
+	}
 	var updated User
 	err := s.db.WithTx(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		var (
@@ -282,6 +303,11 @@ type DeleteUserInput struct {
 func (s *Service) DeleteUser(ctx context.Context, in DeleteUserInput) error {
 	if in.ActorID == in.UserID {
 		return ErrSelfModification
+	}
+	if isSystemAccount(in.UserID) {
+		// 删它等于让历史任务失去操作者（jobs.user_id 是 ON DELETE RESTRICT，库也会拒绝）。
+		// 答案与"没有这个账号"一致：它从来不是一个账号。
+		return ErrUserNotFound
 	}
 	return s.db.WithTx(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		var (

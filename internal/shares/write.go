@@ -125,6 +125,11 @@ func (e *Engine) executeShareApply(ctx context.Context, p ShareApplyParams, req 
 			blockers[0].Message)
 	}
 
+	// NFS 从这里分头（P14.4）：没有账号、没有 ACL，只有网段与导出表。
+	if def.Protocol == ProtocolNFS {
+		return e.executeShareApplyNFS(ctx, p, dctx, req)
+	}
+
 	// 1. 目录。目标目录 0700（先紧后松），上级只要 x（能穿过去）；见 ensureShareDir。
 	repaired, err := e.ensureShareDir(dctx.MountPath, dctx.Dir)
 	if err != nil {
@@ -305,6 +310,9 @@ func (e *Engine) executeShareRef(ctx context.Context, action string, p ShareRefP
 	}
 	if !found {
 		return WriteReport{}, notFound("共享 %s 已不存在", p.ShareID)
+	}
+	if rec.Definition.Protocol == ProtocolNFS {
+		return e.executeShareRefNFS(ctx, action, rec, req)
 	}
 
 	// 1. 先把这份共享从配置里摘掉。

@@ -50,6 +50,11 @@ type ReconcileReport struct {
 	Service string `json:"service,omitempty"`
 	// Served 是“剩下的那些段此刻在被 Samba 提供”的结论。
 	Served bool `json:"served"`
+	// ExportsWritten 报告这次有没有真的重写托管导出文件（NFS，P14.4）。
+	ExportsWritten bool `json:"exports_written"`
+	// ExportsReload / ExportsServed 是导出这一半的结果（没写就是空）。
+	ExportsReload string `json:"exports_reload,omitempty"`
+	ExportsServed bool   `json:"exports_served"`
 	// Notes 是给人看的补充说明。
 	Notes []Blocker `json:"notes"`
 	// CheckedAt 是这次对账的时间。占用/挂载都是某一瞬间的事实，必须带时间。
@@ -125,7 +130,7 @@ func (e *Engine) ReconcileVolumes(ctx context.Context) (ReconcileReport, error) 
 	if len(inConfig) == 0 {
 		// 配置里已经没有了（上一次撤销过，或者从来没写进去过）：只补登记表。
 		// 不写文件、不重载——没有变化就没有写入，这条规则与人工应用是同一条。
-		return out, e.saveRevoked(ctx, offline, now)
+		return out, e.reconcileExports(ctx, &out, records, offlineIDs, offline, now)
 	}
 
 	// 整份重写：renderManagedShares 会把所有离线的都跳过，不只是这几条。
@@ -160,7 +165,95 @@ func (e *Engine) ReconcileVolumes(ctx context.Context) (ReconcileReport, error) 
 	out.Service = cfg.Report.Service
 	out.Served = cfg.Report.Served
 	out.Notes = append(out.Notes, cfg.Report.Notes...)
-	return out, e.saveRevoked(ctx, offline, now)
+	// SMB 已经处理完，导出这一半仍然要看一遍：同一次故障可能是两块互不相干的盘，
+	// 也可能共享与导出各自绑着不同的卷。跳过它等于把 NFS 的暴露面留到下一个 30 秒。
+	return out, e.reconcileExports(ctx, &out, records, offlineIDs, offline, now)
+}
+
+// reconcileExports 是运行时撤销的 NFS 那一半。
+//
+// 它单独一段而不是与 SMB 混在一起，因为两边的“在不在配置里”用的是完全不同的判据：
+// 一边是段名，另一边是导出表里的目录行（而且只有带行尾标记的那些才算面板的）。
+//
+// 撤销只撤这一次观测到离线的：托管导出文件是整份重写的，所以“应用 A”会顺带把 B 的
+// 行重写一遍——B 的卷要是此刻没挂，renderExports 会跳过它，这条跳过是安全的（少一份
+// 导出比多一份指向空目录的导出好），报告里点名。
+func (e *Engine) reconcileExports(ctx context.Context, out *ReconcileReport, records []ShareRecord, offlineIDs map[string]bool, offline []offlineShare, now time.Time) error {
+	present, err := e.managedExportIDs()
+	if err != nil {
+		return err
+	}
+	var nfsOffline []offlineShare
+	for _, p := range offline {
+		if p.rec.Definition.Protocol != ProtocolNFS {
+			continue
+		}
+		nfsOffline = append(nfsOffline, p)
+	}
+	if len(nfsOffline) > 0 {
+		// 这些行现在还在托管导出文件里吗？不在就没有可撤的东西，只剩登记表要补齐。
+		inFile := false
+		for _, p := range nfsOffline {
+			if present[p.rec.ID] {
+				inFile = true
+				break
+			}
+		}
+		if !inFile {
+			return e.saveRevoked(ctx, offline, now)
+		}
+		renderable := make([]ShareRecord, 0, len(records))
+		for _, rec := range records {
+			if offlineIDs[rec.ID] {
+				continue
+			}
+			renderable = append(renderable, rec)
+		}
+		desired, skipped, err := e.renderExports(ctx, renderable)
+		if err != nil {
+			return err
+		}
+		cfg, err := e.applyExports(ctx, desired, skipped, nil)
+		if err != nil {
+			return err
+		}
+		e.opts.Prober.Invalidate()
+		names := make([]string, 0, len(nfsOffline))
+		for _, p := range nfsOffline {
+			names = append(names, p.rec.Definition.Name)
+		}
+		out.Notes = append(out.Notes, Blocker{
+			Code: NoticeShareRevokedOffline,
+			Message: "这些 NFS 共享的卷当前没有挂载，它们的导出行已从 " + cfg.Report.Path +
+				" 摘掉：" + strings.Join(names, "、"),
+		})
+		out.ExportsWritten = true
+		out.ExportsReload = cfg.Report.Reload
+		out.ExportsServed = cfg.Report.Served
+		out.Notes = append(out.Notes, cfg.Report.Notes...)
+	}
+	return e.saveRevoked(ctx, offline, now)
+}
+
+// managedExportIDs 读托管导出文件里带行尾标记的共享 id。
+//
+// 文件不存在就是空集：还没写过导出的机器上没有任何东西可撤。
+func (e *Engine) managedExportIDs() (map[string]bool, error) {
+	data, err := e.fs().ReadFile(e.paths().Exports)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]bool{}, nil
+		}
+		return nil, err
+	}
+	entries, _ := ParseExports(data)
+	out := make(map[string]bool, len(entries))
+	for _, en := range entries {
+		if en.Managed() {
+			out[en.ManagedID] = true
+		}
+	}
+	return out, nil
 }
 
 // offlineShare 是一条“卷不在挂载状态”的共享与它的闸门状态。

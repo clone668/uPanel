@@ -59,6 +59,23 @@ const (
 	maxNetworkCapacityTimeoutSeconds     = 60
 	defaultNetworkCapacityTimeoutSeconds = 10
 
+	// 历史监控（P13.1）。默认值就是 PLAN.md 第 18 节的 24h / 30d / 365d；
+	// 范围允许压缩到分钟级——那是一台测试虚拟机验证“保留真的会删数据”的唯一办法，
+	// 生产机上把它改成分钟级只会丢掉历史，不会带来别的好处。
+	minMetricsIntervalSeconds        = 1
+	maxMetricsIntervalSeconds        = 60
+	defaultMetricsIntervalSeconds    = 2
+	minMetricsRetentionSeconds       = 60
+	maxMetricsRawRetentionSeconds    = 7 * 24 * 3600
+	maxMetricsMinuteRetentionSeconds = 365 * 24 * 3600
+	maxMetricsHourRetentionSeconds   = 10 * 365 * 24 * 3600
+	defaultMetricsRawRetention       = 24 * 3600
+	defaultMetricsMinuteRetention    = 30 * 24 * 3600
+	defaultMetricsHourRetention      = 365 * 24 * 3600
+	minMetricsMaxRows                = 10_000
+	maxMetricsMaxRows                = 50_000_000
+	defaultMetricsMaxRows            = 2_000_000
+
 	// 终端账号与 home（PLAN.md 第 4 节：upanel-shell、/var/lib/upanel-shell）。
 	defaultShellUser    = "upanel-shell"
 	defaultTerminalHome = "/var/lib/upanel-shell"
@@ -97,6 +114,80 @@ type Web struct {
 	TLSKeyPath string `json:"tls_key_path"`
 	// ShutdownTimeoutSeconds 为优雅停止等待时间。
 	ShutdownTimeoutSeconds int `json:"shutdown_timeout_seconds"`
+	// Metrics 是历史监控的写入与保留参数（P13.1）。
+	Metrics Metrics `json:"metrics"`
+}
+
+// Metrics 是历史监控（P13.1；PLAN.md 第 18 节）。
+//
+// 采集与聚合都在**面板进程内**（PLAN.md 第 17 节：监控采集使用程序内固定调度，
+// 不暴露任意 root 监控脚本任务）。这里只暴露节奏与保留窗口，不暴露“采哪些指标”：
+// 指标集合是产品行为，改它意味着告警与图表的含义一起变。
+type Metrics struct {
+	// Enabled 控制是否写历史。关掉之后 /system/metrics 回 enabled=false，
+	// 首页的实时指标不受影响。
+	Enabled bool `json:"enabled"`
+	// IntervalSeconds 是轮询代理快照的间隔（秒，1—60，默认 2）。
+	//
+	// 默认值比代理的 5 秒采集快一档：5 秒轮询 5 秒采集会踩点，踩上就丢一整份快照。
+	// 写入按快照的 collected_at 去重，所以更勤的轮询不会写重。
+	IntervalSeconds int `json:"interval_seconds"`
+	// RawRetentionSeconds 是原始样本的保留时长（秒，默认 86400 = 24 小时）。
+	RawRetentionSeconds int `json:"raw_retention_seconds"`
+	// MinuteRetentionSeconds 是 1 分钟聚合的保留时长（秒，默认 2592000 = 30 天）。
+	MinuteRetentionSeconds int `json:"minute_retention_seconds"`
+	// HourRetentionSeconds 是 1 小时聚合的保留时长（秒，默认 31536000 = 365 天）。
+	HourRetentionSeconds int `json:"hour_retention_seconds"`
+	// MaxRows 是 metric_samples 的行数上限。超过时从最老的原始样本开始丢整桶，
+	// 保证面板的数据库不会被历史撑满（CONTRACTS.md 第 14.1 节）。
+	MaxRows int `json:"max_rows"`
+}
+
+// Interval 返回轮询间隔。
+func (m Metrics) Interval() time.Duration {
+	return time.Duration(m.IntervalSeconds) * time.Second
+}
+
+// Retention 返回三个粒度的保留窗口。
+func (m Metrics) Retention() (raw, minute, hour time.Duration) {
+	return time.Duration(m.RawRetentionSeconds) * time.Second,
+		time.Duration(m.MinuteRetentionSeconds) * time.Second,
+		time.Duration(m.HourRetentionSeconds) * time.Second
+}
+
+// Validate 校验历史监控段。
+func (m Metrics) Validate() error {
+	if m.IntervalSeconds < minMetricsIntervalSeconds || m.IntervalSeconds > maxMetricsIntervalSeconds {
+		return fmt.Errorf("web.metrics.interval_seconds 必须在 %d—%d 之间，当前为 %d",
+			minMetricsIntervalSeconds, maxMetricsIntervalSeconds, m.IntervalSeconds)
+	}
+	if m.RawRetentionSeconds < minMetricsRetentionSeconds || m.RawRetentionSeconds > maxMetricsRawRetentionSeconds {
+		return fmt.Errorf("web.metrics.raw_retention_seconds 必须在 %d—%d 之间，当前为 %d",
+			minMetricsRetentionSeconds, maxMetricsRawRetentionSeconds, m.RawRetentionSeconds)
+	}
+	if m.MinuteRetentionSeconds < minMetricsRetentionSeconds || m.MinuteRetentionSeconds > maxMetricsMinuteRetentionSeconds {
+		return fmt.Errorf("web.metrics.minute_retention_seconds 必须在 %d—%d 之间，当前为 %d",
+			minMetricsRetentionSeconds, maxMetricsMinuteRetentionSeconds, m.MinuteRetentionSeconds)
+	}
+	if m.HourRetentionSeconds < minMetricsRetentionSeconds || m.HourRetentionSeconds > maxMetricsHourRetentionSeconds {
+		return fmt.Errorf("web.metrics.hour_retention_seconds 必须在 %d—%d 之间，当前为 %d",
+			minMetricsRetentionSeconds, maxMetricsHourRetentionSeconds, m.HourRetentionSeconds)
+	}
+	// 粒度越粗留得越久：反过来的配置会让聚合数据比它的来源先消失，
+	// 结果是“原始数据还在，但分钟曲线缺了一段”，这不像是配置，像是故障。
+	if m.MinuteRetentionSeconds < m.RawRetentionSeconds {
+		return fmt.Errorf("web.metrics.minute_retention_seconds（%d）不能小于 raw_retention_seconds（%d）",
+			m.MinuteRetentionSeconds, m.RawRetentionSeconds)
+	}
+	if m.HourRetentionSeconds < m.MinuteRetentionSeconds {
+		return fmt.Errorf("web.metrics.hour_retention_seconds（%d）不能小于 minute_retention_seconds（%d）",
+			m.HourRetentionSeconds, m.MinuteRetentionSeconds)
+	}
+	if m.MaxRows < minMetricsMaxRows || m.MaxRows > maxMetricsMaxRows {
+		return fmt.Errorf("web.metrics.max_rows 必须在 %d—%d 之间，当前为 %d",
+			minMetricsMaxRows, maxMetricsMaxRows, m.MaxRows)
+	}
+	return nil
 }
 
 // Agent 是特权代理配置。代理没有 mock 模式。
@@ -128,6 +219,23 @@ type Agent struct {
 	Terminal Terminal `json:"terminal"`
 	// Certificates 是证书模块的配置（P10.3）。
 	Certificates Certificates `json:"certificates"`
+	// Backup 是备份模块的配置（P12.2）。
+	Backup Backup `json:"backup"`
+}
+
+// Backup 是备份模块的配置（P12.2）。
+//
+// 只装"这台机器上的位置"，不装策略：备份什么、多久备一次由 Web 侧的策略定义，
+// 代理只负责按策略干活。面板库的位置是代理要读的东西，所以它必须由 root 的配置
+// 决定，而不是由请求体决定——否则一次请求就能让 root 去读任意文件。
+type Backup struct {
+	// PanelDatabasePath 是面板数据库的路径。Linux 默认与 Web 的默认值相同
+	// （/var/lib/upanel/upanel.db）：两者本来就在同一台机器上。
+	// 留空表示"不知道面板库在哪"：列了 panel_database 来源的策略会在预检里被挡住。
+	PanelDatabasePath string `json:"panel_database_path"`
+	// PanelCopyDir 是面板库一致副本的落盘目录。留空时用代理 StateDir 下的
+	// panel-copies（root:root 0700）。副本里有会话与口令哈希，只在一次运行期间存在。
+	PanelCopyDir string `json:"panel_copy_dir"`
 }
 
 // Certificates 是证书模块的配置（P10.3）。
@@ -312,6 +420,14 @@ func Defaults() Config {
 			Mode:                   platform.ModeProduction.String(),
 			ListenAddress:          ListenProduction,
 			ShutdownTimeoutSeconds: defaultShutdownSeconds,
+			Metrics: Metrics{
+				Enabled:                true,
+				IntervalSeconds:        defaultMetricsIntervalSeconds,
+				RawRetentionSeconds:    defaultMetricsRawRetention,
+				MinuteRetentionSeconds: defaultMetricsMinuteRetention,
+				HourRetentionSeconds:   defaultMetricsHourRetention,
+				MaxRows:                defaultMetricsMaxRows,
+			},
 		},
 		Agent: Agent{
 			SocketPath:             AgentSocketPath,
@@ -325,6 +441,7 @@ func Defaults() Config {
 				NetworkCapacityTimeoutSeconds: defaultNetworkCapacityTimeoutSeconds,
 			},
 			Services: Services{},
+			Backup:   Backup{PanelDatabasePath: defaultDatabasePath()},
 			Terminal: Terminal{
 				ShellUser:              defaultShellUser,
 				HomePath:               defaultTerminalHome,
@@ -463,6 +580,9 @@ func (w Web) Validate() error {
 		return fmt.Errorf("web.shutdown_timeout_seconds 必须在 %d—%d 之间，当前为 %d",
 			minShutdownTimeoutSeconds, maxShutdownTimeoutSeconds, w.ShutdownTimeoutSeconds)
 	}
+	if err := w.Metrics.Validate(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -492,6 +612,22 @@ func (a Agent) Validate() error {
 	for _, item := range []struct{ field, value string }{
 		{"agent.database_path", a.DatabasePath},
 		{"agent.secret_key_path", a.SecretKeyPath},
+	} {
+		if item.value == "" {
+			continue
+		}
+		if !path.IsAbs(item.value) {
+			return fmt.Errorf("%s 必须是 POSIX 绝对路径，当前为 %q", item.field, item.value)
+		}
+		if strings.ContainsAny(item.value, "?#") {
+			return fmt.Errorf("%s 不能包含 '?' 或 '#'，当前为 %q", item.field, item.value)
+		}
+	}
+	// 备份的两条路径：面板库是"要读的文件"，副本目录是"要写的目录"。
+	// 两者都按 POSIX 语义校验；空值表示未配置（面板库空 = 不知道在哪）。
+	for _, item := range []struct{ field, value string }{
+		{"agent.backup.panel_database_path", a.Backup.PanelDatabasePath},
+		{"agent.backup.panel_copy_dir", a.Backup.PanelCopyDir},
 	} {
 		if item.value == "" {
 			continue

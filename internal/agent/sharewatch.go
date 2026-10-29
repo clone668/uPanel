@@ -110,5 +110,8 @@ func (s *Server) reconcileSharesOnce(ctx context.Context) {
 		"reload", rep.Reload,
 		"service", rep.Service,
 		"served", rep.Served,
+		"exports_written", rep.ExportsWritten,
+		"exports_reload", rep.ExportsReload,
+		"exports_served", rep.ExportsServed,
 		"note", "卷恢复后需要重新应用共享——不会自动写回")
 }

@@ -245,7 +245,8 @@ func (p Paths) KeyPathOf(domain string, source Source) string {
 //     程序在黑盒里做一遍。
 //   - --webroot 只是把校验文件写进目录，由我们自己的 server 块提供服务。
 //   - --non-interactive 与 --agree-tos：没有 TTY，也没有“同意条款”这一步的交互。
-//     --email 来自记录（Certbot 账号需要它）。
+//     --email 来自证书记录（Certbot 注册账号需要它）；定时续期没有记录可读，
+//     于是不传这个参数、让 certbot 用机器上已有的那个账号（见下面的分支）。
 //
 // serverURL 永远由调用方从两个常量里选（staging 或正式），不接受任意 URL 作为
 // 参数——那是“任意 Certbot 参数”的另一种写法。
@@ -254,14 +255,21 @@ func CertbotArgs(certbotPath, webroot, domain, email, serverURL string, force bo
 		"certonly",
 		"--non-interactive",
 		"--agree-tos",
-		"--email", email,
+	}
+	// 空邮箱不是"错参数"，是"用这台机器上已有的 ACME 账号"（定时续期走这条）。
+	// 传 `--email ""` 会让 certbot 直接拒绝；不传，它会去 /etc/letsencrypt/accounts
+	// 找已经注册过的那个账号——证书在盘上，账号就一定在。
+	if email != "" {
+		args = append(args, "--email", email)
+	}
+	args = append(args,
 		"--webroot",
 		"--webroot-path", webroot,
 		"--cert-name", domain,
 		"--domain", domain,
 		"--server", serverURL,
 		"--keep-until-expiring",
-	}
+	)
 	if force {
 		args = append(args, "--force-renewal")
 	}

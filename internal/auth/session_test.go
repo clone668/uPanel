@@ -180,10 +180,15 @@ func TestIdleTimeoutAndSlidingTouch(t *testing.T) {
 		t.Fatalf("登录失败: %v", err)
 	}
 
-	// 半程访问一次：会话应滑动续期。
+	// 半程访问一次：会话应滑动续期，并且要告诉调用方“这次续期了”——
+	// HTTP 层靠这个标志同步 Cookie 的 Expires。
 	clock.Advance(20 * time.Minute)
-	if _, err := svc.Authenticate(ctx, issued.Token); err != nil {
+	sess, err := svc.Authenticate(ctx, issued.Token)
+	if err != nil {
 		t.Fatalf("空闲 20 分钟后会话仍应有效: %v", err)
+	}
+	if !sess.Extended() {
+		t.Fatal("滑动续期后 Extended 必须为 true，否则 Cookie 不会被重发")
 	}
 	// 再空闲 20 分钟（累计 40 分钟 > 30 分钟），但因为刚才续期过，仍然有效。
 	clock.Advance(20 * time.Minute)
@@ -220,16 +225,24 @@ func TestTouchIsThrottledToOncePerMinute(t *testing.T) {
 
 	before := read()
 	clock.Advance(10 * time.Second)
-	if _, err := svc.Authenticate(ctx, issued.Token); err != nil {
+	sess, err := svc.Authenticate(ctx, issued.Token)
+	if err != nil {
 		t.Fatalf("校验失败: %v", err)
+	}
+	if sess.Extended() {
+		t.Fatal("节流窗口内没有续期，Extended 不该为 true（否则每次请求都重发 Cookie）")
 	}
 	if read() != before {
 		t.Fatal("一分钟内的多次访问不应每次都写库")
 	}
 
 	clock.Advance(time.Minute)
-	if _, err := svc.Authenticate(ctx, issued.Token); err != nil {
+	sess, err = svc.Authenticate(ctx, issued.Token)
+	if err != nil {
 		t.Fatalf("校验失败: %v", err)
+	}
+	if !sess.Extended() {
+		t.Fatal("超过一分钟的访问必须续期并标记 Extended")
 	}
 	if read() == before {
 		t.Fatal("超过一分钟应更新 last_seen_at")

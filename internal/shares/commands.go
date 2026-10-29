@@ -143,3 +143,23 @@ func specSetfacl(t ToolPaths, spec, dir string) syscmd.Spec {
 func specGetfacl(t ToolPaths, dir string) syscmd.Spec {
 	return syscmd.Spec{Program: t.Getfacl, Args: []string{"-c", "-p", dir}}
 }
+
+// specExportfsReload 构造 `exportfs -ra`（NFS，P14.4）。
+//
+// -r 重读全部导出文件、-a 对所有条目生效。没有别的参数：面板不按路径单独刷，
+// 因为单独刷的结果取决于“现在内核里有什么”，而整表刷新才是一份确定的输入对应的
+// 一份确定的输出。
+//
+// 退出码不是证据：VM 实测，目录不存在时它打印 `Failed to stat …` 并以 1 退出，
+// **但导出仍然被注册了**。所以判决一律来自随后的 `exportfs -v`。
+func specExportfsReload(t ToolPaths) syscmd.Spec {
+	return syscmd.Spec{Program: t.Exportfs, Args: []string{"-ra"}}
+}
+
+// specExportfsV 构造 `exportfs -v`（只读：列出实际生效的导出与选项）。
+//
+// 不带路径：要的就是整张表。逐条读回时才知道“该消失的消失了没有”，
+// 而只查“我在的那条”会漏掉删不掉的旧条目。
+func specExportfsV(t ToolPaths) syscmd.Spec {
+	return syscmd.Spec{Program: t.Exportfs, Args: []string{"-v"}}
+}

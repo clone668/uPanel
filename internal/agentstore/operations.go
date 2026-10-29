@@ -233,6 +233,63 @@ func (o *Operations) FindByPreflight(ctx context.Context, ref string) (Operation
 	return scanOperation(o.db.store().SQL().QueryRowContext(ctx, operationSelect+` WHERE preflight_ref = ?`, ref))
 }
 
+// ListByActor 返回某个操作者从 since 起（含）创建的操作，按创建时间升序。
+//
+// 存在的理由只有一个：定时触发的操作是**代理自己**产生的，Web 没有参与那条提交路径，
+// 所以 Web 只能反过来问代理"这段时间你替我跑了什么"。CONTRACTS §15 要求这类操作
+// 被导入任务表，不能只留在 journal 里。
+//
+// 几个刻意的边界：
+//   - 只按 user_id 过滤，不提供"列出全部操作"的通道——那会把代理的执行历史变成
+//     一张可以随便翻的流水账，而不是回答一个具体问题。
+//   - 升序 + limit：调用方用"上次导到哪儿"的游标往前推；同一毫秒的多条靠 operation_id
+//     的去重（job 表 UNIQUE）兜住，所以 since 用 >= 而不是 >。
+//   - limit 有上限，且没有负数/零通融：调用方要自己给出合理的批量。
+func (o *Operations) ListByActor(ctx context.Context, userID int64, since time.Time, limit int) ([]Operation, error) {
+	if userID <= 0 {
+		return nil, fmt.Errorf("%w: user_id 必须为正数", ErrOperationInvalid)
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("%w: limit 必须为正数", ErrOperationInvalid)
+	}
+	if limit > MaxActorsBatch {
+		limit = MaxActorsBatch
+	}
+	args := []any{userID}
+	query := operationSelect + ` WHERE user_id = ?`
+	if !since.IsZero() {
+		query += ` AND created_at >= ?`
+		args = append(args, millis(since))
+	}
+	query += ` ORDER BY created_at ASC, operation_id ASC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := o.db.store().SQL().QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("agentstore: 查询操作记录失败: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := make([]Operation, 0, limit)
+	for rows.Next() {
+		op, err := scanOperation(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, op)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("agentstore: 读取操作记录失败: %w", err)
+	}
+	return out, nil
+}
+
+// MaxActorsBatch 是 ListByActor 单次返回的上限。
+//
+// 100 的取舍：一次对账扫描导入的定时操作通常是个位数，100 足够覆盖"Web 停了两周"
+// 这类积压；再大就成了一次性把整张表搬过 socket。
+const MaxActorsBatch = 100
+
 // MarkRunning 把操作推进到 running；已经在 running 时是幂等的（补一条 started 之外什么也不改）。
 //
 // 状态变更与 started 事件**必须在同一个事务里**落库：读操作的一方（代理的事件接口、

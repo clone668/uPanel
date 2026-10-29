@@ -3,6 +3,7 @@
 package syscmd
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 )
@@ -12,8 +13,14 @@ import (
 func signalName(ps *os.ProcessState) string { return "" }
 
 // setProcAttr 在非 Unix 平台没有进程组语义（开发宿主只用它跑单元测试，
-// 代理本身只在 Linux 上运行并拒绝在其他平台启动）。
-func setProcAttr(cmd *exec.Cmd) {}
+// 代理本身只在 Linux 上运行并拒绝在其他平台启动）。降权同样不可用，
+// 需要时明确报错，而不是"看起来降权了、其实还是同一个身份"。
+func setProcAttr(cmd *exec.Cmd, cred *Credential) error {
+	if cred != nil {
+		return errors.New("syscmd: 当前平台不支持降权运行")
+	}
+	return nil
+}
 
 // killProcessGroup 在非 Unix 平台只能终止主进程。
 func killProcessGroup(cmd *exec.Cmd) error {

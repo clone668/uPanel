@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"upanel/internal/schedules"
 )
 
 // Role 是账号角色（PLAN.md 第 5 节：0.1 只有 admin 与 viewer）。
@@ -103,9 +105,14 @@ func ValidateDisplayName(name string) error {
 }
 
 // CountUsers 返回账号总数。
+//
+// 不数定时触发的保留账号（P12.4）：它不是一个人，"系统里有几个账号"这个问题
+// 问的是人。首个管理员的创建判断也走这里，数进来就会变成"一个账号都没有，却不让
+// 创建第一个管理员"。
 func (s *Service) CountUsers(ctx context.Context) (int, error) {
 	var n int
-	if err := s.db.SQL().QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&n); err != nil {
+	if err := s.db.SQL().QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE id <> ?`,
+		schedules.SystemUserID).Scan(&n); err != nil {
 		return 0, fmt.Errorf("auth: 统计账号失败: %w", err)
 	}
 	return n, nil
@@ -187,7 +194,8 @@ func (s *Service) CreateUser(ctx context.Context, in CreateUserInput) (User, err
 func (s *Service) CreateFirstAdmin(ctx context.Context, username, displayName, password string) (User, error) {
 	err := s.db.WithTx(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		var n int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&n); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE id <> ?`,
+			schedules.SystemUserID).Scan(&n); err != nil {
 			return fmt.Errorf("auth: 统计账号失败: %w", err)
 		}
 		if n > 0 {

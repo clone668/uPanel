@@ -33,6 +33,23 @@ const (
 	ActionUserManage = "user.manage"
 	// ActionAuthReauth 是密码再认证（成功与失败都记）。
 	ActionAuthReauth = "auth.reauth"
+	// ActionTotpSetup 是发起一次二次验证登记（生成种子，尚未启用）（P14.6）。
+	//
+	// 记它是因为"谁在什么时候试过往自己的账号上挂一个 authenticator"是安全上要紧的事：
+	// 一次没能确认的登记同样说明有人的口令已经被别人拿到了。
+	ActionTotpSetup = "auth.totp.setup"
+	// ActionTotpEnable 是确认成功、二次验证真正启用（一次性恢复码在这一刻签发）。
+	ActionTotpEnable = "auth.totp.enable"
+	// ActionTotpDisable 是关闭二次验证（口令 + 验证码或恢复码）。
+	ActionTotpDisable = "auth.totp.disable"
+	// ActionTotpManage 用于这一组请求被中间件拒绝（admin/CSRF/再认证）时记录的事件。
+	ActionTotpManage = "auth.totp.manage"
+	// ActionTotpReset 是本机 CLI 清掉一个账号的二次验证（`upanelctl totp-reset`）。
+	//
+	// 与 ActionTotpDisable 分开记：那条是账号主人自己证明了两样东西之后关闭的，
+	// 这条是"服务器上有人拿着数据库的钥匙把一个账号的第二因子摘掉了"。后者不区分是谁，
+	// 所以 actor 是一个本地快照字符串，而不是某个账号。
+	ActionTotpReset = "auth.totp.reset"
 	// ActionOperationPreflight 是生成一份预检计划（P03.1）。
 	//
 	// 预检不改变系统状态，但它是“准备执行一个危险动作”的明确意图：谁、为哪个动作、
@@ -96,6 +113,91 @@ const (
 	ActionCertificateUpload = "certificate.upload"
 	// ActionCertificateManage 用于证书请求被中间件拒绝（admin/CSRF/再认证）时记录的事件。
 	ActionCertificateManage = "certificate.manage"
+	// ActionBackupRepositoryCreate / Update 是备份仓库定义的登记与修改（P12.2）。
+	//
+	// 这里记的不是"备份跑了"，而是"备份会往哪儿写"：backend、host、remote_path、
+	// 以及有没有配 SFTP 凭据。定义改了而没人知道，一条备份就可能悄悄写到别的机器上。
+	// 两份秘密引用不记内容——审计里只写"配没配"。
+	ActionBackupRepositoryCreate = "backup.repository.create"
+	ActionBackupRepositoryUpdate = "backup.repository.update"
+	// ActionBackupRepositoryManage 用于仓库请求被中间件拒绝（admin/CSRF/再认证）时记录。
+	ActionBackupRepositoryManage = "backup.repository.manage"
+	// ActionBackupPolicyCreate / Update / Delete 是备份策略的管理（P12.2）。
+	//
+	// 策略决定"备份什么"与"备份前停哪些应用"——第二条是它值得留痕的原因：一次策略
+	// 改动可以让下一次夜间备份把生产应用停掉一段时间。
+	ActionBackupPolicyCreate = "backup.policy.create"
+	ActionBackupPolicyUpdate = "backup.policy.update"
+	ActionBackupPolicyDelete = "backup.policy.delete"
+	// ActionBackupPolicyManage 用于策略请求被中间件拒绝时记录的事件。
+	ActionBackupPolicyManage = "backup.policy.manage"
+	// ActionScheduleManage / ActionScriptManage 是计划任务与受管理脚本的读取（P12.4）。
+	//
+	// 这两个接口只读，为什么还要一个动作名：被中间件拒绝的请求（viewer 越权、会话
+	// 失效）发生在 handler 之前，只有路由组能带上正确的名字。计划里写着这台机器什么
+	// 时间会做什么、脚本正文是什么——一次"想看却看不到"的尝试值得留痕。
+	//
+	// 写路径不在这里：计划的改动走 schedule.apply / schedule.delete 的预检与任务，
+	// 审计随任务走（job.submit / operation.*），不在这两个只读动作名下。
+	ActionScheduleManage = "schedule.manage"
+	ActionScriptManage   = "script.manage"
+	// ActionAlertRuleCreate / Update / Delete 是告警规则的管理（P13.2）。
+	//
+	// 规则本身不改变主机状态，但它决定"机器出事时会不会有人知道"。改阈值、改持续
+	// 时间、把一条规则关掉，都可能让一次真实的磁盘写满没人报警——这类改动必须能
+	// 回答"谁在什么时候把这条线挪了"。变更里记完整的旧值与新值（阈值、持续、
+	// 恢复线、冷却、启停），只记"改了"等于没记。
+	ActionAlertRuleCreate = "alert.rule.create"
+	ActionAlertRuleUpdate = "alert.rule.update"
+	ActionAlertRuleDelete = "alert.rule.delete"
+	// ActionAlertRuleManage 用于规则请求被中间件拒绝（admin/CSRF/再认证）时记录的事件。
+	ActionAlertRuleManage = "alert.rule.manage"
+	// ActionAlertSilenceUpdate 是设置或清除维护静默窗口（P13.2）。
+	//
+	// 它值得单独留痕：静默期间告警仍然判定、事件仍然记录，但通知不发（P13.3）。
+	// 一次不小心把窗口设成一周，等于一周内没人被打扰。
+	ActionAlertSilenceUpdate = "alert.silence.update"
+	// ActionAlertSilenceManage 用于静默请求被中间件拒绝时记录的事件。
+	ActionAlertSilenceManage = "alert.silence.manage"
+	// ActionAlertEventAck 是"确认某条告警事件我已经看见了"（P13.4）。
+	//
+	// 它不改主机、不改判定，但它把"有没有人在管这件事"从推断变成事实——一条
+	// firing 的事件没人确认，与有人确认过但还没解决，是两种完全不同的处境。
+	// 所以记是谁、什么时候、哪条事件（以及那条事件当时的规则与状态：确认之后
+	// 事件还可能恢复，事后要能还原"他确认时它是什么样"）。
+	ActionAlertEventAck = "alert.event.ack"
+
+	// ActionNotificationChannelCreate / Update / Delete 是通知通道的管理（P13.3）。
+	//
+	// 通道不改变主机状态，但它决定“机器出事时有没有人真的收到消息”。把 webhook
+	// 地址改到别处，等于把告警发给了别人；把通道停用，等于把告警调成静音。
+	// 所以地址、端口、收件人、TLS 模式、secret_ref、启停与重试上限都记进变更。
+	//
+	// **口令与令牌本身永远不进审计**：只记 secret_ref（一个指向代理加密库的引用）。
+	// 审计表是明文可读的，把口令写进去等于把加密库的意义作废。
+	ActionNotificationChannelCreate = "notification.channel.create"
+	ActionNotificationChannelUpdate = "notification.channel.update"
+	ActionNotificationChannelDelete = "notification.channel.delete"
+	// ActionNotificationChannelTest 是显式测试发送（P13.3）。它真的会往外发一封
+	// 邮件或一个请求，值得单独留痕：出了问题第一个要回答的问题是“谁点的发送”。
+	ActionNotificationChannelTest = "notification.channel.test"
+	// ActionNotificationChannelManage 用于通道请求被中间件拒绝（非 admin/CSRF）时记录的事件。
+	ActionNotificationChannelManage = "notification.channel.manage"
+
+	// ActionNetworkManage 是网络现状的读取（P14.1）。
+	//
+	// 读的是网卡、地址、路由与监听端口——合起来就是"这台机器上开了什么入口、
+	// 通向哪里"，侦察价值与容器清单同级，所以整组 admin。读取本身不改主机状态，
+	// 但"谁在什么时候看了一遍这台机器的网络全貌"值得留痕：它是把一个账号从
+	// 猜测变成事实的第一步。
+	//
+	// 写路径不在这里：改地址是 network.apply 的预检 → 任务（P14.2），审计随任务走。
+	ActionNetworkManage = "network.manage"
+	// ActionFirewallManage 是防火墙现状的读取（P14.1）。
+	//
+	// 规则表回答的是"哪些口子对外开着"，与端口监听是同一份侦察材料的两半，
+	// 因此同样是 admin 且同样留痕。改规则是 firewall.apply（P14.3）。
+	ActionFirewallManage = "firewall.manage"
 )
 
 // 结果枚举，与迁移里的 CHECK 约束一致。

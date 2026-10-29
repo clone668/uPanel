@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"upanel/internal/hostcaps"
 	"upanel/internal/httpx"
 	"upanel/internal/platform"
 	"upanel/internal/version"
@@ -83,6 +84,25 @@ type Options struct {
 	// /internal/v1/backup/repositories 一律 404：没有这份镜像，Web 开不出能初始化的
 	// 仓库，而代理也不该假装自己认得出 repository_id。
 	BackupRepositories BackupRepositoryMirror
+	// BackupPolicies 是备份策略的代理镜像（P12.2）。为 nil 时
+	// /internal/v1/backup/policies 一律 404：没有这份镜像，Web 开不出能运行的策略，
+	// 而代理也不该假装自己认得出 policy_id。
+	BackupPolicies BackupPolicyMirror
+	// Schedules 是计划任务的实现端（P12.4）。为 nil 时不提供 /internal/v1/schedules
+	// 与 trigger 路由，也不登记 schedule.* 动作：没有单元落地端的机器上，
+	// "保存一条计划"只能做到"在库里写一行没人执行的配置"。
+	Schedules SchedulesService
+	// Scripts 是受管理脚本的实现端（P12.4）。为 nil 时不提供 /internal/v1/scripts，
+	// 也不登记 script.* 动作：没有 upanel-shell 账号的机器上，"以它运行"是句空话。
+	Scripts ScriptsService
+	// Totp 是二次验证种子的秘密能力（P14.6）。为 nil 时不提供
+	// /internal/v1/totp/* 的四条路由，一律 404：没有可解密种子的存储，
+	// "校验一次性口令"就只能是拒绝所有人，那比不提供更难查。
+	Totp TotpSecrets
+	// HostCaps 是外部程序能力的探测缓存（P16.1）。为 nil 时 capabilities 里的
+	// dependencies 是空数组 + host_caps_ready=false：那说的是“没有读数”，
+	// 而不是“这台机器没有依赖”。两者在界面上必须能分开。
+	HostCaps *hostcaps.Cache
 }
 
 // Server 是代理服务。
@@ -99,28 +119,29 @@ type Server struct {
 
 // capabilities 是 GET /internal/v1/capabilities 的响应体。
 //
-// supported_actions / supported_queries 直接来自登记表：当前都是空数组，
-// 如实反映“还没有开放任何动作与读取”。
+// supported_actions / supported_queries 直接来自登记表：登记了什么就报什么，
+// 没登记的能力不会出现在这里。
 type capabilities struct {
-	Version          string    `json:"version"`
-	Commit           string    `json:"commit"`
-	BuildDate        string    `json:"build_date"`
-	GoVersion        string    `json:"go_version"`
-	Mode             string    `json:"mode"`
-	OS               string    `json:"os"`
-	Arch             string    `json:"arch"`
-	StartedAt        string    `json:"started_at"`
-	SupportedActions []string  `json:"supported_actions"`
-	SupportedQueries []string  `json:"supported_queries"`
-	Dependencies     []depInfo `json:"dependencies"`
-}
-
-// depInfo 描述代理依赖的外部程序。当前尚未探测，返回空数组。
-type depInfo struct {
-	ID      string `json:"id"`
-	State   string `json:"state"`
-	Version string `json:"version"`
-	Path    string `json:"path"`
+	Version          string   `json:"version"`
+	Commit           string   `json:"commit"`
+	BuildDate        string   `json:"build_date"`
+	GoVersion        string   `json:"go_version"`
+	Mode             string   `json:"mode"`
+	OS               string   `json:"os"`
+	Arch             string   `json:"arch"`
+	StartedAt        string   `json:"started_at"`
+	SupportedActions []string `json:"supported_actions"`
+	SupportedQueries []string `json:"supported_queries"`
+	// HostCaps 是这台机器上外部程序的探测结果（P16.1）。
+	//
+	// **null 表示还没探完**，不是“没有依赖”。这两件事必须能分开：这里以前是一个
+	// 恒为空的 `dependencies` 数组，注释写着“尚未探测”——字段在、也合法，
+	// 但读它的人只会得出“这台机器什么都没装”。空数组与“没读数”长得太像，
+	// 所以现在整份报告要么有、要么是 null。
+	//
+	// 它**不是判决**：这里说 present，只代表程序在固定目录里、版本读得到；
+	// 能不能真的做那件事，仍由各子系统自己的预检回答。
+	HostCaps *hostcaps.Report `json:"host_caps"`
 }
 
 // New 构造代理服务。参数不合法时返回错误。
@@ -170,6 +191,9 @@ func New(opts Options) (*Server, error) {
 	mux.HandleFunc("/internal/v1/operations", s.handleOperations)
 	mux.HandleFunc("/internal/v1/operations/", s.handleOperationByID)
 	mux.HandleFunc("/internal/v1/secrets", s.handleSecrets)
+	// 通知投递（P13.3）：代理持有 SMTP 口令与 webhook 令牌，因此由代理发出去，
+	// 明文不出这个进程。只有 Web 账号能调（不匹配 root-only 形状）。
+	mux.HandleFunc("/internal/v1/notifications/deliver", s.handleNotificationDeliver)
 	// 受限流（P05.3）：先建许可，再用许可开一条一次性的流。
 	mux.HandleFunc("/internal/v1/streams", s.handleStreams)
 	mux.HandleFunc("/internal/v1/streams/", s.handleStreamByID)
@@ -180,11 +204,34 @@ func New(opts Options) (*Server, error) {
 	// terminal.io 流；只有“关掉它”需要一条代理内部路由——Web 核对完归属之后
 	// 让代理执行，代理再核对一次。
 	mux.HandleFunc("/internal/v1/terminal/sessions/", s.handleTerminalSessionByID)
+	// 计划任务与受管理脚本（P12.4）：只读镜像给 Web 账号，trigger 只给 root CLI
+	// （root-only 判定在 peer.go 里按路径形状做，见 rootOnlyPathPatterns）。
+	if opts.Schedules != nil {
+		mux.HandleFunc("/internal/v1/schedules", s.handleSchedules)
+		mux.HandleFunc("/internal/v1/schedules/", s.handleSchedules)
+	}
+	if opts.Scripts != nil {
+		mux.HandleFunc("/internal/v1/scripts", s.handleScripts)
+		mux.HandleFunc("/internal/v1/scripts/", s.handleScripts)
+	}
 	// 备份仓库定义镜像（P12.1）：只有 Web 账号能读写；动作按 id 从这里取定义，
 	// 因此 repository_id 不是一个可以随便编的字符串。
 	if opts.BackupRepositories != nil {
 		mux.HandleFunc("/internal/v1/backup/repositories", s.handleBackupRepositories)
 		mux.HandleFunc("/internal/v1/backup/repositories/", s.handleBackupRepositoryByID)
+	}
+	// 备份策略镜像（P12.2）：同样只有 Web 账号能读写；backup.run 按 id 从这里取策略。
+	if opts.BackupPolicies != nil {
+		mux.HandleFunc("/internal/v1/backup/policies", s.handleBackupPolicies)
+		mux.HandleFunc("/internal/v1/backup/policies/", s.handleBackupPolicyByID)
+	}
+	// 二次验证（P14.6）：种子的生成、确认、校验与销毁都在代理里，Web 只见引用。
+	// 四个路径各自登记，不做前缀分派——路径形状是 peer.go 判 root-only 的依据。
+	if opts.Totp != nil {
+		mux.HandleFunc("/internal/v1/totp/enroll", s.handleTotpEnroll)
+		mux.HandleFunc("/internal/v1/totp/confirm", s.handleTotpConfirm)
+		mux.HandleFunc("/internal/v1/totp/verify", s.handleTotpVerify)
+		mux.HandleFunc("/internal/v1/totp/disable", s.handleTotpDisable)
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, http.StatusNotFound, httpx.CodeNotFound, "代理接口不存在")
@@ -218,6 +265,19 @@ func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, http.StatusMethodNotAllowed, httpx.CodeValidationError, "只支持 GET")
 		return
 	}
+	// 依赖读数来自缓存，不在这个请求里探测：这条端点随时会被人读，
+	// 让每一次读都等十几条版本命令，等于把一个便宜的事实变成昂贵的依赖。
+	var hostCaps *hostcaps.Report
+	if s.opts.HostCaps != nil {
+		if report, ok := s.opts.HostCaps.Snapshot(); ok {
+			// 复制一份再交出去：缓存里的那份下一轮会被整个替换，
+			// 但拿到同一个底层数组的人可能还在读。
+			copied := report
+			copied.Items = append([]hostcaps.Item(nil), report.Items...)
+			hostCaps = &copied
+		}
+	}
+
 	httpx.WriteData(w, r, http.StatusOK, capabilities{
 		Version:   s.opts.Version.Version,
 		Commit:    s.opts.Version.Commit,
@@ -231,7 +291,7 @@ func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 		// 真实的拒绝原因，但提交一定 501，列进这里就是能力撒谎。见 ExecutableActionNames。
 		SupportedActions: s.registry.ExecutableActionNames(),
 		SupportedQueries: s.registry.QueryNames(),
-		Dependencies:     []depInfo{},
+		HostCaps:         hostCaps,
 	})
 }
 

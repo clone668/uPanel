@@ -64,3 +64,21 @@ func commandFailed(format string, args ...any) *HTTPError {
 func notFound(format string, args ...any) *HTTPError {
 	return newHTTPError(http.StatusNotFound, httpx.CodeNotFound, format, args...)
 }
+
+// withRollbackNote 把“回滚本身干不干净”接在错误消息后面。
+//
+// 判决（状态码与错误码）来自主因，回滚结果只是一句现场补充，所以这里**不改类型**：
+// 把回滚失败升格成另一个错误码，会让“导出写失败了”变成“导出回滚失败了”，
+// 而人最需要先知道的是前者。
+func withRollbackNote(err, rollback error) error {
+	if err == nil || rollback == nil {
+		return err
+	}
+	note := "；回滚没干净：" + rollback.Error()
+	if he, ok := err.(*HTTPError); ok {
+		clone := *he
+		clone.Message += note
+		return &clone
+	}
+	return fmt.Errorf("%w%s", err, note)
+}

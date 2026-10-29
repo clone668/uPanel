@@ -24,6 +24,7 @@ import (
 
 	"upanel/internal/audit"
 	"upanel/internal/auth"
+	"upanel/internal/schedules"
 	"upanel/internal/store"
 	"upanel/migrations"
 )
@@ -151,14 +152,41 @@ func TestUnknownSubcommand(t *testing.T) {
 	}
 }
 
-func TestPlannedSubcommandIsNotImplemented(t *testing.T) {
-	// scheduler 是 P12 的子命令，0.1 阶段必须明确返回“未实现”，不能返回成功。
-	code, _, errOut := runCtl("scheduler")
-	if code != exitNotImplemented {
-		t.Fatalf("退出码 = %d，期望 %d（未实现不得返回成功）", code, exitNotImplemented)
+func TestScheduleTriggerRequiresScheduleID(t *testing.T) {
+	// 定时单元的 ExecStart 一定带 --schedule-id；不带就是被人手工敲错了，
+	// 属于用法错误，不能去连代理。
+	code, _, errOut := runCtl("schedule-trigger")
+	if code != exitUsage {
+		t.Fatalf("退出码 = %d，期望 %d", code, exitUsage)
 	}
-	if !strings.Contains(errOut, "尚未实现") {
+	if !strings.Contains(errOut, "--schedule-id") {
 		t.Fatalf("stderr = %q", errOut)
+	}
+}
+
+func TestScheduleTriggerRejectsBadIDShape(t *testing.T) {
+	// 形状不对的 id 必须在本机就拦下：否则 systemd 日志里留下的是代理返回的 404，
+	// 看起来像"计划不存在"，实际是 unit 里写错了参数。
+	code, _, errOut := runCtl("schedule-trigger", "--schedule-id", "../../etc/passwd")
+	if code != exitUsage {
+		t.Fatalf("退出码 = %d，期望 %d", code, exitUsage)
+	}
+	if !strings.Contains(errOut, "不合法") {
+		t.Fatalf("stderr = %q", errOut)
+	}
+}
+
+// TestWaitSlackSmallerThanUnitSlack：--wait 的余量必须**小于**单元的余量。
+//
+// 单元的超时 = 计划最长运行时长 + schedules.TriggerWaitSlackSeconds（60 秒），
+// 这里的等待上限 = 同一个最长运行时长 + scheduleWaitSlack（30 秒）。两处一样大时，
+// 超时那一刻先到的是 systemd 的 TERM，journal 里只剩一句 "start operation timed out"，
+// 查的人分不出是操作没结束还是等的人没在等——P12.4 在 24.04 上撞到的就是这个形状：
+// 单元一直是 activating，看起来"不重叠成立"，实际上一直在 403 重试里空转。
+func TestWaitSlackSmallerThanUnitSlack(t *testing.T) {
+	unitSlack := time.Duration(schedules.TriggerWaitSlackSeconds) * time.Second
+	if scheduleWaitSlack >= unitSlack {
+		t.Fatalf("--wait 的余量 %s 不小于单元的 %s：超时那一刻会先被 systemd 杀掉", scheduleWaitSlack, unitSlack)
 	}
 }
 
@@ -609,9 +637,12 @@ func TestCheckConfigPrintsTLSFingerprint(t *testing.T) {
 	if !strings.Contains(out, fingerprint) {
 		t.Fatalf("输出应打印证书指纹 %s（安装时供用户核对）: %q", fingerprint, out)
 	}
-	if !strings.Contains(out, "https://127.0.0.1:19443") {
-		t.Fatalf("开了 TLS 时推导出来的允许源必须是 https: %q", out)
-	}
+	// 人类可读输出只承诺三件事：说明 HTTPS 已启用、打印指纹（安装时要当众核对）、
+	// 自签名要有提醒。**允许源不在人类可读输出里**——它是 `--json` 的 allowed_origins 字段，
+	// 由下一段断言。这里原本还有一条 "输出里要有 https://127.0.0.1:19443"，
+	// 那条断言产品从来没有满足过（`check-config` 不打印允许源），而这条用例在 Windows 上
+	// 又被开头那句 Skip 挡掉，所以从 P10.4 起一直红着却没人看见，
+	// 直到 2026-10-28 的 P16 全量 `-race` 第一次在 Linux 上跑到它才暴露（Q517）。
 
 	code, out, errOut = runCtl("check-config", "--config", path, "--json")
 	if code != 0 {

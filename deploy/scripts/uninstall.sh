@@ -1,5 +1,5 @@
 #!/bin/sh
-# uPanel 0.1 卸载脚本（P10.4）。
+# uPanel 卸载脚本（P10.4 起，1.0 发布版）。
 #
 # 设计原则：**先列出要删什么，再删**；默认保留配置与数据，删数据必须显式要求。
 # 绝不 `rm -rf /srv/upanel` 这种一刀切——那里有用户自己的站点与数据。
@@ -11,6 +11,16 @@
 #   sudo sh deploy/scripts/uninstall.sh --purge-data --yes-delete-srv
 #                                                          # 额外清空 /srv/upanel（要求再次确认）
 #
+# 参数：
+#   --backup-dir DIR   删之前先把两个数据库与 /etc/upanel 备份到 DIR（默认
+#                      /var/backups/upanel/uninstall-<UTC 时间>）
+#   --no-backup        不备份就删（要删配置或数据时必须显式写这一条）
+#
+# 为什么卸载也要备份：`--purge-data` 删掉的是账号、审计、任务记录、共享定义与
+# 秘密密文；`--purge-config` 删掉 agent.key，那一刻起已保存的秘密永久解不开。
+# 这两样合起来就是“这台面板的全部身份”，删掉之后**没有任何自动恢复路径**。
+# 所以只要带了 --purge-*，脚本默认先备份；不想要备份就必须把 --no-backup 写出来。
+#
 # --purge-config 会删掉 /etc/upanel/agent.key：那一刻起，已保存的秘密
 # （共享口令、证书私钥引用）永久不可恢复。脚本会单独再问一次。
 #
@@ -19,11 +29,14 @@
 set -u
 
 SELF=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/$(basename -- "$0")
+SELF_DIR=$(dirname -- "$SELF")
 
 PURGE_CONFIG=0
 PURGE_DATA=0
 PURGE_ACCOUNTS=0
 DELETE_SRV=0
+BACKUP_TO=""
+DO_BACKUP=1
 
 WEB_USER="upanel-web"
 SHELL_USER="upanel-shell"
@@ -42,6 +55,8 @@ while [ $# -gt 0 ]; do
     --purge-config) PURGE_CONFIG=1; shift ;;
     --purge-data) PURGE_DATA=1; shift ;;
     --purge-accounts) PURGE_ACCOUNTS=1; shift ;;
+    --backup-dir) BACKUP_TO=${2:-}; shift 2 ;;
+    --no-backup) DO_BACKUP=0; shift ;;
     --yes-delete-srv) DELETE_SRV=1; shift ;;
     -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$SELF"; exit 0 ;;
     *) echo "错误: 未知参数 $1（--help 看用法）" >&2; exit 2 ;;
@@ -71,6 +86,13 @@ consider "$DOC_DIR"
 
 echo '==== 将要执行 ===='
 echo '1) 停止并禁用 upanel-web.service、upanel-agent.service'
+if [ "$PURGE_CONFIG" = "1" ] || [ "$PURGE_DATA" = "1" ]; then
+  if [ "$DO_BACKUP" = "1" ]; then
+    echo "0) 先把两个数据库与 /etc/upanel 备份到 ${BACKUP_TO:-/var/backups/upanel/uninstall-<UTC 时间>}"
+  else
+    echo '0) 不备份（--no-backup）：删掉的东西没有副本'
+  fi
+fi
 echo '2) 删除下面这些路径：'
 if [ -n "$TARGETS" ]; then
   printf '%s' "$TARGETS" | while IFS= read -r t; do
@@ -125,6 +147,36 @@ fi
 
 echo
 echo '==== 执行 ===='
+
+# 删之前先备份：带了 --purge-* 就意味着这次要丢掉的是“这台面板的全部身份”。
+# 备份脚本挨着本脚本放（发布包里两个文件在同一个目录）。
+if [ "$PURGE_CONFIG" = "1" ] || [ "$PURGE_DATA" = "1" ]; then
+  if [ "$DO_BACKUP" = "0" ]; then
+    echo '      按参数要求不备份（--no-backup）：下面删掉的东西没有副本'
+  elif [ ! -f "$SELF_DIR/backup-state.sh" ]; then
+    echo "错误: 同目录里没有 backup-state.sh，无法在删除前备份。" >&2
+    echo "      换成发布包里的 uninstall.sh（安装包 deploy/scripts/ 下有它），" >&2
+    echo "      或者确认不要备份后再加 --no-backup。" >&2
+    exit 2
+  elif [ ! -r /etc/upanel/upanel.json ]; then
+    # 没有配置就无从知道库在哪里；这时删掉的只是程序，用不着备份。
+    echo '      没有 /etc/upanel/upanel.json：没有可备份的状态，直接继续'
+  else
+    if [ -z "$BACKUP_TO" ]; then
+      BACKUP_TO="/var/backups/upanel/uninstall-$(date -u +%Y%m%dT%H%M%SZ)"
+    fi
+    # 备份脚本自己会停服务、拷完再起回来；这里随后又把服务停掉，多一次起落在
+    # 卸载路径上无所谓——顺序上“先备份、后删除”比省那一次 restart 重要得多。
+    echo "      先备份到 $BACKUP_TO"
+    if sh "$SELF_DIR/backup-state.sh" --to "$BACKUP_TO" 2>&1 | sed 's/^/      /'; then
+      echo "      备份完成：$BACKUP_TO"
+    else
+      echo '错误: 备份没有完成，删除已中止（确认不要备份请加 --no-backup）。' >&2
+      exit 2
+    fi
+  fi
+fi
+
 systemctl disable --now upanel-web.service >/dev/null 2>&1 || echo '      upanel-web 未在运行'
 systemctl disable --now upanel-agent.service >/dev/null 2>&1 || echo '      upanel-agent 未在运行'
 
@@ -185,11 +237,19 @@ cat <<EOF
 ==== 卸载完成 ====
 上面列出的路径已删除。仍然保留的：
 $KEEP_NOTE
+EOF
 
+# 备份路径单独打：它只在“真的备份了”的时候存在，写进上面的固定文本就会变成一句谎。
+if [ -n "${BACKUP_TO:-}" ] && [ "${DO_BACKUP:-1}" = "1" ]; then
+  printf '\n本次删除前的备份: %s\n整份拷走再清理；恢复步骤见 docs/RECOVERY.md。\n' "$BACKUP_TO"
+fi
+
+cat <<EOF
 如果要重新安装：把发布包解开，再次执行
   sudo sh deploy/scripts/install.sh --source .
 安装器是幂等的：已存在的账号、目录、证书、配置、密钥都会沿用。
 
-如果这次把面板删得干净到想恢复数据，只能从你自己的备份里恢复
-（面板不会自动备份，见 docs/RECOVERY.md 与 docs/LOCAL_START.md）。
+如果这次把面板删得干净到想恢复数据，只能从删除前的备份里恢复
+（安装器与卸载器都会在动数据库之前备份；手工备份用 deploy/scripts/backup-state.sh，
+见 docs/RECOVERY.md 与 docs/LOCAL_START.md）。
 EOF

@@ -120,6 +120,10 @@ type Options struct {
 	Now func() time.Time
 	// Stat 判断文件存在（默认 os.Stat）。
 	Stat func(string) bool
+	// Restores 是文件模块的句柄级恢复边界；nil 时恢复/抽样验证明确拒绝。
+	Restores RestoreFilesystem
+	// Verifications 持久化真实恢复验证记录；nil 时不登记会写验证时间的动作。
+	Verifications VerificationStore
 }
 
 // Ops 是仓库动作的实现。

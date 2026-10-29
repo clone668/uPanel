@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os/user"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -102,14 +103,36 @@ func peerFromContext(ctx context.Context) (peerInfo, bool) {
 
 // rootOnlyPrefixes 是“只允许 root CLI 调用”的专用路由前缀。
 //
-// P02.3 还没有这类路由：内置定时任务的 trigger 入口属于 P03/P11，登记后加到
-// 这个列表即可，普通接口仍然只允许 Web 账号。列表为空意味着当前 root 也会被
-// 普通接口拒绝——这是刻意的，root 不能借道普通接口拿到特权能力。
+// 普通接口仍然只允许 Web 账号：root 不能借道普通接口拿到特权能力。
+// 当前没有整段前缀属于 root——见下面的形状表。
 var rootOnlyPrefixes = []string{}
+
+// rootOnlyPathPatterns 是“只允许 root CLI 调用”的专用路由**形状**。
+//
+// 为什么不能只靠前缀（P12.4）：`/internal/v1/schedules/` 这一段同时挂着两条读路由
+// （GET 列表与 GET 详情，只给 Web 账号）和一条触发路由（POST /:id/trigger，只给
+// root）。按前缀判定会让 root 读不到计划，或者让 Web 触发计划——两种都是把边界
+// 装反了。按形状判定，被放行的永远只有那个确切的后缀。
+var rootOnlyPathPatterns = []*regexp.Regexp{
+	// 定时触发（CONTRACTS §15）：POST /internal/v1/schedules/<id>/trigger
+	regexp.MustCompile(`^/internal/v1/schedules/sch_[0-9a-f]{32}/trigger$`),
+	// 定时触发的结果读（P12.4）：GET /internal/v1/schedules/<id>/trigger-runs/<op>。
+	//
+	// `--wait` 要在 root 身份下知道"这一次跑到哪了"，而 /internal/v1/operations/<id>
+	// 是 Web 账号的路由——root 调它是 403。把读收窄成"这条计划自己触发的那个操作"
+	// 比把整条操作读路由开给 root 小得多：路径里带着计划 id，处理端还会核对操作记录
+	// 的操作者与会话哈希是否都由这条计划派生（见 handleScheduleTriggerRun）。
+	regexp.MustCompile(`^/internal/v1/schedules/sch_[0-9a-f]{32}/trigger-runs/op_[0-9a-f]{32}$`),
+}
 
 func isRootOnlyPath(path string) bool {
 	for _, prefix := range rootOnlyPrefixes {
 		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	for _, pattern := range rootOnlyPathPatterns {
+		if pattern.MatchString(path) {
 			return true
 		}
 	}

@@ -41,7 +41,14 @@ type Session struct {
 
 	csrfHash string
 	idHash   string
+	// extended 记录本次校验是否把空闲期往后推了（每 touchInterval 至多一次）。
+	// HTTP 层必须据此同步 Cookie 的 Expires，否则库里会话还在滑、浏览器里的
+	// Cookie 按登录时的时间到期，长任务跑到一半就被踢出去。
+	extended bool
 }
+
+// Extended 报告本次校验是否续期了会话。
+func (s Session) Extended() bool { return s.extended }
 
 // BindingHash 返回该会话令牌的 SHA-256 十六进制值。
 //
@@ -72,13 +79,33 @@ type LoginInput struct {
 //
 // 顺序：限速检查 → 查账号 → 校验密码 → 需要时升级哈希 → 作废旧会话 → 签发新会话。
 // 账号不存在与密码错误返回同一个错误，避免账号枚举。
+//
+// P14.6 起 HTTP 层不再直接调它：登录中间多了一步二次验证，所以拆成
+// VerifyCredentials（只验口令）+ FinishLogin（验完之后签发）。这个方法保留给
+// "不需要二次验证"的调用方——它现在的语义就是那两步依次执行。
 func (s *Service) Login(ctx context.Context, in LoginInput) (Issued, error) {
+	user, err := s.VerifyCredentials(ctx, in)
+	if err != nil {
+		return Issued{}, err
+	}
+	return s.FinishLogin(ctx, user, in.PreviousToken)
+}
+
+// VerifyCredentials 只校验口令，**不签发会话**。
+//
+// 抽出来的原因（P14.6）：口令对了还要过二次验证，而二次验证要问代理。把签发放在
+// "口令 + 验证码都通过"之后，是"未通过的尝试不会得到任何会话"的唯一保证——先发一个
+// 半路的会话再补校验，等于给了一条绕过路径。
+//
+// 失败计数在这里记，**成功计数不在这里清**：口令对但验证码连错十次同样必须能被限速，
+// 所以清零留到 FinishLogin（或调用方确认二次验证也通过之后）。
+func (s *Service) VerifyCredentials(ctx context.Context, in LoginInput) (User, error) {
 	username := NormalizeUsername(in.Username)
 	userKey := "user:" + username
 	ipKey := "ip:" + in.RemoteAddr
 
 	if retry, ok := s.limiter.Allow(userKey, ipKey); !ok {
-		return Issued{}, &RateLimitedError{RetryAfter: retry}
+		return User{}, &RateLimitedError{RetryAfter: retry}
 	}
 
 	creds, err := s.credentialsByUsername(ctx, username)
@@ -87,26 +114,33 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (Issued, error) {
 			// 与真实校验同量的计算，避免用响应时间区分“账号不存在”和“密码错误”。
 			s.burnPasswordTime(in.Password)
 			s.limiter.RecordFailure(userKey, ipKey)
-			return Issued{}, ErrInvalidCredentials
+			return User{}, ErrInvalidCredentials
 		}
-		return Issued{}, err
+		return User{}, err
+	}
+
+	// 定时触发的保留账号不是一个人：它没有可用的口令，也不该在这里被"试着登录"。
+	// 回答与"没有这个账号"完全一致（同样烧时间、同样计一次失败），
+	// 所以它不会变成一个可以用来探测账号是否存在的信号。
+	if isSystemAccount(creds.user.ID) {
+		s.burnPasswordTime(in.Password)
+		s.limiter.RecordFailure(userKey, ipKey)
+		return User{}, ErrInvalidCredentials
 	}
 
 	ok, err := VerifyPassword(in.Password, creds.hash)
 	if err != nil {
 		// 哈希不可用属于数据损坏：不能当成“密码错误”，也不能静默放行。
-		return Issued{}, fmt.Errorf("auth: 账号 %s 的密码哈希不可用: %w", username, err)
+		return User{}, fmt.Errorf("auth: 账号 %s 的密码哈希不可用: %w", username, err)
 	}
 	if !ok {
 		s.limiter.RecordFailure(userKey, ipKey)
-		return Issued{}, ErrInvalidCredentials
+		return User{}, ErrInvalidCredentials
 	}
 	if creds.user.Disabled {
 		s.limiter.RecordFailure(userKey, ipKey)
-		return Issued{}, ErrUserDisabled
+		return User{}, ErrUserDisabled
 	}
-
-	s.limiter.ResetSuccess(userKey)
 
 	if NeedsRehash(creds.hash) {
 		if newHash, err := HashPasswordWith(s.params, in.Password); err == nil {
@@ -116,14 +150,34 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (Issued, error) {
 			}
 		}
 	}
+	return creds.user, nil
+}
 
-	if in.PreviousToken != "" {
-		if err := s.Revoke(ctx, in.PreviousToken); err != nil {
+// FinishLogin 在口令（以及需要时的二次验证）都通过后签发会话。
+//
+// 三件事：清掉失败计数、作废旧会话（会话轮换）、签发新会话。
+func (s *Service) FinishLogin(ctx context.Context, user User, previousToken string) (Issued, error) {
+	s.limiter.ResetSuccess("user:" + NormalizeUsername(user.Username))
+
+	if previousToken != "" {
+		if err := s.Revoke(ctx, previousToken); err != nil {
 			return Issued{}, err
 		}
 	}
+	return s.Issue(ctx, user)
+}
 
-	return s.Issue(ctx, creds.user)
+// RecordLoginFailure 记一次登录失败并计入限速。
+//
+// 给"口令对、二次验证码错"用：那也是一次失败的登录尝试，不记就等于给了一条
+// 不受限速约束的六位数猜法（口令已经知道的人可以按 Argon2 的速度一个个试）。
+func (s *Service) RecordLoginFailure(username, remoteAddr string) {
+	s.limiter.RecordFailure("user:"+NormalizeUsername(username), "ip:"+remoteAddr)
+}
+
+// ResetLoginSuccess 清掉某个账号的失败计数（口令与验证码都通过之后调用）。
+func (s *Service) ResetLoginSuccess(username string) {
+	s.limiter.ResetSuccess("user:" + NormalizeUsername(username))
 }
 
 // Issue 为账号签发新会话（登录、会话轮换使用）。
@@ -229,6 +283,7 @@ func (s *Service) Authenticate(ctx context.Context, token string) (Session, erro
 		}
 		sess.LastSeenAt = now
 		sess.ExpiresAt = newExpiry
+		sess.extended = true
 	}
 	return sess, nil
 }
@@ -276,6 +331,24 @@ func (s *Service) Revoke(ctx context.Context, token string) error {
 		return nil
 	}
 	return s.deleteByHash(ctx, HashToken(token))
+}
+
+// RevokeAllForUserExcept 作废某账号除 keepID 之外的全部会话（P14.6）。
+//
+// 用途：启用或关闭二次验证之后，其它设备上的会话必须重新登录。留着它们等于
+// "改了鉴定强度，但旧鉴定继续有效"——一台已经被别人占着的浏览器不会因为你刚开了
+// 二次验证就自己退出。发起这次改动的这一条会话保留：它刚刚当场证明过口令（和验证码）。
+func (s *Service) RevokeAllForUserExcept(ctx context.Context, userID, keepID int64) (int64, error) {
+	res, err := s.db.SQL().ExecContext(ctx,
+		`DELETE FROM sessions WHERE user_id = ? AND id <> ?`, userID, keepID)
+	if err != nil {
+		return 0, fmt.Errorf("auth: 作废其它会话失败: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("auth: 读取作废结果失败: %w", err)
+	}
+	return n, nil
 }
 
 // RevokeAllForUser 作废某账号的全部会话（改密码、禁用、删除账号时使用）。

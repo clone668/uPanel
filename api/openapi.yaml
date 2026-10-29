@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: uPanel API
-  version: 0.0.0-p11.1
+  version: 0.0.0-p13.2
   summary: uPanel 单机 Web 管理面板的公开 HTTP 契约。
   description: |
     uPanel 管理单台 Ubuntu 服务器。本文件是 CONTRACTS.md 的机器可校验镜像。
@@ -23,7 +23,7 @@ info:
     name: Proprietary
     identifier: LicenseRef-Proprietary
 x-upanel-contract-status:
-  stage: P11.1
+  stage: P13.2
   implemented_paths:
     - get /api/v1/health/live
     - head /api/v1/health/live
@@ -37,6 +37,22 @@ x-upanel-contract-status:
     - delete /api/v1/users/{id}
     - post /api/v1/users/{id}/password
     - get /api/v1/system/summary
+    - get /api/v1/system/metrics
+    - get /api/v1/system/metrics/status
+    - get /api/v1/alerts/rules
+    - post /api/v1/alerts/rules
+    - patch /api/v1/alerts/rules/{id}
+    - delete /api/v1/alerts/rules/{id}
+    - get /api/v1/alerts/events
+    - post /api/v1/alerts/events/{id}/ack
+    - get /api/v1/alerts/silence
+    - put /api/v1/alerts/silence
+    - get /api/v1/notification-channels
+    - post /api/v1/notification-channels
+    - patch /api/v1/notification-channels/{id}
+    - delete /api/v1/notification-channels/{id}
+    - post /api/v1/notification-channels/{id}/test
+    - get /api/v1/notification-deliveries
     - get /api/v1/storage/topology
     - get /api/v1/storage/devices
     - get /api/v1/storage/devices/{id}
@@ -94,6 +110,8 @@ x-upanel-contract-status:
     - get /api/v1/container-volumes
     - get /api/v1/deployments
     - get /api/v1/deployments/{id}
+    - get /api/v1/deployments/managed
+    - get /api/v1/deployments/managed/{name}
     - get /api/v1/proxies
     - post /api/v1/proxies
     - get /api/v1/proxies/nginx
@@ -107,6 +125,18 @@ x-upanel-contract-status:
     - get /api/v1/packages
     - get /api/v1/packages/updates
     - get /api/v1/system/power-state
+    - get /api/v1/system/capabilities
+    - get /api/v1/backup/repositories
+    - post /api/v1/backup/repositories
+    - get /api/v1/backup/repositories/{id}
+    - patch /api/v1/backup/repositories/{id}
+    - get /api/v1/backup/policies
+    - post /api/v1/backup/policies
+    - get /api/v1/backup/policies/{id}
+    - patch /api/v1/backup/policies/{id}
+    - delete /api/v1/backup/policies/{id}
+    - get /api/v1/backup/snapshots
+    - get /api/v1/backup/snapshots/{id}
   note: 只列出已实现并通过验收的接口；未实现模块不出现在 paths 中。
 servers:
   - url: https://127.0.0.1:9443/api/v1
@@ -142,6 +172,12 @@ tags:
     description: 反向代理与证书
   - name: ops
     description: 软件更新、电源、备份、计划任务、网络、告警
+  - name: backup
+    description: 备份仓库、策略与快照（仅 admin；定义只有代理里那份）
+  - name: schedules
+    description: 计划任务与受管理脚本（仅 admin；只读镜像，定义只有代理里那份）
+  - name: network
+    description: 网卡、路由、监听端口与防火墙现状（仅 admin，只读；写路径走 network.apply / firewall.apply）
 paths:
   /api/v1/health/live:
     get:
@@ -683,6 +719,170 @@ paths:
           $ref: '#/components/responses/Unauthenticated'
         '503':
           description: 代理不可用（未配置 socket 或连接失败），此时没有可展示的采集数据。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/system/metrics:
+    get:
+      operationId: getSystemMetrics
+      summary: 历史监控（过去的 CPU、内存、负载、网络、容量）
+      description: |
+        返回请求区间内的时序样本（CONTRACTS.md 第 3 节，权限 V）。
+
+        与 `/system/summary` 的分工：那个接口回答“现在什么样”，这个接口回答“过去怎么走的”。
+        样本由面板进程按 2 秒轮询代理快照、按 `collected_at` 去重后写入本地库，再做分钟与
+        小时聚合；查询只读样本表，不触发采集。
+
+        **缺失的数据就是没有点**：
+        - 采集失败、代理不可用、值为 null 的那些时刻不会写样本，也不会补 0；
+        - 响应里没有的桶就是没有测到，每个序列用 `missing_points` 如实计数；
+        - `observed_from` / `observed_to` 都是 null 表示这个区间真的一点数据都没有，
+          与“有数据但中间断了”是两件事。
+
+        **粒度与点数**：单次最多 1440 个点。点数超了不报错，而是按时间跨度落到
+        raw（最近 24 小时）→ minute（30 天）→ hour（365 天）里覆盖得住的最细一层，
+        再把步长加粗到需要的粗细。响应里的 `resolution` 与 `step_seconds` 是**实际**
+        用的值，界面据此标注，不要假设它就是 5 秒数据。
+
+        `enabled=false` 表示这个进程没有在记历史（演示模式），此时 `series` 为空、
+        `reason` 说明原因；界面应显示“未开启历史监控”，而不是“这段时间没有数据”。
+      tags: [system]
+      parameters:
+        - name: scope
+          in: query
+          required: true
+          description: 样本类别闭集：host、interface、filesystem。
+          schema:
+            type: string
+            enum: [host, interface, filesystem]
+        - name: target_id
+          in: query
+          required: false
+          description: |
+            目标标识：host 为空（不传），interface 是网卡名，filesystem 是挂载点路径。
+            可重复传递，也可逗号分隔；不传表示该 scope 下的全部目标。
+          schema:
+            type: string
+            maxLength: 512
+        - name: metric
+          in: query
+          required: false
+          description: |
+            指标名，必须属于该 scope（见 `/system/metrics/status` 的 `metrics`）。
+            可重复传递，也可逗号分隔；不传表示该 scope 下全部登记过的指标。
+            未知指标名返回 400，而不是 200 加空数组——空数组会被读成“过去没有数据”。
+          schema:
+            type: string
+            maxLength: 64
+        - name: from
+          in: query
+          required: false
+          description: 区间起点（含）。不传时取 `to - 1 小时`。
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          description: 区间终点（不含）。不传时取服务端当前时间；不得晚于当前时间 2 分钟以上。
+          schema:
+            type: string
+            format: date-time
+        - name: step
+          in: query
+          required: false
+          description: |
+            期望的桶宽（秒，正整数）。不传则自动挑一个不超 1440 点的密度。
+            低于所选粒度的桶宽时会被抬到桶宽；点数仍超上限时服务端继续加粗，
+            以响应里的 `step_seconds` 为准。
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 31536000
+      responses:
+        '200':
+          description: 查询结果；`enabled=false` 时表示这个进程没有记历史。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SystemMetricQueryResult'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          description: 参数不合法（scope 缺失或不在闭集、未知指标、时间写错、步长非法）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '500':
+          description: 读取样本库失败。正文不包含内部错误原文。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/system/metrics/status:
+    get:
+      operationId: getSystemMetricsStatus
+      summary: 历史监控的状态（为什么图是空的）
+      description: |
+        回答“这个进程到底在不在记历史”（CONTRACTS.md 第 3 节，权限 V）。
+
+        查询接口只给曲线，一条空曲线什么也说明不了：可能是采集在跑但代理刚断开，
+        可能是配置里关了采集，可能是这台机器还没收到过样本。这里把三种情况分开：
+
+        - `enabled`：库在、能回答历史问题；
+        - `collecting`：采集循环在这个进程里跑着；
+        - `reason`：`enabled=true` 且 `collecting=false` 时说明是哪一种原因；
+        - `samples`：库里各粒度（raw / minute / hour）与 total 的行数；
+        - `last_sample_at`、`last_error`、`last_error_at`：本进程的运行时事实；
+        - `metrics`：产品支持的指标清单；`series`：这台机器的历史里真正出现过的序列。
+
+        `last_sample_at` 与 `inserted` / `aggregated` / `pruned` 说的是**这个进程**，
+        重启后从零开始，不是“这台机器”。行数是全表统计，不要按曲线刷新频率轮询它。
+      tags: [system]
+      responses:
+        '200':
+          description: 状态快照；`enabled=false` 表示这个进程没有记历史。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SystemMetricsStatus'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '500':
+          description: 读取样本库失败。正文不包含内部错误原文。
           headers:
             X-Request-ID:
               $ref: '#/components/headers/RequestId'
@@ -4732,6 +4932,140 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/v1/deployments/managed:
+    get:
+      operationId: listManagedDeployments
+      summary: 面板管理的 Compose 部署清单（只读，仅 admin）
+      description: |
+        CONTRACTS.md 第 8.9 节（P15.4）。这是**管理面**，与 `/api/v1/deployments`
+        （观测面）回答的不是同一个问题：
+
+        - `/api/v1/deployments` 读 docker：这台机器上跑着什么 compose 项目，
+          里面混着别人手工 `docker compose up` 起的、面板不知道也管不了的项目；
+        - `/api/v1/deployments/managed` 读 `/etc/upanel/deploy` 下的三个文件与
+          systemd 的两个回答：面板管着哪些部署，它们现在是什么状态。
+
+        两张表按 `deployment_id` 连接（与 compose 项目标识同一个值：`dep_` +
+        部署名的 sha256 前缀）。混成一张表就会有一边读错：拿项目清单当"我的部署"，
+        手工起的项目会变成一条点不动的部署；拿部署配置当"机器上跑着什么"，
+        配置被删掉但容器还在跑的项目会凭空消失。
+
+        **这份读数是现场，不是承诺**：`record.image.digest` 是上一次执行
+        （apply/update）读回并写下的镜像指纹，不是这一次现问 docker 的。
+        `unit_state` 是这一次现问 systemd 的。两者混在一起读会把"上次跑的是
+        哪个镜像"当成"现在跑的是哪个镜像"——真要核对容器，读 `/api/v1/containers`。
+
+        `skipped[]` 是配置目录里存在但没能读成部署的条目。它非空说明这台机器上
+        有东西面板不知道，页面必须显示出来，而不是静默略过。
+      tags: [containers]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 部署现场清单。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ManagedDeploymentListData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: 代理不可用（未配置代理连接，或代理连不上）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/deployments/managed/{name}:
+    get:
+      operationId: getManagedDeployment
+      summary: 单个面板管理的部署现场（只读，仅 admin）
+      description: |
+        CONTRACTS.md 第 8.9 节（P15.4）。带上完整记录（规范化定义 + 镜像记录 +
+        上一版），创建/更新/删除的表单用的就是这一份定义。
+
+        定义是**闭集**：`privileged`、`devices`、`network_mode`、`cap_add`、
+        `compose_yaml` 这类选项在数据模型里没有位置，因此既写不进去，也读不出来。
+        挂载只能由"文件根 id + 根内相对路径"表达，宿主绝对路径、`..`、`/proc`、
+        `/sys`、`/dev`、`docker.sock` 一律在预检里被拒绝。
+
+        没有这份部署时是 404——不是 200 + 空结构：空结构会被界面读成
+        "有这份部署，但它什么都没有"。
+      tags: [containers]
+      security:
+        - upanelSession: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: 部署名（等长限制与 Compose 项目名一致）。
+          schema:
+            type: string
+            pattern: '^[a-z][a-z0-9_-]{0,62}$'
+      responses:
+        '200':
+          description: 部署现场。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ManagedDeployment'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          description: 部署名不符合规则。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: 没有这个部署（配置、单元与记录三者都不在）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 代理不可用。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/packages:
     get:
       operationId: listPackages
@@ -4888,6 +5222,1717 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/system/capabilities:
+    get:
+      operationId: getSystemCapabilities
+      summary: 这台机器上装了哪些外部程序与版本（仅 admin）
+      description: |
+        CONTRACTS.md 第 8.10 节（P16.1 起）。只读。
+
+        回答的是"这台机器能做什么"：备份页要 restic、部署页要 docker、代理页要 nginx、
+        防火墙页要 ufw，缺任何一个时界面此前只能显示"读了但没读到"，真正的原因只有
+        SSH 进去才知道。这一条把原因摆出来。
+
+        数据来自代理的**缓存快照**，不在请求里现场探测：这个端点会被页面反复刷新，
+        让每次刷新都等十几条版本命令是不合适的。代理启动时探一次，之后每 10 分钟重探。
+
+        三条不许混的语义：
+
+        - `ready=false` 时 `host_caps` 必定是 `null`——那是"代理还没探完"，
+          **不是**"这台机器没有依赖"。前端必须画"还没探完"，不能画空表。
+        - 条目的 `state` 是三态：`present` / `absent` / `unknown`。`unknown` 表示
+          固定目录读不出来，既不能说有也不能说没有；把它并进 `absent` 会让人
+          按提示重装一遍已经装好的东西。
+        - 这只是转述，不是准入：某个动作能不能做，仍然由那个动作自己的预检回答。
+
+        程序只在 `/usr/sbin`、`/sbin`、`/usr/bin`、`/bin` 四个固定目录里找，不走 `PATH`
+        （PATH 里可能有可写目录）。版本只在命令真的跑完并匹配到锚点时才填。
+
+        权限是 admin：这份清单合起来就是主机指纹（与容器清单、部署定义同一个判断）。
+      tags: [system]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 能力快照；代理还没探完时 `host_caps` 为 null。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SystemCapabilities'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/network/interfaces:
+    get:
+      operationId: listNetworkInterfaces
+      summary: 网卡、地址与"能不能改"的判定（仅 admin）
+      description: |
+        CONTRACTS.md 第 14.1 节（P14.1 起）。只读。
+
+        数据来自两处：`ip -j addr show`（地址、operstate、master）与
+        `/sys/class/net/<name>/`（MTU、MAC、载波、是不是物理设备、类型）。两处互相
+        印证，但任一处读不到都只记一条 `issues`，其余照常给出——一份空网卡列表会被
+        读成"这台机器没有网卡"。
+
+        `capability` 回答"P14.2 的括号能不能打开"：只有 netplan 配置 + systemd-networkd
+        渲染、且只有唯一一张物理以太网卡、没有网桥/bond/VLAN/Wi-Fi、NetworkManager 没在跑
+        的时候才 `editable=true`。判定依据是 `/etc/netplan` 下有没有配置、`/run` 下有没有
+        渲染产物，以及运行时网卡的类型——不解析 netplan 的 YAML，也不靠名字猜。
+
+        **没有写入口**：改地址是 `network.apply` 的预检 → 任务。
+      tags: [network]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 网卡列表与可改判定。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/NetworkInterfaceList'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/network/routes:
+    get:
+      operationId: listNetworkRoutes
+      summary: 路由表与默认网关（仅 admin）
+      description: |
+        CONTRACTS.md 第 14.1 节（P14.1 起）。只读。
+
+        IPv4 与 IPv6 各查一次（`ip -j route show` 与 `ip -j -6 route show`）：只查 v4
+        会漏掉 v6 默认网关，而"这台机器从哪儿出去"必须两个家族都答。默认路由排在最前，
+        顺序在代码里固定，不依赖 `ip` 的输出顺序。
+
+        `gateways` 是去重后的默认下一跳，按家族分开。`metric` 与 `pref_set` 成对出现
+        ——0 是合法优先级，"没有 metric"不能拿 0 表示。
+      tags: [network]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 路由表与默认网关。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/NetworkRouteList'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/network/listeners:
+    get:
+      operationId: listNetworkListeners
+      summary: 监听端口与占用进程（仅 admin）
+      description: |
+        CONTRACTS.md 第 14.1 节（P14.1 起）。只读。
+
+        数据来自 `/proc/net/{tcp,tcp6,udp,udp6}`：只取 LISTEN（TCP 状态 `0A`）与
+        UDP 的 `07`，所以表里只有"对外开着的口"，不含已建立的连接。进程归属由
+        `/proc/<pid>/fd` 里的 `socket:[inode]` 反查得到；反查不到时 `pid=0`——
+        那是"读不到"，不是"没有进程"。
+
+        `truncated=true` 表示结果被上限截断（监听表可能有几千条）。页面必须说明
+        "这不是全部"，不能装作完整。
+      tags: [network]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 监听端口列表。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/NetworkListenerList'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/network/config:
+    get:
+      operationId: getNetworkConfig
+      summary: 可改网卡的生效配置、config_hash 与待确认的回滚（仅 admin）
+      description: |
+        CONTRACTS.md 第 13.6 节（P14.2 起）。只读：读 netplan 目录、`/run` 下的渲染产物
+        与内核地址，一个字节都不改。
+
+        它回答三件页面必须知道的事：
+
+        1. **能不能改**：`capability.editable` 与 `capability.reasons`，判定在代理侧
+           （要读 `/run/systemd/network/` 的渲染产物与 sysfs），Web 不改写、不补充。
+        2. **提交时该带什么指纹**：`config_hash`。它**只在 `editable=true` 时出现**——
+           算不出来就别给一个"看起来能提交"的值，那种值只会让提交永远得到
+           `NETWORK_CONFIG_CHANGED`。
+        3. **有没有一条还没确认的回滚**：`pending`，带 `seconds_left` 与 `deadline`。
+           它不为 null 时，`network.apply` 的预检会被判 `NETWORK_ROLLBACK_PENDING`：
+           先确认或先回滚，不许叠加。
+
+        改本身走 `network.apply` 的预检 → 任务。`network.confirm` 的参数里有一个字段
+        不归调用方：`arrived_on` 由服务端从这条连接的本地地址取（`http.LocalAddrContextKey`），
+        请求体里出现它会得到 400 `VALIDATION_ERROR`；取不到地址时这一次确认直接失败
+        （120 秒后自动回滚到原配置），而不是在没有凭据的情况下把新配置永久留下。
+
+        未接线（`-network-writes` 未打开）时回 503 `AGENT_UNAVAILABLE`，**不给一份看起来
+        能用的空配置**。
+      tags: [network]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 写路径的入口状态。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/NetworkConfigState'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/firewall/config:
+    get:
+      operationId: getFirewallConfig
+      summary: 面板管理的防火墙规则、config_hash 与待确认的回滚（仅 admin）
+      description: |
+        CONTRACTS.md 第 13.7 节（P14.3 起）。只读：跑 `ufw status` 与 `ufw show added`，
+        一个规则都不改。
+
+        它回答三件页面必须知道的事：
+
+        1. **能不能改**：`editable`，判定在代理侧（要 UFW 独占、装好、且判据能读全），
+           Web 不改写、不补充。不能改时 `reasons` 说明为什么。
+        2. **提交时该带什么指纹**：`config_hash`。它**只在 `editable=true` 时出现**。
+        3. **有没有一条还没确认的回滚**：`pending`，带 `seconds_left` 与 `deadline`，
+           以及 `previous`（"退回去会变成什么样"）。它不为 null 时，`firewall.apply`
+           的预检会被判 `FIREWALL_ROLLBACK_PENDING`：先确认或先回滚，不许叠加。
+
+        `rules` **只列面板管理的规则**（带 `upanel:` 标记的那些）。管理员手写的规则不出现
+        在这里，因为面板不会去动它们——把它们混进"可以编辑的列表"，下一步就会有人以为
+        删掉一行只是删掉一个显示项。手写规则仍然在 `GET /api/v1/firewall` 里完整可见。
+
+        未接线（`-firewall-writes` 未打开）时回 503 `AGENT_UNAVAILABLE`，**不给一份看起来
+        能用的空规则表**。
+      tags: [network]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 防火墙写路径的入口状态。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/FirewallConfigState'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/firewall:
+    get:
+      operationId: getFirewallState
+      summary: 防火墙管理者、默认策略与规则（仅 admin）
+      description: |
+        CONTRACTS.md 第 14.1 节（P14.1 起）。只读：只跑 `ufw status verbose numbered`，
+        不改规则、不 reload。
+
+        `manager` 是判定结果，不是"装了什么"：ufw 与 firewalld 同时在场时判 `unknown`，
+        因为两套规则同存时"我加了一条放行"在另一套的默认拒绝面前什么都不是。
+        一种都没发现是 `none`，但**那不等于没有防火墙**——读不到时 `issues` 里有一条
+        `ufw/missing`。
+
+        `editable` 只在 manager=ufw 且 installed 时为 true；`reasons` 说明为什么不行。
+        **没有写入口**：改规则是 `firewall.apply` 的预检 → 任务（P14.3）。
+      tags: [network]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 防火墙现状。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/FirewallState'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/backup/repositories:
+    get:
+      operationId: listBackupRepositories
+      summary: 备份仓库定义列表（仅 admin）
+      description: |
+        CONTRACTS.md 第 12.2 节（P12.2 起）。这一组编辑的是**代理里那份定义**：面板不存
+        第二份仓库表，因此代理不可用时整组回 503 `AGENT_UNAVAILABLE`，而不是给一份空列表
+        （空列表会被读成"这台机器上还没有配置备份"）。
+
+        `repository_state_query` 说明"这个仓库初始化了没有"要去哪儿问：那是
+        `backup.repository.state` 的只读查询，因为它要现采（restic 读 config、SFTP 拨号
+        加主机密钥核对），塞进列表等于给每条都加一次拨号。
+
+        `password_secret_ref` / `credential_secret_ref` 是**引用**，不是明文：面板从不持有
+        仓库口令与私钥，它们只进代理的加密存储。
+      tags: [backup]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 仓库定义列表。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/BackupRepositoryListData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      operationId: createBackupRepository
+      summary: 登记仓库定义（仅 admin + CSRF + 再认证）
+      description: |
+        只登记元数据，一个字节都不写远端；初始化真实仓库是 `backup.repository.initialize`
+        的预检 → 任务。要再认证，是因为这条定义引用仓库口令与 SFTP 私钥——改一次定义就是
+        改一次"备份会往哪儿写"。
+
+        校验按 `backend` 判别：`local` 用 `root_id` + `relative_path`，不接受任何远端字段；
+        `sftp` 用 `host`/`port`/`username`/`remote_path`/`host_key_fingerprint` + 私钥引用。
+        主机密钥指纹必须显式登记，不接受"第一次连上就信"。名字重复是 400（这次请求本身
+        不合法），不是 409。
+      tags: [backup]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupRepositoryCreateRequest'
+      responses:
+        '201':
+          description: 已登记。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/BackupRepository'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/backup/repositories/{id}:
+    parameters:
+      - $ref: '#/components/parameters/BackupRepositoryID'
+    get:
+      operationId: getBackupRepository
+      summary: 单个仓库定义（仅 admin）
+      tags: [backup]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 仓库定义。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/BackupRepository'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    patch:
+      operationId: updateBackupRepository
+      summary: 修改仓库定义（仅 admin + CSRF + 再认证）
+      description: |
+        整份定义一起提交（"读出来、改一处、存回去"是这里唯一的编辑方式），`version` 必填：
+        缺它或小于 1 时面板先回 400——"你没说改的是哪一版"是调用方的错；代理发现版本
+        已经变了回 409 `VERSION_CONFLICT`——"你说的那一版已经不在了"是别人先改了一步。
+        两种情况的处置不同，状态码也不合并。
+
+        契约里**没有** `DELETE /backup/repositories/{id}`：仓库一旦建成、快照就在里面，
+        删掉定义会让"这些快照属于谁"无从回答。
+      tags: [backup]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupRepositoryUpdateRequest'
+      responses:
+        '200':
+          description: 已更新。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/BackupRepository'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/backup/policies:
+    get:
+      operationId: listBackupPolicies
+      summary: 备份策略列表（仅 admin）
+      description: 策略只描述"备份什么、按什么口径"，不引用任何秘密，也不动主机状态。
+      tags: [backup]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 策略列表。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/BackupPolicyListData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      operationId: createBackupPolicy
+      summary: 登记备份策略（仅 admin + CSRF）
+      description: |
+        一致性口径是闭集：`files_only` 只保证文件字节（正在写入的数据库在快照里可能不一致），
+        `stop_managed_apps` 要求 `app_ids` 非空。两个字段互相约束：`files_only` 带
+        `app_ids` 回 400（那一列在这条策略里不会被执行，留着只会让人以为会停），
+        `stop_managed_apps` 不带 `app_ids` 同样回 400（不说停谁就等于说"随便停"）。
+
+        执行（`backup.run`）与清理（`backup.prune`）都不在这里：那是预检 → 任务，执行前
+        会展示停机影响。
+      tags: [backup]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupPolicyCreateRequest'
+      responses:
+        '201':
+          description: 已登记。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/BackupPolicy'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/backup/policies/{id}:
+    parameters:
+      - $ref: '#/components/parameters/BackupPolicyID'
+    get:
+      operationId: getBackupPolicy
+      summary: 单条备份策略（仅 admin）
+      tags: [backup]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 策略定义。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/BackupPolicy'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    patch:
+      operationId: updateBackupPolicy
+      summary: 修改备份策略（仅 admin + CSRF）
+      description: 整份策略一起提交；`version` 必填，语义与仓库的 PATCH 一致。
+      tags: [backup]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupPolicyUpdateRequest'
+      responses:
+        '200':
+          description: 已更新。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/BackupPolicy'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    delete:
+      operationId: deleteBackupPolicy
+      summary: 删除备份策略（仅 admin + CSRF）
+      description: |
+        只删策略，不删仓库、不删快照：已经做出来的备份仍然在仓库里，只是不再有"按什么
+        口径、备份哪些路径"这条记录。审计里明写 `cascaded=false` 与
+        `kept: [repository, snapshots]`——"删了什么、没删什么"要看得到。
+
+        清理历史快照是 `backup.prune` 的预检 → 任务，不在这里发生。
+      tags: [backup]
+      security:
+        - upanelSession: []
+          csrfToken: []
+      responses:
+        '200':
+          description: 已删除；data 为空对象。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/EmptyData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/backup/snapshots:
+    get:
+      operationId: listBackupSnapshots
+      summary: 仓库里的快照列表（仅 admin）
+      description: |
+        CONTRACTS.md 第 12.2 节。`repository_id` 是**必填查询参数**而不是路径段：快照 id 只
+        在仓库内部唯一，而面板没有"快照 → 仓库"的索引（有索引就等于存了第二份真相）。
+
+        列表**不返回大小**：每条的大小要单独跑一次 `restic stats`，200 条就是 200 次进程
+        启动。因此 `size_included` 为 `false`，`size_bytes` / `file_count` 字段直接不出现
+        （不是写 0——"没读"与"读了是 0 字节"是两件事），详情才带。
+
+        `registered=false` 表示这台机器上**没有登记这个仓库**，不是"没有快照"：两种情况
+        `items` 都是空，但原因不同，界面要说清楚。这不是 404——404 会被读成"这条路由不存在"。
+
+        页面查询不触发任何删除：清理是 `backup.prune` 的预检 → 任务。
+      tags: [backup]
+      security:
+        - upanelSession: []
+      parameters:
+        - name: repository_id
+          in: query
+          required: true
+          description: 仓库标识，形如 rep_ 加 32 位小写十六进制。
+          schema:
+            type: string
+            pattern: '^rep_[0-9a-f]{32}$'
+        - name: policy_id
+          in: query
+          required: false
+          description: 只列这条策略产生的快照（按快照标签过滤）；省略则列全部。
+          schema:
+            type: string
+            pattern: '^pol_[0-9a-f]{32}$'
+      responses:
+        '200':
+          description: 快照列表。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/BackupSnapshotListData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/backup/snapshots/{id}:
+    parameters:
+      - $ref: '#/components/parameters/BackupSnapshotID'
+      - name: repository_id
+        in: query
+        required: true
+        description: 这条快照所在的仓库（快照 id 只在仓库内部唯一）。
+        schema:
+          type: string
+          pattern: '^rep_[0-9a-f]{32}$'
+    get:
+      operationId: getBackupSnapshot
+      summary: 单条快照详情（仅 admin）
+      description: |
+        比列表多两项：`size_bytes` 与 `file_count`（来自 `restic stats`，要单独跑一次），
+        以及 `restore_verified_at`——恢复演练的验证记录，没验证过就是 `null`，
+        **不是**"已验证但时间是空的"。
+
+        `found=false` 是状态字段而非 404：仓库在、这条快照不在（被 prune 掉了、或者 id
+        抄错一位）时，界面要说的是"这条快照不在了"，而不是"接口不存在"。
+      tags: [backup]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 快照详情。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/BackupSnapshotDetailData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/schedules:
+    get:
+      operationId: listSchedules
+      summary: 计划任务列表（仅 admin）
+      description: |
+        CONTRACTS.md 第 12、15 节。计划只有**一份真相：代理库里那一份**——systemd 单元是
+        按它写出来的，触发也要回代理取动作。因此这里是代理镜像的直读：代理不在时回
+        `503 AGENT_UNAVAILABLE`，**不给空列表**（空列表会被读成"这台机器上没有定时任务"）。
+
+        每条把**意图**与**事实**分开写：`enabled` 是定义里的意图，`installed` /
+        `unit_file_state` / `active_state` 是 systemd 的原话。界面因此能如实说出
+        "定义是启用的，但单元没装"，而不是替 systemd 编一个答案。
+
+        `blockers` 永不为 `null`：`[]` 表示现在没有阻塞项，`null` 会被读成"没检查过"。
+        `next_elapse` 读不到时字段不出现（不是写零值时间）。
+
+        这一组一个字节都不写：建立/修改/删除是 `schedule.apply` / `schedule.delete` 的
+        预检 → 任务，执行是 `script.run`。
+      tags: [schedules]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 计划任务列表。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ScheduleListData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/schedules/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: 计划标识，形如 sch_ 加 32 位小写十六进制。
+        schema:
+          type: string
+          pattern: '^sch_[0-9a-f]{32}$'
+    get:
+      operationId: getSchedule
+      summary: 单条计划详情与触发记录（仅 admin）
+      description: |
+        比列表多一组 `triggers`：最近 20 次触发的判决（`triggered` / `blocked` /
+        `duplicate` / `failed`）与它们产生的 `operation_id`。
+
+        触发记录是"这次到底跑没跑"的**事实**，不是计划的意图：计划写着启用、单元也装着，
+        但目标（备份策略 / 脚本）被删了的时候，触发会以 `blocked` 留痕并写明原因。
+
+        id 形状不合法是 400（参数不对），代理里没有这条计划才是 404。
+      tags: [schedules]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 计划详情。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ScheduleDetailData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/scripts:
+    get:
+      operationId: listScripts
+      summary: 受管理脚本列表（仅 admin，只返回元数据）
+      description: |
+        CONTRACTS.md 第 12 节：列表只返回元数据，正文只在 `GET /scripts/{id}`。
+
+        脚本存在代理库里、由代理以 root 所有（`root:upanel-shell 0750`）落到
+        `script_dir`，运行时以 `upanel-shell` 身份执行、**永远不获得 root**，并且运行前
+        核对已批准内容的哈希——这样终端用户改了已获授权的定时脚本也跑不起来。
+
+        创建/修改/删除走 `script.apply` / `script.delete` 的预检 → 任务；立即执行走
+        `script.run`。所以这里只有 GET。
+      tags: [schedules]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 脚本列表（不含正文）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ScriptListData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/scripts/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: 脚本标识，形如 scr_ 加 32 位小写十六进制。
+        schema:
+          type: string
+          pattern: '^scr_[0-9a-f]{32}$'
+    get:
+      operationId: getScript
+      summary: 单条脚本详情（仅 admin，含正文）
+      description: |
+        正文是 UTF-8、最多 64 KiB，不能指定任意路径；`interpreter` 由代理决定
+        （固定 `/bin/sh`），调用方不能指定。`content_hash` 是已批准内容的摘要，
+        运行时用来核对落盘文件没有被改过。
+      tags: [schedules]
+      security:
+        - upanelSession: []
+      responses:
+        '200':
+          description: 脚本详情（含 content）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ScriptDetailData'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/alerts/rules:
+    get:
+      operationId: listAlertRules
+      summary: 告警规则列表（权限 V）
+      description: |
+        返回全部规则，含每条规则的**当前状态机**与"上一轮为什么没下结论"。
+        规则定义在面板库里，判定只读历史样本表，不经过代理——代理挂了正是最需要
+        告警的时候，因此这个接口在代理不可用时照常工作。
+
+        `last_reason` 不是调试字段：一条规则一直不响时，它回答"是数据没进来，
+        还是条件没满足"。数据不足（窗口里没有样本、最新样本超过 20 秒没更新、
+        窗口前段还没攒够）时状态机原地不动，这条理由会说明是哪一种。
+      tags: [ops]
+      responses:
+        '200':
+          description: 规则列表（按 id 升序）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AlertRule'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '503':
+          $ref: '#/components/responses/NotImplemented'
+    post:
+      operationId: createAlertRule
+      summary: 新建告警规则（admin + CSRF）
+      description: |
+        `scope` 不在请求里：它由 `metric` 反查得到。让调用方同时给 `scope` 与
+        `metric`，就多出一种"两者不匹配"的非法输入要解释，而它没有正确的语义。
+
+        空间双阈值（"使用率 ≥ 85% 或剩余 ≤ 10 GiB"）由 `secondary_metric` +
+        `secondary_comparison` + `secondary_threshold` 表达，三个字段必须一起给出。
+        `combination=any` 是"任一满足就触发"，`all` 是"全部满足才触发"。
+
+        `recovery_threshold` 必须严格落在告警线的安全侧（`gte`/`gt` 时更小，
+        `lt`/`lte` 时更大）：两条线之间的样本既不算超限也不算恢复，那条死区就是
+        防刷屏的机制；等于阈值等于没有死区，因此被拒绝。
+      tags: [ops]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertRuleCreate'
+      responses:
+        '201':
+          description: 已创建；返回落库后的规则（`version=1`、`state=ok`）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AlertRule'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: |
+            `DEPENDENCY_BLOCKED`：规则数量已达上限（200）。上限存在的原因是评估循环
+            每 15 秒要把启用规则全跑一遍；到了上限该做的是删掉不再需要的规则。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/NotImplemented'
+
+  /api/v1/alerts/rules/{id}:
+    patch:
+      operationId: updateAlertRule
+      summary: 修改告警规则（admin + CSRF）
+      description: |
+        **部分更新**：没出现的字段沿用原值。`enabled=false`、`cooldown_seconds=0`
+        这类零值因此能被区分出来——它们和"这次没提这个字段"是两件事。
+
+        `version` 必须给出且与库里一致，否则 409。改规则**不重置状态机**：改阈值
+        不等于"现在没超限"，一条正在 firing 的规则把线调高之后，如果新条件仍然成立，
+        那个事件就该继续开着。唯一例外是停用：停用会把打开的事件收口，因为之后没有
+        任何东西会再评估它。
+      tags: [ops]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertRulePatch'
+      responses:
+        '200':
+          description: 已更新；返回改后的规则（`version` 已自增）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AlertRule'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/NotImplemented'
+    delete:
+      operationId: deleteAlertRule
+      summary: 删除告警规则（admin + CSRF）
+      description: |
+        历史事件**不删**：事件行的 `rule_id` 是外键置空，规则被删掉之后事件的
+        `rule_id` 为 0，其余快照字段照旧可读。删除前会把打开的事件收口，
+        不留一条永远 firing 的孤儿行。
+      tags: [ops]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: version
+          in: query
+          required: false
+          description: 乐观并发版本；给出就必须与库里一致，不给出按当前版本删。
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: 已删除。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: false
+                    required: [id]
+                    properties:
+                      id:
+                        type: integer
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/NotImplemented'
+
+  /api/v1/alerts/events:
+    get:
+      operationId: listAlertEvents
+      summary: 告警事件列表（权限 V）
+      description: |
+        一个事件周期**只有一行**：触发时是 `firing`，恢复时把同一行改成 `resolved`
+        并写上 `resolved_at`、`duration_seconds`（实际时长）与 `peak_value`
+        （按整个事件区间重算的极值）。因此不存在"恢复也发一条事件"这回事，
+        未变化也不会刷屏。
+
+        事件行里存的是**触发那一刻的规则快照**：规则改名、改阈值、被删掉之后，
+        这条历史仍然说得清"当时是什么条件"。显示字段一律读快照，不回 join 规则表。
+      tags: [ops]
+      parameters:
+        - name: state
+          in: query
+          required: false
+          description: 只看某个状态；不传表示全部。
+          schema:
+            type: string
+            enum: [firing, resolved]
+        - name: rule_id
+          in: query
+          required: false
+          description: 只看某条规则的事件。
+          schema:
+            type: integer
+            minimum: 1
+        - name: limit
+          in: query
+          required: false
+          description: 返回条数上限（默认 50，最大 200）。
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+      responses:
+        '200':
+          description: 事件列表，最新在前。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AlertEvent'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '503':
+          $ref: '#/components/responses/NotImplemented'
+
+  /api/v1/alerts/events/{id}/ack:
+    post:
+      operationId: ackAlertEvent
+      summary: 确认一条告警事件（admin + CSRF）
+      description: |
+        "这条事件我已经看见了。" 它只写 `acked_at` / `acked_by` 两个字段。
+
+        **不改事件状态。** 确认是人的动作，不是机器的结论：机器还在超限就是还在
+        超限，一次点击不该把 `firing` 变成 `resolved`，也不该影响规则的判定、冷却
+        或静默。它回答的是另一个问题——"有没有人在管这件事"。
+
+        **幂等且保留第一个确认人。** 第二次确认原样返回第一次的时间与人：重试一次
+        不会改动任何事实，"谁先看见的"也不会被后来者覆盖。已恢复的事件同样可以确认
+        （"这个恢复我知道了"）。
+      tags: [ops]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: 确认后的事件行（含 `acked_at` / `acked_by`）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AlertEvent'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          description: id 不是正整数。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: 事件不存在（消息是"告警事件不存在"，不是"规则不存在"）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/NotImplemented'
+
+  /api/v1/alerts/silence:
+    get:
+      operationId: getAlertSilence
+      summary: 当前维护静默窗口（权限 V）
+      description: |
+        静默是**全局的一个时间窗**，不是每规则一份：维护是整台机器的维护，
+        二十条规则各设窗口只会让人在维护开始前忘掉其中三条。
+
+        静默期间告警照常判定、事件照常记录（事件行带 `silenced=true`），只是不发
+        通知：机器确实超限了，这是事实，不该因为"正在维护"就假装没发生。
+      tags: [ops]
+      responses:
+        '200':
+          description: 当前静默窗口；没有窗口时 `active=false` 且起止为 null。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AlertSilence'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '503':
+          $ref: '#/components/responses/NotImplemented'
+    put:
+      operationId: putAlertSilence
+      summary: 设置或清除维护静默（admin + CSRF）
+      description: |
+        起止都给 = 设置窗口（跨度 ≤ 7 天，`ends_at` 必须晚于 `starts_at`）；
+        **两个都省略 = 清除**。清除是一次显式动作，不是"把窗口设成过去的时间"
+        那种会被时钟漂移意外造成的状态。
+      tags: [ops]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertSilenceInput'
+      responses:
+        '200':
+          description: 设置/清除后的状态。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AlertSilence'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/NotImplemented'
+
+  /api/v1/notification-channels:
+    get:
+      operationId: listNotificationChannels
+      summary: 通知通道列表（admin）
+      description: |
+        读也要求 admin：通道列表带着 webhook 地址与收件邮箱，那是"告警会发给谁"的
+        答案。这与 `/alerts` 的读开给 viewer 不是一回事。
+
+        未装配通知功能的进程回 503 而不是空列表——空列表会被读成"这台机器上一条
+        通知都没配"。
+      tags: [ops]
+      responses:
+        '200':
+          description: 通道列表（含迁移种下的 in_app 通道）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NotificationChannel'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/NotImplemented'
+    post:
+      operationId: createNotificationChannel
+      summary: 新建通知通道（admin + CSRF）
+      description: |
+        `type` 与 `name` 必填。`settings` 按类型解释，类型用不上的字段一律清空。
+        `max_attempts` 缺省 3（范围 1—10）。
+
+        **保存不会触发任何发送。** 想验证通道通不通，要显式调用
+        `POST /notification-channels/{id}/test`。
+      tags: [ops]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationChannelCreate'
+      responses:
+        '201':
+          description: 已创建。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/NotificationChannel'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/NotImplemented'
+
+  /api/v1/notification-channels/{id}:
+    patch:
+      operationId: updateNotificationChannel
+      summary: 修改通知通道（admin + CSRF）
+      description: |
+        **部分更新**：没出现的字段沿用原值；`secret_ref` 给空串是"清除凭据"，
+        这是唯一一个"空"有意义的地方。
+
+        `settings` 是**整体替换**而不是逐字段合并：smtp 与 webhook 的字段集不同，
+        逐字段合并会在"把 smtp 通道改成 webhook"时留下一堆无主的 host/port。
+
+        `version` 必须给出且与库里一致，否则 409。
+      tags: [ops]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationChannelPatch'
+      responses:
+        '200':
+          description: 已更新；返回改后的通道（`version` 已自增）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/NotificationChannel'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/NotImplemented'
+    delete:
+      operationId: deleteNotificationChannel
+      summary: 删除通知通道（admin + CSRF）
+      description: |
+        in_app 通道拒删（400）：它是面板自己的收件箱，删掉之后"告警去哪看"就没有
+        答案了。停用它才是想要的效果。
+
+        投递账**不跟着删**：`channel_id` 外键置空，历史留下来，仍然看得到那条通道
+        当时发过什么。
+      tags: [ops]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: version
+          in: query
+          required: false
+          description: 乐观并发版本；给出就必须与库里一致，不给出按当前版本删。
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: 已删除。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: false
+                    required: [id]
+                    properties:
+                      id:
+                        type: integer
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/NotImplemented'
+
+  /api/v1/notification-channels/{id}/test:
+    post:
+      operationId: testNotificationChannel
+      summary: 测试发送一条通知（admin + CSRF）
+      description: |
+        这是**显式动作**：保存配置绝不自动发。它只发一次、不重试——测试要的是
+        "此刻能不能发出去"这个事实，带重试的测试会让人盯着页面等三分钟。
+
+        投递由代理执行（SMTP 口令与 webhook 令牌只在代理的加密库里）。投递失败
+        （对端拒绝）仍然是 200：结果在 `data` 里，`last_error` 是对端原话。
+        in_app 通道回 400；没有发送端（代理未连接）回 503 `AGENT_UNAVAILABLE`。
+      tags: [ops]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: 已尝试投递；结果在投递行里（含对端回执码与原话）。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/NotificationDelivery'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/NotImplemented'
+
+  /api/v1/notification-deliveries:
+    get:
+      operationId: listNotificationDeliveries
+      summary: 投递账 / 面板收件箱（admin）
+      description: |
+        每次投递一行：通道快照、事件引用、标题正文、状态、已试次数与对端原话。
+
+        它读的是**面板自己的账**，不经过代理：代理此刻连不连得上，与"三天前那封
+        邮件发出去了没有"是两件不相干的事。行里的通道字段是入队时的**快照**，
+        通道被删（`channel_id=0`）之后历史照旧可读。
+
+        `state=sent` 包含所有 in_app 投递——它们不发到任何地方，写入即 done，
+        读这个列表就是读面板内的通知。
+
+        权限与通道列表一致（admin）：行里带着收件邮箱与 webhook 地址。
+      tags: [ops]
+      parameters:
+        - name: state
+          in: query
+          required: false
+          description: 只看某个状态；不传表示全部。
+          schema:
+            type: string
+            enum: [pending, sent, failed]
+        - name: kind
+          in: query
+          required: false
+          description: 只看某种投递来源；不传表示全部。
+          schema:
+            type: string
+            enum: [fired, resolved, test]
+        - name: limit
+          in: query
+          required: false
+          description: 返回条数上限（默认 50，最大 200）。
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+      responses:
+        '200':
+          description: 投递行，最新在前。
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, request_id]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NotificationDelivery'
+                  request_id:
+                    $ref: '#/components/schemas/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/NotImplemented'
+
+
 components:
   securitySchemes:
     upanelSession:
@@ -5139,6 +7184,30 @@ components:
       schema:
         type: string
         pattern: '^site_[0-9a-f]{32}$'
+    BackupRepositoryID:
+      name: id
+      in: path
+      required: true
+      description: 备份仓库标识，形如 rep_ac1ceea48853ce6d068878632d603a14。
+      schema:
+        type: string
+        pattern: '^rep_[0-9a-f]{32}$'
+    BackupPolicyID:
+      name: id
+      in: path
+      required: true
+      description: 备份策略标识，形如 pol_ac1ceea48853ce6d068878632d603a14。
+      schema:
+        type: string
+        pattern: '^pol_[0-9a-f]{32}$'
+    BackupSnapshotID:
+      name: id
+      in: path
+      required: true
+      description: restic 快照标识（仓库内部唯一）：64 位小写十六进制。
+      schema:
+        type: string
+        pattern: '^[0-9a-f]{64}$'
 
 
   headers:
@@ -5855,6 +7924,776 @@ components:
         unavailable 表示这台机器上没有这个数据源（例如受限容器里没有某个 /proc 文件）。
         三者都不是“零值”：界面必须据此区分“真的 0”和“没采到”。
 
+    SystemMetricScope:
+      type: string
+      enum: [host, interface, filesystem]
+      description: |
+        样本类别。host 是整机指标（target_id 为空）；interface 按网卡；filesystem 按挂载点。
+
+    SystemMetricResolution:
+      type: string
+      enum: [raw, minute, hour]
+      description: |
+        实际读取的粒度：raw 是代理采集的原始点（约 5 秒一个），minute 与 hour 是服务端
+        聚合出来的桶。查询按跨度自动选一层，响应里的 resolution 是**实际**用的那一层。
+
+    SystemMetricUnit:
+      type: string
+      enum: [percent, bytes_per_sec, bytes, count]
+      description: 纵轴单位，前端据此格式化。
+
+    SystemMetricDefinition:
+      type: object
+      additionalProperties: false
+      required: [scope, metric, unit, description]
+      properties:
+        scope:
+          $ref: '#/components/schemas/SystemMetricScope'
+        metric:
+          type: string
+          maxLength: 64
+          description: 指标名（例如 cpu_usage_percent）。
+        unit:
+          $ref: '#/components/schemas/SystemMetricUnit'
+        description:
+          type: string
+          maxLength: 200
+          description: 一句话说明这个指标是什么。
+
+    SystemMetricSeriesRef:
+      type: object
+      additionalProperties: false
+      required: [scope, target_id, metric]
+      properties:
+        scope:
+          $ref: '#/components/schemas/SystemMetricScope'
+        target_id:
+          type: string
+          maxLength: 512
+          description: host 为空字符串；interface 是网卡名；filesystem 是挂载点路径。
+        metric:
+          type: string
+          maxLength: 64
+
+    SystemMetricPoint:
+      type: object
+      additionalProperties: false
+      required: [timestamp, value, min, max, sample_count]
+      properties:
+        timestamp:
+          allOf:
+            - $ref: '#/components/schemas/Rfc3339Utc'
+          description: 桶的起点（不是中点、不是终点）；桶宽等于响应里的 step_seconds。
+        value:
+          type: number
+          description: 桶内样本的加权平均值。
+        min:
+          type: number
+          description: 桶内最小值。只有平均值的话，一次瞬时冲高会从图上彻底消失。
+        max:
+          type: number
+          description: 桶内最大值。
+        sample_count:
+          type: integer
+          minimum: 1
+          description: 这个桶里真的采到了几个样本。它偏小说明曲线稀疏，不是曲线好看。
+
+    SystemMetricSeries:
+      type: object
+      additionalProperties: false
+      required: [scope, target_id, metric, unit, points, missing_points]
+      properties:
+        scope:
+          $ref: '#/components/schemas/SystemMetricScope'
+        target_id:
+          type: string
+          maxLength: 512
+        metric:
+          type: string
+          maxLength: 64
+        unit:
+          $ref: '#/components/schemas/SystemMetricUnit'
+        points:
+          type: array
+          description: 按时间升序；没有测到的桶不会出现在这里，也永远不会是 0。
+          items:
+            $ref: '#/components/schemas/SystemMetricPoint'
+        missing_points:
+          type: integer
+          minimum: 0
+          description: |
+            该有、但没有的桶数（含区间首尾没有数据的部分）。它大于 0 不一定是中间断了，
+            但它是唯一能看出曲线有洞的字段。
+
+    AlertRule:
+      type: object
+      additionalProperties: false
+      description: |
+        一条告警规则 + 它此刻的状态机。
+
+        判定口径（CONTRACTS.md §13.2）：
+        - 「持续」是区间的事实：`(now - duration_seconds, now]` 里的**每一个**样本
+          都要在线外才算超限；有一个落回线内就从 pending 掉回 ok；
+        - 恢复要跨过 `recovery_threshold`，与告警线之间的样本既不算超限也不算恢复，
+          这条死区就是防刷屏的机制；恢复同样要持续 `duration_seconds`；
+        - 没有数据不是 0：窗口里没样本、最新样本超过 20 秒没更新、窗口前段还没攒够，
+          这三种情况下状态机原地不动（不触发也不恢复），原因写进 `last_reason`。
+      required:
+        [id, name, scope, target_id, metric, comparison, threshold, combination,
+         duration_seconds, recovery_threshold, cooldown_seconds, enabled, version,
+         state, state_since, recover_since, cooldown_until, last_eval_at, last_reason,
+         created_at, updated_at]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          maxLength: 120
+        scope:
+          type: string
+          enum: [host, interface, filesystem]
+          description: 由 `metric` 反查得到，不接受调用方指定。
+        target_id:
+          type: string
+          maxLength: 512
+          description: |
+            host 指标为空串；interface 是网卡名；filesystem 是挂载点路径。
+        metric:
+          type: string
+          maxLength: 64
+        comparison:
+          type: string
+          enum: [gt, gte, lt, lte]
+        threshold:
+          type: number
+          description: 量纲随指标（percent / bytes / bytes_per_sec / count）。
+        # 三个次级口径字段要么全有值、要么全为 null（半套规则没有意义）。
+        # OpenAPI 3.1 没有 `nullable` 关键字，可空就是类型里多一个 "null"。
+        secondary_metric:
+          type: [string, "null"]
+          maxLength: 64
+          description: 第二口径的指标名；与 `metric` 同 scope 且不同名。没有次级口径时为 null。
+        secondary_comparison:
+          type: [string, "null"]
+          enum: [gt, gte, lt, lte, null]
+        secondary_threshold:
+          type: [number, "null"]
+          description: 量纲随次级指标；没有次级口径时为 null。
+        combination:
+          type: string
+          enum: [any, all]
+          description: 没有次级口径时恒为 any。
+        duration_seconds:
+          type: integer
+          minimum: 30
+          maximum: 86400
+          description: 上限等于 raw 粒度保留窗口（24 小时）。
+        recovery_threshold:
+          type: number
+          description: 必须严格落在告警线的安全侧。
+        cooldown_seconds:
+          type: integer
+          minimum: 0
+          maximum: 86400
+        enabled:
+          type: boolean
+        version:
+          type: integer
+          minimum: 1
+        state:
+          type: string
+          enum: [ok, pending, firing]
+          description: |
+            ok=没事；pending=已超限但还没持续够；firing=已触发且有一个未恢复的事件。
+            「数据不足」不是第四个状态，而是这一轮没做判断。
+        state_since:
+          type: string
+          format: date-time
+        recover_since:
+          type: string
+          format: date-time
+          description: firing 状态下从何时开始回到恢复线内；不在恢复中时为空串。
+        cooldown_until:
+          type: string
+          format: date-time
+        last_eval_at:
+          type: string
+          format: date-time
+        last_value:
+          type: [number, "null"]
+          description: |
+            最近一轮朝告警方向最极端的值（不是精确的当前值）。
+            这一轮没读到数据（采集停了、样本不全）时为 null，**不是 0**。
+        last_reason:
+          type: string
+          description: |
+            最近一轮**为什么没下结论**：数据缺失、冷却中、持续还没攒够。
+            一条规则一直不响时，这是唯一的答案。
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    AlertRuleCreate:
+      type: object
+      additionalProperties: false
+      required: [name, metric, comparison, threshold, duration_seconds, recovery_threshold]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        metric:
+          type: string
+          maxLength: 64
+          description: 必须是 `/system/metrics/status` 的 `series` 里出现过的指标名。
+        target_id:
+          type: string
+          maxLength: 512
+        comparison:
+          type: string
+          enum: [gt, gte, lt, lte]
+        threshold:
+          type: number
+        secondary_metric:
+          type: string
+          maxLength: 64
+        secondary_comparison:
+          type: string
+          enum: [gt, gte, lt, lte]
+        secondary_threshold:
+          type: number
+        combination:
+          type: string
+          enum: [any, all]
+          default: any
+        duration_seconds:
+          type: integer
+          minimum: 30
+          maximum: 86400
+        recovery_threshold:
+          type: number
+        cooldown_seconds:
+          type: integer
+          minimum: 0
+          maximum: 86400
+          default: 300
+        enabled:
+          type: boolean
+          default: true
+      description: |
+        `secondary_*` 三个字段要么全给、要么全不给：有指标没阈值是空条件，
+        有阈值没指标不知道量纲。
+
+    AlertRulePatch:
+      type: object
+      additionalProperties: false
+      required: [version]
+      description: |
+        部分更新：没出现的字段沿用原值。只有指针化的字段才能在 JSON 上区分
+        “把 enabled 设成 false”和“这次没提 enabled”。
+
+        `secondary_metric` 传空字符串表示**清除**双口径，此时
+        `secondary_comparison` / `secondary_threshold` 必须一并省略。
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        target_id:
+          type: string
+          maxLength: 512
+        metric:
+          type: string
+          maxLength: 64
+        comparison:
+          type: string
+          enum: [gt, gte, lt, lte]
+        threshold:
+          type: number
+        secondary_metric:
+          type: string
+          maxLength: 64
+        secondary_comparison:
+          type: string
+          enum: [gt, gte, lt, lte]
+        secondary_threshold:
+          type: number
+        combination:
+          type: string
+          enum: [any, all]
+        duration_seconds:
+          type: integer
+          minimum: 30
+          maximum: 86400
+        recovery_threshold:
+          type: number
+        cooldown_seconds:
+          type: integer
+          minimum: 0
+          maximum: 86400
+        enabled:
+          type: boolean
+
+
+    NotificationSettings:
+      type: object
+      additionalProperties: false
+      description: |
+        按通道类型解释的设置。类型用不上的字段在服务端被清空，库里不存垃圾；
+        **这里没有任何口令字段**——口令只以 `secret_ref` 的形式出现在通道上。
+      properties:
+        host:
+          type: string
+          maxLength: 253
+          description: smtp 主机名。
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        tls:
+          type: string
+          enum: [starttls, implicit]
+          description: 只有两种加密方式，没有明文选项。
+        from:
+          type: string
+          maxLength: 254
+          description: smtp 发件人地址。
+        to:
+          type: array
+          maxItems: 16
+          items:
+            type: string
+            maxLength: 254
+          description: smtp 收件人；去重后最多 16 个。
+        username:
+          type: string
+          maxLength: 254
+          description: smtp 认证用户名；给了它就必须给 secret_ref。
+        url:
+          type: string
+          maxLength: 1024
+          description: webhook 地址，只接受 https，不接受 URL 里的用户名口令与 #片段。
+
+    NotificationChannel:
+      type: object
+      additionalProperties: false
+      required:
+        [id, name, type, settings, secret_ref, enabled, max_attempts, version,
+         target, created_at, updated_at]
+      description: |
+        一条通知通道。`target` 是只读的人读形式（smtp 是收件人列表、webhook 是 URL），
+        由服务端算，不接受提交。
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        type:
+          type: string
+          enum: [in_app, smtp, webhook]
+        settings:
+          $ref: '#/components/schemas/NotificationSettings'
+        secret_ref:
+          type: [string, "null"]
+          description: 指向用途为 notification_password 的秘密；没有鉴权时为 null（不是空串）。
+        enabled:
+          type: boolean
+        max_attempts:
+          type: integer
+          minimum: 1
+          maximum: 10
+        version:
+          type: integer
+          minimum: 1
+        target:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    NotificationChannelCreate:
+      type: object
+      additionalProperties: false
+      required: [name, type]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        type:
+          type: string
+          enum: [in_app, smtp, webhook]
+        settings:
+          $ref: '#/components/schemas/NotificationSettings'
+        secret_ref:
+          type: string
+          maxLength: 128
+        enabled:
+          type: boolean
+        max_attempts:
+          type: integer
+          minimum: 1
+          maximum: 10
+
+    NotificationChannelPatch:
+      type: object
+      additionalProperties: false
+      required: [version]
+      description: |
+        部分更新：没出现的字段沿用原值。`secret_ref` 传空字符串表示**清除凭据**
+        ——这是唯一一个"空"有意义的地方。`settings` 是整体替换，不是逐字段合并。
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        type:
+          type: string
+          enum: [in_app, smtp, webhook]
+        settings:
+          $ref: '#/components/schemas/NotificationSettings'
+        secret_ref:
+          type: string
+          maxLength: 128
+        enabled:
+          type: boolean
+        max_attempts:
+          type: integer
+          minimum: 1
+          maximum: 10
+
+    NotificationDelivery:
+      type: object
+      additionalProperties: false
+      required:
+        [id, channel_id, channel_name, channel_type, target, event_id, event_rule, kind,
+         title, body, state, attempts, max_attempts, last_status, last_error,
+         next_attempt_at, sent_at, created_at]
+      description: |
+        一次投递的事实回执（测试发送的即时结果，也是投递账/面板收件箱的一行——
+        同一个形状两处用：投递行就是投递行）。
+
+        `last_error` 是**对端原话**（"550 5.1.1 user unknown"），不是我们猜的原因；
+        `last_status` 是 SMTP 应答码或 HTTP 状态码，0 表示没拿到。
+
+        `kind` 为 `test` 的行不参与事件去重（`event_id` 为空），所以同一通道可以有
+        多行；`fired` / `resolved` 则是一事件一通道一行，重试改这一行而不是再插一行。
+
+        in_app 通道的投递**写入即 `sent`**：它不发到任何地方，`attempts` 停在 0，
+        读这个列表就是读面板内的通知。
+      properties:
+        id:
+          type: integer
+        channel_id:
+          type: integer
+          description: 0 表示通道后来被删掉了（外键置空），快照列仍然可读。
+        channel_name:
+          type: string
+        channel_type:
+          type: string
+          enum: [in_app, smtp, webhook]
+        target:
+          type: string
+        event_id:
+          type: integer
+          description: 0 表示测试发送（或事件行已被删掉）。
+        event_rule:
+          type: string
+          description: 事件触发时那条规则的**名字快照**；规则后来改名或被删都不变。
+        kind:
+          type: string
+          enum: [fired, resolved, test]
+        title:
+          type: string
+        body:
+          type: string
+        state:
+          type: string
+          enum: [pending, sent, failed]
+        attempts:
+          type: integer
+          description: 已经尝试过的次数。通道被停用/删除导致判死的行不计入。
+        max_attempts:
+          type: integer
+          description: 入队时从通道上抄下来的重试上限快照。
+        last_status:
+          type: integer
+        last_error:
+          type: [string, "null"]
+        next_attempt_at:
+          type: [string, "null"]
+          format: date-time
+          description: |
+            下一次排定的尝试时间；null 表示**不会再排下一次**（已发出、已判死）。
+            它不是倒计时，界面别拿它当进度条。
+        sent_at:
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    AlertEvent:
+      type: object
+      additionalProperties: false
+      required:
+        [id, rule_id, rule_name, scope, target_id, metric, comparison, threshold,
+         state, started_at, resolved_at, duration_seconds, peak_value, silenced,
+         acked_at, acked_by]
+      description: |
+        一个事件周期一行。恢复是把同一行改成 resolved，不是再插一条事件；
+        因此“恢复只发一次、未变化不刷屏”是结构保证。
+
+        `rule_name` / `metric` / `comparison` / `threshold` 是**触发那一刻的快照**，
+        规则后来被改名或删除都不影响这条历史。
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        rule_id:
+          type: integer
+          minimum: 0
+          description: 规则已被删除时为 0（外键置空），历史行保留。
+        rule_name:
+          type: string
+        scope:
+          type: string
+          enum: [host, interface, filesystem]
+        target_id:
+          type: string
+        metric:
+          type: string
+        comparison:
+          type: string
+          enum: [gt, gte, lt, lte]
+        threshold:
+          type: number
+        state:
+          type: string
+          enum: [firing, resolved]
+        started_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: [string, "null"]
+          format: date-time
+          description: 恢复的那一刻；还在持续时为 null（不是空串）。
+        duration_seconds:
+          type: integer
+          minimum: 0
+          description: 实际持续时长（恢复时算好写死），不是规则上的配置值。
+        peak_value:
+          type: [number, "null"]
+          description: 整个事件区间里朝告警方向最极端的值；区间里一个样本都没有时为 null。
+        silenced:
+          type: boolean
+          description: 触发时是否处在维护静默窗口内（事件照记，只是不发通知）。
+        acked_at:
+          type: [string, "null"]
+          format: date-time
+          description: |
+            人为确认的时间（P13.4 的 `POST /alerts/events/{id}/ack`）；没确认过时为 null。
+            确认不改 `state`：确认是"我知道了"，不是"它好了"。
+        acked_by:
+          type: string
+          description: 第一个确认的人；第二次确认不会覆盖它。
+
+    AlertSilence:
+      type: object
+      additionalProperties: false
+      required: [active, starts_at, ends_at, reason, updated_at, updated_by]
+      properties:
+        active:
+          type: boolean
+          description: 服务端按自己的时钟判断当前是否落在窗口内。
+        starts_at:
+          type: [string, "null"]
+          format: date-time
+          description: 窗口起点；没有设过窗口时为 null。
+        ends_at:
+          type: [string, "null"]
+          format: date-time
+          description: 窗口终点；没有设过窗口时为 null。
+        reason:
+          type: string
+          maxLength: 200
+        updated_at:
+          type: string
+          format: date-time
+        updated_by:
+          type: string
+
+    AlertSilenceInput:
+      type: object
+      additionalProperties: false
+      description: |
+        起止都给 = 设置窗口；两个都省略 = 清除。只给一个会被拒绝。
+      properties:
+        starts_at:
+          type: string
+          format: date-time
+        ends_at:
+          type: string
+          format: date-time
+        reason:
+          type: string
+          maxLength: 200
+
+    SystemMetricQueryResult:
+      type: object
+      additionalProperties: false
+      required: [enabled, max_points, series, observed_from, observed_to, generated_at]
+      properties:
+        enabled:
+          type: boolean
+          description: false 表示这个进程没有记历史（演示模式），此时 series 为空。
+        reason:
+          type: string
+          maxLength: 200
+          description: enabled=false 时说明原因；否则不出现。
+        scope:
+          $ref: '#/components/schemas/SystemMetricScope'
+        from:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        to:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        step_seconds:
+          type: integer
+          minimum: 1
+          description: 实际使用的桶宽（秒）。
+        resolution:
+          $ref: '#/components/schemas/SystemMetricResolution'
+        max_points:
+          type: integer
+          minimum: 1
+          description: 本次查询的点数上限（1440），用于解释“为什么被加粗了”。
+        series:
+          type: array
+          items:
+            $ref: '#/components/schemas/SystemMetricSeries'
+        observed_from:
+          type: [string, 'null']
+          format: date-time
+          description: 本次结果里最早的点；null 表示这个区间没有任何数据。
+        observed_to:
+          type: [string, 'null']
+          format: date-time
+          description: 本次结果里最晚的点；null 表示这个区间没有任何数据。
+        generated_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
+    SystemMetricsStatus:
+      type: object
+      additionalProperties: false
+      required: [enabled, collecting, samples, metrics, series, generated_at]
+      properties:
+        enabled:
+          type: boolean
+          description: 库在、能回答历史问题。它不表示正在记。
+        reason:
+          type: string
+          maxLength: 200
+          description: enabled=true 且 collecting=false 时说明是哪一种原因。
+        collecting:
+          type: boolean
+          description: 采集循环在这个进程里跑着。
+        interval_seconds:
+          type: integer
+          minimum: 1
+          description: 采集轮询间隔。
+        filesystem_interval_seconds:
+          type: integer
+          minimum: 1
+          description: 存储容量（文件系统）的采集间隔；比整机指标稀疏得多。
+        retention:
+          type: object
+          additionalProperties: false
+          required: [raw_seconds, minute_seconds, hour_seconds]
+          description: 各粒度的保留窗口（秒）。
+          properties:
+            raw_seconds:
+              type: integer
+              minimum: 1
+            minute_seconds:
+              type: integer
+              minimum: 1
+            hour_seconds:
+              type: integer
+              minimum: 1
+        max_rows:
+          type: integer
+          minimum: 1
+          description: 样本表行数上限；超了先丢最老的数据。
+        samples:
+          type: object
+          additionalProperties: false
+          required: [total, raw, minute, hour]
+          description: 库里各粒度的行数（不是序列数：一条序列的一个点算一行）。
+          properties:
+            total:
+              type: integer
+              minimum: 0
+            raw:
+              type: integer
+              minimum: 0
+            minute:
+              type: integer
+              minimum: 0
+            hour:
+              type: integer
+              minimum: 0
+        last_sample_at:
+          type: [string, 'null']
+          format: date-time
+          description: 本进程最后一次成功写入主机样本的时间；重启后从零开始。
+        last_error:
+          type: string
+          maxLength: 500
+          description: 最近一次采集或维护失败的原因；没有失败时不出现。
+        last_error_at:
+          type: [string, 'null']
+          format: date-time
+        inserted:
+          type: integer
+          minimum: 0
+          description: 本进程写入的行数。
+        aggregated:
+          type: integer
+          minimum: 0
+          description: 本进程写入的聚合行数（分钟 + 小时）。
+        pruned:
+          type: integer
+          minimum: 0
+          description: 本进程删掉的行数（保留策略 + 行数上限）。
+        metrics:
+          type: array
+          items:
+            $ref: '#/components/schemas/SystemMetricDefinition'
+        series:
+          type: object
+          description: 库里真正出现过的序列，键是粒度（raw / minute / hour）。
+          additionalProperties:
+            type: array
+            items:
+              $ref: '#/components/schemas/SystemMetricSeriesRef'
+        generated_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
     SystemSummary:
       type: object
       additionalProperties: false
@@ -6378,7 +9217,7 @@ components:
       required: [status, samba_version, tools, config_path, config_readable,
                  include_dir, include_ready, include_present, config_write,
                  service_state, service_units, managed_config, managed_config_present,
-                 managed_config_hash, managed_shares, notices, collected_at]
+                 managed_config_hash, managed_shares, nfs, notices, collected_at]
       properties:
         status:
           type: string
@@ -6445,6 +9284,8 @@ components:
           description: 托管文件里现有的段名（不含 global）。
           items:
             type: string
+        nfs:
+          $ref: '#/components/schemas/ShareNfsCapability'
         notices:
           type: array
           description: 人读的补充说明（缺 include 目录、缺 testparm 等），不改变 status。
@@ -6452,6 +9293,74 @@ components:
             $ref: '#/components/schemas/PreflightNotice'
         collected_at:
           $ref: '#/components/schemas/Rfc3339Utc'
+
+    ShareNfsCapability:
+      type: object
+      additionalProperties: false
+      description: |
+        NFS 导出的能力报告（P14.4）。与上面那份 Samba 报告**彼此独立**：一台机器完全
+        可能“Samba 齐全、但没装 nfs-kernel-server”，把两者合成一个 status 会让缺 NFS
+        显示成“共享功能不可用”，连 SMB 那一半也一起被判死。
+
+        判据只有一条是硬性的：有没有 `exportfs`。没有它既写不了导出文件、也读不回
+        实际导出表，那就不能声称能管 NFS。导出目录不存在不算阻塞（应用时会创建）。
+      required: [status, exports_dir, exports_file, exports_dir_ready, exports_present,
+                 exported_paths, main_exports_readable, service_state, config_write, notices]
+      properties:
+        status:
+          type: string
+          enum: [available, blocked]
+        reason:
+          type: string
+          maxLength: 400
+          description: status=blocked 时说明缺什么；available 时不出现。
+        exportfs:
+          type: string
+          description: 探到的 `exportfs` 绝对路径；缺失时不出现。
+        exports_dir:
+          type: string
+          description: 面板独占的导出目录（/etc/exports.d），不可配置。
+        exports_file:
+          type: string
+          description: |
+            面板独占的导出文件（/etc/exports.d/upanel.exports）。面板只维护这一份，
+            整份重写；不碰 /etc/exports，也不改别人的 `*.exports`。
+        exports_dir_ready:
+          type: boolean
+          description: 导出目录是否存在（不存在时应用会创建它）。
+        exports_present:
+          type: boolean
+          description: 托管导出文件此刻存在不存在。
+        exports_hash:
+          type: string
+          description: 托管导出文件整份内容的 sha256（不存在时是空串）。
+        exported_paths:
+          type: array
+          description: |
+            托管文件里现在的导出路径（**从文件里读**，不是从内核读）。它答的是
+            “文件里写了哪些”，与 `exportfs -v` 的实际导出表不是同一件事。
+          items:
+            type: string
+        main_exports_readable:
+          type: boolean
+          description: |
+            `/etc/exports` 读不读得到。读不到就没法确认“这条路径是不是已经被别人导出过”，
+            此时冲突检测只能给告警而不是阻塞。
+        service_state:
+          type: string
+          enum: [active, inactive, unknown]
+          description: |
+            `nfs-server` 的运行状态。导出写对了不等于能用：服务没在跑时导出仍然写下去，
+            但客户端连不上，执行结果只能是 accepted。
+        config_write:
+          type: string
+          enum: [unsupported, available]
+          description: 缺 exportfs 时是 unsupported：那时导出既写不下去也刷不了表。
+        notices:
+          type: array
+          description: 人读的补充说明，不改变 status。
+          items:
+            $ref: '#/components/schemas/PreflightNotice'
 
     ShareToolPaths:
       type: object
@@ -6474,6 +9383,12 @@ components:
           type: string
         getfacl:
           type: string
+        exportfs:
+          type: string
+          description: NFS 导出用的 `exportfs`（P14.4）。缺失时整个 NFS 能力是 blocked。
+        showmount:
+          type: string
+          description: 客户端视角的旁证工具；缺了不影响判决。
 
     ShareDefinition:
       type: object
@@ -6482,8 +9397,13 @@ components:
         共享定义（CONTRACTS.md 第 7 节）。字段一个都不多：没有“强制”“跟随符号链接”
         “guess ok”这类开关——有开关就有绕过“不跟随符号链接、不开 guest”那条约束的路。
 
-        P08.1 只实现 protocol=smb；nfs 在结构上认得出来，但判决层以 PROTOCOL_UNSUPPORTED
-        拒绝，而不是假装能导出。
+        两个协议的必填项**不同**（P14.4）：
+
+        - `protocol=smb`：`smb_users` 至少一个，`nfs_options` 必须不出现；
+        - `protocol=nfs`：`smb_users` 必须为空，`nfs_options` 必须出现，`allowed_cidrs`
+          至少一个（不点名网段等于向全世界导出）。
+
+        不满足各自那一条的请求会被判决层以闭集里的阻塞码拒绝，而不是被“忽略”。
       required: [name, protocol, volume_id, relative_path, enabled, read_only,
                  allowed_cidrs, smb_users]
       properties:
@@ -6496,35 +9416,47 @@ components:
         protocol:
           type: string
           enum: [smb, nfs]
-          description: P08 只实现 smb；nfs 会被判决层拒绝。
+          description: smb 走托管配置 + POSIX ACL；nfs 走托管导出文件 + 网段。
         volume_id:
           type: string
           pattern: '^vol_[0-9a-f]{32}$'
           description: 必须是受管理卷；卷没挂载或 UUID 不符时应用动作返回 DEPENDENCY_BLOCKED。
         relative_path:
           type: string
-          minLength: 1
           maxLength: 255
-          description: 相对卷挂载点的路径，不能是绝对路径，不能含 `..` 或空段。
+          description: |
+            相对卷挂载点的路径，不能是绝对路径，不能含 `..` 或空段。
+            **空字符串是合法的**，表示整个卷根（单卷单共享时最常见的用法）。
+            （P08 的 schema 曾写成 minLength: 1，与实现不符，P14.4 一并改正。）
         enabled:
           type: boolean
           description: 定义的启用意图；与 config_applied（事实）分开看。
         read_only:
           type: boolean
-          description: 为真时所有账号上限都是 r-x（更强的限制优先）。
+          description: |
+            smb：所有账号的 ACL 上限都是 r-x（更强的限制优先）。
+            nfs：导出行写 `ro`，且目录权限按 0755 落地（读写共享是 0777）。
         allowed_cidrs:
           type: array
-          minItems: 1
-          description: 允许访问的来源网段，形如 10.0.0.0/24；主机位必须为 0。
+          description: |
+            允许访问的来源网段，形如 10.0.0.0/24；主机位必须为 0。
+            smb：留空表示不限（Samba 自己的语义）。nfs：**至少要有一条**，而且不能用
+            `0.0.0.0/0`（NFS_OPEN_TO_WORLD），因为 NFS 没有账号这一层。
           items:
             type: string
         smb_users:
           type: array
-          minItems: 1
-          description: 访问名单。**不允许为空**：空名单会退化成 guest，一律硬拒。
+          description: |
+            访问名单。`protocol=smb` 时**不允许为空**：空名单会退化成 guest，一律硬拒。
+            `protocol=nfs` 时**必须为空**：NFS 没有 Samba 账号这一层，出现名单会被拒
+            （NFS_USERS_NOT_ALLOWED）。
           items:
             $ref: '#/components/schemas/ShareUser'
         nfs_options:
+          description: |
+            仅 `protocol=nfs` 使用，且那时**必须出现**（缺失即 NFS_OPTIONS_INVALID）。
+            `protocol=smb` 时出现了也会被拒（同一码）：静默忽略会让页面显示
+            “已设置 root_squash”而实际什么都没做。
           oneOf:
             - $ref: '#/components/schemas/ShareNfsOptions'
             - type: 'null'
@@ -6546,13 +9478,19 @@ components:
     ShareNfsOptions:
       type: object
       additionalProperties: false
-      description: NFS 导出选项。P08 不实现 NFS，结构按契约保留（丢掉字段以后再加是破坏性变更）。
+      description: |
+        NFS 导出选项（P14.4）。**初期闭集只有两种取值**：两个都必须为 true。
+        没有 `no_root_squash`、没有 `async`、没有 `insecure`：这些不是“默认关掉的
+        可选项”，而是根本不在取值里——要放开它们需要改代码，而不是改一次请求参数
+        （PLAN.md 第 10 节）。结构从 P08 起就按契约保留，丢掉字段以后再加是破坏性变更。
       required: [root_squash, sync]
       properties:
         root_squash:
           type: boolean
+          description: 必须为 true。客户端 root 会被 squash 成 nobody，真机验过落盘属主。
         sync:
           type: boolean
+          description: 必须为 true。异步导出会把“写完”的语义变成“进了页缓存”。
 
     ShareRecord:
       type: object
@@ -8699,6 +11637,296 @@ components:
               items:
                 $ref: '#/components/schemas/Container'
 
+    ManagedDeploymentUnitState:
+      type: object
+      additionalProperties: false
+      required: [known, enabled, active]
+      description: |
+        systemd 对包装单元的读数。`known=false` 时 `reason` 说明为什么没有读数：
+        "单元文件不在磁盘上"与"systemctl 没答"对管理员意味着完全不同的事
+        （去翻文件 vs 去翻 journal），不能压成同一个"未知"。
+      properties:
+        known:
+          type: boolean
+        enabled:
+          type: boolean
+        active:
+          type: boolean
+        reason:
+          type: string
+
+    ManagedDeploymentEnvVar:
+      type: object
+      additionalProperties: false
+      required: [name]
+      description: |
+        一条环境变量：公开值与秘密引用**二选一**。`secret_ref` 指向代理密钥环里的
+        一条秘密（sec_ 加 32 位小写十六进制），明文永远不会出现在这个接口里，
+        也不会进日志或面板库。
+      properties:
+        name:
+          type: string
+          maxLength: 128
+        value:
+          type: string
+          description: 公开值（会原样出现在渲染出的 Compose 配置里）。
+        secret_ref:
+          type: string
+          pattern: '^sec_[0-9a-f]{32}$'
+
+    ManagedDeploymentMount:
+      type: object
+      additionalProperties: false
+      required: [source_root_id, container_path, read_only]
+      description: |
+        一条 bind 挂载。宿主侧只能由"受管理文件根 id + 根内相对路径"表达：
+        绝对宿主路径、`..`、`/proc`、`/sys`、`/dev`、`docker.sock` 在数据模型里
+        没有落点，因此写不进去。
+      properties:
+        source_root_id:
+          type: string
+          pattern: '^[a-z][a-z0-9_-]{0,31}$'
+        relative_path:
+          type: string
+          maxLength: 512
+          description: 根内相对路径；空表示根自身。
+        container_path:
+          type: string
+          maxLength: 512
+        read_only:
+          type: boolean
+
+    ManagedDeploymentDefinition:
+      type: object
+      additionalProperties: false
+      description: |
+        受约束的部署定义（CONTRACTS.md 第 8.2 节，P15.1）。十个字段，一个不多一个不少。
+
+        **没有** privileged / devices / network_mode / cap_add / compose_yaml：
+        危险选项之所以危险，正是因为它们能被写进配置文件；闭集让它们在数据模型里
+        没有位置，于是也写不进渲染结果。也多不出一个 id 或时间戳——那些是记录层的属性。
+      required: [name, image_reference, container_port, host_bind_address, host_port, resource_limits]
+      properties:
+        name:
+          type: string
+          pattern: '^[a-z][a-z0-9_-]{0,62}$'
+          description: 同时是 Compose 项目名与容器名前缀。
+        image_reference:
+          type: string
+          maxLength: 255
+          description: 允许 tag、digest 或两者同时给；给 digest 才是可复现的。
+        container_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        host_bind_address:
+          type: string
+          description: 必须是字面 IPv4 地址，不接受主机名（主机名的解析结果会随时间变化）。
+        host_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        environment:
+          type: array
+          maxItems: 64
+          items:
+            $ref: '#/components/schemas/ManagedDeploymentEnvVar'
+        mounts:
+          type: array
+          maxItems: 16
+          items:
+            $ref: '#/components/schemas/ManagedDeploymentMount'
+        resource_limits:
+          type: object
+          additionalProperties: false
+          required: [memory_limit_bytes, cpu_limit]
+          description: 两项都必填：下限以下的容器能起来，但永远解不开镜像。
+          properties:
+            memory_limit_bytes:
+              type: integer
+              minimum: 16777216
+              maximum: 68719476736
+            cpu_limit:
+              type: string
+              pattern: '^[0-9]{1,2}(\.[0-9]{1,3})?$'
+              description: 十进制字符串而不是浮点：0.1 这类值在二进制往返后会让摘要变得不可比对。
+        health_check:
+          type: object
+          additionalProperties: false
+          description: |
+            面板侧的健康探测描述，**不**渲染进 Compose（面板不知道镜像里有什么命令）。
+            探测的是宿主上的公开入口，探不通就回切配置与镜像（数据不跟着回切）。
+          properties:
+            enabled:
+              type: boolean
+            kind:
+              type: string
+              enum: [http, tcp]
+            port:
+              type: integer
+              description: 0 表示用 container_port；只能是容器端口。
+            path:
+              type: string
+              description: http 探测路径，必须以 / 开头。
+            interval_seconds:
+              type: integer
+              minimum: 5
+              maximum: 300
+            timeout_seconds:
+              type: integer
+              minimum: 1
+              maximum: 60
+            retries:
+              type: integer
+              maximum: 10
+            start_period_seconds:
+              type: integer
+              maximum: 600
+        volume_dependencies:
+          type: array
+          maxItems: 32
+          items:
+            type: string
+            pattern: '^vol_[0-9a-f]{32}$'
+
+    ManagedDeploymentImageRecord:
+      type: object
+      additionalProperties: false
+      required: [requested, config_digest, resolved_at]
+      description: |
+        某一版配置对应哪个镜像。两个 digest 是两件事，别混：
+
+        - `requested` 是定义里写的（nginx:1.27）——人话，可变；
+        - `digest` 是 `docker image inspect` 的 .Id——这份镜像的唯一身份，
+          读不到时为空串。空串表示"没有读数"，不表示"一样"。
+      properties:
+        requested:
+          type: string
+        digest:
+          type: string
+        repo_digests:
+          type: array
+          items:
+            type: string
+        config_digest:
+          type: string
+        resolved_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
+    ManagedDeploymentRecord:
+      type: object
+      additionalProperties: false
+      required: [schema, deployment_id, name, definition, config_digest, image, updated_at]
+      description: |
+        `<name>.deployment.json` 的原样内容（0640，只有 `sec_` 引用，不含明文秘密）。
+        没有这份记录的部署**不能更新**：update 要拿这里那份规范化定义去渲染新配置，
+        没有它就只能猜"当前钉的是哪个镜像"。
+      properties:
+        schema:
+          type: integer
+          enum: [1]
+        deployment_id:
+          type: string
+          pattern: '^dep_[0-9a-f]{32}$'
+        name:
+          type: string
+        definition:
+          $ref: '#/components/schemas/ManagedDeploymentDefinition'
+        config_digest:
+          type: string
+        image:
+          $ref: '#/components/schemas/ManagedDeploymentImageRecord'
+        previous:
+          $ref: '#/components/schemas/ManagedDeploymentImageRecord'
+        updated_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
+    ManagedDeployment:
+      type: object
+      additionalProperties: false
+      required: [name, deployment_id, project, unit, unit_path, config_path, config_present,
+                 config_digest, version, previous_config_present, record_present,
+                 config_drift, unit_state]
+      description: |
+        一份部署此刻的现场（CONTRACTS.md 第 8.9 节）。
+
+        `version` 与 `config_digest` 相关但不等价：前者是**更新/删除要带回来的版本
+        令牌**（配置摘要，或者在配置缺失时的 unit-only / absent），后者只是盘上
+        那份渲染配置的 sha256。正常情况下两者逐字相同。
+
+        这里没有任何明文秘密：定义里只有 `sec_` 引用。
+      properties:
+        name:
+          type: string
+          pattern: '^[a-z][a-z0-9_-]{0,62}$'
+        deployment_id:
+          type: string
+          pattern: '^dep_[0-9a-f]{32}$'
+          description: 与 compose 项目标识同一个值，页面据此把观测面与这张表连起来。
+        project:
+          type: string
+          description: Compose 项目名（等于部署名）。
+        unit:
+          type: string
+          description: systemd 包装单元名。
+        unit_path:
+          type: string
+        config_path:
+          type: string
+        config_present:
+          type: boolean
+        config_digest:
+          type: string
+          description: 盘上那份渲染配置的 sha256；没有配置时是空串。
+        version:
+          type: string
+          description: 更新与删除要带回来的版本令牌；不会为空。
+        previous_config_present:
+          type: boolean
+          description: 上一版渲染字节是否还在磁盘上（回切的依据）。
+        record_present:
+          type: boolean
+        record_error:
+          type: string
+          description: 记录读不了的原因。与 record_present=false 是两件事。
+        record:
+          $ref: '#/components/schemas/ManagedDeploymentRecord'
+        config_drift:
+          type: boolean
+          description: 盘上配置的摘要与记录里的不一致：有人在面板之外动过那份文件。
+        unit_state:
+          $ref: '#/components/schemas/ManagedDeploymentUnitState'
+
+    ManagedDeploymentSkipped:
+      type: object
+      additionalProperties: false
+      required: [name, reason]
+      properties:
+        name:
+          type: string
+        reason:
+          type: string
+
+    ManagedDeploymentListData:
+      type: object
+      additionalProperties: false
+      required: [deployments, truncated]
+      properties:
+        deployments:
+          type: array
+          description: 没有部署时是空数组，不是 null。
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/ManagedDeployment'
+        skipped:
+          type: array
+          description: 配置目录里存在但没能读成部署的条目；非空说明有东西面板不知道。
+          items:
+            $ref: '#/components/schemas/ManagedDeploymentSkipped'
+        truncated:
+          type: boolean
+          description: 配置目录条目超过单次读取上限（200），后面的没有读。
+
     AppDiscoveryData:
       type: object
       additionalProperties: false
@@ -10010,6 +13238,1288 @@ components:
         boot_id_error:
           type: string
           description: 读 boot_id 失败的原因；空串表示读到了。
+
+    SystemCapabilities:
+      type: object
+      additionalProperties: false
+      required: [ready, host_caps]
+      description: |
+        能力快照的信封（CONTRACTS.md 第 8.10 节）。`ready` 与 `host_caps` 必须一起读：
+        `ready=false` 说明代理还没探完，这时 `host_caps` 是 null——那是"还没有结论"，
+        不是"没有依赖"。
+      properties:
+        ready:
+          type: boolean
+          description: 代理探过了没有。`false` 时 `host_caps` 必定为 null。
+        host_caps:
+          oneOf:
+            - $ref: '#/components/schemas/HostCapsReport'
+            - type: 'null'
+          description: |
+            探测报告。`null` 表示"还没探完"，与"条目为空"是两件事：
+            条目为空说明探测器一条都没登记（表里没东西），`null` 说明这一轮还没跑完。
+
+    HostCapsReport:
+      type: object
+      additionalProperties: false
+      required: [generated_at, items, partial]
+      properties:
+        generated_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        items:
+          type: array
+          description: |
+            每条规格一项。缺席的条目**不省略**——这张表的用途就是回答
+            "为什么那个功能不出现"，把缺席的行藏掉等于把答案藏掉。
+          items:
+            $ref: '#/components/schemas/HostCapsItem'
+        partial:
+          type: boolean
+          description: |
+            有固定目录读不出来时为 true。此时标着 `absent` 的条目不能当成"真的没有"，
+            与 `unknown` 一起读。
+        issues:
+          type: array
+          description: 这一轮遇到的问题（目录读不出来、命令超时等），给人看的短句。
+          items:
+            type: string
+
+    HostCapsItem:
+      type: object
+      additionalProperties: false
+      required: [id, kind, state]
+      properties:
+        id:
+          type: string
+          description: 稳定标识，如 `restic`、`docker.compose`。表格与脚本都按它定位。
+          examples: [restic]
+        kind:
+          type: string
+          enum: [system, program]
+          description: |
+            `system` 是按目录/内核事实判断的系统能力（如 systemd 看 `/run/systemd/system`），
+            `program` 是固定目录里的可执行文件。
+        feature:
+          type: string
+          description: 依赖它的能力，中文短语（由探测方给出，调用方不重编）。
+        state:
+          type: string
+          enum: [present, absent, unknown]
+          description: |
+            三态，不许并成两态。`unknown` 表示固定目录读不出来：既不能说有，
+            也不能说没有。
+        path:
+          type: string
+          description: 找到时的绝对路径；没找到或说不清时为空串或缺失。
+        version:
+          type: string
+          description: |
+            版本号。只在命令真的跑完并匹配到锚点时才填；空串表示"没有版本"，
+            不是"版本是 0"，也不是"未知"。
+        reason:
+          type: string
+          description: 为什么是现在这个状态：缺席原因、版本读不出的原因、超时等。
+        hint:
+          type: string
+          description: 补齐它的建议（一般是 apt 包名）。只是提示，不是安装入口。
+
+    BackupLocation:
+      type: object
+      additionalProperties: false
+      description: |
+        仓库位置。字段按 `backend` 判别，另一组的字段**必须空着**：
+        `local` 用 `root_id` + `relative_path`，不接受任何远端字段；
+        `sftp` 用 `host`/`port`/`username`/`remote_path`/`host_key_fingerprint`，
+        不接受 `root_id`/`relative_path`。混填是 400，不是"忽略多余的"。
+      properties:
+        root_id:
+          type: string
+          maxLength: 64
+          pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$'
+          description: 受管理文件根标识（来自本机配置，不是请求方随便起的名字）。
+        relative_path:
+          type: string
+          maxLength: 1024
+          description: 根下相对路径；空串表示根本身。
+        host:
+          type: string
+          maxLength: 253
+          description: SFTP 主机，只能是主机名或 IP 字面量。
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          default: 22
+        username:
+          type: string
+          maxLength: 32
+          pattern: '^[a-z_][a-z0-9._-]{0,31}$'
+        remote_path:
+          type: string
+          maxLength: 1024
+          description: 远端绝对路径。
+        host_key_fingerprint:
+          type: string
+          description: |
+            SFTP 主机密钥指纹（`ssh-keygen -lf` 第二列的 SHA256: 形式），必须显式登记。
+            面板不接受 `StrictHostKeyChecking=no`，也不"第一次连上就信"。
+
+    BackupRepository:
+      type: object
+      additionalProperties: false
+      required: [id, name, backend, location, password_secret_ref, version]
+      properties:
+        id:
+          type: string
+          pattern: '^rep_[0-9a-f]{32}$'
+        name:
+          type: string
+          maxLength: 64
+        backend:
+          type: string
+          enum: [local, sftp]
+        location:
+          $ref: '#/components/schemas/BackupLocation'
+        password_secret_ref:
+          type: string
+          pattern: '^sec_[0-9a-f]{32}$'
+          description: 仓库口令的**引用**（用途 backup_repository_password）；面板不持有明文。
+        credential_secret_ref:
+          type: string
+          pattern: '^sec_[0-9a-f]{32}$'
+          description: SFTP 私钥引用（用途 sftp_private_key）；local 后端不出现。
+        version:
+          type: integer
+          minimum: 1
+          description: 乐观并发版本；PATCH 必须带回来。
+
+    BackupRepositoryListData:
+      type: object
+      additionalProperties: false
+      required: [items, repository_state_query]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupRepository'
+        repository_state_query:
+          type: string
+          enum: ['backup.repository.state']
+          description: |
+            仓库"初始化了没有"要去问这条只读查询。它要现采（restic 读 config、SFTP 拨号
+            与主机密钥核对），所以不进列表——否则每条仓库都加一次拨号。
+
+    BackupRepositoryCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [name, backend, location, password_secret_ref]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        backend:
+          type: string
+          enum: [local, sftp]
+        location:
+          $ref: '#/components/schemas/BackupLocation'
+        password_secret_ref:
+          type: string
+          pattern: '^sec_[0-9a-f]{32}$'
+        credential_secret_ref:
+          type: string
+          pattern: '^sec_[0-9a-f]{32}$'
+
+    BackupRepositoryUpdateRequest:
+      type: object
+      additionalProperties: false
+      required: [name, backend, location, password_secret_ref, version]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        backend:
+          type: string
+          enum: [local, sftp]
+        location:
+          $ref: '#/components/schemas/BackupLocation'
+        password_secret_ref:
+          type: string
+          pattern: '^sec_[0-9a-f]{32}$'
+        credential_secret_ref:
+          type: string
+          pattern: '^sec_[0-9a-f]{32}$'
+        version:
+          type: integer
+          minimum: 1
+          description: 期望版本；缺失或小于 1 回 400，与库里的版本不符回 409。
+
+    BackupPolicySource:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [root, panel_database]
+          default: root
+          description: |
+            省略时按 root 处理（P12.2 之前的记录没有这个字段）。`panel_database` 表示
+            面板自己的 SQLite 库，走在线一致副本（`VACUUM INTO`），且只允许出现一次。
+        root_id:
+          type: string
+          maxLength: 64
+          description: kind=root 时必需。
+        relative_path:
+          type: string
+          maxLength: 1024
+          description: kind=root 时的根下相对路径；空串表示根本身。panel_database 不接受。
+
+    BackupRetention:
+      type: object
+      additionalProperties: false
+      description: 保留策略。0 表示不设这一项（不是"删到 0 份"）。
+      properties:
+        keep_last:
+          type: integer
+          minimum: 0
+          maximum: 1000
+        keep_daily:
+          type: integer
+          minimum: 0
+          maximum: 1000
+        keep_weekly:
+          type: integer
+          minimum: 0
+          maximum: 1000
+
+    BackupPolicy:
+      type: object
+      additionalProperties: false
+      required: [id, name, repository_id, sources, consistency_mode, retention, version]
+      properties:
+        id:
+          type: string
+          pattern: '^pol_[0-9a-f]{32}$'
+        name:
+          type: string
+          maxLength: 64
+        repository_id:
+          type: string
+          pattern: '^rep_[0-9a-f]{32}$'
+        sources:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items:
+            $ref: '#/components/schemas/BackupPolicySource'
+        consistency_mode:
+          type: string
+          enum: [files_only, stop_managed_apps]
+          description: |
+            闭集，说的是"保证什么"：`files_only` 只保证文件字节（正在写入的数据库在快照里
+            可能不一致）；`stop_managed_apps` 在执行期间停掉 `app_ids` 里的应用，
+            要求**每一个**都能解析出运行对象，少一个就整轮阻塞。
+        app_ids:
+          type: array
+          maxItems: 32
+          description: |
+            只在 `stop_managed_apps` 时出现且必须非空；`files_only` 带它回 400
+            （那一列不会被执行，留着只会让人以为会停）。升序输出。
+          items:
+            type: string
+            pattern: '^app_[0-9a-f]{32}$'
+        retention:
+          $ref: '#/components/schemas/BackupRetention'
+        version:
+          type: integer
+          minimum: 1
+
+    BackupPolicyListData:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupPolicy'
+
+    BackupPolicyCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [name, repository_id, sources, consistency_mode, retention]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        repository_id:
+          type: string
+          pattern: '^rep_[0-9a-f]{32}$'
+        sources:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items:
+            $ref: '#/components/schemas/BackupPolicySource'
+        consistency_mode:
+          type: string
+          enum: [files_only, stop_managed_apps]
+        app_ids:
+          type: array
+          maxItems: 32
+          items:
+            type: string
+            pattern: '^app_[0-9a-f]{32}$'
+        retention:
+          $ref: '#/components/schemas/BackupRetention'
+
+    BackupPolicyUpdateRequest:
+      type: object
+      additionalProperties: false
+      required: [name, repository_id, sources, consistency_mode, retention, version]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        repository_id:
+          type: string
+          pattern: '^rep_[0-9a-f]{32}$'
+        sources:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items:
+            $ref: '#/components/schemas/BackupPolicySource'
+        consistency_mode:
+          type: string
+          enum: [files_only, stop_managed_apps]
+        app_ids:
+          type: array
+          maxItems: 32
+          items:
+            type: string
+            pattern: '^app_[0-9a-f]{32}$'
+        retention:
+          $ref: '#/components/schemas/BackupRetention'
+        version:
+          type: integer
+          minimum: 1
+          description: 期望版本；缺失或小于 1 回 400，与库里的版本不符回 409。
+
+    BackupSnapshot:
+      type: object
+      additionalProperties: false
+      required: [snapshot_id, short_id, time, paths, tags, restore_verified_at]
+      properties:
+        snapshot_id:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        short_id:
+          type: string
+          description: restic 的短 id。只用于显示，不接受它作为查询参数（不唯一）。
+        time:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        paths:
+          type: array
+          items:
+            type: string
+        tags:
+          type: array
+          description: |
+            我们自己的标签：`upanel`、`upanel:policy:<pol_id>`、
+            `upanel:consistency:<files_only|stop_managed_apps>`。读回来据此认"这份备份
+            是谁的、按什么口径做的"。
+          items:
+            type: string
+        hostname:
+          type: string
+        policy_id:
+          type: string
+          description: 从标签解析出的策略标识；不是按策略做的备份就没有这个字段。
+        consistency_mode:
+          type: string
+          enum: [files_only, stop_managed_apps]
+        size_bytes:
+          $ref: '#/components/schemas/ByteString'
+          description: |
+            只在详情里出现。列表不返回它——每条要单独跑一次 `restic stats`。
+            **字段缺失**表示"这次没读"，不是"0 字节"。
+        file_count:
+          $ref: '#/components/schemas/ByteString'
+          description: 同上，只在详情里出现。
+        restore_verified_at:
+          $ref: '#/components/schemas/NullableRfc3339Utc'
+          description: 恢复演练的验证时间；没验证过就是 null（字段始终存在）。
+
+    BackupSnapshotListData:
+      type: object
+      additionalProperties: false
+      required: [repository_id, registered, count, items, size_included, checked_at]
+      properties:
+        repository_id:
+          type: string
+          pattern: '^rep_[0-9a-f]{32}$'
+        policy_id:
+          type: string
+          description: 请求带了 policy_id 过滤时回显。
+        registered:
+          type: boolean
+          description: |
+            这台机器上**有没有登记这个仓库**。false 时 `items` 是空的，但空的原因是
+            "仓库没见过"，不是"还没有快照"——所以它不是 404，是状态。
+        count:
+          type: integer
+          minimum: 0
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupSnapshot'
+        size_included:
+          type: boolean
+          enum: [false]
+          description: 列表从不带大小；本字段存在的意义是把这件事写在契约里。
+        checked_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
+    BackupSnapshotDetailData:
+      type: object
+      additionalProperties: false
+      required: [repository_id, registered, found, checked_at]
+      properties:
+        repository_id:
+          type: string
+          pattern: '^rep_[0-9a-f]{32}$'
+        registered:
+          type: boolean
+          description: 仓库在这台机器上有没有登记。
+        found:
+          type: boolean
+          description: |
+            这条快照在不在（比如已经被 prune 掉、或者 id 抄错一位）。false 时 `snapshot`
+            不出现——这是状态，不回 404。
+        snapshot:
+          $ref: '#/components/schemas/BackupSnapshot'
+        checked_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+    ScheduleKind:
+      type: string
+      enum: [backup, certificate_renewal, user_script]
+      description: |
+        计划种类闭集（CONTRACTS.md 第 12 节）。种类不是自由文本：每条计划只能落到三条
+        动作之一（`backup.run` / `certificate.renew` / `script.run`）。一条能指向任意动作的
+        "计划任务"就是绕过全部预检与确认的入口，所以这里是枚举而不是字符串。
+
+    ScheduleDefinition:
+      type: object
+      additionalProperties: false
+      description: |
+        一条计划的定义（CONTRACTS.md 第 12 节的 ScheduleDefinition）。字段名与顺序即存储
+        形状：代理库里的 `definition_json` 存的就是它，对外返回的也是它，不存在"翻译层"。
+      required: [name, kind, target_id, calendar_expression, timezone, persistent, max_runtime_seconds, enabled]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: 计划名，不能含控制字符。
+        kind:
+          $ref: '#/components/schemas/ScheduleKind'
+        target_id:
+          type: string
+          pattern: '^(pol|crt|scr)_[0-9a-f]{32}$'
+          description: |
+            被定时的对象，随 `kind` 取值：`backup` 必须是 `pol_` 加 32 位小写十六进制
+            （备份策略 id）；`certificate_renewal` 必须是 `crt_`（证书 id）；`user_script`
+            必须是 `scr_`（已登记脚本 id）。**不接受命令文本或路径**。
+        calendar_expression:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^(?!-)[A-Za-z0-9 :*.,/+~-]+$'
+          description: |
+            systemd 的 `OnCalendar` 表达式本体（不含时区），例如 `Mon..Fri *-*-* 04:30:00`。
+            字符集是白名单：这个字符串会进入单元文件与 `systemd-analyze calendar` 的 argv，
+            句首的 `-` 因此单独拒绝（会被 systemd-analyze 当成选项）。
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[A-Za-z][A-Za-z0-9_+/-]*$'
+          description: |
+            IANA 时区名（例如 `Asia/Shanghai`），必填。不接受 `Local`：不带时区的表达式按
+            系统本地时区解释，同一份计划在两台机器上是两个时刻。
+        persistent:
+          type: boolean
+          description: |
+            错过执行策略：true 表示停机期间错过的触发在开机后补跑一次（单元里的
+            `Persistent=true`）；false 表示错过就是错过。
+        max_runtime_seconds:
+          type: integer
+          minimum: 1
+          maximum: 86400
+          description: |
+            单次运行时长的上限，同时写进单元的 `TimeoutStartSec`。上限 24 小时：超过这个
+            时长的运行几乎总是已经挂住了，而不是真的还在干活。
+        enabled:
+          type: boolean
+          description: 这个定义的意图——下一次 apply 写启用的单元还是禁用的单元。
+
+    Schedule:
+      type: object
+      additionalProperties: false
+      description: |
+        一条计划的现场。**意图与事实分开写**：`enabled` / `version` / `timer_ref` 是定义与
+        记录里的意图，`installed` / `unit_file_state` / `active_state` 是 systemd 的原话。
+        不合成一句"已启用"——界面因此能如实说出"定义是启用的，但单元没装"，而不是替
+        systemd 编一个答案。
+      required: [id, name, kind, target_id, definition, enabled, version, timer_ref, created_at, updated_at, installed, unit_file_state, active_state, blockers]
+      properties:
+        id:
+          type: string
+          pattern: '^sch_[0-9a-f]{32}$'
+        name:
+          type: string
+          maxLength: 80
+          description: 定义里 `name` 的副本，列表页不必再拆 `definition`。
+        kind:
+          $ref: '#/components/schemas/ScheduleKind'
+        target_id:
+          type: string
+          pattern: '^(pol|crt|scr)_[0-9a-f]{32}$'
+          description: 定义里 `target_id` 的副本。
+        definition:
+          $ref: '#/components/schemas/ScheduleDefinition'
+        enabled:
+          type: boolean
+          description: |
+            **意图**：下一次 apply 会不会写启用的单元。它不等于"现在会跑"——那要看
+            `installed` 与 `unit_file_state`。
+        version:
+          type: integer
+          minimum: 1
+          description: 定义版本，每次变更 +1；写操作要带版本做乐观并发。
+        timer_ref:
+          type: string
+          pattern: '^(|upanel-sch_[0-9a-f]{32}\.timer)$'
+          description: |
+            已装上的定时单元名；**未安装时是空字符串**（不是 null，也不编一个名字）。
+        created_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        updated_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        installed:
+          type: boolean
+          description: 这台机器上有没有这套单元（timer + service）。是事实，不是意图。
+        unit_file_state:
+          type: string
+          description: |
+            systemd 的原话（`systemctl is-enabled` 的返回）：常见 `enabled` / `disabled` /
+            `static` / `masked` / `indirect`。不认识的值照抄，不翻译成布尔。
+        active_state:
+          type: string
+          description: |
+            systemd 的原话（`systemctl is-active` 的返回）：常见 `active` / `inactive` /
+            `failed` / `activating` / `deactivating`。这是**定时器**此刻的状态，
+            不是"下次会不会跑"。
+        next_elapse:
+          $ref: '#/components/schemas/Rfc3339Utc'
+          description: |
+            下次触发的绝对时刻。**读不到时字段不出现**——不写零值时间，也不是 null：
+            "没有下一跳"和"没读到"是两件事。
+        blockers:
+          type: array
+          items:
+            $ref: '#/components/schemas/PreflightNotice'
+          description: |
+            "现在就算触发也跑不起来"的原因（目标是已删除的策略/脚本、单元没装、表达式
+            已被系统拒绝等）。**永不为 null**：`[]` 表示现在没有阻塞项，null 会被读成
+            "没检查过"。
+
+    ScheduleTrigger:
+      type: object
+      additionalProperties: false
+      description: |
+        一次触发记录。它是"这次到底跑没跑"的**事实**，不是计划的意图：计划写着启用、
+        单元也装着，但目标被删了的时候，触发会以 `blocked` 留痕并写明原因。
+      required: [trigger_id, slot_at, action, operation_id, outcome, created_at]
+      properties:
+        trigger_id:
+          type: string
+          pattern: '^trg_[0-9a-f]{32}$'
+          description: |
+            由（计划 id, 触发槽）派生，因此稳定：systemd 在同一分钟内重试或有人手工
+            `systemctl start`，得到的是同一个 trigger_id，代理据此认出"这是上一次的重试"。
+        slot_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+          description: 触发槽（UTC 分钟）。秒级日历会被折叠到分钟。
+        action:
+          type: string
+          enum: [backup.run, certificate.renew, script.run]
+          description: 这次触发落到的那条动作。
+        operation_id:
+          type: string
+          pattern: '^op_[0-9a-f]{32}$'
+          description: |
+            由 trigger_id 派生，因此也稳定：同一次触发无论重试几次，落到代理库里的都是
+            同一个 operation_id。用它在操作列表里查这次触发的执行经过。
+        outcome:
+          type: string
+          enum: [triggered, blocked, duplicate, failed]
+          description: |
+            触发当时的判决：`triggered` 已提交动作；`blocked` 目标不满足条件（见
+            `reason`）；`duplicate` 这个槽已经处理过（重放）；`failed` 提交失败。
+        reason:
+          type: string
+          description: 触发被挡住或提交失败时的原因；没有原因时字段不出现。
+        created_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+
+    ScheduleListData:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Schedule'
+
+    ScheduleDetailData:
+      type: object
+      additionalProperties: false
+      required: [schedule, triggers]
+      properties:
+        schedule:
+          $ref: '#/components/schemas/Schedule'
+        triggers:
+          type: array
+          description: 最近的触发记录，新的在前。
+          items:
+            $ref: '#/components/schemas/ScheduleTrigger'
+
+    Script:
+      type: object
+      additionalProperties: false
+      description: |
+        一条受管理脚本。文件由 root 拥有（`root:upanel-shell 0750`）落在代理的脚本目录，
+        运行时以 `upanel-shell` 身份执行、**永远不获得 root**；运行前核对 `content_hash`，
+        所以落盘文件被改过的脚本跑不起来。
+      required: [id, name, content_hash, interpreter, version, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          pattern: '^scr_[0-9a-f]{32}$'
+        name:
+          type: string
+          maxLength: 80
+        content_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: 已批准内容的 SHA-256，运行前用它核对落盘文件。
+        interpreter:
+          type: string
+          enum: ['/bin/sh']
+          description: |
+            由代理决定，**调用方不能指定**解释器或参数。一个能选解释器的"脚本"就是一个
+            能选择 shell 二进制的入口。
+        version:
+          type: integer
+          minimum: 1
+          description: 脚本版本，每次变更 +1；运行时要带版本。
+        created_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        updated_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        content:
+          type: string
+          description: |
+            脚本正文（UTF-8，最多 64 KiB）。**只在详情里出现**——列表不返回正文
+            （CONTRACTS.md 第 12 节）。
+
+    ScriptListData:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          description: 只含元数据，不含 `content`。
+          items:
+            $ref: '#/components/schemas/Script'
+
+    ScriptDetailData:
+      type: object
+      additionalProperties: false
+      required: [script]
+      properties:
+        script:
+          $ref: '#/components/schemas/Script'
+
+    NetworkIssue:
+      type: object
+      additionalProperties: false
+      description: |
+        一条"这一节没读到"的记录（P14.1）。它存在是为了让"读不到"与"没有"在响应里
+        长得不一样：不是空网卡列表，而是列表加上一条 missing。
+      required: [source, code]
+      properties:
+        source:
+          type: string
+          enum: [sysfs, ip, proc-net, netplan, ufw, systemd]
+          description: 哪一条来源没读到。
+        code:
+          type: string
+          enum: [missing, permission_denied, timeout, unparsable, failed]
+          description: |
+            闭集原因码。`missing` 是来源本身不在（没有 ip、没有 ufw、没有 /etc/netplan），
+            `permission_denied` 是在但没有权限，`timeout` 是读超时，
+            `unparsable` 是读到了但格式不认识，`failed` 是其余失败。
+        detail:
+          type: string
+          description: 给人看的一句话；可以为空。
+
+    NetworkAddress:
+      type: object
+      additionalProperties: false
+      required: [family, address, prefix_len, scope]
+      properties:
+        family:
+          type: string
+          enum: [ipv4, ipv6]
+        address:
+          type: string
+          description: 不带前缀长度的地址（`192.168.1.10`）。
+        prefix_len:
+          type: integer
+          minimum: 0
+          maximum: 128
+        scope:
+          type: string
+          description: 内核的作用域口径：`global`、`link`、`host`。
+        type:
+          type: string
+          description: '`ip` 报告的类型（`primary`/`secondary`）；读不到时缺省。'
+
+    NetworkInterface:
+      type: object
+      additionalProperties: false
+      required: [name, index, kind, mtu, state, carrier, physical, addresses]
+      properties:
+        name:
+          type: string
+        index:
+          type: integer
+          minimum: 0
+          description: 内核接口索引；`ip` 没给出时为 0。
+        kind:
+          type: string
+          enum: [loopback, ethernet, bridge, bond, vlan, wifi, tun, other]
+          description: |
+            网卡类型。判定来自 `/sys/class/net/<name>/` 下的目录与属性
+            （bridge、bonding、wireless、tun_flags、type），不从名字猜。
+        mac:
+          type: string
+          description: 全小写的硬件地址；读不到时缺省。
+        mtu:
+          type: integer
+          minimum: 0
+        state:
+          type: string
+          description: 内核 operstate 原样小写：`up`/`down`/`unknown`/`lowerlayerdown` 等。
+        carrier:
+          type: [boolean, 'null']
+          description: 物理链路有没有载波；null 表示读不到（虚拟网卡常常读不到）。
+        master:
+          type: string
+          description: 挂在哪个主设备（网桥或 bond）下；不挂时缺省。
+        physical:
+          type: boolean
+          description: |
+            这张网卡落在真实硬件上（`/sys/class/net/<name>/device` 存在）。
+            P14.2 只允许改唯一的物理网卡，所以这个判定必须在数据里。
+        addresses:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkAddress'
+
+    NetworkCapability:
+      type: object
+      additionalProperties: false
+      required: [backend, editable, reasons]
+      description: |
+        "这份网络配置能不能被本面板安全地改"（P14.1 只读，判定现在就要给出）。
+        `editable=false` 时 `reasons` 至少一条；`editable=true` 时 `reasons` 为空数组。
+      properties:
+        backend:
+          type: string
+          enum: [netplan-networkd, netplan-networkmanager, networkmanager, unknown]
+          description: 配置归属。只有 `netplan-networkd` 可能可改。
+        editable:
+          type: boolean
+        target:
+          type: string
+          description: 可改的那张网卡；`editable=false` 时缺省。
+        reasons:
+          type: array
+          items:
+            type: string
+
+    NetworkInterfaceList:
+      type: object
+      additionalProperties: false
+      description: |
+        `GET /api/v1/network/interfaces` 的 data。**没有任何写入口**：改地址是
+        `network.apply` 的预检 → 任务（P14.2）。
+      required: [collected_at, interfaces, capability, issues]
+      properties:
+        collected_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        interfaces:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkInterface'
+        capability:
+          $ref: '#/components/schemas/NetworkCapability'
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkIssue'
+
+    NetworkConfigState:
+      type: object
+      additionalProperties: false
+      description: |
+        `GET /api/v1/network/config` 的 data（P14.2）。写路径的入口状态：能不能改、
+        提交时带什么指纹、有没有未确认的回滚。字段与代理的 `network.config` 查询一一对应。
+      required: [collected_at, capability, mode, panel_file, netplan_files, unsupported, pending, issues]
+      properties:
+        collected_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        capability:
+          $ref: '#/components/schemas/NetworkCapability'
+        interface:
+          type: string
+          description: 可改的那张网卡；`capability.editable=false` 时缺省。
+        permanent_mac:
+          type: string
+          description: 网卡**永久** MAC（`/sys/class/net/<name>/address` 而非 `permaddr` 之外的临时值）。身份由它钉住。
+        config_hash:
+          type: string
+          description: |
+            `network.apply` 要带的 `expected_config_hash`。**只在 `editable=true` 时出现**。
+            算法见 CONTRACTS.md 第 13.6 节：规范化 JSON 的 sha256，覆盖网卡名、永久 MAC、
+            `/etc/netplan` 下全部文件的内容哈希与面板自己那份文件。
+        mode:
+          type: string
+          enum: [dhcp, static, unknown]
+          description: |
+            来自**内核渲染产物**（`/run/systemd/network/10-netplan-<iface>.network`）的
+            模式，不是"我们文件里写了什么"。
+        ipv4:
+          oneOf:
+            - $ref: '#/components/schemas/NetworkIPv4Setting'
+            - type: 'null'
+          description: 这张网卡上现在的地址（多个时只给第一个全局 IPv4）。
+        panel_file:
+          oneOf:
+            - $ref: '#/components/schemas/NetworkPanelFile'
+            - type: 'null'
+          description: 面板自己那份 `90-upanel-<iface>.yaml`；不存在时 null——"我们没有管它"是个明确状态。
+        netplan_files:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkNetplanFile'
+        unsupported:
+          type: array
+          description: 读不懂或不敢覆盖的配置说明；非空时 `editable=false` 且理由在这里与 `reasons` 里都出现。
+          items:
+            type: string
+        pending:
+          oneOf:
+            - $ref: '#/components/schemas/NetworkRollbackView'
+            - type: 'null'
+          description: 待确认的回滚记录；没有时 null。
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkIssue'
+
+    NetworkIPv4Setting:
+      type: object
+      additionalProperties: false
+      required: [address, prefix_length, gateway, dns]
+      properties:
+        address:
+          type: string
+          description: 不带前缀长度的点分十进制 IPv4（前缀在 `prefix_length` 里）。
+        prefix_length:
+          type: integer
+          minimum: 1
+          maximum: 32
+        gateway:
+          type: string
+          description: 默认网关；空串表示没有（先配地址、路由另说是合法状态）。
+        dns:
+          type: array
+          description: 0—3 个 IPv4；没有时是 null（不是空数组）。
+          items:
+            type: string
+
+    NetworkPanelFile:
+      type: object
+      additionalProperties: false
+      required: [name, sha256]
+      properties:
+        name:
+          type: string
+        sha256:
+          type: string
+
+    NetworkNetplanFile:
+      type: object
+      additionalProperties: false
+      required: [name, sha256]
+      properties:
+        name:
+          type: string
+        sha256:
+          type: string
+
+    NetworkRollbackView:
+      type: object
+      additionalProperties: false
+      description: |
+        一条待确认的回滚记录（对外视图，不含文件内容与命令行）。`state` 见 CONTRACTS
+        第 13.6 节：`pending`/`confirmed`/`rolled_back`/`failed`。
+      required: [token, interface, mode, applied_at, deadline, seconds_left, state]
+      properties:
+        token:
+          type: string
+          description: 回滚标识（`nrb_` + 32 位小写十六进制）。`network.confirm` / `network.rollback` 要带它。
+        interface:
+          type: string
+        mode:
+          type: string
+          enum: [dhcp, static]
+        candidate_address:
+          type: string
+          description: 候选地址（DHCP 模式下缺省：那个地址是随机拿到的，不能当凭据）。
+        applied_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        deadline:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        seconds_left:
+          type: integer
+          description: 距到期还有多少秒（已过期时为 0 或负数）。
+        state:
+          type: string
+          enum: [pending, confirmed, rolled_back, failed]
+        result:
+          type: string
+          description: 回滚或确认那一侧留下的一句话（失败原因、回滚结果）；没有时缺省。
+
+    NetworkRoute:
+      type: object
+      additionalProperties: false
+      required: [family, destination, metric, pref_set, default]
+      properties:
+        family:
+          type: string
+          enum: [ipv4, ipv6]
+        destination:
+          type: string
+          description: 目标网段；默认路由写成 `0.0.0.0/0` 或 `::/0`。
+        gateway:
+          type: string
+          description: 下一跳；直连路由没有，缺省。
+        device:
+          type: string
+          description: 出接口名。
+        metric:
+          type: integer
+        pref_set:
+          type: boolean
+          description: |
+            `metric` 是不是真的读到了。0 是合法优先级，所以"没有 metric"不能拿 0 表示。
+        protocol:
+          type: string
+          description: 内核里的来源（`static`/`kernel`/`dhcp`/`ra` 等）。
+        scope:
+          type: string
+          description: 路由作用域：`global`/`link`/`host`。
+        default:
+          type: boolean
+          description: 是否是默认路由（等于 destination 是 `0.0.0.0/0` 或 `::/0`）。
+
+    NetworkGateway:
+      type: object
+      additionalProperties: false
+      required: [family, address, metric]
+      properties:
+        family:
+          type: string
+          enum: [ipv4, ipv6]
+        address:
+          type: string
+        device:
+          type: string
+        metric:
+          type: integer
+
+    NetworkRouteList:
+      type: object
+      additionalProperties: false
+      required: [collected_at, routes, gateways, issues]
+      properties:
+        collected_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        routes:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkRoute'
+        gateways:
+          type: array
+          description: 去重后的默认网关，按家族分开。
+          items:
+            $ref: '#/components/schemas/NetworkGateway'
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkIssue'
+
+    NetworkListener:
+      type: object
+      additionalProperties: false
+      required: [family, protocol, address, port, wildcard, loopback, pid]
+      properties:
+        family:
+          type: string
+          enum: [ipv4, ipv6]
+        protocol:
+          type: string
+          enum: [tcp, udp]
+        address:
+          type: string
+          description: 绑定地址（`0.0.0.0`、`::`、`127.0.0.1`）。
+        port:
+          type: integer
+          minimum: 0
+          maximum: 65535
+        wildcard:
+          type: boolean
+          description: 绑在通配地址上（对外可达，除非被防火墙挡住）。
+        loopback:
+          type: boolean
+          description: 只有本机能连上。
+        pid:
+          type: integer
+          format: int64
+          description: 占用它的进程；0 表示读不到（不是"没有进程"）。
+        process:
+          type: string
+          description: 进程名；读不到时缺省。
+        unit:
+          type: string
+          description: 进程所属的 systemd 单元；读不到时缺省。
+
+    NetworkListenerList:
+      type: object
+      additionalProperties: false
+      required: [collected_at, listeners, issues, truncated]
+      properties:
+        collected_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        listeners:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkListener'
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkIssue'
+        truncated:
+          type: boolean
+          description: 结果被上限截断了；页面必须说明"这里不是全部"，不能装作完整。
+
+    FirewallRule:
+      type: object
+      additionalProperties: false
+      required: [number, action, direction, to, from, raw]
+      properties:
+        number:
+          type: integer
+          minimum: 0
+          description: UFW 的规则序号（`ufw status numbered` 第一列）；读不到为 0。
+        action:
+          type: string
+          enum: [ALLOW, DENY, REJECT, LIMIT]
+        direction:
+          type: string
+          enum: [IN, OUT, FWD]
+        interface:
+          type: string
+          description: 限定网卡（`Anywhere on eth0` 里的 eth0）。
+        to:
+          type: string
+          description: 目标（`22/tcp`、`Anywhere`）。
+        from:
+          type: string
+          description: 来源（`Anywhere`、`192.168.1.0/24`、`Anywhere (v6)`）。
+        raw:
+          type: string
+          description: UFW 输出的原话，解析不准的规则靠它兜底。
+
+    FirewallConfigState:
+      type: object
+      additionalProperties: false
+      description: |
+        `GET /api/v1/firewall/config` 的 data（P14.3）。写路径的入口状态：能不能改、
+        提交时带什么指纹、面板管着哪几条规则、有没有未确认的回滚。字段与代理的
+        `firewall.config` 查询一一对应。
+      required: [collected_at, manager, reasons, installed, enabled, editable, rules, pending, issues]
+      properties:
+        collected_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        manager:
+          type: string
+          enum: [ufw, firewalld, nftables, iptables-persistent, none, unknown]
+          description: 与 `GET /api/v1/firewall` 的 `manager` 同一判定；只有 `ufw` 可能 `editable`。
+        reasons:
+          type: array
+          description: 不能改时的原因（人话，逐条）；能改时为空数组。
+          items:
+            type: string
+        installed:
+          type: boolean
+          description: UFW 这个软件在不在。"装了但没启用"与"没装"是两件事。
+        enabled:
+          type: boolean
+          description: UFW 自己报告的启用状态。
+        editable:
+          type: boolean
+          description: |
+            能不能开写路径：只有 `manager=ufw`、`installed=true`、且判据都读得出来时为 true。
+        rules:
+          type: array
+          description: |
+            **面板管理的**规则（带 `upanel:` 标记）。管理员手写的规则不在这里。
+          items:
+            $ref: '#/components/schemas/FirewallManagedRule'
+        config_hash:
+          type: string
+          description: |
+            `firewall.apply` 要带的 `expected_config_hash`。**只在 `editable=true` 时出现**。
+            算法：`enabled` 与每条规则（id + 规范写法）排序后取 sha256，见 CONTRACTS.md 第 13.7 节。
+        pending:
+          oneOf:
+            - $ref: '#/components/schemas/FirewallRollbackView'
+            - type: 'null'
+          description: 待确认的回滚记录；没有时 null。
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkIssue'
+
+    FirewallManagedRule:
+      type: object
+      additionalProperties: false
+      required: [id, action, port, proto]
+      description: |
+        一条面板管理的规则。形状上刻意只允许"一个端口、一个协议、可选一个 IPv4 来源"——
+        区间、应用配置、接口限定、默认策略一律 `FIREWALL_UNSUPPORTED`。
+      properties:
+        id:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9-]{0,31}$'
+          description: 规则标识（拼进 ufw 的 `comment upanel:<id>`）。形状固定，因为它会进命令行。
+        action:
+          type: string
+          enum: [allow, deny, reject, limit]
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        proto:
+          type: string
+          enum: [tcp, udp]
+        from:
+          type: string
+          description: IPv4 CIDR；空/缺省表示 `from any`。
+
+    FirewallRollbackView:
+      type: object
+      additionalProperties: false
+      required: [token, deadline, seconds_left, previous]
+      description: 一条待确认的防火墙回滚。
+      properties:
+        token:
+          type: string
+          description: "`frb_` 加 32 位小写十六进制；`firewall.confirm` 与 `firewall.rollback` 用它指认。"
+        deadline:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        seconds_left:
+          type: integer
+          minimum: 0
+        previous:
+          type: string
+          description: 退回去会变成什么样（人话，含启用状态与规则集）。
+
+    FirewallState:
+      type: object
+      additionalProperties: false
+      description: |
+        `GET /api/v1/firewall` 的 data。**没有任何写入口**：改规则是 `firewall.apply`
+        的预检 → 任务（P14.3）。`editable` 只在 manager=ufw 且 installed 时才可能为 true。
+      required: [collected_at, manager, manager_reasons, installed, enabled, rules, editable,
+                 reasons, issues]
+      properties:
+        collected_at:
+          $ref: '#/components/schemas/Rfc3339Utc'
+        manager:
+          type: string
+          enum: [ufw, firewalld, nftables, iptables-persistent, none, unknown]
+          description: |
+            判定出来的防火墙管理者。`none` 是"一种都没发现"，`unknown` 是"看到了互相
+            矛盾的迹象"。两者都不是"没有防火墙"——读不到时 issues 里有记录。
+        manager_reasons:
+          type: array
+          description: Manager 判定的依据（哪条事实让它这么判）。
+          items:
+            type: string
+        installed:
+          type: boolean
+          description: UFW 这个软件在不在（在但没启用，与不在是两件事）。
+        enabled:
+          type: boolean
+          description: UFW 自己报告的启用状态。
+        default_incoming:
+          type: string
+          description: 默认入站策略（`deny`/`allow`/`reject`）；读不到时缺省。
+        default_outgoing:
+          type: string
+        default_routed:
+          type: string
+        logging:
+          type: string
+          description: UFW 日志级别（`on (low)` 等原样）。
+        rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/FirewallRule'
+        editable:
+          type: boolean
+        reasons:
+          type: array
+          items:
+            type: string
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkIssue'
+
   responses:
     BadRequest:
       description: 语法或参数错误（400）。

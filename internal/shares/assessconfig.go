@@ -26,6 +26,13 @@ import (
 // 抹掉了。所以除了 share:<名字> 与 volume:<id>，还要一把覆盖整个托管配置的锁。
 const ConfigLockName = "samba:config"
 
+// ExportsLockName 是托管导出文件的全局资源锁（P14.4）。
+//
+// 与 ConfigLockName 同样的理由，但覆盖的是另一份文件：`/etc/exports.d/upanel.exports`
+// 也是整份重写的。两把锁分开取，因为两者写的是不同文件——让一次 NFS 导出去等一次
+// SMB 配置应用，只是白白串行。
+const ExportsLockName = "nfs:exports"
+
 // overrideProbeTimeout 是读一项全局设置有效值的预算。
 //
 // 比整份配置校验短得多：`testparm --parameter-name` 不做完整校验，只是查表，

@@ -139,6 +139,49 @@ func TestSaveShareRoundTrip(t *testing.T) {
 	}
 }
 
+// NFS 共享必须能存进去（P14.4 真机修正）。
+//
+// 22.04 验收 VM 上 share.apply 的终态是 failed，日志里只有一句
+// `constraint failed: CHECK constraint failed: protocol IN ('smb')`：0005 的迁移把
+// protocol 钉死成 smb，NFS 那一支做到执行层、导出文件都写下去并生效了，最后在落库这一步
+// 被挡住。单测当时用的是 smb 记录，所以整条链路在 mock 下是绿的——这条用例就是那个缺口：
+// 落一条 nfs 定义、读回来、逐项对上。
+func TestSaveShareRoundTripsNFSDefinition(t *testing.T) {
+	ss, rs := newTestShares(t)
+	seedVolume(t, rs, testVolID, "data", testFsUUID)
+
+	rec := testShare(testShareID, "media", testVolID)
+	rec.Definition = shares.ShareDefinition{
+		Name:         "media",
+		Protocol:     shares.ProtocolNFS,
+		VolumeID:     testVolID,
+		RelativePath: "ro",
+		Enabled:      true,
+		ReadOnly:     true,
+		AllowedCIDRs: []string{"127.0.0.0/8"},
+		NFSOptions:   &shares.NFSOptions{RootSquash: true, Sync: true},
+	}
+	rec.ConfigHash = strings.Repeat("b", 64)
+	rec.ConfigApplied = true
+	if err := ss.SaveShare(context.Background(), rec); err != nil {
+		t.Fatalf("保存 nfs 共享失败: %v", err)
+	}
+	got, found, err := ss.GetShare(context.Background(), testShareID)
+	if err != nil || !found {
+		t.Fatalf("读取共享失败: found=%v err=%v", found, err)
+	}
+	if got.Definition.Protocol != shares.ProtocolNFS {
+		t.Fatalf("protocol 读回来是 %q", got.Definition.Protocol)
+	}
+	if got.Definition.NFSOptions == nil ||
+		!got.Definition.NFSOptions.RootSquash || !got.Definition.NFSOptions.Sync {
+		t.Fatalf("nfs_options 没往返: %+v", got.Definition.NFSOptions)
+	}
+	if len(got.Definition.SMBUsers) != 0 {
+		t.Fatalf("nfs 共享不该带 smb_users: %+v", got.Definition.SMBUsers)
+	}
+}
+
 func TestSaveShareRoundTripsRuntimeRevocation(t *testing.T) {
 	ss, rs := newTestShares(t)
 	seedVolume(t, rs, testVolID, "data", testFsUUID)
@@ -327,15 +370,15 @@ func TestSaveShareValidatesShape(t *testing.T) {
 	seedVolume(t, rs, testVolID, "data", testFsUUID)
 
 	cases := map[string]func(*shares.ShareRecord){
-		"非法 id":  func(r *shares.ShareRecord) { r.ID = "vol_x" },
-		"空名字":    func(r *shares.ShareRecord) { r.Definition.Name = "" },
-		"名字带斜杠":  func(r *shares.ShareRecord) { r.Definition.Name = "team/data" },
-		"nfs 协议": func(r *shares.ShareRecord) { r.Definition.Protocol = shares.ProtocolNFS },
-		"空卷":     func(r *shares.ShareRecord) { r.Definition.VolumeID = "" },
-		"路径越界":   func(r *shares.ShareRecord) { r.Definition.RelativePath = "../etc" },
-		"空用户名单":  func(r *shares.ShareRecord) { r.Definition.SMBUsers = nil },
-		"空版本":    func(r *shares.ShareRecord) { r.Version = "" },
-		"零时间":    func(r *shares.ShareRecord) { r.CreatedAt = time.Time{} },
+		"非法 id":   func(r *shares.ShareRecord) { r.ID = "vol_x" },
+		"空名字":     func(r *shares.ShareRecord) { r.Definition.Name = "" },
+		"名字带斜杠":   func(r *shares.ShareRecord) { r.Definition.Name = "team/data" },
+		"nfs 缺选项": func(r *shares.ShareRecord) { r.Definition.Protocol = shares.ProtocolNFS },
+		"空卷":      func(r *shares.ShareRecord) { r.Definition.VolumeID = "" },
+		"路径越界":    func(r *shares.ShareRecord) { r.Definition.RelativePath = "../etc" },
+		"空用户名单":   func(r *shares.ShareRecord) { r.Definition.SMBUsers = nil },
+		"空版本":     func(r *shares.ShareRecord) { r.Version = "" },
+		"零时间":     func(r *shares.ShareRecord) { r.CreatedAt = time.Time{} },
 	}
 	for name, mutate := range cases {
 		rec := testShare(testShare3, "shape-check", testVolID)

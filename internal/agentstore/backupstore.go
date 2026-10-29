@@ -6,9 +6,10 @@ package agentstore
 // 那要读真实现场（根表、restic、SFTP 主机密钥、容量），判断在 internal/backup。
 // 把判断搬进来，就会出现“数据库说有，机器上说没有”的分裂。
 //
-// 与 Web 侧 `backup_repositories` 表的关系：Web 存一份（管理界面、审计关联），
-// 代理存这一份（执行依据）。两边用同一个 id 与同一个 version；代理**不信** Web 传来的
-// 定义，只认自己库里这份——写入必须走 /internal/v1/backup/repositories。
+// 与 Web 侧的关系：**Web 侧没有第二份表**（P12.2 定案）。备份定义只有这一份，
+// Web 的 /backup/repositories 与 /backup/policies 是这份镜像的编辑入口，不是另一个
+// 存储。理由与契约第 12 节一致：预检计划里的 normalized_params 冻结了 id 与 version，
+// 执行时必须从一个**不会被请求方替换**的地方取定义，那个地方只能是代理自己的库。
 
 import (
 	"context"

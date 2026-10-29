@@ -20,7 +20,9 @@ import (
 	"syscall"
 	"time"
 
+	"upanel/internal/accounts"
 	"upanel/internal/agentclient"
+	"upanel/internal/alerts"
 	"upanel/internal/api"
 	"upanel/internal/apphealth"
 	"upanel/internal/appruntime"
@@ -34,7 +36,9 @@ import (
 	"upanel/internal/files"
 	"upanel/internal/logging"
 	"upanel/internal/logs"
+	"upanel/internal/metrics"
 	"upanel/internal/monitoring"
+	"upanel/internal/notifications"
 	"upanel/internal/operations"
 	"upanel/internal/packages"
 	"upanel/internal/platform"
@@ -234,6 +238,29 @@ func run(args []string, stdout, stderr io.Writer) int {
 		logger.Error("初始化审计写入器失败，拒绝启动", "error", err)
 		return 1
 	}
+	// 通知（P13.3）：通道定义、投递账与调度都在面板库里；**发送由代理执行**，
+	// 因为 SMTP 口令与 webhook 令牌只存在代理的加密库里，而这里刻意没有取回明文的
+	// 接口。所以这个服务必须先于告警服务创建——告警在触发/恢复的同一笔事务里
+	// 入队投递，靠的就是它的 Notifier 身份。
+	//
+	// 发送端在生产模式下稍后接上（见下面的 SetSender）：演示模式没有代理，
+	// 投递会停在 pending 并把原因说清楚，而不是“假装发过了”。
+	notifService, err := notifications.New(db, notifications.Options{Logger: logger})
+	if err != nil {
+		logger.Error("初始化通知服务失败，拒绝启动", "error", err)
+		return 1
+	}
+	// 告警（P13.2）：规则、事件与维护静默全在面板库里，判定只读历史样本表，
+	// 不经过代理——代理挂了正是最需要告警的时候。
+	//
+	// 评估循环与采集循环共用同一个 ctx：进程收到 SIGTERM 时它跟着停，不会在
+	// 优雅停止之后继续往库里写状态。
+	alertsService, err := alerts.New(db, alerts.Options{Logger: logger, Notifier: notifService})
+	if err != nil {
+		logger.Error("初始化告警服务失败，拒绝启动", "error", err)
+		return 1
+	}
+	go alertsService.Run(ctx, alerts.DefaultInterval)
 	// 启动时清掉过期会话；之后每 15 分钟一次。清理失败不阻止启动（会话本身仍会按超时判定），
 	// 但要留下记录。
 	if removed, err := authService.PurgeExpired(ctx); err != nil {
@@ -306,6 +333,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	var monitor api.Monitor
 	// 存储只读视图读取端（P04.2）。演示模式下同样保持 nil。
 	var storageReader api.StorageReader
+	// 历史监控读取端（P13.1）。演示模式下保持 nil：那时 /system/metrics 回
+	// enabled=false 并说明"演示模式不采集历史"，而不是一条看起来正常的空曲线。
+	var metricsReader api.MetricsReader
 	// 服务只读视图读取端（P05.1）。演示模式下同样保持 nil。
 	var servicesReader api.ServicesReader
 	// 进程只读视图读取端（P05.2）。演示模式下同样保持 nil。
@@ -322,6 +352,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// /share-accounts 与 /secrets 明确回 503，而不是给一份空共享列表——
 	// 空列表会被读成“这台机器上没有共享”。
 	var sharesReader api.SharesReader
+	// 受管理 Linux 账号（P14.5）。演示模式下保持 nil：那时 /accounts 与
+	// /accounts/:id/ssh-keys 明确回 503，而不是给一份空账号列表——
+	// 空列表会被读成“这台机器上一个账号都没有”。
+	var accountsReader api.AccountsReader
+	// 二次验证的代理调用端（P14.6）。演示模式下保持 nil：那时 /auth/totp/* 明确回
+	// 503，而不是给一张"看起来能用"的二维码——那张 QR 后面的种子根本不在任何代理里。
+	var totpAgent api.TotpAgent
 	// 应用发现与健康探测读取端（P09.2）。演示模式下保持 nil：那时 /apps/discovery
 	// 明确回 503，而不是给一份空候选列表——空列表会被读成“没有一个服务在监听”。
 	var discoveryReader api.DiscoveryReader
@@ -337,6 +374,37 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// /packages/updates 与 /system/power-state 明确回 503，而不是给一份空包列表
 	// ——空列表会被读成"这台机器上一个包都没装"。
 	var packagesReader api.PackagesReader
+	// 备份管理（P12.2）。演示模式下保持 nil：那时 /backup/* 明确回 503，
+	// 而不是给一份空列表——空列表会被读成"这台机器上还没有配置备份"。
+	//
+	// 这里没有"本地副本"可用：备份定义只有代理那一份（见 internal/agentstore/
+	// backupstore.go），所以代理不在时备份管理不是"只读可用"，而是读不了也改不了。
+	var backupManager api.BackupManager
+	// 计划任务与受管理脚本（P12.4）：与备份同一条规矩，只有代理那一份。
+	// 演示模式下保持 nil，四个只读接口明确回 503，而不是给一份空列表。
+	//
+	// 用通用客户端（10 秒上限）就够：这两个接口读的是代理自己的 SQLite 与几条
+	// systemctl 事实，不碰 restic/SFTP，没有"冷采一次几十秒"的问题。
+	var schedulesReader api.SchedulesReader
+	var scriptsReader api.ScriptsReader
+	// 网络与防火墙的只读读取端（P14.1）。演示模式下保持 nil：那时
+	// /network/* 与 /firewall 明确回 503，而不是给一份空网卡列表或空规则表
+	// ——空表会被读成"这台机器没有网卡""防火墙没有任何规则"。
+	var networkReader api.NetworkReader
+	// 部署管理面的读取端（P15.4）。演示模式下保持 nil：/api/v1/deployments/managed*
+	// 明确回 503，而不是给一份空列表——空列表会被读成"这台机器上还没有部署"，
+	// 而真相是"面板根本没有连代理，什么都不知道"。
+	//
+	// 与 Containers（containersReader）是**两个读取端**：那条读 docker 回答"这台
+	// 机器上跑着什么"，这条读 /etc/upanel/deploy 与 systemd 回答"面板管着什么"。
+	var deploymentsReader api.DeploymentsReader
+
+	// 外部程序能力（P16.1）。演示模式下保持 nil：/api/v1/system/capabilities
+	// 明确回 503，而不是一份空清单——空清单会说“这台机器什么都没装”。
+	//
+	// 它读的是代理的缓存（代理启动后后台探一次、之后每十分钟重探），这条接口
+	// 不会在请求里跑任何命令。
+	var capabilitiesReader api.CapabilitiesReader
 	// 证书现场事实（只读，P10.3）：只有 root 读得到 /etc/letsencrypt 与
 	// /etc/ssl/upanel。演示模式下保持 nil，详情页的 observed 会写"读不到"，
 	// 而不是给出"这张证书不存在"。
@@ -353,6 +421,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 				"error", err, "socket", cfg.Agent.SocketPath)
 			return 1
 		}
+		// 通知发送端（P13.3）：投递交给代理执行。用通用客户端就够——代理自己把
+		// 一次投递限在 8 秒内（见 internal/agent/notify.go），比这里的 10 秒短，
+		// 所以永远轮不到面板先把代理掐掉。
+		//
+		// 调度循环与投递使用同一个 ctx：SIGTERM 之后不再开新的一轮。
+		notifService.SetSender(notifications.NewAgentSender(client))
+		go notifService.Run(ctx, 0)
 		// 软件包事实单独一个客户端，只多一件事：更长的调用上限。
 		// `apt-cache policy` 在 24.04 上冷采一次 26 秒（量见 packages.AgentQueryTimeout），
 		// 10 秒的通用上限会把一次正常的冷采变成"代理不可用"。
@@ -375,6 +450,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		opsAgent = preflightClient
+		// 快照列表与详情也单独一个客户端：代理给 restic/SFTP 查询 90 秒，
+		// 通用 10 秒上限会先把正常慢查询掐成“代理不可用”。
+		backupClient, err := agentclient.New(cfg.Agent.SocketPath,
+			agentclient.WithTimeout(agentclient.BackupQueryTimeout))
+		if err != nil {
+			logger.Error("初始化备份代理客户端失败，拒绝启动",
+				"error", err, "socket", cfg.Agent.SocketPath)
+			return 1
+		}
 		fetcher, err := monitoring.NewFetcher(client, logger)
 		if err != nil {
 			logger.Error("初始化系统信息读取端失败，拒绝启动", "error", err)
@@ -387,6 +471,51 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		storageReader = storageFetcher
+
+		// 历史监控（P13.1）：采集仍在代理侧，这里只是把 Web 已经拿到的两份快照变成
+		// 时序样本写进面板库（PLAN.md 第 18 节）。存储拓扑既做只读视图也做容量曲线，
+		// 用同一个 Fetcher，不新建第二个客户端——多一个客户端就多一处"读到的是不同
+		// 时刻的拓扑"的机会。
+		//
+		// 采集被配置关掉时仍然构造 Reader：旧数据照样查得到，Status 会说明"不再写新的"。
+		var recorder *metrics.Recorder
+		if cfg.Web.Metrics.Enabled {
+			rawRetention, minuteRetention, hourRetention := cfg.Web.Metrics.Retention()
+			recorder, err = metrics.NewRecorder(metrics.Options{
+				Store:    db,
+				Summary:  fetcher,
+				Topology: storageFetcher,
+				Logger:   logger,
+				Interval: cfg.Web.Metrics.Interval(),
+				Retention: metrics.Retention{
+					Raw:    rawRetention,
+					Minute: minuteRetention,
+					Hour:   hourRetention,
+				},
+				MaxRows: int64(cfg.Web.Metrics.MaxRows),
+			})
+			if err != nil {
+				logger.Error("初始化历史监控失败，拒绝启动", "error", err)
+				return 1
+			}
+		}
+		reader, err := metrics.NewReader(metrics.ReaderOptions{
+			Store:    db,
+			Recorder: recorder,
+			NoRecorderReason: "配置里关闭了历史采集（web.metrics.enabled=false）：" +
+				"旧数据可查，不再写新数据",
+		})
+		if err != nil {
+			logger.Error("初始化历史监控查询端失败，拒绝启动", "error", err)
+			return 1
+		}
+		metricsReader = reader
+		if recorder != nil {
+			// 采集循环与请求共用同一个 ctx：进程收到 SIGTERM 时它跟着停，
+			// 而不是在优雅停止之后继续往库里写。
+			go recorder.Run(ctx)
+		}
+
 		servicesFetcher, err := services.NewFetcher(client, logger)
 		if err != nil {
 			logger.Error("初始化服务读取端失败，拒绝启动", "error", err)
@@ -423,6 +552,22 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		sharesReader = sharesFetcher
+		// 账号读端（P14.5）：列表复用 share.accounts 的那一份（同一张
+		// managed_accounts），公钥走 accounts.ssh_keys。合成在 accounts.NewReader 里，
+		// 这里只把两半接上——列表没有第二份实现，公钥也没有。
+		accountsFetcher, err := accounts.NewFetcher(client, logger)
+		if err != nil {
+			logger.Error("初始化账号读取端失败，拒绝启动", "error", err)
+			return 1
+		}
+		accountsReader, err = accounts.NewReader(sharesFetcher, accountsFetcher)
+		if err != nil {
+			logger.Error("初始化账号读端失败，拒绝启动", "error", err)
+			return 1
+		}
+		// 二次验证（P14.6）：种子的生成、校验与销毁都在代理里，面板只搬运引用与六位数。
+		// 用通用客户端（10 秒上限）：代理那四条路由只做一次 HMAC，比这个数短得多。
+		totpAgent = client
 		discoveryFetcher, err := discovery.NewFetcher(client, logger)
 		if err != nil {
 			logger.Error("初始化应用发现读取端失败，拒绝启动", "error", err)
@@ -457,6 +602,31 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		certificateState = certInspector
+		// 备份定义镜像与快照查询：直接用专用客户端，它的方法签名就是 api.BackupManager。
+		backupManager = backupClient
+		// 计划与脚本镜像：同样是那个通用客户端的方法签名就是 api.SchedulesReader /
+		// api.ScriptsReader，但**不能**复用通用客户端——列表的代价随计划条数增长
+		// （每条启用计划 fork 两次 systemd 查询），10 秒通用上限会把一次正常的列表
+		// 变成"代理不可用"（量见 agentclient.ScheduleQueryTimeout）。
+		scheduleClient, err := agentclient.New(cfg.Agent.SocketPath,
+			agentclient.WithTimeout(agentclient.ScheduleQueryTimeout))
+		if err != nil {
+			logger.Error("初始化计划任务代理客户端失败，拒绝启动",
+				"error", err, "socket", cfg.Agent.SocketPath)
+			return 1
+		}
+		schedulesReader = scheduleClient
+		scriptsReader = scheduleClient
+		// 网络与防火墙只读（P14.1）：通用客户端就够。一次采集由代理侧的 8 秒总预算
+		// 与 6 秒单命令上限兜住（见 internal/agent/networkquery.go），比这里的 10 秒短，
+		// 所以永远轮不到面板先把代理掐断。
+		networkReader = client
+		// 部署现场（P15.4）：通用客户端就够。一次列表最多读 200 份现场，每份两次
+		// systemctl（enabled/active），代理侧按 ctx 与单命令上限兜住，比这里的
+		// 10 秒长不了。
+		deploymentsReader = client
+		// 外部程序能力（P16.1）：读代理的探测缓存，不在请求里探。
+		capabilitiesReader = client
 		discoveryReader = discoveryFetcher
 		healthTargetChecker = discoveryFetcher
 		healthProber = discoveryFetcher
@@ -587,16 +757,26 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Audit:           auditWriter,
 		Operations:      opsService,
 		Monitor:         monitor,
-		Storage:         storageReader,
-		Services:        servicesReader,
-		Processes:       processesReader,
-		Logs:            logsReader,
-		Files:           filesReader,
-		Terminal:        terminalReader,
-		Shares:          sharesReader,
-		Apps:            appsService,
-		Discovery:       discoveryReader,
-		Containers:      containersReader,
+		// 历史监控（P13.1）：查询读面板自己的样本库，不经过代理；采集循环
+		// 在上面已经按配置启动。
+		Metrics: metricsReader,
+		Alerts:  alertsService,
+		// 通知通道（P13.3）：定义与投递账在面板库，发送在代理。
+		Notifications: notifService,
+		Storage:       storageReader,
+		Services:      servicesReader,
+		Processes:     processesReader,
+		Logs:          logsReader,
+		Files:         filesReader,
+		Terminal:      terminalReader,
+		Shares:        sharesReader,
+		// 受管理账号（P14.5）：只读。写走预检与任务。
+		Accounts: accountsReader,
+		// 二次验证（P14.6）：登录与再认证的第二步；启用了 2FA 的账号在 nil 时失败关闭。
+		Totp:       totpAgent,
+		Apps:       appsService,
+		Discovery:  discoveryReader,
+		Containers: containersReader,
 		// 应用运行摘要（P09.4）：元数据来自库里，运行事实来自服务与容器读取端。
 		// 演示模式下两个来源都是 nil，Resolver 会给每条应用 unknown + 理由。
 		AppRuntime: &appruntime.Resolver{Services: servicesReader, Containers: containersReader},
@@ -612,7 +792,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Certificates:      certService,
 		CertificateStages: certificates.NewStageStore(nil),
 		CertificateState:  certificateState,
-		AllowedOrigins:    allowedOrigins,
+		// 备份（P12.2）：定义与查询都在代理那边，面板不存第二份。
+		Backup: backupManager,
+		// 计划任务与受管理脚本（P12.4）：只读镜像，写路径走预检与任务。
+		Schedules: schedulesReader,
+		Scripts:   scriptsReader,
+		// 网络与防火墙（P14.1）：只读，事实全部来自代理的 /proc、/sys 与 ufw。
+		// 演示模式下为 nil，四个接口回 503 并说明未配置代理连接。
+		Network: networkReader,
+		// 部署管理面（P15.4）：只读现场。创建/更新/删除走预检与任务
+		// （deployment.apply / update / remove），这里没有"直接部署"的入口。
+		Deployments:    deploymentsReader,
+		Capabilities:   capabilitiesReader,
+		AllowedOrigins: allowedOrigins,
 	})
 	if err != nil {
 		logger.Error("初始化 Web 服务失败", "error", err)

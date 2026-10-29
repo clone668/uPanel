@@ -11,7 +11,9 @@ package shares
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +31,11 @@ var (
 	smbstatusCandidates  = []string{"/usr/bin/smbstatus", "/usr/sbin/smbstatus"}
 	setfaclCandidates    = []string{"/usr/bin/setfacl", "/usr/sbin/setfacl"}
 	getfaclCandidates    = []string{"/usr/bin/getfacl", "/usr/sbin/getfacl"}
+
+	// NFS 的工具候选（P14.4）。`exportfs` 一个就够：导出表的应用与读回都靠它，
+	// `showmount` 是客户端视角的旁证，缺了不影响判决。
+	exportfsCandidates  = []string{"/usr/sbin/exportfs", "/usr/bin/exportfs"}
+	showmountCandidates = []string{"/usr/sbin/showmount", "/usr/bin/showmount"}
 )
 
 // 配置与托管目录的固定路径。
@@ -55,7 +62,44 @@ type ToolPaths struct {
 	Smbstatus  string `json:"smbstatus,omitempty"`
 	Setfacl    string `json:"setfacl,omitempty"`
 	Getfacl    string `json:"getfacl,omitempty"`
+	// Exportfs / Showmount 是 NFS 那一半的工具（P14.4）。
+	Exportfs  string `json:"exportfs,omitempty"`
+	Showmount string `json:"showmount,omitempty"`
 }
+
+// NFSCapability 是 NFS 导出的能力判定（P14.4）。
+//
+// 为什么与 Samba 的分开而不是合成一个 status：两个协议的工具、配置、服务彼此独立，
+// 一台机器完全可能“Samba 齐全但没装 nfs-kernel-server”。合成一个 status 会让
+// “缺 nfs-kernel-server”显示成“共享功能不可用”，连 SMB 那一半也一起被判死。
+type NFSCapability struct {
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+	// Exportfs 是探到的 `exportfs` 绝对路径（缺失时为空）。
+	Exportfs string `json:"exportfs,omitempty"`
+	// ExportsDir / ExportsFile 是面板独占的目录与文件。
+	ExportsDir  string `json:"exports_dir"`
+	ExportsFile string `json:"exports_file"`
+	// ExportsDirReady 报告目录存不存在（不存在时应用会创建它）。
+	ExportsDirReady bool `json:"exports_dir_ready"`
+	// ExportsPresent / ExportsHash 是托管导出文件此刻的状态。
+	ExportsPresent bool   `json:"exports_present"`
+	ExportsHash    string `json:"exports_hash,omitempty"`
+	// ExportedPaths 是托管文件里现在的导出路径（从文件里读，不从内核读）。
+	ExportedPaths []string `json:"exported_paths"`
+	// MainExportsReadable 报告系统主导出文件（/etc/exports）读不读得到。
+	//
+	// 读不到就没法确认“这条路径是不是已经被别人导出了”，冲突检测因此只能给告警。
+	MainExportsReadable bool `json:"main_exports_readable"`
+	// ServiceState 是 nfs-server 的运行状态（active / inactive / unknown）。
+	ServiceState string `json:"service_state"`
+	// ConfigWrite 是 available / unsupported（缺 exportfs 时不可写）。
+	ConfigWrite string    `json:"config_write"`
+	Notices     []Blocker `json:"notices"`
+}
+
+// Available 报告 NFS 导出能力是否可用。
+func (c NFSCapability) Available() bool { return c.Status == CapabilityAvailable }
 
 // Capability 是 GET /shares 之前页面要读的那份能力报告。
 //
@@ -105,6 +149,9 @@ type Capability struct {
 	Notices []Blocker `json:"notices"`
 	// CollectedAt 是这份能力的采集时间。
 	CollectedAt time.Time `json:"collected_at"`
+	// NFS 是 NFS 导出的能力判定（P14.4）。它与上面这一整套 Samba 判定彼此独立：
+	// 一台机器“Samba 齐全但没装 nfs-kernel-server”是常态，反之亦然。
+	NFS NFSCapability `json:"nfs"`
 }
 
 // Available 报告共享能力是否可用。页面与预检都用它，不各自解释 status 字符串。
@@ -260,6 +307,17 @@ func (p *Prober) probe(ctx context.Context, now time.Time) Capability {
 		out.SambaVersion = p.version(ctx, out.Tools.Smbd)
 	}
 
+	// NFS 那一半独立探一次：它不参与上面 missing 的判定，也不改变 Samba 的 status。
+	out.NFS = p.probeNFS(ctx, now)
+	// exportfs 的落点从 NFS 判定里取，而不是在这里再 pick 一次。
+	//
+	// 两个理由：它**不是** Samba 的必需项（缺了不该把整个能力判成 blocked），
+	// 而执行层拿工具路径的唯一入口是 Capability().Tools——不往这里放，
+	// reloadExports/readExportTable 就会永远看到空字符串，然后在一台装好
+	// nfs-kernel-server 的机器上报“缺少 exportfs”。探到了却传不出去，
+	// 是比探不到更难查的一种缺陷。
+	out.Tools.Exportfs = out.NFS.Exportfs
+
 	if len(missing) > 0 {
 		out.Status = CapabilityBlocked
 		out.Reason = "缺少 " + strings.Join(missing, "、") + "；" +
@@ -295,8 +353,77 @@ func (p *Prober) probe(ctx context.Context, now time.Time) Capability {
 	return out
 }
 
-// Invalidate 丢掉缓存。
+// probeNFS 探一次 NFS 导出的能力。
 //
+// 判据只有一条是硬性的：**有没有 exportfs**。没有它既写不了也读不回实际导出表，
+// 那就不能声称能管 NFS。导出目录不存在不算阻塞（应用时会创建），/etc/exports 读不到
+// 只影响冲突检测的确定性，记一条提示。
+func (p *Prober) probeNFS(ctx context.Context, now time.Time) NFSCapability {
+	out := NFSCapability{
+		Status:        CapabilityAvailable,
+		ExportsDir:    DefaultExportsDir,
+		ExportsFile:   DefaultExportsFile,
+		ExportedPaths: []string{},
+		ConfigWrite:   ConfigWriteUnsupported,
+	}
+	out.Exportfs = p.opts.Paths.Exportfs
+	if out.Exportfs == "" {
+		out.Exportfs = p.optional(exportfsCandidates)
+	}
+	if out.Exportfs == "" {
+		out.Status = CapabilityBlocked
+		out.Reason = "没找到 exportfs（nfs-kernel-server 未安装）：NFS 导出既写不了也读不回"
+		out.Notices = append(out.Notices, Blocker{
+			Code:    NoticeNFSUnavailable,
+			Message: "没找到 exportfs：NFS 导出不可用（本面板不自动安装软件包）",
+		})
+	} else {
+		out.ConfigWrite = ConfigWriteAvailable
+	}
+
+	if fi, err := p.opts.Stat(DefaultExportsDir); err == nil && fi.IsDir() {
+		out.ExportsDirReady = true
+	}
+	if data, err := p.opts.ReadFile(DefaultExportsFile); err == nil {
+		out.ExportsPresent = true
+		out.ExportsHash = ConfigHashOf(string(data))
+		entries, unparsed := ParseExports(data)
+		for _, e := range entries {
+			out.ExportedPaths = append(out.ExportedPaths, e.Path)
+		}
+		sort.Strings(out.ExportedPaths)
+		if len(unparsed) > 0 {
+			out.Notices = append(out.Notices, Blocker{
+				Code: NoticeExportsUnparsable,
+				Message: fmt.Sprintf("托管导出文件里有 %d 行读不懂：整份文件会被重写，因此不影响结果，但说明有人手工改过它",
+					len(unparsed)),
+			})
+		}
+	}
+	// 系统主导出文件：读得到才能说“这条路径没被别人导出过”。
+	if _, err := p.opts.ReadFile(DefaultExportsMain); err == nil {
+		out.MainExportsReadable = true
+	} else if !os.IsNotExist(err) {
+		out.Notices = append(out.Notices, Blocker{
+			Code:    NoticeExportsUnparsable,
+			Message: "读不到 " + DefaultExportsMain + "：" + err.Error() + "；与既有导出的冲突无从判断",
+		})
+	} else {
+		// 文件不存在是干净的状态：没有别人的导出。
+		out.MainExportsReadable = true
+	}
+
+	out.ServiceState = probeNFSServiceState(ctx, p.opts.Runner)
+	if out.ServiceState != ServiceStateActive {
+		out.Notices = append(out.Notices, Blocker{
+			Code:    NoticeNFSServiceInactive,
+			Message: "nfs-server 现在不是 active（" + out.ServiceState + "）：导出写下去也不会提供访问",
+		})
+	}
+	return out
+}
+
+// Invalidate 丢掉缓存。//
 // 写配置的流水线在改完 smb.conf 之后必须调用它：否则接下来 30 秒里所有读者（包括
 // 紧随其后的这次请求自己）都会看到“include 还没接入”“托管文件不存在”这种已经过时
 // 的结论，页面就会一边显示“已应用”一边显示“未接入”。

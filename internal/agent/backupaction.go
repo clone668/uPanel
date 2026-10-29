@@ -27,9 +27,11 @@ import (
 // backupPlanBudget 是仓库预检的同步计算预算。
 //
 // 预检要跑一次 `restic version`、可能还要拨一次 SFTP（连接 + 握手 + statvfs）。
-// 15 秒的连接上限加上握手余量，40 秒足够；超过它说明目标不可达，应该给结论而不是
-// 一直等（Web 侧调用上限是 10 秒，预检自己必须先收手）。
-const backupPlanBudget = 40 * time.Second
+// 拨号上限 30 秒、网络层失败还会再来一轮，最坏 60 秒；再给 statvfs 留十几秒，
+// 75 秒能把“慢但活着”的机器和“真不可达”分开。这个数必须小于 Web 侧
+// PreflightAgentTimeout（90 秒），否则 Web 会先报 AGENT_UNAVAILABLE，把代理的结论盖掉。
+// 24.04 单线程 TCG 验收机的真实握手就在十几秒一档（见 DefaultDialTimeout 注释）。
+const backupPlanBudget = 75 * time.Second
 
 // backupSource 是备份动作需要的全部能力。
 //

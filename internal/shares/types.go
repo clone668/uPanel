@@ -219,8 +219,44 @@ const (
 	// 一个是 /etc/samba 里的既有配置。两者都是“不许覆盖”。
 	NoticeShareNameTakenBySystem = "SHARE_NAME_TAKEN_BY_SYSTEM"
 
-	// ---- 连接状态（share.connections）相关码 ----
+	// ---- NFS（P14.4）相关码 ----
+	//
+	// NFS 的访问控制是“网段 + root_squash”，没有 Samba 账号那一层，所以它的阻塞项
+	// 与 smb 不共用：把 smb 的 SHARE_NO_USERS 套到 nfs 上会得到一句自相矛盾的话
+	// （“没有授权账号”——NFS 本来就不认账号）。
 
+	// NoticeNFSOptionsInvalid 表示 nfs_options 缺失或取值不受支持。
+	NoticeNFSOptionsInvalid = "NFS_OPTIONS_INVALID"
+	// NoticeNFSOpenToWorld 表示允许网段覆盖全部地址（前缀长度为 0）。
+	NoticeNFSOpenToWorld = "NFS_OPEN_TO_WORLD"
+	// NoticeNFSUsersNotAllowed 表示 nfs 定义里带了 smb_users。
+	NoticeNFSUsersNotAllowed = "NFS_USERS_NOT_ALLOWED"
+	// NoticeShareNoCIDRs 表示 nfs 共享没有点名允许网段。
+	NoticeShareNoCIDRs = "SHARE_NO_CIDRS"
+	// NoticeNFSUnavailable 表示本机 NFS 能力不可用（缺 exportfs 或读不到导出配置）。
+	NoticeNFSUnavailable = "NFS_UNAVAILABLE"
+	// NoticeExportPathConflict 表示这条共享的目录已经被导出了——要么被别的导出
+	// 文件导出，要么被面板自己的另一条共享占着。两种来源，同一个后果。
+	//
+	// 为什么是阻塞：exportfs 对同一条路径被导出两次报 `duplicated export entries`
+	// 并以 1 退出，整份导出表的刷新因此失败——别人原本好用的导出也一起停止刷新。
+	NoticeExportPathConflict = "EXPORT_PATH_CONFLICT"
+	// NoticeExportsUnparsable 是告警：别的导出文件里有读不懂的行。
+	//
+	// 有它就不能说“确认没有冲突”。不阻塞是因为那不是面板的文件，也不该由面板
+	// 拒绝提供服务：执行时 exportfs 自己会报错，而那条路径带自动回滚。
+	NoticeExportsUnparsable = "EXPORTS_UNPARSABLE"
+	// NoticeExportsNotApplied 是告警：这条共享此刻不在导出表里。
+	NoticeExportsNotApplied = "EXPORTS_NOT_APPLIED"
+	// NoticeExportsUnreadable 是告警：读不到实际导出表（`exportfs -v` 失败）。
+	//
+	// 与 EXPORTS_UNPARSABLE 的区别在“读的是谁”：那条说的是别人的导出文件内容读不懂，
+	// 这条说的是连实际生效的那张表都拿不到——“此刻有没有在被导出”因此无从回答。
+	NoticeExportsUnreadable = "EXPORTS_UNREADABLE"
+	// NoticeNFSServiceInactive 是告警：nfs-server 没在运行，导出写下去也提供不了访问。
+	NoticeNFSServiceInactive = "NFS_SERVICE_INACTIVE"
+
+	// ---- 连接状态（share.connections）相关码 ----
 	// NoticeConnectionStatusUnavailable 表示没有 smbstatus，读不到连接状态。
 	// 它不影响配置与共享：只是“谁连着”这个问题回答不了。
 	NoticeConnectionStatusUnavailable = "CONNECTION_STATUS_UNAVAILABLE"
@@ -247,6 +283,13 @@ const (
 	// 这是“解析失败”，不是“有权限问题”：权限问题会以一条 notice 说明，
 	// 因为那种情况下答案“不知道”比答案“空”更接近事实。
 	FailConnectionsRead = "CONNECTIONS_READ_FAILED"
+
+	// FailExportsWrite 表示写托管导出文件这一步失败（磁盘、权限、fsync）。
+	FailExportsWrite = "EXPORTS_WRITE_FAILED"
+	// FailExportsReload 表示 `exportfs -ra` 被拒绝或失败。
+	FailExportsReload = "EXPORTS_RELOAD_FAILED"
+	// FailExportVerify 表示应用之后 `exportfs -v` 读回来的实际导出与定义不符。
+	FailExportVerify = "EXPORT_VERIFY_MISMATCH"
 )
 
 // 配置写入与重载的结果闭集。
@@ -385,6 +428,17 @@ type AccountRecord struct {
 	GID         int    `json:"gid"`
 	Shell       string `json:"shell"`
 	Home        string `json:"home"`
+	// DisplayName 是给人看的标签（P14.5）。空串表示“和账号名一样”。
+	//
+	// 它不参与任何系统调用：页面上叫“张三的备份账号”与人能登录的 alice 之间
+	// 没有任何映射关系，改名也只改这一列。
+	DisplayName string `json:"display_name"`
+	// ShellProfile 是 P14.5 的两档壳（disabled/restricted），即**期望**的那一档。
+	//
+	// 它和 Shell 不是一回事：禁用一个账号时 Shell 会变成 nologin，而 ShellProfile
+	// 仍然记着“启用之后该回到哪个壳”，否则启用就无从下手（见 accounts/execute.go）。
+	// 共享账号只可能是 disabled——DB 上有 CHECK 兜着。
+	ShellProfile string `json:"shell_profile"`
 	// SecretRef 是密码密文的引用（sec_ 加 32 位小写十六进制）。它**不是**密码。
 	SecretRef       string    `json:"-"`
 	Version         string    `json:"version"`

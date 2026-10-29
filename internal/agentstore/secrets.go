@@ -113,6 +113,118 @@ func (s *Secrets) Put(ctx context.Context, in PutInput) (Secret, error) {
 	return secret, nil
 }
 
+// PutInternal 写入**代理内部用途**的秘密（目前只有 totp_seed）。
+//
+// 与 Put 的差别只有一条：跳过 "Uploadable" 检查。其余校验（用途登记、值的长度区间、
+// 引用形状）一条不少——内部流程同样是代码，代码也会写错。
+//
+// 为什么内部用途不能走通用上传：totp_seed 的明文是二次验证的全部，一旦允许 Web 层
+// 直接 POST 一段种子上去，"种子由代理生成、Web 从未见过明文"这句话就不成立了
+// （CONTRACTS.md 第 8 节：内部用途不接受通用秘密上传替代）。
+func (s *Secrets) PutInternal(ctx context.Context, in PutInput) (Secret, error) {
+	purpose, ok := LookupPurpose(in.Purpose)
+	if !ok {
+		return Secret{}, fmt.Errorf("%w: 未登记的用途 %q", ErrPurpose, in.Purpose)
+	}
+	if purpose.Uploadable {
+		return Secret{}, fmt.Errorf("%w: 用途 %s 是可上传用途，应走 Put 而不是内部写入", ErrPurpose, purpose.Name)
+	}
+	if err := purpose.validateValue(in.Value); err != nil {
+		return Secret{}, err
+	}
+	if err := validateReference(in.Reference); err != nil {
+		return Secret{}, err
+	}
+
+	now := s.now().UTC()
+	secret := Secret{
+		Purpose:   purpose.Name,
+		Reference: in.Reference,
+		CreatedAt: now,
+		State:     StateTemporary,
+	}
+	if in.Reference != "" {
+		secret.State = StatePersistent
+	} else {
+		secret.ExpiresAt = now.Add(s.ttl)
+	}
+	if err := s.insert(ctx, &secret, in.Value, now); err != nil {
+		return Secret{}, err
+	}
+	s.logger.Info("已保存加密秘密（内部用途）",
+		"ref", secret.Ref,
+		"purpose", secret.Purpose,
+		"state", secret.State,
+		"bytes", len(in.Value),
+		"key_version", s.key.Version(),
+		"reference", secret.Reference,
+		"expires_at", formatTimeValue(secret.ExpiresAt))
+	return secret, nil
+}
+
+// Binding 返回一条秘密的用途与引用标识，**不解密**。
+//
+// 二次验证要用它做归属核对：一个 seed_ref 是给 3 号用户的，就不能拿来验 5 号用户的码。
+// 只核对"能解密"是不够的——任何一条 totp_seed 都解得开。
+func (s *Secrets) Binding(ctx context.Context, ref string) (purpose, reference string, ok bool, err error) {
+	if !ValidSecretRef(ref) {
+		return "", "", false, nil
+	}
+	var state string
+	err = s.db.store().SQL().QueryRowContext(ctx,
+		`SELECT purpose, reference, state FROM secrets WHERE id = ?`, ref).
+		Scan(&purpose, &reference, &state)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", "", false, nil
+		}
+		return "", "", false, fmt.Errorf("agentstore: 读取秘密归属失败: %w", err)
+	}
+	if state == StateDestroyed {
+		return "", "", false, nil
+	}
+	return purpose, reference, true, nil
+}
+
+// Destroy 销毁一条指定的秘密：清空密文与 nonce，留墓碑行。
+//
+// 与 DestroyExpired 的区别只是范围：这里点名销毁一条，给"关闭二次验证"用。
+// 已销毁的再销毁一次返回 nil——重复调用是幂等的，不制造第二种结果。
+func (s *Secrets) Destroy(ctx context.Context, ref string) error {
+	if !ValidSecretRef(ref) {
+		return ErrSecretNotFound
+	}
+	now := s.now().UTC()
+	res, err := s.db.store().ExecContext(ctx,
+		`UPDATE secrets
+		    SET state = ?, ciphertext = X'', nonce = X'', destroyed_at = ?
+		  WHERE id = ? AND state <> ?`,
+		StateDestroyed, millis(now), ref, StateDestroyed)
+	if err != nil {
+		return fmt.Errorf("agentstore: 销毁秘密失败: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("agentstore: 读取销毁结果失败: %w", err)
+	}
+	if affected == 0 {
+		// 零行有两种可能：从来没有这条，或者已经是墓碑。后者按成功处理（幂等），
+		// 前者必须报"不存在"，否则调用方会以为自己关掉了什么。
+		var state string
+		err := s.db.store().SQL().QueryRowContext(ctx,
+			`SELECT state FROM secrets WHERE id = ?`, ref).Scan(&state)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrSecretNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("agentstore: 读取秘密状态失败: %w", err)
+		}
+		return nil
+	}
+	s.logger.Info("秘密已销毁", "ref", ref, "destroyed_at", formatTimeValue(now))
+	return nil
+}
+
 // insert 生成引用、加密并写入一行。引用冲突时重试一次（36 字符随机撞车概率可忽略）。
 func (s *Secrets) insert(ctx context.Context, secret *Secret, plaintext []byte, now time.Time) error {
 	for attempt := 0; attempt < 2; attempt++ {

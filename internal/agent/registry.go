@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"upanel/internal/backup"
 )
 
 // Registry 是代理的**固定登记表**：动作与结构化只读查询都必须先在这里登记，
@@ -286,7 +288,10 @@ type Query struct {
 }
 
 // 登记名允许的形态：小写字母开头、至少两段、段内允许数字与下划线。
-var namePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(\.[a-z][a-z0-9_]*)+$`)
+//
+// 下划线在**每一段**都允许，不只是第一段之后：CONTRACTS.md 第 5 节的动作名
+// 就有 `ssh_key.apply` 与 `sudo_rule.apply`，它们的下划线在第一段里。
+var namePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`)
 
 // 确认短语的首词：大写，2—16 位，允许数字（FORMAT、DESTROY、RESTORE 等）。
 var phraseVerbPattern = regexp.MustCompile(`^[A-Z][A-Z0-9]{1,15}$`)
@@ -453,6 +458,22 @@ func RegisterProductionQueries(reg *Registry, deps ProductionDeps) error {
 			return fmt.Errorf("代理登记共享查询失败: %w", err)
 		}
 	}
+	if deps.Accounts != nil {
+		// 公钥列表与能力报告各一条查询（P14.5）。账号列表不重复登记：GET /accounts
+		// 读的就是 share.accounts 那份 managed_accounts，P14.5 加的两列已经在同一个
+		// AccountRecord 里，再造一条 accounts.list 只会让两处字段各自漂移。
+		//
+		// 能力报告必须单独登记：share.accounts 带的那份是 Samba 的能力，账号页拿它
+		// 当判据会在没装 Samba 的机器上把普通账号一起判死（虚拟机验收抓到的）。
+		for _, q := range []Query{
+			newSSHKeysQuery(deps.Accounts),
+			newAccountsCapabilityQuery(deps.Accounts),
+		} {
+			if err := reg.RegisterQuery(q); err != nil {
+				return fmt.Errorf("代理登记 %s 失败: %w", q.Name, err)
+			}
+		}
+	}
 	if deps.Containers != nil {
 		// 七条只读查询一起登记（CONTRACTS.md 第 8.3 节）：容器详情、镜像、网络、
 		// 卷、compose 项目共用同一个 docker 客户端与同一套可用性判决，
@@ -505,6 +526,51 @@ func RegisterProductionQueries(reg *Registry, deps ProductionDeps) error {
 		for _, q := range []Query{
 			newDiscoveryQuery(deps.Discovery),
 			newProbeQuery(deps.Discovery),
+		} {
+			if err := reg.RegisterQuery(q); err != nil {
+				return fmt.Errorf("代理登记 %s 失败: %w", q.Name, err)
+			}
+		}
+	}
+	if deps.Network != nil {
+		// 四条一起登记（P14.1）：网卡、路由、监听、防火墙是同一页上的四块事实。
+		// 少登记任何一条，界面就会把"没这一项"读成"这一项是空的"——例如没有
+		// firewall.state 时，一张没有规则的空表会被读成"防火墙没放行任何东西"。
+		for _, q := range []Query{
+			newNetworkInterfacesQuery(deps.Network),
+			newNetworkRoutesQuery(deps.Network),
+			newNetworkListenersQuery(deps.Network),
+			newFirewallStateQuery(deps.Network),
+		} {
+			if err := reg.RegisterQuery(q); err != nil {
+				return fmt.Errorf("代理登记 %s 失败: %w", q.Name, err)
+			}
+		}
+	}
+	if deps.NetworkWrites != nil {
+		// network.config 跟着写路径走，不跟着只读采集走：只有写路径接上时，
+		// "config_hash 与 pending 回滚"这两件事才存在。给一台只读的机器返回一份
+		// 带 config_hash 的空配置，等于让人以为可以提交。
+		if err := RegisterNetworkConfigQuery(reg, deps.NetworkWrites); err != nil {
+			return err
+		}
+	}
+	if deps.FirewallWrites != nil {
+		// firewall.config 同上：面板管理的规则集与待确认的那条回滚，都是写路径的事。
+		if err := RegisterFirewallConfigQuery(reg, deps.FirewallWrites); err != nil {
+			return err
+		}
+	}
+	if deps.DeployInspector != nil {
+		// 两条一起登记（P15.4）：列表回答"面板管着什么"，单条回答"这一份长什么样"。
+		// 只登记列表时，详情页只能拿列表里那份（可能已经被下一次刷新替换掉的）数据
+		// 画表单；只登记单条时，页面根本不知道该问哪些名字。
+		//
+		// 注意它挂在 DeployInspector 而不是 Deployments 上：读现场不需要 docker，
+		// 见 ProductionDeps 里那段注释。
+		for _, q := range []Query{
+			newDeploymentsListQuery(deps.DeployInspector),
+			newDeploymentsGetQuery(deps.DeployInspector),
 		} {
 			if err := reg.RegisterQuery(q); err != nil {
 				return fmt.Errorf("代理登记 %s 失败: %w", q.Name, err)
@@ -573,6 +639,14 @@ func RegisterProductionActions(reg *Registry, deps ProductionDeps) error {
 			return err
 		}
 	}
+	if deps.Accounts != nil {
+		// 六个账号动作与 accounts.ssh_keys 成对登记（P14.5）：没有公钥列表的
+		// ssh_key.delete 只能靠指纹猜着撤，没有账号列表的 account.delete 连
+		// “它是不是还在共享里”都答不出来。
+		if err := RegisterAccountActions(reg, deps.Accounts); err != nil {
+			return fmt.Errorf("代理登记账号动作失败: %w", err)
+		}
+	}
 	if deps.Proxies != nil {
 		// 代理站点的写入路径（P10.2）。登记与否由装配决定：没有 Nginx 现状来源或没有
 		// 命令执行器时不登记，而不是登记一个一点就 501 的动作。
@@ -619,6 +693,71 @@ func RegisterProductionActions(reg *Registry, deps ProductionDeps) error {
 		}
 		if err := RegisterBackupQueries(reg, deps.Backup); err != nil {
 			return err
+		}
+	}
+	if deps.BackupRun != nil {
+		// 备份运行与快照查询（P12.2）：一条写动作 + 两条只读查询。
+		//
+		// 三条一起登记：只有 backup.run 而没有快照查询的备份页，点完之后无法回答
+		// "刚才那份快照到底存不存在、里面有什么"；只有查询而没有 run 则是一个
+		// 永远空着的列表。
+		if err := RegisterBackupRunAction(reg, deps.BackupRun); err != nil {
+			return fmt.Errorf("代理登记 %s 失败: %w", backup.ActionRun, err)
+		}
+		if err := RegisterBackupSnapshotQueries(reg, deps.BackupRun); err != nil {
+			return err
+		}
+		recovery, ok := deps.BackupRun.(backupRecoverySource)
+		if !ok {
+			return errors.New("代理备份实现端缺少 P12.3 恢复/验证/清理能力")
+		}
+		if err := RegisterBackupRecoveryActions(reg, recovery); err != nil {
+			return fmt.Errorf("代理登记备份恢复/验证/清理失败: %w", err)
+		}
+	}
+	if deps.Scripts != nil {
+		// 三个脚本动作与两条读路由一起登记（P12.4）。只有 apply 而没有 run 的
+		// 脚本页会让人以为"存好了就会跑"；只有 run 而没有 apply，则连一份
+		// 可批准的正文都拿不到。
+		if err := RegisterScriptActions(reg, deps.Scripts); err != nil {
+			return err
+		}
+	}
+	if deps.Schedules != nil {
+		// 两条计划写动作（P12.4）。它们**不**登记任何"手动触发"的动作：
+		// 触发只有 upanelctl schedule-trigger 一条路（root，专用路由），
+		// 公开入口里没有"现在就按计划跑一次"这种绕过预检幂等的按钮。
+		if err := RegisterScheduleActions(reg, deps.Schedules); err != nil {
+			return err
+		}
+	}
+	if deps.NetworkWrites != nil {
+		// 三个网络写动作（P14.2）。一起登记：apply 会在改完之后留一条待确认的回滚，
+		// 而 confirm 与 rollback 是处理那条遗留的两条路。只登记 apply 的机器上，
+		// 每一次改地址都会在 120 秒后自己退回去，而人没有办法留住它。
+		if err := RegisterNetworkWriteActions(reg, deps.NetworkWrites); err != nil {
+			return err
+		}
+	}
+	if deps.FirewallWrites != nil {
+		// 三个防火墙写动作（P14.3）。一起登记，理由同网络：apply 会留一条待确认的回滚，
+		// 只登记 apply 的机器上每一次改规则都会在 120 秒后自己退回去。
+		if err := RegisterFirewallWriteActions(reg, deps.FirewallWrites); err != nil {
+			return err
+		}
+	}
+	if deps.Deployments != nil {
+		// 两条部署动作（P15.2）：创建与删除，一起登记。
+		//
+		// 只登记 apply 的机器上，一份部署建起来就再也去不掉（Panel 只能叫人来敲
+		// systemctl）；只登记 remove 则连"怎么建"都答不出来。
+		//
+		// 容器读取端**不是**登记条件：它是起来之后多问一句“容器真的有吗”，
+		// 没有它时部署照样能落地，只是 outcomes 里少一项读数。把它变成硬条件，
+		// 会让没装 docker 的机器连“写单元文件”都做不到——而 systemd 与 docker
+		// 是两件事。
+		if err := RegisterDeployActions(reg, deps.Deployments, deps.Containers); err != nil {
+			return fmt.Errorf("代理登记部署动作失败: %w", err)
 		}
 	}
 	return nil

@@ -123,6 +123,22 @@ func (a *JobApplier) applyIssue(ctx context.Context, job JobFact, params json.Ra
 	if err != nil {
 		return fmt.Errorf("certificates: 签发任务 %s 的参数不合法: %w", job.ID, err)
 	}
+	// 定时续期的参数里没有 crt_ id（触发发生在 systemd 里，那一刻没有面板库可问），
+	// 只有域名。按域名把记录对出来——这就是"续的是哪张证书"的唯一答案。
+	if normalized.CertificateID == "" {
+		rec, gerr := a.svc.GetByDomain(ctx, normalized.Domain)
+		if gerr != nil {
+			if errors.Is(gerr, ErrNotFound) {
+				return fmt.Errorf("certificates: 续期任务 %s 按域名 %s 在账本里找不到记录"+
+					"（定时续期只按域名对账：证书记录被删掉、或这条计划指向了一张面板不知道的证书）",
+					job.ID, normalized.Domain)
+			}
+			return fmt.Errorf("certificates: 续期任务 %s 按域名查记录失败: %w", job.ID, gerr)
+		}
+		normalized.CertificateID = rec.ID
+		a.logger.Info("定时续期已按域名对上证书记录",
+			"job_id", job.ID, "certificate_id", rec.ID, "domain", normalized.Domain)
+	}
 
 	outcome, observed, result := decodeResult(job)
 	if job.Status == "succeeded" && outcome == OutcomeVerified {

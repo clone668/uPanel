@@ -65,7 +65,11 @@ func Start(ctx context.Context, spec Spec, limits Limits) (*Stream, error) {
 	cmd.Stderr = stderr
 
 	// 与 Run 同一套终止语义：ctx 取消时杀进程组，WaitDelay 兜住残留管道。
-	setProcAttr(cmd)
+	// 流式调用不降权：Start 的两个使用者（日志跟随、终端）各自处理身份问题，
+	// 这里拿到的 Credential 必须为空才对得上它们的前提。
+	if err := setProcAttr(cmd, spec.Credential); err != nil {
+		return nil, err
+	}
 	cmd.Cancel = func() error { return killProcessGroup(cmd) }
 	cmd.WaitDelay = killWaitDelay
 

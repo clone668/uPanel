@@ -18,6 +18,7 @@ import (
 	"strings"
 	"syscall"
 
+	"upanel/internal/accounts"
 	"upanel/internal/agent"
 	"upanel/internal/agentstore"
 	"upanel/internal/apt"
@@ -25,15 +26,20 @@ import (
 	"upanel/internal/certificates"
 	"upanel/internal/config"
 	"upanel/internal/containers"
+	"upanel/internal/deploy"
 	"upanel/internal/discovery"
 	"upanel/internal/files"
+	"upanel/internal/hostcaps"
 	"upanel/internal/journal"
 	"upanel/internal/logging"
 	"upanel/internal/monitoring"
+	"upanel/internal/network"
 	"upanel/internal/nginx"
 	"upanel/internal/platform"
 	"upanel/internal/processes"
 	"upanel/internal/proxies"
+	"upanel/internal/schedules"
+	"upanel/internal/scripts"
 	"upanel/internal/services"
 	"upanel/internal/shares"
 	"upanel/internal/storage"
@@ -60,6 +66,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return storage.RunStatfsHelper(args[1:])
 	}
 
+	// 回滚子命令（P14.2）：`upanel-netrollback@<token>.timer` 到期时由 systemd 直接
+	// 执行它。同样必须在解析配置之前处理——这条路径**故意**不读配置、不开数据库、
+	// 不碰 socket：它要恢复什么，全在回滚记录文件里。
+	if len(args) >= 1 && args[0] == "netrollback" {
+		return runNetrollback(args[1:], stdout, stderr)
+	}
+
+	// 回滚子命令（P14.3）：`upanel-fwrollback@<token>.timer` 到期时由 systemd 直接执行。
+	// 与 netrollback 一样，这条路径不读配置、不开数据库、不碰 socket。
+	if len(args) >= 1 && args[0] == "fwrollback" {
+		return runFwrollback(args[1:], stdout, stderr)
+	}
+
 	fs := flag.NewFlagSet(program, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
@@ -70,6 +89,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		keyFlag     = fs.String("secret-key", "", "本机秘密密钥绝对路径（覆盖配置文件）")
 		initKey     = fs.Bool("init-key", false, "生成新的本机秘密密钥后退出（已存在则失败，绝不覆盖）")
 		acceptance  = fs.Bool("acceptance-actions", false, "启用验收专用动作表（仅用于测试 VM，生产环境不得使用）")
+		netWrites   = fs.Bool("network-writes", false, "启用网络配置写动作（默认关闭：改网卡等于把机器从网络上摘掉。120 秒独立回滚已在真实 Ubuntu VM 验收通过，见 Q458）")
+		fwWrites    = fs.Bool("firewall-writes", false, "启用防火墙写动作（默认关闭：改规则同样能把管理员关在门外，验收见 docs/evidence/P14）")
 		logLevel    = fs.String("log-level", "", "日志级别：debug、info、warn、error")
 		logFormat   = fs.String("log-format", "", "日志格式：json 或 text")
 		showVersion = fs.Bool("version", false, "输出版本信息并退出")
@@ -237,6 +258,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 		logger.Error("初始化备份仓库存储失败，拒绝启动", "error", err)
 		return 1
 	}
+	// 备份策略的代理镜像（P12.2）。与仓库定义同一个道理：policy_id 不是可以随便编
+	// 的字符串，动作执行时按 id 从这个库里取定义，版本不符就 409。
+	policyStore, err := agentstore.NewBackupPolicyStore(agentDB)
+	if err != nil {
+		logger.Error("初始化备份策略存储失败，拒绝启动", "error", err)
+		return 1
+	}
+	verificationStore, err := agentstore.NewBackupVerificationStore(agentDB)
+	if err != nil {
+		logger.Error("初始化恢复验证存储失败，拒绝启动", "error", err)
+		return 1
+	}
 
 	// 系统基础资源采集（P04.1）：5 秒轮询一次 /proc、/sys，结果留在内存里的快照中，
 	// system.summary 查询只读这份快照。采集失败不阻止代理启动——它只会让对应段
@@ -348,6 +381,33 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// 缺 smbcontrol 或 smb.conf 读不到都会降到 unsupported）。日志里不写死一个值：
 		// 写死的话，一台缺工具的机器上日志会说“能写”，而实际一按就失败。
 		"config_write", "由能力探针判定（见 capability.config_write）")
+
+	// 受管理 Linux 账号、SSH 公钥与受限 sudo（P14.5）。
+	//
+	// 登记表是同一个 shareStore：managed_accounts 只有一张（DECISIONS Q475），
+	// 共享账号与普通账号的区别是 type 那一列，不是两张表。公钥与 sudo 规则落在
+	// P14.5 的两张新表里（迁移 0014）。
+	//
+	// 路径用默认值（/etc/sudoers.d、/etc/sudoers、/home），文件读写走真实 os：
+	// 这一层要 fsync 目录、要保住 0440 的权限、要在符号链接上拒绝动手，
+	// 这些都不能经过一个“看起来一样”的假实现。
+	accountsEngine, err := accounts.New(accounts.Options{
+		Store:   shareStore,
+		Secrets: secrets,
+		Runner:  storage.SyscmdRunner(),
+	})
+	if err != nil {
+		logger.Error("初始化账号模块失败", "error", err)
+		return 1
+	}
+	logger.Info("受管理账号已接线",
+		"sudoers_dir", accounts.DefaultPaths().SudoersDir,
+		"home_base", accounts.DefaultPaths().HomeBase,
+		"actions", "account.apply / account.delete / ssh_key.apply / ssh_key.delete / "+
+			"sudo_rule.apply / sudo_rule.delete",
+		// 能不能真的动手由判决层现场判定：缺 useradd/visudo/sudo 时会以 503 明确拒绝，
+		// 而不是留一个点下去才报错的按钮。日志里不写死“可用”两个字。
+		"capability", "由判决层现场判定")
 
 	// 服务单元采集（P05.1）：每 10 秒枚举一次 systemctl 状态，services.list 读这份快照；
 	// services.unit 与预检/执行现场读取。找不到 systemctl 时采集如实报依赖缺失，
@@ -499,13 +559,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// 常量 argv。可用性在每次调用时重新判定——Docker 停掉之后界面必须显示
 	// “不可用”，而不是继续展示上一次的容器列表。
 	containersClient := containers.NewClient()
-	if available, notice := containersClient.Availability(); available {
+	// 这一份读数只用于启动日志与备份模块的装配说明：真正的可用性在每次调用时
+	// 重新判定（Docker 可能在这一行之后才被启动）。
+	dockerAvailable, dockerNotice := containersClient.Availability()
+	if dockerAvailable {
 		logger.Info("已启用容器管理",
 			"docker", "绝对路径探测：/usr/bin/docker、/snap/bin/docker",
 			"socket", "/var/run/docker.sock",
 			"scope", "只读查询 + 普通容器 start/stop/restart；危险容器不接管")
 	} else {
-		logger.Warn("容器功能不可用，相关查询与动作不会登记", "reason", notice)
+		logger.Warn("容器功能不可用，相关查询与动作不会登记", "reason", dockerNotice)
 	}
 
 	// Nginx 现状（P10.1）。只读：读 nginx.conf、conf.d/*.conf、sites-enabled/*，
@@ -732,28 +795,189 @@ func run(args []string, stdout, stderr io.Writer) int {
 	var backupModule *backup.Module
 	if resticOK, resticWhy := resticRunner.Available(nil); resticOK {
 		backupOps, err := backup.NewOps(backup.Options{
-			Restic:  resticRunner,
-			Roots:   backupRoots(fileRoots(cfg.Agent.Files.Roots)),
-			Secrets: secrets,
-			Paths:   backupPaths,
+			Restic:        resticRunner,
+			Roots:         backupRoots(fileRoots(cfg.Agent.Files.Roots)),
+			Secrets:       secrets,
+			Paths:         backupPaths,
+			Restores:      backupRestoreFS{manager: filesManager},
+			Verifications: verificationStore,
 		})
 		if err != nil {
 			logger.Error("初始化备份模块失败，拒绝启动", "error", err)
 			return 1
 		}
-		backupModule = &backup.Module{Ops: backupOps, Repos: backupStore}
-		logger.Info("已启用备份仓库动作",
+		// 面板库副本目录：配置里给了就用它，否则放在代理 StateDir 下。
+		panelCopyDir := cfg.Agent.Backup.PanelCopyDir
+		if panelCopyDir == "" {
+			panelCopyDir = filepath.Join(backupPaths.StateDir, "panel-copies")
+		}
+		// 停/起应用的能力（P12.2）：服务与容器两个来源各自可能不可用（没有
+		// systemctl / 没有 docker）。这里始终接上——不可用的那一路由控制器在
+		// Inspect 时如实报"读不到"，预检于是把 stop_managed_apps 的策略挡住，
+		// 而不是备份到一半才发现停不下来。
+		appController := &agent.BackupAppController{
+			Services:   servicesCollector,
+			Containers: containersClient,
+		}
+		backupModule = &backup.Module{
+			Ops:               backupOps,
+			Repos:             backupStore,
+			Policies:          policyStore,
+			Apps:              appController,
+			PanelDatabasePath: cfg.Agent.Backup.PanelDatabasePath,
+			PanelCopyDir:      panelCopyDir,
+		}
+		logger.Info("已启用备份仓库与备份运行",
 			"restic", backupPaths.Restic,
 			"ssh", backupPaths.SSH,
 			"state_dir", backupPaths.StateDir,
 			"cache_dir", backupPaths.CacheDir,
 			"run_dir", backupPaths.RunDir,
 			"roots", len(cfg.Agent.Files.Roots),
-			"scope", "backup.repository.initialize / backup.repository.state；本地与 SFTP，"+
-				"目录必须是已登记文件根；仓库已存在时拒绝覆盖；建完用 restic cat config 核对")
+			"panel_database", cfg.Agent.Backup.PanelDatabasePath,
+			"panel_copy_dir", panelCopyDir,
+			"app_control_services", servicesCollector != nil,
+			"app_control_docker", dockerAvailable,
+			"scope", "backup.repository.initialize / backup.repository.state / backup.run / "+
+				"backup.snapshots / backup.snapshot；本地与 SFTP，目录必须是已登记文件根；"+
+				"仓库已存在时拒绝覆盖；建完用 restic cat config 核对；"+
+				"快照建完用 restic stats 读回核对")
 	} else {
 		logger.Warn("备份仓库动作未启用", "reason", resticWhy,
 			"hint", "apt install restic 后重启代理；备份相关入口不会出现在能力表里")
+	}
+
+	// 计划任务与受管理脚本（P12.4）。两者成对：脚本只有被计划指向才会被执行，
+	// 而删脚本前要问"还有没有计划在引用它"。
+	//
+	// 单元落地端缺一样工具（systemctl / systemd-analyze）就整块不启用：定义能存下来、
+	// 单元却装不上，界面只好显示"已保存、未生效"——那种半残状态比能力表里干脆没有
+	// 这个入口更让人误解。缺席是诚实的。
+	scheduleStore, err := agentstore.NewScheduleStore(agentDB)
+	if err != nil {
+		logger.Error("初始化计划任务存储失败，拒绝启动", "error", err)
+		return 1
+	}
+	scriptStore, err := agentstore.NewScriptStore(agentDB, "")
+	if err != nil {
+		logger.Error("初始化脚本存储失败，拒绝启动", "error", err)
+		return 1
+	}
+	var schedulesModule *schedules.Module
+	var scriptsModule *scripts.Module
+	if unitInstaller, installErr := schedules.NewInstaller(schedules.InstallerOptions{}); installErr != nil {
+		logger.Warn("计划任务能力未启用", "reason", installErr,
+			"hint", "计划任务依赖 systemctl 与 systemd-analyze；这两样齐了重启代理即可")
+	} else {
+		schedulesModule, err = schedules.NewModule(schedules.ModuleOptions{
+			Store: scheduleStore,
+			Units: unitInstaller,
+			// 目标的版本与名字只从代理库现取：计划定义里不保存版本，
+			// 否则一条老计划每次触发都会拿着老版本撞乐观并发。
+			Lookup: scheduleTargetLookup(policyStore, scriptStore),
+		})
+		if err != nil {
+			logger.Error("初始化计划任务模块失败，拒绝启动", "error", err)
+			return 1
+		}
+		scriptsModule, err = scripts.NewModule(scripts.Options{
+			Store: scriptStore,
+			// 删除前的引用检查接的是计划模块：有脚本被引用时宁可拒绝删除，
+			// 也不留下一条指向不存在脚本的计划。
+			Refs: schedulesModule,
+			// 目录穿越权限被修补时留痕：修了什么要能在日志里找到。
+			Logger: logger,
+		})
+		if err != nil {
+			logger.Error("初始化脚本模块失败，拒绝启动", "error", err)
+			return 1
+		}
+		logger.Info("已启用计划任务与受管理脚本",
+			"unit_dir", unitInstaller.Dir(),
+			"script_dir", scriptsModule.Dir(),
+			"scope", "schedule.apply / schedule.delete（写 systemd 单元、systemd-analyze 校验日历）/ "+
+				"schedule.trigger（仅 root 经 upanelctl 触发，稳定触发 ID）/ "+
+				"script.apply / script.delete / script.run（以 "+scripts.ShellUser+" 降权，解释器固定 /bin/sh，"+
+				"运行前核对落盘哈希）")
+	}
+
+	// Compose 部署（P15.2）：一份定义 → 一个渲染好的 Compose 配置 + 一个包装单元，
+	// 由 systemd 负责这套部署的整个生命周期（PLAN §11 规则 4：容器不自己重启，
+	// 开机也由 systemd 拉起，因此不存在“卷还没挂上、docker 先把容器拉起来”的窗口）。
+	//
+	// 三样缺一不接，而且都在**启动时**判：
+	//   systemctl —— 单元的落地与读回都靠它；找不到就是 DEPENDENCY_MISSING，
+	//                那种动作在提交之后才报错，而那时单元文件已经落了一半；
+	//   docker    —— 单元里的 ExecStart 用绝对路径调它（deploy.DockerBinary）；
+	//   秘密存储  —— 配置里的 app_env 只能从密钥环解出来，没有它带秘密的定义一律拒绝。
+	// 缺任何一样就不登记：capabilities 于是如实说这台机器不能部署，而不是留一个
+	// 点下去才报错的入口。
+	networkSource := agent.NewNetworkSource()
+	var deployService *deploy.Service
+	// deployInspector 是只读现场（P15.4），与 deployService（三个写动作）分开两个开关：
+	// 读现场只要 systemctl 与配置目录，写动作还要 docker。一台 docker 暂时不在的机器
+	// 仍然该说得出"这台机器上部署过什么、它们现在什么状态"——那是排障时最想知道的，
+	// 而把它锁在写路径后面，人就只剩 SSH 里翻文件这一条路。
+	var deployInspector agent.DeployInspector
+	deployApplier, deployApplierErr := deploy.NewApplier(deploy.ApplierOptions{})
+	switch {
+	case deployApplierErr != nil:
+		logger.Warn("部署未启用（读与写都不登记）", "reason", deployApplierErr,
+			"hint", "单元落地与单元读回都需要 systemctl（/usr/bin/systemctl 或 /bin/systemctl），装好后重启代理")
+	default:
+		// 更新前备份（P15.3）只在备份模块装配成功时接上：没有 restic、没有仓库镜像的
+		// 机器上，带 backup_policy_id 的更新会在预检里被挡住并说清原因，而不是被当成
+		// “已经备份过了”照常换镜像。
+		var deployBackup deploy.BackupCause
+		if backupModule != nil {
+			deployBackup = agent.NewDeployBackup(backupModule)
+		}
+		service, serviceErr := deploy.NewService(deploy.ServiceOptions{
+			Applier: deployApplier,
+			// 秘密解析器核对着用途才解密：一条部署定义不能把别人的 TLS 私钥
+			// 当成环境变量塞进容器里再读出来。
+			Resolver: agent.DeploySecretResolver{Secrets: secrets},
+			// 宿主事实每次现取：预检与执行前复核是两个时刻，卷可能刚被卸下。
+			Env: agent.DeployFacts{
+				Roots:     filesManager,
+				Volumes:   resourceStore,
+				Topology:  storageCollector.Topology,
+				Addresses: agent.InterfaceAddressesFunc(networkSource),
+				DataBase:  storage.DefaultVolumeRoot,
+			}.HostEnv,
+			Backup: deployBackup,
+		})
+		if serviceErr != nil {
+			logger.Error("初始化部署服务失败，部署的读写都不会登记", "error", serviceErr)
+		} else {
+			// 读现场无条件接上；写动作再按 docker 是否在决定。
+			deployInspector = service
+			if firstExistingFile(deploy.DockerBinary) == "" {
+				logger.Warn("部署动作未启用（只读现场仍然可用）",
+					"reason", "找不到 "+deploy.DockerBinary+"（单元里的 ExecStart 用绝对路径调用它）",
+					"hint", "apt install docker.io 或 docker-ce；snap 版 docker 不在这个路径上")
+				logger.Info("已启用 Compose 部署现场读取",
+					"config_dir", deployApplier.ConfigDir(),
+					"queries", "deployments.list / deployments.get（只读）",
+					"scope", "读盘上三个文件与 systemd 的 enable/active 回答；"+
+						"不拉镜像、不查 docker、不探测健康")
+				break
+			}
+			deployService = service
+			backupScope := "未接备份：带 backup_policy_id 的更新会被预检挡住"
+			if deployBackup != nil {
+				backupScope = "更新前可按策略做一次 files_only 备份并读回核对（未建成就不换镜像）"
+			}
+			logger.Info("已启用 Compose 部署",
+				"unit_dir", deployApplier.Dir(),
+				"config_dir", deployApplier.ConfigDir(),
+				"data_base", storage.DefaultVolumeRoot,
+				"version", "创建、更新与删除（deployment.apply / deployment.update / deployment.remove）",
+				"scope", "定义 → 渲染 Compose 配置（0600）+ systemd 包装单元（0644）；"+
+					"落地后用 systemctl is-enabled/is-active 读回，不以 start 退出码当成功；"+
+					"删除保留数据卷与业务目录；更新换镜像后做面板侧健康探测，探不通回切配置与镜像"+
+					"（数据不跟着回切）；"+backupScope)
+		}
 	}
 
 	// 动作登记表：生产表自 P05.1 起有 service.control，P05.2 起有 process.signal（受保护名单与读回验证见 internal/services）。
@@ -775,6 +999,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// 写端与读端是同一个 Manager：根登记表、句柄级边界、错误判决都只有一份。
 		FileWrites: filesManager,
 		Shares:     sharesEngine,
+		// 受管理账号（P14.5）。它复用 shares 的判决与报告形状，但需要的系统工具
+		// 与 smb.conf 完全是另一套，所以是另一个开关：一台只装 Samba 的机器不该
+		// 被登记成“能建账号”。
+		Accounts:   accountsEngine,
 		Discovery:  discoveryCollector,
 		Containers: containersClient,
 		Nginx:      nginxCollector,
@@ -782,6 +1010,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Certificates: certOps,
 		// APT 事实读取（P11.1）。Available() 为假时登记表里不会出现这两条查询。
 		Apt: aptFacts,
+		// 网络与防火墙的只读采集（P14.1）。文件系统与 /proc、/sys 的读取是进程内的，
+		// 只需接上 ip/ufw 的命令执行端；两个程序不在时仍能出网卡清单与监听端口，
+		// 只是地址/防火墙那块带一条 missing。四个查询没有任何写入口。
+		//
+		// 与部署共用同一份采集器：面板上显示的地址与“能不能绑这个地址”必须是同一份数据。
+		Network: networkSource,
 	}
 	if aptWriter != nil {
 		deps.AptWrites = aptWriter
@@ -793,11 +1027,30 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// 备份仓库（P12.1）：restic 存在时才有实现端。
 	if backupModule != nil {
 		deps.Backup = backupModule
+		// P12.2：运行端与快照查询。同一台机器上，能初始化仓库不等于能跑策略——
+		// 但两者都要求 restic，所以登记条件一样，只是前者还额外依赖策略镜像。
+		deps.BackupRun = backupModule
 	}
 	// 只在真的有时才赋给接口：nil 的 *proxies.Applier 塞进接口会变成一个非 nil
 	// 的接口值，能力表于是多出一个调用就 panic 的入口。
 	if proxyApplier != nil {
 		deps.Proxies = proxyApplier
+	}
+	// 计划任务与脚本（P12.4）：同样按"有没有实现端"决定登记与否。
+	if schedulesModule != nil {
+		deps.Schedules = schedulesModule
+	}
+	if scriptsModule != nil {
+		deps.Scripts = scriptsModule
+	}
+	// 部署动作（P15.2）：只在 systemctl、docker 与秘密存储都接上时才有实现端。
+	if deployService != nil {
+		deps.Deployments = deployService
+	}
+	// 部署现场（P15.4）：只要 systemctl 与配置目录在就有。它是查询，不是动作——
+	// supported_queries 说有、点开却报错，比没有这条入口更糟。
+	if deployInspector != nil {
+		deps.DeployInspector = deployInspector
 	}
 	// 只在真的有时才赋给接口：把一个 nil 的 *terminal.Manager 塞进接口会得到
 	// 一个非 nil 的接口值，登记表于是多出一个调用就 panic 的能力。
@@ -805,6 +1058,41 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if terminalManager != nil {
 		deps.Terminal = terminalManager
 		terminalAPI = terminalManager
+	}
+	// 网络配置写（P14.2）：默认不接，只认显式开关。
+	//
+	// STAGES §16 把这条路绑在一条硬证据上——"在独立测试 VM 里故意配置不可达地址、断开浏览器
+	// 并停掉 Web 进程，120 秒后仍能自动恢复"。那条证据落进 docs/evidence/P14/ 之前，
+	// 写路径必须保持关闭：改错一份 netplan 能把机器从网络上摘掉，而面板本身跑在网络上，
+	// 救不回来就没有第二次机会。开关只为测试 VM 存在。
+	var netEngine *network.ApplyEngine
+	if *netWrites {
+		engine, err := agent.NewNetworkApplyEngine(res.Source)
+		if err != nil {
+			logger.Error("初始化网络写动作失败", "error", err)
+			return 1
+		}
+		netEngine = engine
+		deps.NetworkWrites = engine
+		logger.Warn("已启用网络配置写动作：仅用于测试虚拟机；回滚窗口 120 秒，未确认即恢复原配置",
+			"action_scope", "network.apply / network.confirm / network.rollback")
+	}
+	// 防火墙写（P14.3）：与网络写分开的开关，默认同样不接。
+	//
+	// 为什么也要一个开关：改规则能把自己关在门外，而面板就在门里面。这条路自带三重
+	// 保险（预检拦管理通路、改完读回来核验、120 秒独立 timer），但"要不要给它这个
+	// 权力"仍然是装机时由人决定的事，不因为验收过了就默认打开。
+	var fwEngine *network.FirewallEngine
+	if *fwWrites {
+		engine, err := agent.NewFirewallApplyEngine(res.Source)
+		if err != nil {
+			logger.Error("初始化防火墙写动作失败", "error", err)
+			return 1
+		}
+		fwEngine = engine
+		deps.FirewallWrites = engine
+		logger.Warn("已启用防火墙写动作：回滚窗口 120 秒，未确认即恢复原规则集",
+			"action_scope", "firewall.apply / firewall.confirm / firewall.rollback")
 	}
 	if err := agent.RegisterProductionQueries(registry, deps); err != nil {
 		logger.Error("登记生产查询失败", "error", err)
@@ -840,6 +1128,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		"key_fingerprint", keyring.Fingerprint(),
 	)
 
+	// 外部程序能力探测（P16.1）。它回答的是“这台机器上到底装了什么、版本是多少”，
+	// 与“某个动作能不能做”是两件事：后者仍由各子系统自己的预检判决。
+	//
+	// 缓存而不是每次现探：capabilities 是一条随时会被读的端点，让每次读都等
+	// 十几条版本命令，等于把一个便宜的事实变成昂贵的依赖。探测在 ctx 起好之后
+	// 由后台跑第一次，启动不等它。
+	hostCaps := hostcaps.NewCache(hostcaps.Deps{}, hostcaps.DefaultInterval)
+
 	srv, err := agent.New(agent.Options{
 		SocketPath:      cfg.Agent.SocketPath,
 		Version:         version.Get(),
@@ -861,6 +1157,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// P12.1：仓库定义镜像。给的是存储层本身（不是 Module）：镜像的读写与
 		// “能不能在这台机器上初始化”是两件事，后者由 deps.Backup 决定。
 		BackupRepositories: backupStore,
+		// P12.2：策略镜像。与仓库镜像同一个判断：写镜像不等于能执行。
+		BackupPolicies: policyStore,
+		// P12.4：计划与脚本的镜像读路由。给的是实现端本身：GET 要的
+		// "systemd 说它现在是什么样"只有实现端能回答。
+		Schedules: schedulesModule,
+		Scripts:   scriptsModule,
+		// P14.6：二次验证种子的生成、校验与销毁。给的是秘密存储本身——种子的明文
+		// 只在这个进程里解开，Web 拿到的永远只是 sec_ 引用与一次性的 otpauth URI。
+		Totp: secrets,
+		// P16.1：外部程序能力的探测缓存。nil 时 capabilities 会如实报“没有读数”，
+		// 而不是一个看起来像“这台机器什么都没有”的空数组。
+		HostCaps: hostCaps,
 	})
 	if err != nil {
 		logger.Error("初始化代理失败", "error", err)
@@ -873,8 +1181,30 @@ func run(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// 开机对账：上一轮如果留下一条未确认的网络改动，先按记录里的 deadline 重判一次。
+	// 必须做，因为 timer 是 OnActiveSec——机器重启后它从零开始计时，不重装就等于
+	// 把回滚窗口延长了一整个开机时长；已经过期的则立刻回滚，不等新的 120 秒。
+	if netEngine != nil {
+		if err := netEngine.Reconcile(ctx); err != nil {
+			// 对账失败不挡住代理启动：代理起来至少还能让页面显示出这条 pending 记录
+			// 和它的到期时间，让运维知道机器还悬在回滚窗口里。
+			logger.Error("网络回滚对账失败", "error", err)
+		}
+	}
+	// 防火墙这边同理，且多一层理由：ufw 的规则是"开机就在"的，一次没确认的改动
+	// 会在重启后依然是现场的规则——不在这里重判一次，那条 pending 记录就再也
+	// 没有机会自己退回去了。
+	if fwEngine != nil {
+		if err := fwEngine.Reconcile(ctx); err != nil {
+			logger.Error("防火墙回滚对账失败", "error", err)
+		}
+	}
+
 	// 采集循环：立刻采一次，之后每 5 秒一次。它们只是读 /proc 与 /sys，不该挡住监听，
 	// 所以放 goroutine；ctx 结束时一并退出。
+	// 能力探测：立刻探一次，之后每 10 分钟重探一次。装完一个包不必重启代理，
+	// 下一次刷新就能看到它出现；探不到就继续用上一份读数，不把界面清空。
+	hostCaps.Start(ctx)
 	go collector.Run(ctx)
 	go storageCollector.Run(ctx)
 	if servicesCollector != nil {
@@ -948,6 +1278,16 @@ func fileRoots(configured []config.FileRoot) []files.Root {
 		})
 	}
 	return out
+}
+
+// backupRestoreFS 把文件模块的句柄级恢复能力适配给 backup，而不暴露任意绝对路径写接口。
+type backupRestoreFS struct{ manager *files.Manager }
+
+func (r backupRestoreFS) ProbeRestore(ctx context.Context, params backup.RestoreParams) (backup.RestoreProbe, error) {
+	return r.manager.ProbeRestore(ctx, params)
+}
+func (r backupRestoreFS) BeginRestore(ctx context.Context, params backup.RestoreParams) (backup.RestoreSession, error) {
+	return r.manager.BeginRestore(ctx, params)
 }
 
 // backupRoots 把已登记的文件根给备份模块当 RootSource（P12.1）。

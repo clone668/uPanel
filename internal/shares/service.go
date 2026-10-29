@@ -78,3 +78,26 @@ func probeServiceState(ctx context.Context, runner CommandRunner) string {
 	}, syscmd.Limits{Timeout: serviceProbeTimeout})
 	return serviceStateFrom(res, err)
 }
+
+// nfsServiceUnits 是 NFS 服务端在 Ubuntu 上的两个名字。
+//
+// `nfs-kernel-server.service` 是一个 alias，真正的 unit 叫 `nfs-server.service`；
+// 两个都问是因为 alias 在 systemd 249 上直接问会打印 "inactive"，而真实状态在
+// 另一个名字上——只问一个会把“正在服务”读成“没在跑”（P14.4 真机踩到）。
+var nfsServiceUnits = []string{"nfs-server.service", "nfs-kernel-server.service"}
+
+// probeNFSServiceState 问一次 nfs-server 的运行状态。
+//
+// 判据与 smbd 不同：两个名字里**任一**是 active 就是 active。它们是同一个服务的
+// 两个名字，不是两个独立单元，所以“一个 active 一个 inactive”是别名解析的正常现象。
+func probeNFSServiceState(ctx context.Context, runner CommandRunner) string {
+	if runner == nil {
+		return ServiceStateUnknown
+	}
+	args := append([]string{"is-active"}, nfsServiceUnits...)
+	res, err := runner.Run(ctx, syscmd.Spec{
+		Program: storage.DefaultSystemctlPath,
+		Args:    args,
+	}, syscmd.Limits{Timeout: serviceProbeTimeout})
+	return serviceStateFrom(res, err)
+}

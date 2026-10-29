@@ -124,20 +124,42 @@ func ValidateDefinition(d ShareDefinition) error {
 	if err := ValidateName(d.Name); err != nil {
 		return err
 	}
-	// P08.1 只做 smb。nfs 即便只是一份结构，也不允许存进来：存进来的定义会被
-	// 渲染成 smb 段并落到目录 ACL 上，那是一条“看着像支持 NFS 其实什么都没做”的路径。
-	switch d.Protocol {
-	case ProtocolSMB:
-	case ProtocolNFS:
-		return newDefError(NoticeProtocolUnsupported, "protocol=nfs 尚未实现（P08 只做 smb）")
-	default:
-		return newDefError(NoticeProtocolUnsupported, "protocol 只能是 smb，收到 %q", d.Protocol)
-	}
+	// 两个协议的**共有**部分先校验，再分头校验各自独有的部分：
+	// 网段对两者都要合法（SMB 的 hosts allow 与 NFS 的客户端列表是同一套写法），
+	// 但“必须有点名网段”只对 NFS 成立（SMB 不填就是不限，那是它自己的语义）。
 	if d.VolumeID == "" {
 		return newDefError(NoticeVolumeNotFound, "volume_id 不能为空：共享目录必须落在一个受管理卷里")
 	}
 	if err := ValidateRelativePath(d.RelativePath); err != nil {
 		return err
+	}
+	for _, c := range d.AllowedCIDRs {
+		if err := ValidateCIDR(c); err != nil {
+			return err
+		}
+	}
+	switch d.Protocol {
+	case ProtocolSMB:
+		if err := validateSMBDefinition(d); err != nil {
+			return err
+		}
+	case ProtocolNFS:
+		if err := ValidateNFSDefinition(d); err != nil {
+			return err
+		}
+	default:
+		return newDefError(NoticeProtocolUnsupported, "protocol 只能是 smb 或 nfs，收到 %q", d.Protocol)
+	}
+	return nil
+}
+
+// validateSMBDefinition 校验 SMB 独有的部分。
+func validateSMBDefinition(d ShareDefinition) error {
+	// nfs_options 出现在 smb 定义里是调用方搞错了协议。静默忽略会让页面显示
+	// “已设置 root_squash”而实际什么都没做，所以拒绝。
+	if d.NFSOptions != nil {
+		return newDefError(NoticeNFSOptionsInvalid,
+			"smb 共享不接受 nfs_options：那几个选项只对 NFS 导出有意义")
 	}
 	// smb_users 为空会让 Samba 退化成 guest 可访问（guests ok 由 guest ok 决定，
 	// 但空 valid users 意味着没有任何人被授权——两种结果都不是我们要的）。
@@ -158,11 +180,6 @@ func ValidateDefinition(d ShareDefinition) error {
 		case AccessRead, AccessWrite:
 		default:
 			return newDefError(NoticeAccountMissing, "access 只能是 read 或 write，收到 %q", u.Access)
-		}
-	}
-	for _, c := range d.AllowedCIDRs {
-		if err := ValidateCIDR(c); err != nil {
-			return err
 		}
 	}
 	return nil

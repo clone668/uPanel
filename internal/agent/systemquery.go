@@ -87,6 +87,72 @@ type ProductionDeps struct {
 	// Options.BackupRepositories 决定，因为镜像的写入（Web 登记定义）与执行能力
 	// 是两件事——一台机器可以先接受定义，等管理员装好 restic 再允许初始化。
 	Backup backupSource
+	// BackupRun 是备份运行与快照查询的实现端（P12.2）。为 nil 时不登记
+	// backup.run / backup.snapshots / backup.snapshot：没有策略镜像、没有应用
+	// 控制端或没有面板库路径的机器上，"按策略备份"只能做到"把某个目录再备一遍"，
+	// 那是把两条完全不同的保证混成一个按钮。
+	//
+	// 与 Backup 分开是因为两者的门槛不同：初始化仓库只要有 restic 就行，
+	// 运行一条策略还要求能把策略读出来（镜像库）与能停应用（services/containers）。
+	BackupRun backupRunSource
+	// Schedules 是计划任务的实现端（P12.4）。为 nil 时不登记 schedule.apply /
+	// schedule.delete，也不提供 trigger 路由与计划镜像读路由：没有 systemd 单元
+	// 落地端的机器上，"保存一条计划"只能做到"在库里写一行没人执行的配置"，
+	// 那正是 PLAN §17 不允许的"看起来配置好了，其实什么都没发生"。
+	Schedules scheduleSource
+	// Scripts 是受管理脚本的实现端（P12.4）。为 nil 时不登记 script.*：
+	// 没有 upanel-shell 账号的机器上，"以它运行"是句空话，脚本页只能做到
+	// "存一份文件"——那不是受管理脚本，那是一段任意文本。
+	Scripts scriptSource
+	// Network 是网络与防火墙的只读采集端（P14.1）。为 nil 时不登记
+	// network.interfaces / network.routes / network.listeners / firewall.state：
+	// 没有 /proc 与 ip 的接线时，一份"空网卡列表"会被读成"这台机器没有网卡"，
+	// 一份"空规则表"会被读成"防火墙没有任何规则"——两种假话都比 503 糟。
+	Network NetworkSource
+	// NetworkWrites 是网络写路径（P14.2）。为 nil 时不登记 network.apply /
+	// network.confirm / network.rollback 与 network.config：没有 netplan 与
+	// systemctl 的接线时，"改地址"只能做到"写一份没人读的 YAML"，而"改完之后
+	// 120 秒不回来自动退回"根本不存在——那句话会变成一句做不到的承诺。
+	//
+	// 它与 Network 分开，而且**默认不接**：STAGES §16 要求先在独立测试 VM 上真实
+	// 验证"改成不可达地址 → 停掉 Web → 120 秒自动恢复"，验证通过之前写路径必须
+	// 保持关闭。这不是"以后再说"，是这条能力的验收条件本身。
+	//
+	// 2026-10-26：那条验证已经做完了（docs/evidence/P14/2026-10-26-p14.2/，
+	// PASS 186 / FAIL 0，地址在 deadline+28s 由 systemd timer 退回来）。验收条件
+	// 解除，但默认值仍是"不接"——理由换了一条：改网卡是会把机器从网络上摘掉的操作，
+	// 要不要给它这个权力是装机时由人决定的（P16.1 的服务单元与 P16.4 的手册），
+	// 不该由一次验收顺手替所有既有部署决定。见 Q458。
+	NetworkWrites NetworkApplySource
+	// FirewallWrites 是防火墙写路径（P14.3）。为 nil 时不登记 firewall.apply /
+	// firewall.confirm / firewall.rollback 与 firewall.config。
+	//
+	// 与 NetworkWrites 分开的**两个开关**，不是两个名字同一个开关：改网卡与改防火墙
+	// 都能把人关在门外，但它们能出错的方式不一样（一个改地址、一个改规则），有没有
+	// 给它这个权力，应当能分别决定。默认同样不接。
+	FirewallWrites FirewallApplySource
+	// Accounts 是受管理 Linux 账号、SSH 公钥与受限 sudo 的实现端（P14.5）。
+	// 为 nil 时不登记 accounts.ssh_keys 查询，也不登记六个账号动作。
+	//
+	// 与 Shares 分开声明，理由和它当初分开的理由一致：账号的判决与执行虽然复用
+	// shares 的形状（同一张 managed_accounts、同一套读回核验），但它要的是
+	// useradd/usermod/userdel/chpasswd/visudo/sudo 这一整套系统工具与 sudoers 目录，
+	// 而共享只要有 Samba。一台只装了 Samba 的机器不该被登记成"能建账号"——
+	// 那样的入口点下去只会得到一条 503，而人会以为是自己填错了。
+	Accounts accountsSource
+	// Deployments 是 Compose 部署的实现端（P15.2）。为 nil 时不登记
+	// deployment.apply / deployment.remove：没有 systemctl、没有 docker、没有
+	// 受管理卷表的机器上，"部署一套 Compose 应用"只能做到"写两个文件然后祈祷"，
+	// 而单元起不来时面板会显示成别的原因。
+	Deployments DeploySource
+	// DeployInspector 是部署现场的读取端（P15.4）。为 nil 时不登记
+	// deployments.list / deployments.get。
+	//
+	// 与 Deployments 分开一个字段，是因为**能读出现场**与**能执行动作**是两件事：
+	// 一台有 systemd、有配置目录、但 docker 暂时不在的机器，仍然说得清"这台机器上
+	// 部署过什么、它们现在什么状态"，而那正是排障时最想知道的。绑成一个开关，
+	// 那种机器上部署页就只剩一条 404，人只能去 SSH 里翻文件。
+	DeployInspector DeployInspector
 }
 
 // newSystemSummaryQuery 登记 system.summary：无参数，返回采集器最近一次快照。

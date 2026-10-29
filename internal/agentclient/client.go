@@ -18,6 +18,8 @@ import (
 	"net/http"
 	"path"
 	"time"
+
+	"upanel/internal/hostcaps"
 )
 
 // DefaultTimeout 是单次调用的整体超时。
@@ -446,6 +448,11 @@ type Capabilities struct {
 	StartedAt        string   `json:"started_at"`
 	SupportedActions []string `json:"supported_actions"`
 	SupportedQueries []string `json:"supported_queries"`
+	// HostCaps 是这台机器上外部程序的探测结果（P16.1）。
+	//
+	// nil 表示**代理还没探完**，不是“没有依赖”。这两件事在界面上必须分开：
+	// 前者说“等一会再看”，后者说“去装东西”。混成一个空数组，人就只能猜。
+	HostCaps *hostcaps.Report `json:"host_caps"`
 }
 
 // Error 是代理返回的业务拒绝（带契约错误码）。

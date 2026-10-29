@@ -579,7 +579,30 @@ func (s *Service) syncFromAgent(ctx context.Context, jobID string, op agentclien
 		if err != nil {
 			return fmt.Errorf("operations: 读取更新结果失败: %w", err)
 		}
-		if n == 0 || (oldStatus == status && oldStep == op.Step) {
+		if n == 0 {
+			// 任务已经是终态，上面的条件更新按设计不改它（终态不可回退）。
+			//
+			// 但 needs_sync 问的是另一件事："Web 有没有成功把这条操作抄回来过"。导入
+			// 路径落下的任务经常**导入时就已经跑完**——定时触发两秒结束，对账三十秒
+			// 后才把它导进任务表——这样的行会永远停在 needs_sync=1：终态的 WHERE 把
+			// 那一列也挡住了，下一轮扫描又因为它"待对账"再问一遍代理，一圈一圈没有
+			// 尽头（P12.4 真机现场：导入的任务过了几个小时还是 needs_sync=1，任务中心
+			// 那一栏一直说"还没跟代理核对过"）。
+			//
+			// 已经读到代理的视图，就是核对过了。所以这里单独把标记收掉，只动这一列：
+			// 状态仍是终态，代理后来怎么说都不改写它；两者不一致时留一行日志，否则这
+			// 种分歧就只有库里能看出来。
+			if _, err := tx.ExecContext(ctx,
+				`UPDATE jobs SET needs_sync = 0 WHERE id = ? AND needs_sync = 1`, jobID); err != nil {
+				return fmt.Errorf("operations: 清除任务待对账标记失败: %w", err)
+			}
+			if isTerminalStatus(oldStatus) && statusForStage(op.Stage) != oldStatus {
+				s.logger.Warn("代理的阶段与任务终态不一致，保留任务记录",
+					"job_id", jobID, "job_status", oldStatus, "agent_stage", op.Stage, "operation_id", op.OperationID)
+			}
+			return nil
+		}
+		if oldStatus == status && oldStep == op.Step {
 			return nil
 		}
 		// 只有“从非终态 → 终态”这一次算完成；之后无论对账再看多少遍都不算。

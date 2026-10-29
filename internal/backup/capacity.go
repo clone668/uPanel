@@ -19,10 +19,14 @@ import (
 
 // DefaultDialTimeout 是 SFTP 连接与握手的默认上限。
 //
-// 15 秒是 ssh 自己的 ConnectTimeout 常用值：短于它会把一台略慢的机器判成不可达，
-// 长于它会让一次预检把 Web 的 10 秒调用上限耗光（预检本身有 PlanBudget 兜底，
-// 这里只是不让一条死连接把时间花光）。
-const DefaultDialTimeout = 15 * time.Second
+// 15 秒在真机上够用，但不够覆盖“机器慢但活着”的那一档：P12.3 的 24.04 验收机是
+// 单线程 TCG 虚机，OpenSSH 客户端一次握手 + statvfs 实测 11.7 秒；Go 侧还要按指纹
+// 逐个试主机密钥算法，单次握手经常贴着 15 秒。2026-10-25 的验收里连续两条
+// `Connection closed ... [preauth]` 正好各吃掉 15 秒，随后第三条 11 秒才认证成功，
+// 45 秒的预检预算已经见底——一个**连得上**的仓库被报成 `BACKUP_SFTP_UNREACHABLE`。
+// 30 秒给慢机器留出余量，同时仍让死连接在预检自己的 75 秒预算内收手（Web 侧
+// PreflightAgentTimeout 是 90 秒，先说话的是代理）。
+const DefaultDialTimeout = 30 * time.Second
 
 // Capacity 是一次容量读数。
 type Capacity struct {

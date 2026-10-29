@@ -448,8 +448,14 @@ func TestOperationForeignPreflightForbidden(t *testing.T) {
 
 func TestOperationExpiredPreflightRejected(t *testing.T) {
 	srv, _, plans := newOperationServer(t, nil)
+	// 余量给的是**一分钟**而不是一秒：这个夹具是在 Get 里按"读的那一刻"改写过期时间的，
+	// 而产品侧 now 是在**读库之前**采样的（operations.go:171 采样、:175 读库）。两者之间
+	// 只要被抢占的时间超过夹具的余量，夹具想造的"已过期"就会翻成"还没到期"，用例于是
+	// 变成在测调度而不是在测判定。1 秒的余量在慢机器上会翻（判据实验：给 Get 人为插 1.5 秒
+	// 延迟，1 秒余量红成 201、60 秒余量绿），一分钟的余量不会。
+	// 断言本身一个字没动：仍然是 409 PREFLIGHT_EXPIRED。证据 docs/evidence/P16/2026-10-28-race §6.8。
 	store := &mutatingPlanStore{inner: plans, mutate: func(p *agentstore.PreflightPlan) {
-		p.ExpiresAt = time.Now().UTC().Add(-time.Second)
+		p.ExpiresAt = time.Now().UTC().Add(-time.Minute)
 	}}
 	srv.opts.Plans = store
 	plan := mustPreflight(t, srv, "acceptance.ping", `{"note":"expired"}`)

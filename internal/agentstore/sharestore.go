@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"strings"
 
+	"upanel/internal/accounts"
 	"upanel/internal/shares"
 )
 
@@ -45,7 +46,8 @@ const sharesColumns = `id, name, protocol, volume_id, relative_path, enabled, re
 	last_operation_id, created_at, updated_at, runtime_revoked_json`
 
 const accountsColumns = `id, name, type, managed, disabled, has_password, uid, gid,
-	shell, home, secret_ref, version, last_operation_id, created_at, updated_at`
+	shell, home, display_name, shell_profile, secret_ref, version, last_operation_id,
+	created_at, updated_at`
 
 // ListShares 返回全部共享（顺序由调用方排序）。
 func (s *ShareStore) ListShares(ctx context.Context) ([]shares.ShareRecord, error) {
@@ -219,14 +221,20 @@ func oneAccount(row rowScanner) (shares.AccountRecord, bool, error) {
 
 // SaveAccount 新建或覆盖一条受管理账号。
 func (s *ShareStore) SaveAccount(ctx context.Context, rec shares.AccountRecord) error {
+	// 空串按 disabled 落库：P14.5 迁移之前的行、以及共享那一半（P08.1）从来不填这一列，
+	// 而表上的 CHECK 只认 disabled/restricted 两个值。
+	if rec.ShellProfile == "" {
+		rec.ShellProfile = string(accounts.ProfileDisabled)
+	}
 	if err := validateAccountRecord(rec); err != nil {
 		return err
 	}
 	_, err := s.db.store().ExecContext(ctx, `
 		INSERT INTO managed_accounts (
 			id, name, type, managed, disabled, has_password, uid, gid,
-			shell, home, secret_ref, version, last_operation_id, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			shell, home, display_name, shell_profile, secret_ref, version,
+			last_operation_id, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			name              = excluded.name,
 			type              = excluded.type,
@@ -237,12 +245,15 @@ func (s *ShareStore) SaveAccount(ctx context.Context, rec shares.AccountRecord) 
 			gid               = excluded.gid,
 			shell             = excluded.shell,
 			home              = excluded.home,
+			display_name      = excluded.display_name,
+			shell_profile     = excluded.shell_profile,
 			secret_ref        = excluded.secret_ref,
 			version           = excluded.version,
 			last_operation_id = excluded.last_operation_id,
 			updated_at        = excluded.updated_at`,
 		rec.ID, rec.Name, rec.Type, boolInt(rec.Managed), boolInt(rec.Disabled),
-		boolInt(rec.HasPassword), rec.UID, rec.GID, rec.Shell, rec.Home, rec.SecretRef,
+		boolInt(rec.HasPassword), rec.UID, rec.GID, rec.Shell, rec.Home,
+		rec.DisplayName, rec.ShellProfile, rec.SecretRef,
 		rec.Version, rec.LastOperationID, millis(rec.CreatedAt), millis(rec.UpdatedAt))
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -326,8 +337,8 @@ func scanAccount(r rowScanner) (shares.AccountRecord, error) {
 		createdAt, updatedAt  int64
 	)
 	err := r.Scan(&rec.ID, &rec.Name, &rec.Type, &managed, &disabled, &hp,
-		&rec.UID, &rec.GID, &rec.Shell, &rec.Home, &rec.SecretRef, &rec.Version,
-		&rec.LastOperationID, &createdAt, &updatedAt)
+		&rec.UID, &rec.GID, &rec.Shell, &rec.Home, &rec.DisplayName, &rec.ShellProfile,
+		&rec.SecretRef, &rec.Version, &rec.LastOperationID, &createdAt, &updatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return shares.AccountRecord{}, err
@@ -353,8 +364,20 @@ func validateShareRecord(rec shares.ShareRecord) error {
 	if err := shares.ValidateName(rec.Definition.Name); err != nil {
 		return fmt.Errorf("%w: %v", ErrResourceInvalid, err)
 	}
-	if rec.Definition.Protocol != shares.ProtocolSMB {
-		return fmt.Errorf("%w: 协议 %q 在 P08.1 不受支持（只有 smb）",
+	switch rec.Definition.Protocol {
+	case shares.ProtocolSMB:
+		if len(rec.Definition.SMBUsers) == 0 {
+			return fmt.Errorf("%w: 共享 %s 的 smb_users 为空（空名单会退化成 guest，必须硬拒）",
+				ErrResourceInvalid, rec.ID)
+		}
+	case shares.ProtocolNFS:
+		// NFS 的访问控制走网段与 root_squash，没有账号名单这一层；
+		// 选项校验与网段校验交给同一个函数，避免两处各写一套而慢慢分叉。
+		if err := shares.ValidateNFSDefinition(rec.Definition); err != nil {
+			return fmt.Errorf("%w: %v", ErrResourceInvalid, err)
+		}
+	default:
+		return fmt.Errorf("%w: 协议 %q 不受支持（只有 smb 与 nfs）",
 			ErrResourceInvalid, rec.Definition.Protocol)
 	}
 	if rec.Definition.VolumeID == "" {
@@ -362,10 +385,6 @@ func validateShareRecord(rec shares.ShareRecord) error {
 	}
 	if err := shares.ValidateRelativePath(rec.Definition.RelativePath); err != nil {
 		return fmt.Errorf("%w: %v", ErrResourceInvalid, err)
-	}
-	if len(rec.Definition.SMBUsers) == 0 {
-		return fmt.Errorf("%w: 共享 %s 的 smb_users 为空（空名单会退化成 guest，必须硬拒）",
-			ErrResourceInvalid, rec.ID)
 	}
 	if rec.Version == "" {
 		return fmt.Errorf("%w: version 不能为空", ErrResourceInvalid)
@@ -394,6 +413,17 @@ func validateAccountRecord(rec shares.AccountRecord) error {
 	}
 	if rec.UID <= 0 {
 		return fmt.Errorf("%w: 账号 %s 的 uid 必须为正，收到 %d", ErrResourceInvalid, rec.ID, rec.UID)
+	}
+	switch rec.ShellProfile {
+	case "", string(accounts.ProfileDisabled), string(accounts.ProfileRestricted):
+	default:
+		return fmt.Errorf("%w: 账号 %s 的 shell_profile %q 不在 disabled/restricted 内",
+			ErrResourceInvalid, rec.ID, rec.ShellProfile)
+	}
+	// 共享账号只可能是 disabled：它连登录壳都没有，restricted 对它没有意义。
+	// 数据库上也有这条 CHECK，这里先说一句人话。
+	if rec.Type == shares.AccountTypeShare && rec.ShellProfile == string(accounts.ProfileRestricted) {
+		return fmt.Errorf("%w: 账号 %s 是共享账号，shell_profile 只能是 disabled", ErrResourceInvalid, rec.ID)
 	}
 	if rec.Version == "" {
 		return fmt.Errorf("%w: version 不能为空", ErrResourceInvalid)

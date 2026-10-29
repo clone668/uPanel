@@ -6,6 +6,8 @@
 //	upanelctl check-config     校验配置文件并打印生效值
 //	upanelctl migrate          执行显式 SQL 迁移（幂等，只前滚）
 //	upanelctl init-admin       创建第一个管理员（仅本机、无默认密码）
+//	upanelctl totp-reset       清掉一个账号的二次验证（丢了 authenticator 与恢复码时的本机恢复）
+//	upanelctl schedule-trigger 按计划触发一次（systemd 定时单元专用）
 //
 // 恢复流程等子命令在对应阶段加入；未实现的子命令不会以“成功”返回，而是明确报告未实现。
 package main
@@ -37,9 +39,7 @@ const exitUsage = 2
 const exitNotImplemented = 3
 
 // 已规划但尚未实现的子命令：显式列出以便给出明确提示，而不是“未知命令”。
-var plannedCommands = map[string]string{
-	"scheduler": "P12（定时任务触发，仅 root 使用专用入口）",
-}
+var plannedCommands = map[string]string{}
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -61,6 +61,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdInitAdmin(args[1:], stdout, stderr)
 	case "reset-password":
 		return cmdResetPassword(args[1:], stdout, stderr)
+	case "totp-reset":
+		return cmdTotpReset(args[1:], stdout, stderr)
+	case "schedule-trigger":
+		return cmdScheduleTrigger(args[1:], stdout, stderr)
+	case "host-caps":
+		return cmdHostCaps(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return 0
@@ -86,9 +92,12 @@ func usage(w io.Writer) {
   migrate                 执行数据库迁移（--config PATH、--db PATH、--json）
   init-admin              创建第一个管理员（--config PATH、--db PATH、--username、--display-name、--json）
   reset-password          重置已有账号的口令（本机恢复入口；--config PATH、--db PATH、--username、--json）
+  totp-reset              清掉已有账号的二次验证（本机恢复入口；--config PATH、--db PATH、--username、
+                          --socket、--no-agent、--json）
+  schedule-trigger        按计划触发一次（systemd 定时单元专用；--schedule-id、--socket、--json）
+  host-caps               探测这台机器装了哪些外部程序与版本（--json、--timeout；缺席不是失败）
   help                    显示本帮助
 
-已规划但未实现: scheduler
 （未实现的子命令返回退出码 %d，不会伪装成功）
 `, program, program, exitNotImplemented)
 }
@@ -198,6 +207,7 @@ func cmdCheckConfig(args []string, stdout, stderr io.Writer) int {
 		LogFormat:             res.Config.Log.Format,
 		DatabasePath:          res.Config.Database.Path,
 		DatabaseBusyTimeoutMS: res.Config.Database.BusyTimeoutMilliseconds,
+		AgentDatabasePath:     res.Config.Agent.DatabasePath,
 		Platform:              platform.Current(),
 	}
 	if platformErr != nil {
@@ -249,19 +259,23 @@ func cmdCheckConfig(args []string, stdout, stderr io.Writer) int {
 
 // checkReport 是 check-config 的输出结构。
 type checkReport struct {
-	ConfigSource          string        `json:"config_source"`
-	Mode                  string        `json:"mode"`
-	WebListen             string        `json:"web_listen"`
-	WebLoopbackOnly       bool          `json:"web_loopback_only"`
-	WebTLS                *tlsReport    `json:"web_tls,omitempty"`
-	AllowedOrigins        []string      `json:"allowed_origins"`
-	AgentSocket           string        `json:"agent_socket"`
-	LogLevel              string        `json:"log_level"`
-	LogFormat             string        `json:"log_format"`
-	DatabasePath          string        `json:"database_path"`
-	DatabaseBusyTimeoutMS int           `json:"database_busy_timeout_ms"`
-	Platform              platform.Info `json:"platform"`
-	PlatformError         string        `json:"platform_error,omitempty"`
+	ConfigSource          string     `json:"config_source"`
+	Mode                  string     `json:"mode"`
+	WebListen             string     `json:"web_listen"`
+	WebLoopbackOnly       bool       `json:"web_loopback_only"`
+	WebTLS                *tlsReport `json:"web_tls,omitempty"`
+	AllowedOrigins        []string   `json:"allowed_origins"`
+	AgentSocket           string     `json:"agent_socket"`
+	LogLevel              string     `json:"log_level"`
+	LogFormat             string     `json:"log_format"`
+	DatabasePath          string     `json:"database_path"`
+	DatabaseBusyTimeoutMS int        `json:"database_busy_timeout_ms"`
+	// AgentDatabasePath 是代理库的生效路径（agent.database_path）。
+	// 备份脚本靠它决定拷哪个文件，而不是把 /var/lib/upanel-agent 写死在脚本里：
+	// 配置里挪过库的位置，备份就得跟着挪。
+	AgentDatabasePath string        `json:"agent_database_path"`
+	Platform          platform.Info `json:"platform"`
+	PlatformError     string        `json:"platform_error,omitempty"`
 }
 
 // tlsReport 是 check-config 里面板 HTTPS 的那一段。

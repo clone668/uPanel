@@ -215,8 +215,9 @@ func (q *Querier) Query(ctx context.Context, params Params) (Page, error) {
 
 // queryArgs 按固定顺序构造 journalctl 参数。
 //
-// 唯一的可变部分是归一化后的值：unit 已经过形状校验，时间是我们自己格式化出来的
-// RFC3339，游标过了字符集检查，limit 是整数。没有一处来自“调用方给的字符串片段”。
+// 唯一的可变部分是归一化后的值：unit 已经过形状校验，时间由 journalTimestamp
+// 按 journalctl 认得的形状写出来，游标过了字符集检查，limit 是整数。
+// 没有一处来自“调用方给的字符串片段”。
 func queryArgs(n Normalized) []string {
 	args := []string{
 		"--output=json",
@@ -246,10 +247,29 @@ func queryArgs(n Normalized) []string {
 		return args
 	}
 	args = append(args,
-		"--since="+n.From.Format(time.RFC3339Nano),
-		"--until="+n.To.Format(time.RFC3339Nano),
+		"--since="+journalTimestamp(n.From),
+		"--until="+journalTimestamp(n.To),
 	)
 	return args
+}
+
+// journalTimestamp 把时间写成 journalctl 认得的形式。
+//
+// 为什么不是 RFC3339：`2026-10-27T13:29:43.1270959Z` 在 Ubuntu 22.04 的
+// journalctl（systemd 249）上直接 exit 1 —— “Failed to parse timestamp”。
+// 249 的时间解析器只认空格分隔的 `2026-10-27 13:29:43`，ISO8601 的 `T` 分隔符
+// 要等到 systemd 251 才被接受；用 RFC3339 写参数的代价是**22.04 上每一条 /logs
+// 查询都 400**，而 24.04（systemd 255）上一切正常——两边的通过与否只取决于
+// 客户机版本，这种差异最容易在只测了一个版本时被漏掉（P16.2 在 22.04 上抓到）。
+//
+// 三处细节都是有意的：
+//   - 用空格分隔的 `YYYY-MM-DD HH:MM:SS`：249 与 255 都认；
+//   - 固定 6 位小数：systemd 的分数秒是微秒精度，Go 的纳秒（RFC3339Nano 会给到
+//     9 位）在 249 上同样解析失败；
+//   - 显式 ` UTC` 后缀：不带时区时 journalctl 按**客户机本地时区**解释，
+//     同一串时间在非 UTC 的机器上会整体偏移，窗口就悄悄变了。
+func journalTimestamp(t time.Time) string {
+	return t.UTC().Format("2006-01-02 15:04:05.000000") + " UTC"
 }
 
 // parseLines 解析 journalctl 的多行 JSON 输出。

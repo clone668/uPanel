@@ -289,3 +289,130 @@ func TestWithTxQueuesBehindAnotherWriter(t *testing.T) {
 		t.Fatalf("行数 = %d，期望 2（两个事务都必须提交）", count)
 	}
 }
+
+// openShortBusy 打开一个 busy_timeout 很短的临时库，用来把"排队超时"变成秒级的用例。
+func openShortBusy(t *testing.T, busy time.Duration) *DB {
+	t.Helper()
+	dir := t.TempDir()
+	db, err := Open(context.Background(), Options{
+		Path:        filepath.Join(dir, "upanel.db"),
+		Logger:      testLogger(),
+		BusyTimeout: busy,
+	})
+	if err != nil {
+		t.Fatalf("Open 失败: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
+// holdWriteLock 起一个持写锁的 goroutine，返回"已经拿到锁"与"可以放开"两个信号。
+func holdWriteLock(t *testing.T, db *DB, ctx context.Context, table string) (held <-chan struct{}, release chan<- struct{}, errc <-chan error) {
+	t.Helper()
+	eq := make(chan struct{})
+	rel := make(chan struct{})
+	ec := make(chan error, 1)
+	go func() {
+		tx, err := db.SQL().BeginTx(ctx, nil)
+		if err != nil {
+			ec <- err
+			close(eq)
+			return
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO `+table+` (name) VALUES ('held')`); err != nil {
+			_ = tx.Rollback()
+			ec <- err
+			close(eq)
+			return
+		}
+		close(eq)
+		<-rel
+		ec <- tx.Commit()
+	}()
+	return eq, rel, ec
+}
+
+// TestBeginRetriesWhenBusyTimeoutExpires 是 P12.4 真机现场的回归用例。
+//
+// 症状（24.04 VM，两块 vCPU）：验收脚本跑重活时 Web 的导入与对账拿到
+// `store: 开始事务失败: database is locked (5) (SQLITE_BUSY)`。busy_timeout 是 5 秒，
+// 所以不是死锁，是**等待被前面几个写者摊薄**：restic、两次 Argon2id 校验、systemd-analyze
+// 同时压在两块 vCPU 上，一次 BEGIN 等满 5 秒也轮不到。代价是一条正常的导入变成错误、
+// 那一轮对账白跑；用户侧则是登录这种最普通的写操作报 500。
+//
+// 用例把 busy_timeout 压到 150ms、让"前面那个写者"持锁 400ms：只靠 busy_timeout
+// 必失败，靠 beginImmediate 的重试要成功。
+func TestBeginRetriesWhenBusyTimeoutExpires(t *testing.T) {
+	db := openShortBusy(t, 150*time.Millisecond)
+	ctx := context.Background()
+	if _, err := db.SQL().ExecContext(ctx, `CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL)`); err != nil {
+		t.Fatalf("建表失败: %v", err)
+	}
+
+	held, release, holdErr := holdWriteLock(t, db, ctx, "t")
+	<-held
+
+	done := make(chan error, 1)
+	go func() {
+		done <- db.WithTx(ctx, func(ctx context.Context, tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, `INSERT INTO t (name) VALUES ('later')`)
+			return err
+		})
+	}()
+
+	// 等过 busy_timeout：第一次尝试必然已经超时，重试发生在持锁方放开之后。
+	time.Sleep(400 * time.Millisecond)
+	close(release)
+
+	if err := <-done; err != nil {
+		t.Fatalf("取写锁被挤掉后应当重试成功，实际: %v", err)
+	}
+	if err := <-holdErr; err != nil {
+		t.Fatalf("持锁方提交失败: %v", err)
+	}
+	var count int
+	if err := db.SQL().QueryRowContext(ctx, `SELECT COUNT(*) FROM t`).Scan(&count); err != nil {
+		t.Fatalf("统计失败: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("行数 = %d，期望 2（重试成功的那一笔必须真的落库）", count)
+	}
+}
+
+// TestBeginSurfacesBusyAfterRetries 说明重试不是吞错：锁一直不放，错误必须浮上来。
+//
+// "排队"和"这台机器撑不住"是两件事：前者重试，后者报错。把后者也重试到成功，
+// 就等于用更长的超时掩盖故障——那正是 P12.4 验收里不允许的"缩减条件"。
+func TestBeginSurfacesBusyAfterRetries(t *testing.T) {
+	db := openShortBusy(t, 120*time.Millisecond)
+	ctx := context.Background()
+	if _, err := db.SQL().ExecContext(ctx, `CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL)`); err != nil {
+		t.Fatalf("建表失败: %v", err)
+	}
+
+	held, release, holdDone := holdWriteLock(t, db, ctx, "t")
+	<-held
+
+	err := db.WithTx(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		_, execErr := tx.ExecContext(ctx, `INSERT INTO t (name) VALUES ('never')`)
+		return execErr
+	})
+	close(release)
+	if hErr := <-holdDone; hErr != nil {
+		t.Fatalf("持锁方失败: %v", hErr)
+	}
+
+	if err == nil {
+		t.Fatal("锁一直不放时 WithTx 必须报错，不能等到成功为止")
+	}
+	if !isBusyError(errors.Unwrap(err)) && !isBusyError(err) {
+		t.Fatalf("错误应当是 SQLITE_BUSY/SQLITE_LOCKED（可重试那一类），实际: %v", err)
+	}
+	var count int
+	if err := db.SQL().QueryRowContext(ctx, `SELECT COUNT(*) FROM t WHERE name = 'never'`).Scan(&count); err != nil {
+		t.Fatalf("统计失败: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("失败的事务写进去了 %d 行", count)
+	}
+}

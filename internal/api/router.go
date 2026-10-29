@@ -61,6 +61,17 @@ func (s *Server) routes() *gin.Engine {
 		authGroup.POST("/reauth", s.auditRoute(audit.ActionAuthReauth),
 			s.requireSession(), s.requireAdmin(), s.requireCSRF(), s.handleReauth)
 
+		// 二次验证（P14.6）：CONTRACTS.md 第 2 节的 /auth/totp/*。
+		//
+		// 整组 admin（viewer 没有意义：二次验证保护的是管理权限），并且每一个写入口
+		// 都要 admin + 再认证 + CSRF——"给你的账号挂一把新锁"和"把锁拆了"都是危险操作。
+		// 组级动作名是 auth.totp.manage：被中间件拒绝时只能记到这一层。
+		totpGroup := v1.Group("/auth/totp", s.auditRoute(audit.ActionTotpManage))
+		totpGroup.Use(s.requireSession(), s.requireAdmin())
+		totpGroup.POST("/setup", s.requireCSRF(), s.requireReauth(), s.handleTotpSetup)
+		totpGroup.POST("/confirm", s.requireCSRF(), s.requireReauth(), s.handleTotpConfirm)
+		totpGroup.DELETE("", s.requireCSRF(), s.requireReauth(), s.handleTotpDisable)
+
 		// 账号管理（P02.2）：整组 admin；改动类操作额外要求 5 分钟内的再认证。
 		users := v1.Group("/users", s.auditRoute(audit.ActionUserManage))
 		users.Use(s.requireSession(), s.requireAdmin())
@@ -75,9 +86,106 @@ func (s *Server) routes() *gin.Engine {
 		system := v1.Group("/system")
 		system.Use(s.requireSession())
 		system.GET("/summary", s.handleSystemSummary)
+		// 历史监控（P13.1）：权限 V。查询只读面板自己的样本库，不经过代理；
+		// 状态接口回答“采集循环在不在跑、最后一条数据是什么时候”，
+		// 与查询分开是因为它的行数统计是全表 COUNT(*)。
+		system.GET("/metrics", s.handleMetrics)
+		system.GET("/metrics/status", s.handleMetricsStatus)
 		// 重启标志（P11.1）：admin。它是一句"这台机器需要重启"，属于主机运维信息；
 		// 数据来自包自己写的文件，不是从"装了内核"推出来的。
 		system.GET("/power-state", s.requireAdmin(), s.handlePowerState)
+		// 外部程序能力（P16.1）：admin。这份清单列的是这台机器装了哪些外部程序、
+		// 什么版本、在哪——合起来就是主机指纹；viewer 用不到，泄露出去只对
+		// 打算找漏洞的人有用。与容器清单、部署定义同一个判断。
+		system.GET("/capabilities", s.requireAdmin(), s.handleSystemCapabilities)
+
+		// 网络与防火墙现状（P14.1）：整组 admin（CONTRACTS.md 第 14.1 节）。
+		//
+		// 为什么不是 V：网卡、地址、路由、监听端口与防火墙规则合起来就是"这台机器上
+		// 开了什么入口、通向哪里"，与容器清单同级的侦察材料。viewer 不需要知道
+		// 面板所在机器的内网拓扑。
+		//
+		// 这一组**一个字节都不改**：改地址是 network.apply（P14.2）、改规则是
+		// firewall.apply（P14.3），都走预检 → 任务。因此这里只有 GET，没有
+		// "直接 netplan apply"或"直接 ufw allow"的入口——那会绕过确认、回滚与审计。
+		//
+		// 两个组分开登记，因为审计动作不同（中间件拒绝发生在 handler 之前，
+		// 只有组级别能带上正确的动作名）。
+		netGroup := v1.Group("/network", s.auditRoute(audit.ActionNetworkManage))
+		netGroup.Use(s.requireSession(), s.requireAdmin())
+		netGroup.GET("/interfaces", s.handleListNetworkInterfaces)
+		netGroup.GET("/routes", s.handleListNetworkRoutes)
+		netGroup.GET("/listeners", s.handleListNetworkListeners)
+		// P14.2 的第五条，仍然是只读：它给的是"要改的话该带什么"（config_hash）
+		// 与"有没有一条还没确认的回滚"。改本身走预检 → 任务。
+		netGroup.GET("/config", s.handleGetNetworkConfig)
+
+		fwGroup := v1.Group("/firewall", s.auditRoute(audit.ActionFirewallManage))
+		fwGroup.Use(s.requireSession(), s.requireAdmin())
+		fwGroup.GET("", s.handleGetFirewall)
+		// P14.3 的第二条，仍然只读：它给的是"要改的话该带什么"（config_hash）、
+		// 面板管理的规则集，以及有没有一条还没确认的回滚。改本身走预检 → 任务。
+		fwGroup.GET("/config", s.handleGetFirewallConfig)
+
+		// 告警（P13.2）：读 V、写 admin + CSRF。
+		//
+		// 为什么读开给 viewer：告警列表是“这台机器现在有没有事”的一部分，与
+		// /system/summary 同级；而改规则会改变“出事时会不会有人知道”，只有 admin。
+		//
+		// 事件与规则同组：被中间件拒绝时（viewer 越权、会话失效）动作名都归到
+		// alert.rule.manage —— 拒绝发生在 handler 之前，只有路由组知道这是哪一域。
+		// 静默单独一组：它影响的是“要不要吵醒人”，与规则不是同一件事。
+		alertRules := v1.Group("/alerts", s.auditRoute(audit.ActionAlertRuleManage))
+		alertRules.Use(s.requireSession())
+		alertRules.GET("/rules", s.handleListAlertRules)
+		alertRules.GET("/events", s.handleListAlertEvents)
+		alertRules.POST("/rules", s.requireAdmin(), s.requireCSRF(), s.handleCreateAlertRule)
+		alertRules.PATCH("/rules/:id", s.requireAdmin(), s.requireCSRF(), s.handleUpdateAlertRule)
+		alertRules.DELETE("/rules/:id", s.requireAdmin(), s.requireCSRF(), s.handleDeleteAlertRule)
+
+		alertSilence := v1.Group("/alerts", s.auditRoute(audit.ActionAlertSilenceManage))
+		alertSilence.Use(s.requireSession())
+		alertSilence.GET("/silence", s.handleGetAlertSilence)
+		alertSilence.PUT("/silence", s.requireAdmin(), s.requireCSRF(), s.handlePutAlertSilence)
+
+		// 事件确认（P13.4）：admin + CSRF。
+		//
+		// 单独一组而不是挂进 alertRules：确认不是"管理规则"，被中间件拒绝时
+		// 审计里该写的是 alert.event.ack —— 一条 denied 记录说不清是哪种动作，
+		// 事后就只能靠猜。这组只有这一条路由，所以没有 ".manage" 的兜底动作名。
+		alertEventAck := v1.Group("/alerts", s.auditRoute(audit.ActionAlertEventAck))
+		alertEventAck.Use(s.requireSession())
+		alertEventAck.POST("/events/:id/ack", s.requireAdmin(), s.requireCSRF(), s.handleAckAlertEvent)
+
+		// 通知通道（P13.3）：全部 admin + CSRF，**读也不例外**。
+		//
+		// 与 /alerts 的读开给 viewer 不同：通道列表里带着 webhook 地址与收件邮箱，
+		// 那是“告警会发到谁的邮箱”的答案。viewer 看得到规则已经足够判断这台机器
+		// 有没有人管，不必知道外部投递的落点。
+		//
+		// 测试发送是独立的一条 POST：它是“现在就往外发一条”的显式操作，
+		// 保存配置绝不会顺手触发它（CONTRACTS §13）。
+		notifyChannels := v1.Group("/notification-channels",
+			s.auditRoute(audit.ActionNotificationChannelManage))
+		notifyChannels.Use(s.requireSession(), s.requireAdmin())
+		notifyChannels.GET("", s.handleListNotificationChannels)
+		notifyChannels.POST("", s.requireCSRF(), s.handleCreateNotificationChannel)
+		notifyChannels.PATCH("/:id", s.requireCSRF(), s.handleUpdateNotificationChannel)
+		notifyChannels.DELETE("/:id", s.requireCSRF(), s.handleDeleteNotificationChannel)
+		notifyChannels.POST("/:id/test", s.requireCSRF(), s.handleTestNotificationChannel)
+
+		// 投递账 / 面板收件箱（P13.4）：admin，只读。
+		//
+		// 它是**独立的一条路径**而不是 /notification-channels/:id/deliveries：
+		// 投递账跨越所有通道（一次告警会往每条启用通道各下一行），挂在某个通道
+		// 下面会让人以为"删掉通道就看不到那次投递了"。行里的通道字段是**快照**，
+		// 通道被删之后历史照旧读得出来。
+		//
+		// 被中间件拒绝时借通道的动作名：它回答的是同一个问题（谁在看告警发到哪）。
+		deliveries := v1.Group("/notification-deliveries",
+			s.auditRoute(audit.ActionNotificationChannelManage))
+		deliveries.Use(s.requireSession(), s.requireAdmin())
+		deliveries.GET("", s.handleListNotificationDeliveries)
 
 		// 存储只读视图（P04.2）：权限 V（CONTRACTS.md 第 6 节）。
 		// 三个路由读的是代理的同一份扫描快照，因此设备列表与拓扑永远一致；
@@ -118,6 +226,20 @@ func (s *Server) routes() *gin.Engine {
 		sa := v1.Group("/share-accounts")
 		sa.Use(s.requireSession(), s.requireAdmin())
 		sa.GET("", s.handleListShareAccounts)
+
+		// 受管理 Linux 账号（P14.5）：admin（CONTRACTS.md 第 13 节）。
+		//
+		// /accounts 与 /share-accounts 读同一份记录（DECISIONS Q475：普通账号与
+		// 共享账号是同一张 managed_accounts 的两种 type），旧路由留着是因为共享页
+		// 已经用它。/accounts/:id/ssh-keys 读的是另一张表（0014 的 managed_ssh_keys）。
+		//
+		// 两条都只读：建账号、改壳、改口令、加撤公钥、发撤 sudo 规则都走
+		// POST /operations/preflight + POST /jobs（action=account.* / ssh_key.* /
+		// sudo_rule.*），这里不开“直接执行”的入口。
+		ac := v1.Group("/accounts")
+		ac.Use(s.requireSession(), s.requireAdmin())
+		ac.GET("", s.handleListAccounts)
+		ac.GET("/:id/ssh-keys", s.handleListAccountSSHKeys)
 
 		// 秘密通道（P08.1）：admin + CSRF + 5 分钟内再认证，只进不出。
 		//
@@ -174,6 +296,63 @@ func (s *Server) routes() *gin.Engine {
 		pk.Use(s.requireSession(), s.requireAdmin())
 		pk.GET("", s.handleListPackages)
 		pk.GET("/updates", s.handleListPackageUpdates)
+
+		// 备份管理（P12.2）：整组 admin（CONTRACTS.md 第 12 节）。
+		//
+		// 这一组编辑的是**代理里那份定义**（面板不存第二份），所以代理不在时整组回
+		// 503，而不是"先登记、回头再同步"。它不执行备份，也不删任何快照：执行是
+		// backup.run 的预检 → 任务，清理是 backup.prune 的预检 → 任务。
+		//
+		// 三个组分开登记，因为审计动作不同（中间件拒绝发生在 handler 之前，只有
+		// 组级别能带上正确的动作名）：
+		//   - 仓库：登记与修改要 CSRF + 再认证（定义引用仓库口令与 SFTP 私钥）；
+		//   - 策略：要 CSRF，不再认证（不引用秘密，也不动主机状态）；
+		//   - 快照：纯只读查询，没有写入口。
+		//
+		// /backup/repositories 没有 DELETE：契约里没有这条，而且删掉定义会让
+		// 仓库里那些快照"属于谁"无从回答。策略可以删——删策略不动仓库与快照。
+		bkRepo := v1.Group("/backup", s.auditRoute(audit.ActionBackupRepositoryManage))
+		bkRepo.Use(s.requireSession(), s.requireAdmin())
+		bkRepo.GET("/repositories", s.handleListBackupRepositories)
+		bkRepo.POST("/repositories", s.requireCSRF(), s.requireReauth(), s.handleCreateBackupRepository)
+		bkRepo.GET("/repositories/:id", s.handleGetBackupRepository)
+		bkRepo.PATCH("/repositories/:id", s.requireCSRF(), s.requireReauth(), s.handleUpdateBackupRepository)
+
+		bkPolicy := v1.Group("/backup", s.auditRoute(audit.ActionBackupPolicyManage))
+		bkPolicy.Use(s.requireSession(), s.requireAdmin())
+		bkPolicy.GET("/policies", s.handleListBackupPolicies)
+		bkPolicy.POST("/policies", s.requireCSRF(), s.handleCreateBackupPolicy)
+		bkPolicy.GET("/policies/:id", s.handleGetBackupPolicy)
+		bkPolicy.PATCH("/policies/:id", s.requireCSRF(), s.handleUpdateBackupPolicy)
+		bkPolicy.DELETE("/policies/:id", s.requireCSRF(), s.handleDeleteBackupPolicy)
+
+		// 快照查询。repository_id 是查询参数而不是路径段：快照 id 在仓库内部唯一，
+		// 而面板没有"快照 → 仓库"的索引（有索引就等于存了第二份真相）。
+		bkSnap := v1.Group("/backup")
+		bkSnap.Use(s.requireSession(), s.requireAdmin())
+		bkSnap.GET("/snapshots", s.handleListBackupSnapshots)
+		bkSnap.GET("/snapshots/:id", s.handleGetBackupSnapshot)
+
+		// 计划任务与受管理脚本（P12.4）：整组 admin（CONTRACTS.md 第 12 节）。
+		//
+		// 四个接口全是只读，读的是代理库里那一份（面板不存第二份）。代理不在时
+		// 整组 503，而不是"给一份空列表"——空列表会被读成"这台机器上没有定时任务"。
+		//
+		// 写路径不在这里：建立/修改/删除是 schedule.apply、schedule.delete、
+		// script.apply、script.delete 的预检 → 任务（要再认证、要落任务、要审计）；
+		// 立即执行是 script.run。在这里开一个"直接写定义"的路由，等于把那条链路上
+		// 的检查全绕过去——所以这里只有 GET。
+		//
+		// 两个组分开登记，因为审计动作不同（中间件拒绝发生在 handler 之前）。
+		sch := v1.Group("/schedules", s.auditRoute(audit.ActionScheduleManage))
+		sch.Use(s.requireSession(), s.requireAdmin())
+		sch.GET("", s.handleListSchedules)
+		sch.GET("/:id", s.handleGetSchedule)
+
+		scr := v1.Group("/scripts", s.auditRoute(audit.ActionScriptManage))
+		scr.Use(s.requireSession(), s.requireAdmin())
+		scr.GET("", s.handleListScripts)
+		scr.GET("/:id", s.handleGetScript)
 
 		// 反向代理站点（P10.1）：整组 admin（CONTRACTS.md 第 9 节）。
 		//
@@ -308,6 +487,15 @@ func (s *Server) routes() *gin.Engine {
 		dp := v1.Group("/deployments")
 		dp.Use(s.requireSession(), s.requireAdmin())
 		dp.GET("", s.handleListDeployments)
+		// 管理面（P15.4）：面板管着哪些部署、它们现在是什么状态。与上面那条
+		// **观测面**不同源（一个读 docker，一个读配置目录与 systemd），理由见
+		// internal/api/deployments.go 的文件头。
+		//
+		// 静态段与参数段并存：gin 的树会先匹配静态段（同 /apps/discovery 与
+		// /apps/:id 的先例），所以 /deployments/managed 不会被 /deployments/:id
+		// 吃掉，而 /deployments/managed/:name 也不会被当成一个两段的 :id。
+		dp.GET("/managed", s.handleListManagedDeployments)
+		dp.GET("/managed/:name", s.handleGetManagedDeployment)
 		dp.GET("/:id", s.handleGetDeployment)
 
 		// 系统写操作的统一入口（P03.1）：先预检，再由 POST /jobs 创建任务（P03.2）。

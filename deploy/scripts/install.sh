@@ -1,22 +1,28 @@
 #!/bin/sh
-# uPanel 0.1 安装脚本（P10.4）。
+# uPanel 安装脚本（P10.4 起，1.0 发布版）。
 #
 # 这是一个**可审阅**的安装器，不是 `curl | bash`：先把发布包解开、核对校验和、
 # 把本文件读完，再执行。脚本里没有任何下载步骤，只做下面列出的事。
 #
-# 步骤（每步都打印 [n/12] 与结论；失败时打印已完成步骤和重入命令）：
+# 步骤（每步都打印 [n/13] 与结论；失败时打印已完成步骤和重入命令）：
 #   1  校验发布包（SHA256SUMS）
 #   2  探测系统（Ubuntu 22.04/24.04、架构、systemd、端口、磁盘）
-#   3  按功能列出缺失依赖，**不擅自安装**；给了 --install-deps 才装点名的包
+#   3  按功能列出缺失依赖（事实来自 upanelctl host-caps），**不擅自安装**
 #   4  创建两个系统账号（upanel-web 无登录 shell；upanel-shell 有真 shell、无 sudo）
 #   5  创建目录与权限（/etc/upanel 归 root，配置 0640 root:upanel-web）
 #   6  生成面板自签名证书并打印指纹
 #   7  写配置并跑 upanelctl check-config（配置的唯一裁判）
 #   8  生成代理秘密密钥（已存在则跳过，绝不覆盖）
-#   9  安装二进制并以 upanel-web 身份迁移数据库
-#  10  创建第一个管理员（密码只经标准输入，不进 argv、不进日志）
-#  11  安装并启动 systemd 单元（systemd-analyze verify + enable --now）
-#  12  健康检查（HTTPS 校验真证书 + 指纹比对 + Web 不是 root）
+#   9  升级前备份：两个数据库 + 配置与密钥（库里已有数据时才做）
+#  10  安装二进制并以 upanel-web 身份迁移数据库
+#  11  创建第一个管理员（密码只经标准输入，不进 argv、不进日志）
+#  12  安装并启动 systemd 单元（systemd-analyze verify + enable --now）
+#  13  健康检查（HTTPS 校验真证书 + 指纹比对 + Web 不是 root）
+#
+# 关于第 9 步：升级会换掉二进制、跑数据库迁移，而迁移**只向前**。所以只要
+# 这台机器上已经有数据，就在动二进制之前先备份——备份由 backup-state.sh 完成，
+# 它停服务、把两个库（连同 -wal/-shm）与 /etc/upanel（含 agent.key）拷成一份目录，
+# 再起回服务。第 9 步失败就停下：没有备份就不再往下动数据库。
 #
 # 用法（解开包后，以 root 执行）：
 #   sudo sh deploy/scripts/install.sh --source .
@@ -29,6 +35,8 @@
 #   --password-stdin     从标准输入读两行密码（自动化用；交互安装省略即可，会提示输入）
 #   --install-deps LIST  逗号分隔：nginx,certbot,samba,docker,smartmontools
 #   --write-config       覆盖已存在的配置文件（先备份）
+#   --backup-dir DIR     升级前备份放到哪里（默认 /var/backups/upanel/install-<UTC 时间>）
+#   --no-backup          不备份就直接升级（库里已有数据时**不推荐**：迁移只向前）
 #   --skip-checksums     跳过校验和（只用于本地反复调试安装器）
 #
 # 退出码：0 安装完成；2 参数或环境不满足、某一步失败（会打印已完成步骤）。
@@ -45,6 +53,8 @@ PASSWORD_STDIN=0
 INSTALL_DEPS=""
 WRITE_CONFIG=0
 SKIP_CHECKSUMS=0
+BACKUP_TO=""
+DO_BACKUP=1
 
 WEB_USER="upanel-web"
 SHELL_USER="upanel-shell"
@@ -64,7 +74,7 @@ MANUAL_CERT_DIR="/etc/ssl/upanel"
 ACME_WEBROOT="/var/www/upanel-acme"
 CONFIG_FILE="$ETC_DIR/upanel.json"
 
-TOTAL_STEPS=12
+TOTAL_STEPS=13
 STEP=0
 COMPLETED=""
 
@@ -77,6 +87,8 @@ while [ $# -gt 0 ]; do
     --password-stdin) PASSWORD_STDIN=1; shift ;;
     --install-deps) INSTALL_DEPS=${2:-}; shift 2 ;;
     --write-config) WRITE_CONFIG=1; shift ;;
+    --backup-dir) BACKUP_TO=${2:-}; shift 2 ;;
+    --no-backup) DO_BACKUP=0; shift ;;
     --skip-checksums) SKIP_CHECKSUMS=1; shift ;;
     -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$SELF"; exit 0 ;;
     *) echo "错误: 未知参数 $1（--help 看用法）" >&2; exit 2 ;;
@@ -136,7 +148,7 @@ OS_NAME=$(sed -n 's/^PRETTY_NAME=//p' /etc/os-release | tr -d '"' | head -n 1)
 IDVER="$OS_ID:$OS_VER"
 case "$IDVER" in
   ubuntu:22.04|ubuntu:24.04) ok "系统 $OS_NAME" ;;
-  *) die "0.1 只支持 Ubuntu 22.04 与 24.04，当前是 $IDVER" ;;
+  *) die "只支持 Ubuntu 22.04 与 24.04，当前是 $IDVER" ;;
 esac
 
 [ -d /run/systemd/system ] || die "这不是 systemd 引导的系统（/run/systemd/system 不存在）"
@@ -188,30 +200,61 @@ ok "内存 $(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo) MiB"
 done_step "2 探测系统（$OS_NAME / $ARCH）"
 
 # ---------------------------------------------------------------- 3. 依赖
-step "依赖检查（按功能列出，不擅自安装）"
+step "依赖检查（事实来自 upanelctl host-caps，不擅自安装）"
 MISSING=""
-check_dep() {
-  # $1 命令  $2 功能  $3 apt 包名
-  if have "$1"; then
-    ok "$2：$1 已安装"
-  else
-    MISSING="$MISSING $2=$3"
-    warn "$2：缺 $1（对应软件包 $3）"
-  fi
+# 依赖现状只有一份实现：同一个探测器也在面板的“外部程序能力”页与代理接口后面。
+# 安装器不再自己 `command -v` 一遍——两处判据迟早会分叉（安装器认为“在 PATH 里就算有”，
+# 而代理只在 /usr/sbin 这类固定目录里找，PATH 里可能有当前目录这种可写路径）。
+# 拿到的还有版本：升级前知道原来装的是 nginx 1.24 而不是“装了”。
+DEPS_TMP=$(mktemp) || die "无法创建临时文件"
+DEP_STATE=$(mktemp) || die "无法创建临时文件"
+"$SOURCE/bin/upanelctl" host-caps --line > "$DEP_STATE" 2>"$DEPS_TMP"
+DEPS_RC=$?
+if [ "$DEPS_RC" != "0" ]; then
+  warn "依赖现状读不出来（upanelctl host-caps 退出码 $DEPS_RC）：安装继续，但不列缺失清单"
+  if [ -s "$DEPS_TMP" ]; then sed 's/^/      /' "$DEPS_TMP"; fi
+  warn "装完之后在面板「设置 → 外部程序能力」页可以看到这台机器到底有什么"
+else
+  # 六列制表符分隔：id、state、version、path、feature、hint（空字段表示“没有”）。
+  dep_field() {
+    awk -v id="$1" -v col="$2" '{ n = split($0, f, "\t"); if (n >= col && f[1] == id) { print f[col]; exit } }' "$DEP_STATE"
+  }
+  # $1 功能中文名  $2 host-caps 标识  $3 apt 包名
+  check_dep() {
+    _state=$(dep_field "$2" 2)
+    _version=$(dep_field "$2" 3)
+    case "$_state" in
+      present)
+        if [ -n "$_version" ]; then ok "$1：$2 $_version"
+        else ok "$1：$2 已安装（版本读不出，可能是这个程序没有可靠的版本开关）"; fi ;;
+      absent)
+        MISSING="$MISSING $1=$3"; warn "$1：缺 $2（对应软件包 $3）" ;;
+      unknown)
+        # 说不清不等于没有，但也不能当成有：按缺列出，同时说明是“读不到”。
+        MISSING="$MISSING $1=$3"; warn "$1：$2 的状态说不清（固定目录读不出来），按缺处理" ;;
+      '')
+        warn "$1：探测报告里没有 $2 这一条（探测器版本比安装器旧？）" ;;
+      *) warn "$1：$2 的状态是意外值 $_state" ;;
+    esac
+  }
+  check_dep "日志与终端审计" journalctl systemd
+  check_dep "反向代理" nginx nginx
+  check_dep "证书签发" certbot certbot
+  check_dep "文件共享" samba samba
+  check_dep "容器" docker docker.io
+  check_dep "磁盘健康" smartctl smartmontools
+  ok "依赖清单来自 $SOURCE/bin/upanelctl host-caps（与面板里那一页是同一份事实）"
+fi
+rm -f "$DEP_STATE" "$DEPS_TMP"
+
+# 这两个是**安装器自己**用的工具，不属于面板功能清单（所以不在 host-caps 的表里）：
+# openssl 生成面板证书，journalctl 在失败时取日志，curl 做健康检查。
+installer_need() {
+  if have "$1"; then ok "$2：$1 已安装"; else
+    MISSING="$MISSING $2=$3"; warn "$2：缺 $1（对应软件包 $3）"; fi
 }
-check_dep openssl "面板证书与证书模块" openssl
-check_dep journalctl "日志与终端审计" systemd
-check_dep curl "安装期健康检查" curl
-if have nginx; then ok "反向代理：nginx $(nginx -v 2>&1 | sed 's#.*/##')"; else
-  MISSING="$MISSING 反向代理=nginx"; warn "反向代理：缺 nginx（对应软件包 nginx）"; fi
-if [ -x /usr/bin/certbot ]; then ok "证书签发：/usr/bin/certbot 已存在"; else
-  MISSING="$MISSING 证书签发=certbot"; warn "证书签发：缺 /usr/bin/certbot（对应软件包 certbot）"; fi
-if have smbd || have smbcontrol; then ok "文件共享：samba 已安装"; else
-  MISSING="$MISSING 文件共享=samba"; warn "文件共享：缺 smbd（对应软件包 samba）"; fi
-if have docker; then ok "容器：docker 已安装"; else
-  MISSING="$MISSING 容器=docker.io"; warn "容器：缺 docker（对应软件包 docker.io）"; fi
-if have smartctl; then ok "磁盘健康：smartmontools 已安装"; else
-  MISSING="$MISSING 磁盘健康=smartmontools"; warn "磁盘健康：缺 smartctl（对应软件包 smartmontools）"; fi
+installer_need openssl "面板证书与证书模块" openssl
+installer_need curl "安装期健康检查" curl
 
 if [ -n "$INSTALL_DEPS" ]; then
   PKGS=""
@@ -394,6 +437,13 @@ else
 fi
 done_step "7 配置文件"
 
+# 数据库位置按**配置里生效的值**取，不写死 /var/lib/upanel：配置可能早于本次安装，
+# 也可能有人把库挪到了别的盘上。check-config --json 是这些值的唯一出口。
+PANEL_DB=$(printf '%s\n' "$CFG_JSON" | sed -n 's/.*"database_path": *"\([^"]*\)".*/\1/p' | head -n 1)
+AGENT_DB=$(printf '%s\n' "$CFG_JSON" | sed -n 's/.*"agent_database_path": *"\([^"]*\)".*/\1/p' | head -n 1)
+[ -n "$PANEL_DB" ] || warn "配置里没有 database.path：第 9 步会跳过面板库备份"
+[ -n "$AGENT_DB" ] || warn "配置里没有 agent.database_path：第 9 步会跳过代理库备份"
+
 # ---------------------------------------------------------------- 8. 代理密钥
 step "代理秘密密钥"
 if [ -s "$KEYFILE" ]; then
@@ -409,7 +459,35 @@ else
 fi
 done_step "8 代理秘密密钥"
 
-# ---------------------------------------------------------------- 9. 二进制/库
+# ---------------------------------------------------------------- 9. 升级前备份
+step "升级前备份（两数据库 + 配置与密钥）"
+# 只有“库真的已经存在”才需要备份：全新安装没有东西可丢，也就没有可备份的内容。
+NEED_BACKUP=0
+for db in "${PANEL_DB:-}" "${AGENT_DB:-}"; do
+  [ -n "$db" ] && [ -s "$db" ] && NEED_BACKUP=1
+done
+if [ "$NEED_BACKUP" = "0" ]; then
+  ok "这台机器上还没有数据库（全新安装），跳过备份"
+elif [ "$DO_BACKUP" = "0" ]; then
+  warn "按参数要求不备份就直接动二进制与数据库（--no-backup）：迁移只向前，出问题时没有回退点"
+elif [ ! -f "$SOURCE/deploy/scripts/backup-state.sh" ]; then
+  warn "发布包里没有 backup-state.sh：本次没有备份（升级前请手工备份两个库与 /etc/upanel）"
+else
+  if [ -z "$BACKUP_TO" ]; then
+    BACKUP_TO="/var/backups/upanel/install-$(date -u +%Y%m%dT%H%M%SZ)"
+  fi
+  # 用包里的 upanelctl 而不是已装的：旧版本没有 agent_database_path 这个字段，
+  # 备份脚本靠它定位代理库，用旧二进制会走到“读不到代理库”的分支。
+  sh "$SOURCE/deploy/scripts/backup-state.sh" \
+    --to "$BACKUP_TO" \
+    --config "$CONFIG_FILE" \
+    --upanelctl "$SOURCE/bin/upanelctl" | sed 's/^/      /' \
+    || die "备份没有完成：没有备份就不再往下动数据库（修好后重跑同一条命令，或用 --no-backup 明确承担风险）"
+  ok "备份在 $BACKUP_TO（两个库 + /etc/upanel；整份拷走再升级）"
+fi
+done_step "9 升级前备份"
+
+# ---------------------------------------------------------------- 10. 二进制/库
 step "安装二进制并迁移数据库"
 install -m 0755 -o root -g root "$SOURCE/bin/upanel-web" "$BIN_DIR/upanel-web" || die "安装 upanel-web 失败"
 install -m 0755 -o root -g root "$SOURCE/bin/upanelctl" "$BIN_DIR/upanelctl" || die "安装 upanelctl 失败"
@@ -420,8 +498,9 @@ ok "upanel-web、upanelctl → $BIN_DIR；upanel-agent → $LIB_DIR"
 # 而不是“去哪个仓库翻一下”。包里有哪份拷哪份，不编造缺失的文件。
 DOC_COUNT=0
 for doc in README.md VERSION deploy/upanel.example.json \
-           docs/INSTALL.md docs/ACCESS.md docs/RECOVERY.md \
-           docs/LOCAL_START.md docs/STORAGE_RECOVERY.md docs/SHARES_CLIENT.md; do
+           docs/INSTALL.md docs/ACCESS.md docs/USER_GUIDE.md docs/RECOVERY.md \
+           docs/LOCAL_START.md docs/STORAGE_RECOVERY.md docs/SHARES_CLIENT.md \
+           docs/SUPPORT_MATRIX.md docs/KNOWN_LIMITATIONS.md docs/RELEASE_NOTES.md; do
   if [ -f "$SOURCE/$doc" ]; then
     install -m 0644 -o root -g root "$SOURCE/$doc" "$DOC_DIR/$(basename -- "$doc")" \
       || die "拷贝文档 $doc 到 $DOC_DIR 失败"
@@ -435,9 +514,9 @@ ok "$DOC_COUNT 份文档已装到 $DOC_DIR"
 runuser -u "$WEB_USER" -- "$BIN_DIR/upanelctl" migrate --config "$CONFIG_FILE" | sed 's/^/      /' \
   || die "数据库迁移失败（upanelctl migrate）"
 ok "数据库已迁移（$WEB_DATA/upanel.db，属主 $WEB_USER）"
-done_step "9 二进制与数据库"
+done_step "10 二进制与数据库"
 
-# ---------------------------------------------------------------- 10. 管理员
+# ---------------------------------------------------------------- 11. 管理员
 step "第一个管理员"
 # 先无密码探测一次：init-admin 在“已有账号”时会在读密码之前就退出，
 # 因此这条探测不会创建任何账号，也不会在重跑时白问一遍密码。
@@ -510,9 +589,9 @@ else
     warn "密码没被接受，再试一次"
   done
 fi
-done_step "10 第一个管理员"
+done_step "11 第一个管理员"
 
-# ---------------------------------------------------------------- 11. 单元
+# ---------------------------------------------------------------- 12. 单元
 step "systemd 单元"
 install -m 0644 -o root -g root "$SOURCE/deploy/systemd/upanel-agent.service" \
   /etc/systemd/system/upanel-agent.service || die "安装 upanel-agent.service 失败"
@@ -534,9 +613,9 @@ systemctl restart upanel-web.service || {
   die "upanel-web 启动失败（上面是最近 20 行日志）"
 }
 ok "两个单元已 enable 并启动"
-done_step "11 systemd 单元"
+done_step "12 systemd 单元"
 
-# ---------------------------------------------------------------- 12. 健康检查
+# ---------------------------------------------------------------- 13. 健康检查
 step "健康检查"
 # 探测走回环地址：自签名证书的 SAN 里固定带了 IP:127.0.0.1，
 # 所以 TLS 下这里可以**不加 -k** 校验证书——要证明的正是“证书配得上、指纹是那一串”。
@@ -588,15 +667,36 @@ if [ "${WEB_UID:-0}" = "0" ]; then
 fi
 ok "Web 进程 uid=${WEB_UID:-?}（不是 root）"
 
-if [ -S /run/upanel/agent.sock ]; then
-  ok "代理 socket 存在；服务状态 $(systemctl is-active upanel-agent.service)"
-else
-  warn "代理 socket 不存在：$HEALTH 仍可能正常，但系统功能会报 AGENT_UNAVAILABLE"
+# 代理是这台机器的特权执行者：它没起来时面板还能登录，但磁盘、服务、文件、终端
+# 统统报 AGENT_UNAVAILABLE——那是"装完了但一半功能是死的"。
+#
+# 为什么这里必须 die 而不是 warn（P16.2 真机抓到）：代理单元是 Type=simple，
+# `systemctl restart` 在进程 fork 出来就返回 0，一个立刻 exit 1 的二进制照样
+# 让第 12 步显示"已 enable 并启动"。于是坏包会一路走到"==== 安装完成 ===="、
+# 退出码 0，只剩一行"注意 代理 socket 不存在"——升级失败的人会以为升级成功了。
+# STAGES §1.8 禁止伪成功，所以这里等 socket 出现，等不到就失败退出；
+# 失败时系统里已经有升级前备份（第 9 步），按 RECOVERY.md 恢复即可，重跑也好使。
+i=0
+while [ "$i" -lt 30 ]; do
+  if [ -S /run/upanel/agent.sock ] && systemctl is-active --quiet upanel-agent.service; then
+    break
+  fi
+  i=$((i + 1))
+  sleep 1
+done
+if [ "$i" -ge 30 ]; then
+  echo "---- journalctl -u upanel-agent -n 30 ----" >&2
+  journalctl -u upanel-agent -n 30 --no-pager >&2
+  die "代理 30 秒内没有起来（/run/upanel/agent.sock 不存在或单元不是 active）：面板现在只能报 AGENT_UNAVAILABLE"
 fi
-done_step "12 健康检查"
+ok "代理 socket 存在；服务状态 $(systemctl is-active upanel-agent.service)"
+done_step "13 健康检查"
 
 # ---------------------------------------------------------------- 完成
 printf '\n==== 安装完成 ====\n'
+if [ "${NEED_BACKUP:-0}" = "1" ] && [ -n "${BACKUP_TO:-}" ]; then
+  printf '升级前备份:    %s（两个库 + /etc/upanel，整份拷走再清理）\n' "$BACKUP_TO"
+fi
 cat <<EOF
 面板监听:      $CFG_LISTEN（$CFG_SCHEME）
 访问地址:      $CFG_SCHEME://$CFG_LISTEN

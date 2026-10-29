@@ -20,8 +20,9 @@ import (
 	"strings"
 	"time"
 
-	// 注册 "sqlite" 驱动（纯 Go 实现，见 docs/DEPENDENCIES.md）。
-	_ "modernc.org/sqlite"
+	// 非空导入：除了注册 "sqlite" 驱动（纯 Go 实现，见 docs/DEPENDENCIES.md），
+	// 还要用 *sqlite.Error 的 Code() 判断"写锁被别人占着"（见 isBusyError）。
+	"modernc.org/sqlite"
 )
 
 const (
@@ -253,7 +254,7 @@ func (db *DB) WithTx(ctx context.Context, fn func(context.Context, *sql.Tx) erro
 		return fn(ctx, tx)
 	}
 
-	tx, err := db.sql.BeginTx(ctx, nil)
+	tx, err := db.beginImmediate(ctx)
 	if err != nil {
 		return fmt.Errorf("store: 开始事务失败: %w", err)
 	}
@@ -276,6 +277,70 @@ func (db *DB) WithTx(ctx context.Context, fn func(context.Context, *sql.Tx) erro
 		return fmt.Errorf("store: 提交事务失败: %w", err)
 	}
 	return nil
+}
+
+// beginAttempts / beginBackoff 是"取写锁被挤掉"时的重试次数与首次退避。
+//
+// 三次、100ms 起步（100、300、900）是刻意的：等待总时长仍然是 busy_timeout 的量级，
+// 不会让一个请求无限期挂着，但足以把"前面几个写者排队"这段时间等过去。
+const (
+	beginAttempts = 3
+	beginBackoff  = 100 * time.Millisecond
+)
+
+// beginImmediate 取一个 IMMEDIATE 事务；写锁正被别人占着时重试有限次。
+//
+// 为什么要重试，而不是把错误交给调用方：BEGIN 失败时事务根本没开始，没有半截状态、
+// 没有要回滚的东西——重试比任何业务层的重试都干净。而 busy_timeout 不够用的场景不是
+// 死锁，是"排队时间被前面几个写者分完"：P12.4 真机现场（24.04，两块 vCPU）同时跑
+// restic、两次 Argon2id 校验和 systemd-analyze 时，5 秒的等待被摊薄，一次正常的导入
+// 或登录就拿到 `database is locked (5) (SQLITE_BUSY)`。对用户来说那是一次 500：
+// 写操作明明可以排队，却被报成失败。
+//
+// 重试用尽仍然报错——不吞、不降级：真到了机器撑不住的程度，错误必须浮上来。
+func (db *DB) beginImmediate(ctx context.Context) (*sql.Tx, error) {
+	backoff := beginBackoff
+	var lastErr error
+	for attempt := 1; attempt <= beginAttempts; attempt++ {
+		tx, err := db.sql.BeginTx(ctx, nil)
+		if err == nil {
+			return tx, nil
+		}
+		if !isBusyError(err) {
+			return nil, err
+		}
+		lastErr = err
+		if attempt == beginAttempts {
+			break
+		}
+		// 留一行日志：排队排到要重试，说明这台机器此刻的写压力值得知道。
+		db.logger.Warn("取写锁被占用，稍后重试", "attempt", attempt, "error", err)
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, fmt.Errorf("%w（等待写锁时调用已取消：%v）", lastErr, ctx.Err())
+		case <-timer.C:
+		}
+		backoff *= 3
+	}
+	return nil, lastErr
+}
+
+// isBusyError 判断错误是不是"写锁被别人占着"（可以重试）。
+//
+// 只认 SQLITE_BUSY(5) 与 SQLITE_LOCKED(6)：别的错误（约束冲突、磁盘满、库损坏）
+// 重试多少次都是一样的结果，重试它们只会把真正的故障拖长。
+func isBusyError(err error) bool {
+	var sqliteErr *sqlite.Error
+	if !errors.As(err, &sqliteErr) {
+		return false
+	}
+	switch sqliteErr.Code() {
+	case 5, 6:
+		return true
+	}
+	return false
 }
 
 // txContextKey 是事务在 context 中的键（未导出类型，外部无法伪造或覆盖）。

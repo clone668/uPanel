@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"upanel/internal/hostcaps"
 	"upanel/internal/version"
 )
 
@@ -46,17 +48,26 @@ func newTestServer(t *testing.T) *Server {
 
 func newTestServerWithRegistry(t *testing.T, reg *Registry) *Server {
 	t.Helper()
-	srv, err := New(Options{
+	return newTestServerWithOptions(t, func(o *Options) { o.Registry = reg })
+}
+
+// newTestServerWithOptions 构造一个测试用服务，mutate 在 New 之前改 Options。
+func newTestServerWithOptions(t *testing.T, mutate func(*Options)) *Server {
+	t.Helper()
+	opts := Options{
 		SocketPath:      socketPathForTest(t),
 		Version:         version.Info{Version: "test", Commit: "test", BuildDate: "test", GoVersion: "test"},
 		Logger:          quietLogger(),
 		ShutdownTimeout: time.Second,
 		Peer:            testPeer(),
-		Registry:        reg,
 		Secrets:         newTestSecretStore(t),
 		Plans:           newTestPlanStore(t),
 		Operations:      newTestOperationStore(t),
-	})
+	}
+	if mutate != nil {
+		mutate(&opts)
+	}
+	srv, err := New(opts)
 	if err != nil {
 		t.Fatalf("New 失败: %v", err)
 	}
@@ -83,14 +94,14 @@ func TestCapabilitiesShape(t *testing.T) {
 	}
 	var body struct {
 		Data struct {
-			Version          string   `json:"version"`
-			Mode             string   `json:"mode"`
-			OS               string   `json:"os"`
-			SupportedActions []string `json:"supported_actions"`
-			SupportedQueries []string `json:"supported_queries"`
-			Dependencies     []any    `json:"dependencies"`
-			StartedAt        string   `json:"started_at"`
-			GoVersion        string   `json:"go_version"`
+			Version          string           `json:"version"`
+			Mode             string           `json:"mode"`
+			OS               string           `json:"os"`
+			SupportedActions []string         `json:"supported_actions"`
+			SupportedQueries []string         `json:"supported_queries"`
+			HostCaps         *hostcaps.Report `json:"host_caps"`
+			StartedAt        string           `json:"started_at"`
+			GoVersion        string           `json:"go_version"`
 		} `json:"data"`
 		RequestID string `json:"request_id"`
 	}
@@ -119,8 +130,11 @@ func TestCapabilitiesShape(t *testing.T) {
 	if body.Data.SupportedQueries == nil {
 		t.Fatal("supported_queries 必须是 []，不能是 null")
 	}
-	if body.Data.Dependencies == nil {
-		t.Fatal("dependencies 必须是 []，不能是 null")
+	// P16.1 之前这里是一个恒为空的 dependencies 数组，注释写着“尚未探测”。
+	// 字段在、形状合法、却从不携带信息——读它的人只会得出“这台机器什么都没装”。
+	// 现在没探完就是 null，探完才有那份报告。
+	if body.Data.HostCaps != nil {
+		t.Fatalf("没接探测时不该有 host_caps 读数，实际 %+v", body.Data.HostCaps)
 	}
 	if body.Data.StartedAt == "" {
 		t.Fatal("started_at 不能为空")
@@ -349,5 +363,74 @@ func TestPrepareSocketPathReplacesStaleSocket(t *testing.T) {
 	}
 	if _, statErr := os.Lstat(path); !os.IsNotExist(statErr) {
 		t.Fatalf("陈旧 socket 应已被删除，实际: %v", statErr)
+	}
+}
+
+// TestCapabilitiesReportsHostCaps 钉住 P16.1 的两件事：
+// 没有读数时不许把“没探”画成“没有依赖”，有读数时版本必须是真读数。
+func TestCapabilitiesReportsHostCaps(t *testing.T) {
+	cache := hostcaps.NewCache(hostcaps.Deps{
+		ListDir: func(dir string) ([]string, error) {
+			if dir == "/usr/sbin" {
+				return []string{"restic"}, nil
+			}
+			return nil, nil
+		},
+		StatIsDir: func(string) (bool, error) { return false, os.ErrNotExist },
+		Run: func(context.Context, string, ...string) hostcaps.RunResult {
+			return hostcaps.RunResult{Stdout: "restic 0.12.1 compiled with go1.18.1\n"}
+		},
+		Now: func() time.Time { return time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC) },
+	}, time.Minute)
+	srv := newTestServerWithOptions(t, func(o *Options) { o.HostCaps = cache })
+
+	type capsBody struct {
+		Data struct {
+			HostCaps *hostcaps.Report `json:"host_caps"`
+		} `json:"data"`
+	}
+	read := func() capsBody {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/internal/v1/capabilities", nil)
+		rec := serveAs(srv, req, testWebUID)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("状态码 = %d", rec.Code)
+		}
+		var body capsBody
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("响应不是合法 JSON: %v", err)
+		}
+		return body
+	}
+
+	before := read()
+	if before.Data.HostCaps != nil {
+		t.Fatalf("还没探过时 host_caps 必须是 null（空数组会被读成“什么都没装”），实际 %+v", before.Data.HostCaps)
+	}
+
+	if _, err := cache.Refresh(context.Background()); err != nil {
+		t.Fatalf("探测失败：%v", err)
+	}
+	after := read()
+	if after.Data.HostCaps == nil {
+		t.Fatal("探过之后 host_caps 必须是那份报告")
+	}
+	if after.Data.HostCaps.GeneratedAt != "2026-10-30T12:00:00Z" {
+		t.Fatalf("generated_at = %q", after.Data.HostCaps.GeneratedAt)
+	}
+	var restic *hostcaps.Item
+	for i := range after.Data.HostCaps.Items {
+		if after.Data.HostCaps.Items[i].ID == "restic" {
+			restic = &after.Data.HostCaps.Items[i]
+		}
+	}
+	if restic == nil {
+		t.Fatalf("报告里没有 restic：%v", after.Data.HostCaps.Items)
+	}
+	if restic.State != hostcaps.StatePresent || restic.Version != "0.12.1" {
+		t.Fatalf("restic 的读数不对：state=%q version=%q", restic.State, restic.Version)
+	}
+	if restic.Path != "/usr/sbin/restic" {
+		t.Fatalf("restic 的路径不对：%q", restic.Path)
 	}
 }

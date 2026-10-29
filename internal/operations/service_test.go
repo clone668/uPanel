@@ -47,6 +47,13 @@ type fakeAgent struct {
 	// 变成可复现的测试时序（提交与对账并发那条用例需要它）。nil 表示不卡。
 	opHook func()
 
+	// P12.4：定时操作的导入。scheduled 是代理"自己跑过"的那些操作。
+	scheduled      []agentclient.ScheduledOperation
+	scheduledErr   error
+	scheduledCalls int
+	scheduledSince time.Time
+	scheduledLimit int
+
 	opCalls     []agentclient.OperationInput
 	getCalls    []string
 	cancelCalls []string
@@ -86,6 +93,17 @@ func (f *fakeAgent) CancelOperation(_ context.Context, operationID string) (agen
 		return agentclient.Operation{}, f.cancelErr
 	}
 	return f.cancelOp, nil
+}
+
+// ListScheduledOperations 回放 P12.4 的定时操作列表（导入用例用它摆数据）。
+func (f *fakeAgent) ListScheduledOperations(_ context.Context, since time.Time, limit int) ([]agentclient.ScheduledOperation, error) {
+	f.scheduledSince = since
+	f.scheduledLimit = limit
+	f.scheduledCalls++
+	if f.scheduledErr != nil {
+		return nil, f.scheduledErr
+	}
+	return f.scheduled, nil
 }
 
 func (f *fakeAgent) OperationEvents(_ context.Context, operationID string) ([]agentclient.OperationEvent, error) {

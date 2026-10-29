@@ -44,16 +44,32 @@ type ConfigPaths struct {
 	// 它在这里，理由与上面四个完全相同：/etc/systemd 也是 root 的，而
 	// “内容没变就不重载”“路径非法就不写”这些判断必须在单元测试里能反复跑。
 	StartupDep string
+	// Exports / ExportsDir / ExportsMain 是 NFS 导出用的三个路径（P14.4）。
+	//
+	// Exports 是面板独占的那份文件，ExportsDir 是它所在的目录（应用时创建），
+	// ExportsMain 是系统主导出文件——**只读**，用来发现“这条路径已经被别人导出了”。
+	Exports    string
+	ExportsDir string
+	// ExportsMain 是系统主导出文件——**只读**，用来发现“这条路径已经被别人导出了”。
+	ExportsMain string
+	// ExportsStartupDep 是 nfs-server 的开机依赖 drop-in（P14.4）。零值时用
+	// ExportsStartupDropinPath。
+	ExportsStartupDep string
 }
 
 // DefaultConfigPaths 返回生产路径。
 func DefaultConfigPaths() ConfigPaths {
 	return ConfigPaths{
-		Main:       DefaultConfigPath,
-		Managed:    ManagedConfigPath,
-		IncludeDir: DefaultIncludeDir,
-		BackupDir:  DefaultConfigBackupDir,
-		StartupDep: StartupDropinPath,
+		Main:        DefaultConfigPath,
+		Managed:     ManagedConfigPath,
+		IncludeDir:  DefaultIncludeDir,
+		BackupDir:   DefaultConfigBackupDir,
+		StartupDep:  StartupDropinPath,
+		Exports:     DefaultExportsFile,
+		ExportsDir:  DefaultExportsDir,
+		ExportsMain: DefaultExportsMain,
+		// ExportsStartupDep 只给 nfs-server 用；SMB 那一半不看它。
+		ExportsStartupDep: ExportsStartupDropinPath,
 	}
 }
 
@@ -152,6 +168,18 @@ func (e *Engine) paths() ConfigPaths {
 	}
 	if p.StartupDep == "" {
 		p.StartupDep = StartupDropinPath
+	}
+	if p.Exports == "" {
+		p.Exports = DefaultExportsFile
+	}
+	if p.ExportsDir == "" {
+		p.ExportsDir = DefaultExportsDir
+	}
+	if p.ExportsMain == "" {
+		p.ExportsMain = DefaultExportsMain
+	}
+	if p.ExportsStartupDep == "" {
+		p.ExportsStartupDep = ExportsStartupDropinPath
 	}
 	return p
 }

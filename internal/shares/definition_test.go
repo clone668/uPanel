@@ -87,10 +87,17 @@ func TestValidateDefinitionRejectsEmptyUsers(t *testing.T) {
 }
 
 func TestValidateDefinitionRejectsProtocolAndAccess(t *testing.T) {
+	// nfs 在 P14.4 起是受支持的协议，所以这里不再因为“协议是 nfs”而拒绝。
+	// 拒绝它的是**缺 nfs_options**——一份没有 root_squash/sync 声明的导出定义
+	// 不该被当成合法的 NFS 共享。合法的 nfs 定义见 TestValidateNFSDefinition。
 	def := baseDefinition()
 	def.Protocol = ProtocolNFS
-	if err := ValidateDefinition(def); err == nil {
-		t.Fatal("protocol=nfs 在 P08.1 应该被拒")
+	err := ValidateDefinition(def)
+	if err == nil {
+		t.Fatal("protocol=nfs 但没带 nfs_options，应该被拒")
+	}
+	if de, ok := err.(*DefinitionError); !ok || de.Code != NoticeNFSOptionsInvalid {
+		t.Fatalf("阻塞码是 %v，期望 %s", err, NoticeNFSOptionsInvalid)
 	}
 
 	def = baseDefinition()
