@@ -1,5 +1,5 @@
 #!/bin/sh
-# uPanel 0.1 发布包打包脚本（P10.4）。
+# uPanel 发布包打包脚本（P10.4 起，1.0 发布版）。
 #
 # 产出（默认两个架构）：
 #   dist/upanel-<version>-linux-amd64.tar.gz
@@ -14,7 +14,7 @@
 #
 # 用法：
 #   sh scripts/release.sh                       # 版本 0.0.0-<git short>，两个架构
-#   VERSION=0.1.0 ARCHES=amd64 sh scripts/release.sh
+#   VERSION=1.0.0 sh scripts/release.sh         # 发布版：两个架构 + dist/SHA256SUMS
 #
 # 前置：先跑 scripts/build.sh（它会构建前端并同步到 internal/webui/dist，
 # go:embed 在编译期读取该目录，跳过这一步打出来的包没有前端）。
@@ -46,6 +46,15 @@ fi
 
 VERSION=${VERSION:-0.0.0-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}
 COMMIT=${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}
+# 工作树有未提交改动时给 commit 打上 -dirty：包里的代码**不等于**这个 commit 的内容。
+# 不打这个标记，拿到包的人按 VERSION 去对源码会得到“对不上但说不清为什么”的结论——
+# 比标一个脏字更糟。本次发布就是在这种状态下构建的（改动未提交，见证据目录）。
+if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+  case "$COMMIT" in
+    *-dirty) ;;
+    *) COMMIT="$COMMIT-dirty" ;;
+  esac
+fi
 BUILD_DATE=${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
 ARCHES=${ARCHES:-amd64 arm64}
 LDFLAGS="-X upanel/internal/version.Version=$VERSION -X upanel/internal/version.Commit=$COMMIT -X upanel/internal/version.BuildDate=$BUILD_DATE"
@@ -77,15 +86,23 @@ for ARCH in $ARCHES; do
   # 2) 单元、配置样例与脚本（可审阅：用户先看再跑）。
   cp deploy/systemd/upanel-agent.service deploy/systemd/upanel-web.service "$STAGE/deploy/systemd/"
   cp deploy/upanel.example.json "$STAGE/deploy/"
-  cp deploy/scripts/install.sh deploy/scripts/uninstall.sh "$STAGE/deploy/scripts/"
-  chmod 0755 "$STAGE/deploy/scripts/install.sh" "$STAGE/deploy/scripts/uninstall.sh"
+  cp deploy/scripts/install.sh deploy/scripts/uninstall.sh deploy/scripts/backup-state.sh     "$STAGE/deploy/scripts/"
+  chmod 0755 "$STAGE/deploy/scripts/install.sh" "$STAGE/deploy/scripts/uninstall.sh"     "$STAGE/deploy/scripts/backup-state.sh"
 
   # 3) 文档：装完之后机器上要有同一份，不能在面板不可用时无处可查。
-  #    顺序不重要，但 STORAGE_RECOVERY.md 必须带上——RECOVERY.md 里直接引用它。
-  for doc in INSTALL.md ACCESS.md RECOVERY.md STORAGE_RECOVERY.md SHARES_CLIENT.md LOCAL_START.md; do
-    if [ -f "docs/$doc" ]; then
-      cp "docs/$doc" "$STAGE/docs/"
+  #    顺序不重要，但 STORAGE_RECOVERY.md 必须带上——RECOVERY.md 里直接引用它；
+  #    RELEASE_NOTES / SUPPORT_MATRIX / KNOWN_LIMITATIONS 是“能承诺什么”的唯一出处，
+  #    少了它们，README 里那句“看这两份文档”就成了死链（P16.4）。
+  #    EVIDENCE_INDEX.md 不进包：它指向仓库里的 docs/evidence/，包里没有那些目录。
+  for doc in INSTALL.md ACCESS.md USER_GUIDE.md RECOVERY.md STORAGE_RECOVERY.md \
+             SHARES_CLIENT.md LOCAL_START.md SUPPORT_MATRIX.md KNOWN_LIMITATIONS.md \
+             RELEASE_NOTES.md; do
+    # 少了哪一份都不算打包成功：缺文档的包发出去，用户在面板起不来时无处可查。
+    if [ ! -f "docs/$doc" ]; then
+      echo "错误: 缺少 docs/$doc——发布包必须带上它" >&2
+      exit 2
     fi
+    cp "docs/$doc" "$STAGE/docs/"
   done
   cp README.md "$STAGE/"
 
@@ -110,13 +127,13 @@ for ARCH in $ARCHES; do
     -C "$OUT" --exclude="$NAME/bin/*" --exclude="$NAME/deploy/scripts/*" "$NAME"
   tar rf "$TAR" --mode=0755 --owner=0 --group=0 --numeric-owner -C "$OUT" \
     "$NAME/bin/upanel-web" "$NAME/bin/upanel-agent" "$NAME/bin/upanelctl" \
-    "$NAME/deploy/scripts/install.sh" "$NAME/deploy/scripts/uninstall.sh"
+    "$NAME/deploy/scripts/install.sh" "$NAME/deploy/scripts/uninstall.sh"     "$NAME/deploy/scripts/backup-state.sh"
   gzip -9 -f "$TAR"
   # 自检：包里的可执行文件必须带执行位。在上一次验收里，包是好的、校验和是好的，
   # 但解到 Ubuntu 上每个二进制都是 0644 —— 安装器的第一句人话就是"跑不起来"。
   # 这一条在打包机上就能拦住它。
   BAD=$(tar tzvf "$OUT/$NAME.tar.gz" | awk '$1 ~ /^-/ && $1 !~ /x/ {print $NF}' |
-    grep -E '/(bin/upanel-(web|agent|ctl)|deploy/scripts/(install|uninstall)\.sh)$' | tr '\n' ' ')
+    grep -E '/(bin/upanel-(web|agent|ctl)|deploy/scripts/(install|uninstall|backup-state)\.sh)$' | tr '\n' ' ')
   if [ -n "$BAD" ]; then
     printf '错误：包内这些文件没有执行权限：%s\n' "$BAD" >&2
     exit 1

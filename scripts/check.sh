@@ -66,6 +66,84 @@ for f in go.mod .nvmrc .node-version docs/DECISIONS.md docs/DEPENDENCIES.md \
   fi
 done
 
+# ---------------------------------------------------------------- 换行符
+# 为什么单独一关：`.gitattributes` 要求 *.sh / *.sql / *.service 是 LF，但宿主是
+# Windows，编辑器与工具会悄悄写出 CRLF。带 CRLF 的 shell 脚本推到 Linux 上是
+# "`set: Illegal option -`"，带 CRLF 的迁移文件会让已经建好的库校验和失配——这两种
+# 都在真机验收里烧掉过一整轮。gofmt 管得住 .go，管不住这三种，所以在这里拦。
+#
+# 用 `tr -d` 比字节数，不用 `grep '\r'`：Git Bash 的 grep 把 CRLF 当行尾，会漏报。
+check_line_endings() {
+  if ! command -v git >/dev/null 2>&1; then
+    # 找不到 git 就说找不到，不能因为“没文件可查”而假装通过。
+    printf '  找不到 git，无法枚举脚本与迁移文件\n'
+    return 1
+  fi
+  bad=""
+  files=$(git ls-files --cached --others --exclude-standard -- '*.sh' '*.sql' '*.service' 2>/dev/null)
+  if [ -z "$files" ]; then
+    printf '  没有需要检查的脚本与迁移文件\n'
+    return 0
+  fi
+  for f in $files; do
+    [ -f "$f" ] || continue
+    if [ "$(tr -d '\r' <"$f" | wc -c)" != "$(wc -c <"$f")" ]; then
+      printf '  CRLF  %s\n' "$f"
+      bad="$bad $f"
+    fi
+  done
+  if [ -n "$bad" ]; then
+    printf '以上文件带 CRLF，在 Linux 上会直接跑不起来或有校验和风险：用 `sed -i '\''s/\\r$//'\''` 改成 LF\n'
+    return 1
+  fi
+  printf '  %s 个脚本/迁移文件都是 LF\n' "$(printf '%s\n' "$files" | wc -l | tr -d ' ')"
+  return 0
+}
+
+run "line-endings" check_line_endings
+
+# ---------------------------------------------------------------- 脚本语法
+# 为什么单独一关：部署脚本与验收脚本在 Windows 宿主上**一次都跑不起来**（没有 systemd、
+# 没有 /etc/upanel、没有 root）。它们唯一的宿主侧证据就是“解析得动”——而一个多打的
+# `fi`、一处没收尾的引号，在真机上烧掉的是一整轮验收。所以至少把这一层拦住。
+#
+# 诚实边界：宿主是 Windows 时 `sh` 是 Git Bash（bash），能抓语法错误，抓不到 bashism；
+# 在 Ubuntu 上 /bin/sh 是 dash，同一个 -n 才等价于真机解析。这一点写进输出，不假装等价。
+check_sh_syntax() {
+  if ! command -v sh >/dev/null 2>&1; then
+    printf '  找不到 sh，无法检查脚本语法\n'
+    return 1
+  fi
+  files=$(git ls-files --cached --others --exclude-standard -- \
+    'scripts/*.sh' 'deploy/scripts/*.sh' 'tests/integration/*.sh' 2>/dev/null)
+  if [ -z "$files" ]; then
+    printf '  没有需要检查的 shell 脚本\n'
+    return 0
+  fi
+  printf '  解析器: %s\n' "$(command -v sh)"
+  case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*) printf '  注意: 宿主是 Windows，这里的 sh 是 bash（抓不到 bashism）\n' ;;
+    *) : ;;
+  esac
+  bad=""
+  n=0
+  for f in $files; do
+    [ -f "$f" ] || continue
+    n=$((n + 1))
+    if ! sh -n "$f" 2>&1; then
+      bad="$bad $f"
+    fi
+  done
+  if [ -n "$bad" ]; then
+    printf '以上脚本解析失败（上面是 sh -n 的输出）：%s\n' "$bad"
+    return 1
+  fi
+  printf '  %d 个脚本解析通过\n' "$n"
+  return 0
+}
+
+run "sh-syntax" check_sh_syntax
+
 # ---------------------------------------------------------------- Go
 info "Go 工具链"
 PINNED_GO=$(sed -n 's/^go \([0-9][0-9.]*\).*/\1/p' go.mod 2>/dev/null | head -n 1)
