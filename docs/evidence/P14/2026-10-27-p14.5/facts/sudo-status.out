@@ -1,0 +1,78 @@
+● upanel-2204
+    State: running
+     Jobs: 0 queued
+   Failed: 0 units
+    Since: Fri 2026-10-23 19:02:31 UTC; 3 days ago
+   CGroup: /
+           ├─user.slice 
+           │ └─user-1000.slice 
+           │   ├─user@1000.service …
+           │   │ └─init.scope 
+           │   │   ├─188737 /lib/systemd/systemd --user
+           │   │   └─188739 (sd-pam)
+           │   └─session-1649.scope 
+           │     ├─189102 sudo BIN_DIR=/var/tmp/upanel-bin setsid nohup sh /tmp/p14-5-acceptance.sh
+           │     ├─189104 sh /tmp/p14-5-acceptance.sh
+           │     ├─189148 /var/tmp/upanel-bin/upanel-agent --config /etc/upanel/upanel.json
+           │     ├─189189 runuser -u upanel-web -- /var/tmp/upanel-bin/upanel-web --config /etc/upanel/upanel.json --mode production --db /var/tmp/upanel-accept-p14-5/webdata/upanel.db --listen 127.0.0.1:19481
+           │     ├─189233 /var/tmp/upanel-bin/upanel-web --config /etc/upanel/upanel.json --mode production --db /var/tmp/upanel-accept-p14-5/webdata/upanel.db --listen 127.0.0.1:19481
+           │     ├─190180 /usr/bin/systemctl show --no-pager --property=Id --property=Names --property=LoadState --property=ActiveState --property=SubState --property=UnitFileState --property=Description --property=FragmentPath --property=MainPID --property=NRestarts --property=ActiveEnterTimestamp --property=MemoryCurrent --property=TasksCurrent -- NetworkManager.service apparmor.service apport-autoreport.service apport.service apt-daily-upgrade.service apt-daily.service apt-news.service auditd.service auth-rpcgss-module.service blk-availability.service bolt.service certbot.service cloud-config.service cloud-final.service cloud-init-hotplugd.service cloud-init-local.service cloud-init.service connman.service console-getty.service console-screen.service console-setup.service cron.service cryptdisks-early.service cryptdisks.service dbus.service debug-shell.service display-manager.service dm-event.service dmesg.service dpkg-db-backup.service e2scrub_all.service e2scrub_reap.service emergency.service esm-cache.service fcoe.service finalrd.service friendly-recovery.service fstrim.service getty-static.service getty@tty1.service grub-common.service grub-initrd-fallback.service gssproxy.service hv_kvp_daemon.service hwclock.service initrd-cleanup.service initrd-parse-etc.service initrd-switch-root.service initrd-udevadm-cleanup-db.service irqbalance.service iscsi-shutdown.service iscsid.service kbd.service keyboard-setup.service kmod-static-nodes.service logrotate.service lvm2-activation-early.service lvm2-activation.service lvm2-lvmpolld.service lvm2-monitor.service lvm2.service lxd-agent.service man-db.service mdcheck_continue.service mdcheck_start.service mdmonitor-oneshot.service mdmonitor.service modprobe@configfs.service modprobe@drm.service modprobe@efi_pstore.service modprobe@fuse.service motd-news.service multipath-tools-boot.service multipathd.service netplan-ovs-cleanup.service networkd-dispatcher.service networking.service nfs-blkmap.service nfs-common.service nfs-idmapd.service nfs-mountd.service nfs-server.service nfs-utils.service nfsdcld.service nftables.service nginx.service open-iscsi.service open-vm-tools.service ovsdb-server.service packagekit-offline-update.service packagekit.service plymouth-halt.service plymouth-kexec.service plymouth-poweroff.service plymouth-quit-wait.service plymouth-quit.service plymouth-read-write.service plymouth-reboot.service plymouth-start.service plymouth-switch-root-initramfs.service plymouth-switch-root.service polkit.service pollinate.service quotaon.service rbdmap.service rc-local.service rc.service rcS.service rescue.service rpc-gssd.service rpc-statd-notify.service rpc-statd.service rpc-svcgssd.service rpcbind.service rsync.service rsyslog.service screen-cleanup.service secureboot-db.service serial-getty@ttyS0.service setvtrgb.service smartmontools.service snap.lxd.activate.service snap.lxd.daemon.service snap.lxd.user-daemon.service snapd.apparmor.service snapd.autoimport.service snapd.core-fixup.service snapd.failure.service snapd.recovery-chooser-trigger.service snapd.seeded.service snapd.service snapd.snap-repair.service snapd.system-shutdown.service ssh.service sshd-keygen.service sudo.service system-update-cleanup.service systemd-ask-password-console.service systemd-ask-password-plymouth.service systemd-ask-password-wall.service systemd-binfmt.service systemd-bless-boot.service systemd-boot-check-no-failures.service systemd-boot-system-token.service systemd-exit.service systemd-fsck-root.service systemd-fsckd.service systemd-halt.service systemd-hibernate.service systemd-hostnamed.service systemd-hwdb-update.service systemd-hybrid-sleep.service systemd-initctl.service systemd-journal-flush.service systemd-journald.service systemd-kexec.service systemd-localed.service systemd-logind.service systemd-machine-id-commit.service systemd-modules-load.service systemd-network-generator.service systemd-networkd-wait-online.service systemd-networkd.service systemd-poweroff.service systemd-pstore.service systemd-quotacheck.service systemd-random-seed.service systemd-reboot.service systemd-remount-fs.service systemd-resolved.service systemd-rfkill.service systemd-suspend-then-hibernate.service systemd-suspend.service systemd-sysctl.service systemd-sysext.service systemd-sysusers.service systemd-time-wait-sync.service systemd-timedated.service systemd-timesyncd.service systemd-tmpfiles-clean.service systemd-tmpfiles-setup-dev.service systemd-tmpfiles-setup.service systemd-udev-settle.service systemd-udev-trigger.service systemd-udevd.service systemd-update-done.service systemd-update-utmp-runlevel.service systemd-update-utmp.service systemd-user-sessions.service systemd-vconsole-setup.service systemd-volatile-root.service ua-auto-attach.service ua-reboot-cmds.service ua-timer.service ubuntu-advantage-cloud-id-shim.service ubuntu-advantage.service ufw.service unattended-upgrades.service update-notifier-download.service update-notifier-motd.service
+           │     ├─190269 sh /tmp/p14-5-acceptance.sh
+           │     ├─190270 runuser -u alice -- sudo -n /usr/bin/systemctl status --no-pager
+           │     ├─190271 sudo -n /usr/bin/systemctl status --no-pager
+           │     └─190272 /usr/bin/systemctl status --no-pager
+           ├─init.scope 
+           │ └─1 /sbin/init
+           └─system.slice 
+             ├─irqbalance.service 
+             │ └─686 /usr/sbin/irqbalance --foreground
+             ├─packagekit.service 
+             │ └─2446 /usr/libexec/packagekitd
+             ├─systemd-networkd.service 
+             │ └─633 /lib/systemd/systemd-networkd
+             ├─systemd-udevd.service 
+             │ └─429 /lib/systemd/systemd-udevd
+             ├─cron.service 
+             │ └─678 /usr/sbin/cron -f -P
+             ├─system-serial\x2dgetty.slice 
+             │ └─serial-getty@ttyS0.service 
+             │   └─714 /sbin/agetty -o -p -- \u --keep-baud 115200,57600,38400,9600 ttyS0 vt220
+             ├─nfs-mountd.service 
+             │ └─706 /usr/sbin/rpc.mountd
+             ├─polkit.service 
+             │ └─2450 /usr/libexec/polkitd --no-debug
+             ├─networkd-dispatcher.service 
+             │ └─687 /usr/bin/python3 /usr/bin/networkd-dispatcher --run-startup-triggers
+             ├─multipathd.service 
+             │ └─424 /sbin/multipathd -d -s
+             ├─nfsdcld.service 
+             │ └─591 /usr/sbin/nfsdcld
+             ├─systemd-journald.service 
+             │ └─390 /lib/systemd/systemd-journald
+             ├─unattended-upgrades.service 
+             │ └─757 /usr/bin/python3 /usr/share/unattended-upgrades/unattended-upgrade-shutdown --wait-for-signal
+             ├─ssh.service 
+             │ └─737 sshd: /usr/sbin/sshd -D [listener] 0 of 10-100 startups
+             ├─snapd.service 
+             │ └─693 /usr/lib/snapd/snapd
+             ├─rpc-statd.service 
+             │ └─682 /sbin/rpc.statd
+             ├─nfs-blkmap.service 
+             │ └─592 /usr/sbin/blkmapd
+             ├─rsyslog.service 
+             │ └─690 /usr/sbin/rsyslogd -n -iNONE
+             ├─rpcbind.service 
+             │ └─582 /sbin/rpcbind -f -w
+             ├─nfs-idmapd.service 
+             │ └─589 /usr/sbin/rpc.idmapd
+             ├─systemd-resolved.service 
+             │ └─635 /lib/systemd/systemd-resolved
+             ├─dbus.service 
+             │ └─679 @dbus-daemon --system --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only
+             ├─systemd-timesyncd.service 
+             │ └─583 /lib/systemd/systemd-timesyncd
+             ├─system-getty.slice 
+             │ └─getty@tty1.service 
+             │   └─723 /sbin/agetty -o -p -- \u --noclear tty1 linux
+             └─systemd-logind.service 
+               └─695 /lib/systemd/systemd-logind

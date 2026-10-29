@@ -1,0 +1,200 @@
+Oct 27 04:31:15 upanel-2204 systemd-logind[695]: New session 1644 of user upanel.
+Oct 27 04:31:15 upanel-2204 systemd[1]: Started Session 1644 of User upanel.
+Oct 27 04:31:16 upanel-2204 sshd[188848]: Received disconnect from 10.0.2.2 port 7723:11: disconnected by user
+Oct 27 04:31:16 upanel-2204 sshd[188848]: Disconnected from user upanel 10.0.2.2 port 7723
+Oct 27 04:31:16 upanel-2204 sshd[188802]: pam_unix(sshd:session): session closed for user upanel
+Oct 27 04:31:16 upanel-2204 systemd[1]: session-1644.scope: Deactivated successfully.
+Oct 27 04:31:16 upanel-2204 systemd-logind[695]: Session 1644 logged out. Waiting for processes to exit.
+Oct 27 04:31:16 upanel-2204 systemd-logind[695]: Removed session 1644.
+Oct 27 04:31:23 upanel-2204 sshd[188850]: Accepted publickey for upanel from 10.0.2.2 port 12908 ssh2: ED25519 SHA256:34smbxWVOmxCh3wR501x1VfKslzYdPxJl2vdCYR+jdU
+Oct 27 04:31:23 upanel-2204 sshd[188850]: pam_unix(sshd:session): session opened for user upanel(uid=1000) by (uid=0)
+Oct 27 04:31:23 upanel-2204 systemd-logind[695]: New session 1645 of user upanel.
+Oct 27 04:31:23 upanel-2204 systemd[1]: Started Session 1645 of User upanel.
+Oct 27 04:31:28 upanel-2204 sshd[188896]: Received disconnect from 10.0.2.2 port 12908:11: disconnected by user
+Oct 27 04:31:28 upanel-2204 sshd[188896]: Disconnected from user upanel 10.0.2.2 port 12908
+Oct 27 04:31:28 upanel-2204 sshd[188850]: pam_unix(sshd:session): session closed for user upanel
+Oct 27 04:31:28 upanel-2204 systemd[1]: session-1645.scope: Deactivated successfully.
+Oct 27 04:31:28 upanel-2204 systemd[1]: session-1645.scope: Consumed 6.023s CPU time.
+Oct 27 04:31:28 upanel-2204 systemd-logind[695]: Session 1645 logged out. Waiting for processes to exit.
+Oct 27 04:31:28 upanel-2204 systemd-logind[695]: Removed session 1645.
+Oct 27 04:31:29 upanel-2204 sshd[188899]: Accepted publickey for upanel from 10.0.2.2 port 4835 ssh2: ED25519 SHA256:34smbxWVOmxCh3wR501x1VfKslzYdPxJl2vdCYR+jdU
+Oct 27 04:31:29 upanel-2204 sshd[188899]: pam_unix(sshd:session): session opened for user upanel(uid=1000) by (uid=0)
+Oct 27 04:31:29 upanel-2204 systemd-logind[695]: New session 1646 of user upanel.
+Oct 27 04:31:29 upanel-2204 systemd[1]: Started Session 1646 of User upanel.
+Oct 27 04:31:30 upanel-2204 sshd[188945]: Received disconnect from 10.0.2.2 port 4835:11: disconnected by user
+Oct 27 04:31:30 upanel-2204 sshd[188945]: Disconnected from user upanel 10.0.2.2 port 4835
+Oct 27 04:31:30 upanel-2204 sshd[188899]: pam_unix(sshd:session): session closed for user upanel
+Oct 27 04:31:30 upanel-2204 systemd[1]: session-1646.scope: Deactivated successfully.
+Oct 27 04:31:30 upanel-2204 systemd-logind[695]: Session 1646 logged out. Waiting for processes to exit.
+Oct 27 04:31:30 upanel-2204 systemd-logind[695]: Removed session 1646.
+Oct 27 04:31:31 upanel-2204 sshd[188947]: Accepted publickey for upanel from 10.0.2.2 port 4836 ssh2: ED25519 SHA256:34smbxWVOmxCh3wR501x1VfKslzYdPxJl2vdCYR+jdU
+Oct 27 04:31:31 upanel-2204 sshd[188947]: pam_unix(sshd:session): session opened for user upanel(uid=1000) by (uid=0)
+Oct 27 04:31:31 upanel-2204 systemd-logind[695]: New session 1647 of user upanel.
+Oct 27 04:31:31 upanel-2204 systemd[1]: Started Session 1647 of User upanel.
+Oct 27 04:31:32 upanel-2204 sudo[188995]:   upanel : PWD=/home/upanel ; USER=root ; COMMAND=/usr/bin/install -m0755 /tmp/upanel-agent /tmp/upanel-web /tmp/upanelctl /var/tmp/upanel-bin/
+Oct 27 04:31:32 upanel-2204 sudo[188995]: pam_unix(sudo:session): session opened for user root(uid=0) by (uid=1000)
+Oct 27 04:31:34 upanel-2204 sudo[188995]: pam_unix(sudo:session): session closed for user root
+Oct 27 04:31:34 upanel-2204 sudo[188997]:   upanel : PWD=/home/upanel ; USER=root ; COMMAND=/usr/bin/chmod 0755 /tmp/p14-5-acceptance.sh
+Oct 27 04:31:34 upanel-2204 sudo[188997]: pam_unix(sudo:session): session opened for user root(uid=0) by (uid=1000)
+Oct 27 04:31:34 upanel-2204 sudo[188997]: pam_unix(sudo:session): session closed for user root
+Oct 27 04:31:35 upanel-2204 sshd[188993]: Received disconnect from 10.0.2.2 port 4836:11: disconnected by user
+Oct 27 04:31:35 upanel-2204 sshd[188993]: Disconnected from user upanel 10.0.2.2 port 4836
+Oct 27 04:31:35 upanel-2204 sshd[188947]: pam_unix(sshd:session): session closed for user upanel
+Oct 27 04:31:35 upanel-2204 systemd[1]: session-1647.scope: Deactivated successfully.
+Oct 27 04:31:35 upanel-2204 systemd[1]: session-1647.scope: Consumed 4.194s CPU time.
+Oct 27 04:31:35 upanel-2204 systemd-logind[695]: Session 1647 logged out. Waiting for processes to exit.
+Oct 27 04:31:36 upanel-2204 systemd-logind[695]: Removed session 1647.
+Oct 27 04:31:42 upanel-2204 sshd[188999]: Accepted publickey for upanel from 10.0.2.2 port 13757 ssh2: ED25519 SHA256:34smbxWVOmxCh3wR501x1VfKslzYdPxJl2vdCYR+jdU
+Oct 27 04:31:42 upanel-2204 sshd[188999]: pam_unix(sshd:session): session opened for user upanel(uid=1000) by (uid=0)
+Oct 27 04:31:42 upanel-2204 systemd-logind[695]: New session 1648 of user upanel.
+Oct 27 04:31:42 upanel-2204 systemd[1]: Started Session 1648 of User upanel.
+Oct 27 04:31:43 upanel-2204 sudo[189047]:   upanel : PWD=/home/upanel ; USER=root ; COMMAND=/usr/sbin/visudo -c
+Oct 27 04:31:43 upanel-2204 sudo[189047]: pam_unix(sudo:session): session opened for user root(uid=0) by (uid=1000)
+Oct 27 04:31:43 upanel-2204 sudo[189047]: pam_unix(sudo:session): session closed for user root
+Oct 27 04:31:43 upanel-2204 sshd[189045]: Received disconnect from 10.0.2.2 port 13757:11: disconnected by user
+Oct 27 04:31:43 upanel-2204 sshd[189045]: Disconnected from user upanel 10.0.2.2 port 13757
+Oct 27 04:31:43 upanel-2204 sshd[188999]: pam_unix(sshd:session): session closed for user upanel
+Oct 27 04:31:43 upanel-2204 systemd[1]: session-1648.scope: Deactivated successfully.
+Oct 27 04:31:43 upanel-2204 systemd[1]: session-1648.scope: Consumed 1.133s CPU time.
+Oct 27 04:31:43 upanel-2204 systemd-logind[695]: Session 1648 logged out. Waiting for processes to exit.
+Oct 27 04:31:44 upanel-2204 systemd-logind[695]: Removed session 1648.
+Oct 27 04:31:50 upanel-2204 sshd[189052]: Accepted publickey for upanel from 10.0.2.2 port 6694 ssh2: ED25519 SHA256:34smbxWVOmxCh3wR501x1VfKslzYdPxJl2vdCYR+jdU
+Oct 27 04:31:50 upanel-2204 sshd[189052]: pam_unix(sshd:session): session opened for user upanel(uid=1000) by (uid=0)
+Oct 27 04:31:50 upanel-2204 systemd-logind[695]: New session 1649 of user upanel.
+Oct 27 04:31:50 upanel-2204 systemd[1]: Started Session 1649 of User upanel.
+Oct 27 04:31:51 upanel-2204 sudo[189100]:   upanel : PWD=/home/upanel ; USER=root ; COMMAND=/usr/bin/rm -rf /var/tmp/upanel-accept-p14-5 /tmp/p145-run.log
+Oct 27 04:31:51 upanel-2204 sudo[189100]: pam_unix(sudo:session): session opened for user root(uid=0) by (uid=1000)
+Oct 27 04:31:51 upanel-2204 sudo[189100]: pam_unix(sudo:session): session closed for user root
+Oct 27 04:31:51 upanel-2204 sudo[189102]:   upanel : PWD=/home/upanel ; USER=root ; ENV=BIN_DIR=/var/tmp/upanel-bin ; COMMAND=/usr/bin/setsid nohup sh /tmp/p14-5-acceptance.sh
+Oct 27 04:31:51 upanel-2204 sudo[189102]: pam_unix(sudo:session): session opened for user root(uid=0) by (uid=1000)
+Oct 27 04:31:53 upanel-2204 sshd[189098]: Received disconnect from 10.0.2.2 port 6694:11: disconnected by user
+Oct 27 04:31:53 upanel-2204 sshd[189098]: Disconnected from user upanel 10.0.2.2 port 6694
+Oct 27 04:31:53 upanel-2204 sshd[189052]: pam_unix(sshd:session): session closed for user upanel
+Oct 27 04:31:53 upanel-2204 systemd-logind[695]: Session 1649 logged out. Waiting for processes to exit.
+Oct 27 04:31:54 upanel-2204 systemd[1]: Configuration file /etc/systemd/system/upanel-fwrollback@.service is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Oct 27 04:31:54 upanel-2204 systemd[1]: Configuration file /etc/systemd/system/upanel-netrollback@.service is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Oct 27 04:31:54 upanel-2204 systemd[1]: Configuration file /run/systemd/system/netplan-ovs-cleanup.service is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Oct 27 04:32:13 upanel-2204 runuser[189189]: pam_unix(runuser:session): session opened for user upanel-web(uid=997) by (uid=0)
+Oct 27 04:32:17 upanel-2204 sshd[189185]: Accepted publickey for upanel from 10.0.2.2 port 6709 ssh2: ED25519 SHA256:34smbxWVOmxCh3wR501x1VfKslzYdPxJl2vdCYR+jdU
+Oct 27 04:32:17 upanel-2204 sshd[189185]: pam_unix(sshd:session): session opened for user upanel(uid=1000) by (uid=0)
+Oct 27 04:32:17 upanel-2204 systemd-logind[695]: New session 1650 of user upanel.
+Oct 27 04:32:18 upanel-2204 systemd[1]: Started Session 1650 of User upanel.
+Oct 27 04:32:37 upanel-2204 sudo[189401]:   upanel : PWD=/home/upanel ; USER=root ; COMMAND=/usr/bin/test -f /var/tmp/upanel-accept-p14-5/RESULT
+Oct 27 04:32:37 upanel-2204 sudo[189401]: pam_unix(sudo:session): session opened for user root(uid=0) by (uid=1000)
+Oct 27 04:32:38 upanel-2204 sudo[189401]: pam_unix(sudo:session): session closed for user root
+Oct 27 04:32:38 upanel-2204 sshd[189400]: Received disconnect from 10.0.2.2 port 6709:11: disconnected by user
+Oct 27 04:32:38 upanel-2204 sshd[189400]: Disconnected from user upanel 10.0.2.2 port 6709
+Oct 27 04:32:38 upanel-2204 sshd[189185]: pam_unix(sshd:session): session closed for user upanel
+Oct 27 04:32:38 upanel-2204 systemd-logind[695]: Session 1650 logged out. Waiting for processes to exit.
+Oct 27 04:32:38 upanel-2204 systemd[1]: session-1650.scope: Deactivated successfully.
+Oct 27 04:32:38 upanel-2204 systemd[1]: session-1650.scope: Consumed 9.153s CPU time.
+Oct 27 04:32:38 upanel-2204 systemd-logind[695]: Removed session 1650.
+Oct 27 04:32:44 upanel-2204 sshd[189423]: Accepted publickey for upanel from 10.0.2.2 port 6461 ssh2: ED25519 SHA256:34smbxWVOmxCh3wR501x1VfKslzYdPxJl2vdCYR+jdU
+Oct 27 04:32:44 upanel-2204 sshd[189423]: pam_unix(sshd:session): session opened for user upanel(uid=1000) by (uid=0)
+Oct 27 04:32:44 upanel-2204 systemd-logind[695]: New session 1651 of user upanel.
+Oct 27 04:32:44 upanel-2204 systemd[1]: Started Session 1651 of User upanel.
+Oct 27 04:32:45 upanel-2204 systemd[1]: Configuration file /etc/systemd/system/upanel-fwrollback@.service is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Oct 27 04:32:45 upanel-2204 systemd[1]: Configuration file /etc/systemd/system/upanel-netrollback@.service is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Oct 27 04:32:45 upanel-2204 systemd[1]: Configuration file /run/systemd/system/netplan-ovs-cleanup.service is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Oct 27 04:33:03 upanel-2204 sudo[189520]:   upanel : PWD=/home/upanel ; USER=root ; COMMAND=/usr/bin/test -f /var/tmp/upanel-accept-p14-5/RESULT
+Oct 27 04:33:03 upanel-2204 useradd[189519]: new group: name=alice, GID=1002
+Oct 27 04:33:03 upanel-2204 useradd[189519]: new user: name=alice, UID=1002, GID=1002, home=/home/alice, shell=/bin/rbash, from=none
+Oct 27 04:33:03 upanel-2204 sudo[189520]: pam_unix(sudo:session): session opened for user root(uid=0) by (uid=1000)
+Oct 27 04:33:03 upanel-2204 sudo[189520]: pam_unix(sudo:session): session closed for user root
+Oct 27 04:33:03 upanel-2204 sshd[189476]: Received disconnect from 10.0.2.2 port 6461:11: disconnected by user
+Oct 27 04:33:03 upanel-2204 sshd[189476]: Disconnected from user upanel 10.0.2.2 port 6461
+Oct 27 04:33:03 upanel-2204 sshd[189423]: pam_unix(sshd:session): session closed for user upanel
+Oct 27 04:33:03 upanel-2204 systemd-logind[695]: Session 1651 logged out. Waiting for processes to exit.
+Oct 27 04:33:03 upanel-2204 systemd[1]: session-1651.scope: Deactivated successfully.
+Oct 27 04:33:03 upanel-2204 systemd-logind[695]: Removed session 1651.
+Oct 27 04:33:04 upanel-2204 chpasswd[189537]: pam_unix(chpasswd:chauthtok): password changed for alice
+Oct 27 04:33:10 upanel-2204 sshd[189581]: Accepted publickey for upanel from 10.0.2.2 port 10020 ssh2: ED25519 SHA256:34smbxWVOmxCh3wR501x1VfKslzYdPxJl2vdCYR+jdU
+Oct 27 04:33:10 upanel-2204 sshd[189581]: pam_unix(sshd:session): session opened for user upanel(uid=1000) by (uid=0)
+Oct 27 04:33:10 upanel-2204 systemd-logind[695]: New session 1652 of user upanel.
+Oct 27 04:33:10 upanel-2204 systemd[1]: Started Session 1652 of User upanel.
+Oct 27 04:33:12 upanel-2204 sudo[189632]:   upanel : PWD=/home/upanel ; USER=root ; COMMAND=/usr/bin/test -f /var/tmp/upanel-accept-p14-5/RESULT
+Oct 27 04:33:12 upanel-2204 sudo[189632]: pam_unix(sudo:session): session opened for user root(uid=0) by (uid=1000)
+Oct 27 04:33:12 upanel-2204 sudo[189632]: pam_unix(sudo:session): session closed for user root
+Oct 27 04:33:12 upanel-2204 sshd[189631]: Received disconnect from 10.0.2.2 port 10020:11: disconnected by user
+Oct 27 04:33:12 upanel-2204 sshd[189631]: Disconnected from user upanel 10.0.2.2 port 10020
+Oct 27 04:33:12 upanel-2204 sshd[189581]: pam_unix(sshd:session): session closed for user upanel
+Oct 27 04:33:12 upanel-2204 systemd-logind[695]: Session 1652 logged out. Waiting for processes to exit.
+Oct 27 04:33:13 upanel-2204 systemd[1]: session-1652.scope: Deactivated successfully.
+Oct 27 04:33:13 upanel-2204 systemd-logind[695]: Removed session 1652.
+Oct 27 04:33:18 upanel-2204 sshd[189710]: Accepted publickey for upanel from 10.0.2.2 port 1431 ssh2: ED25519 SHA256:34smbxWVOmxCh3wR501x1VfKslzYdPxJl2vdCYR+jdU
+Oct 27 04:33:19 upanel-2204 sshd[189710]: pam_unix(sshd:session): session opened for user upanel(uid=1000) by (uid=0)
+Oct 27 04:33:19 upanel-2204 systemd-logind[695]: New session 1653 of user upanel.
+Oct 27 04:33:19 upanel-2204 systemd[1]: Started Session 1653 of User upanel.
+Oct 27 04:33:21 upanel-2204 sudo[189776]:   upanel : PWD=/home/upanel ; USER=root ; COMMAND=/usr/bin/test -f /var/tmp/upanel-accept-p14-5/RESULT
+Oct 27 04:33:21 upanel-2204 sudo[189776]: pam_unix(sudo:session): session opened for user root(uid=0) by (uid=1000)
+Oct 27 04:33:21 upanel-2204 sudo[189776]: pam_unix(sudo:session): session closed for user root
+Oct 27 04:33:21 upanel-2204 sshd[189775]: Received disconnect from 10.0.2.2 port 1431:11: disconnected by user
+Oct 27 04:33:21 upanel-2204 sshd[189775]: Disconnected from user upanel 10.0.2.2 port 1431
+Oct 27 04:33:21 upanel-2204 sshd[189710]: pam_unix(sshd:session): session closed for user upanel
+Oct 27 04:33:21 upanel-2204 systemd[1]: session-1653.scope: Deactivated successfully.
+Oct 27 04:33:21 upanel-2204 systemd-logind[695]: Session 1653 logged out. Waiting for processes to exit.
+Oct 27 04:33:21 upanel-2204 systemd-logind[695]: Removed session 1653.
+Oct 27 04:33:23 upanel-2204 systemd[1]: Configuration file /etc/systemd/system/upanel-fwrollback@.service is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Oct 27 04:33:23 upanel-2204 systemd[1]: Configuration file /etc/systemd/system/upanel-netrollback@.service is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Oct 27 04:33:23 upanel-2204 systemd[1]: Configuration file /run/systemd/system/netplan-ovs-cleanup.service is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Oct 27 04:33:54 upanel-2204 sshd[189805]: Accepted publickey for upanel from 10.0.2.2 port 1442 ssh2: ED25519 SHA256:34smbxWVOmxCh3wR501x1VfKslzYdPxJl2vdCYR+jdU
+Oct 27 04:33:54 upanel-2204 sshd[189805]: pam_unix(sshd:session): session opened for user upanel(uid=1000) by (uid=0)
+Oct 27 04:33:54 upanel-2204 systemd-logind[695]: New session 1654 of user upanel.
+Oct 27 04:33:54 upanel-2204 systemd[1]: Started Session 1654 of User upanel.
+Oct 27 04:33:56 upanel-2204 sudo[190074]:   upanel : PWD=/home/upanel ; USER=root ; COMMAND=/usr/bin/test -f /var/tmp/upanel-accept-p14-5/RESULT
+Oct 27 04:33:56 upanel-2204 sudo[190074]: pam_unix(sudo:session): session opened for user root(uid=0) by (uid=1000)
+Oct 27 04:33:56 upanel-2204 sudo[190074]: pam_unix(sudo:session): session closed for user root
+Oct 27 04:33:56 upanel-2204 sshd[190071]: Received disconnect from 10.0.2.2 port 1442:11: disconnected by user
+Oct 27 04:33:56 upanel-2204 sshd[190071]: Disconnected from user upanel 10.0.2.2 port 1442
+Oct 27 04:33:56 upanel-2204 sshd[189805]: pam_unix(sshd:session): session closed for user upanel
+Oct 27 04:33:56 upanel-2204 systemd-logind[695]: Session 1654 logged out. Waiting for processes to exit.
+Oct 27 04:33:56 upanel-2204 systemd[1]: session-1654.scope: Deactivated successfully.
+Oct 27 04:33:56 upanel-2204 systemd[1]: session-1654.scope: Consumed 1.006s CPU time.
+Oct 27 04:33:56 upanel-2204 systemd-logind[695]: Removed session 1654.
+Oct 27 04:33:57 upanel-2204 systemd[1]: Configuration file /etc/systemd/system/upanel-fwrollback@.service is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Oct 27 04:33:58 upanel-2204 systemd[1]: Configuration file /etc/systemd/system/upanel-netrollback@.service is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Oct 27 04:33:58 upanel-2204 systemd[1]: Configuration file /run/systemd/system/netplan-ovs-cleanup.service is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Oct 27 04:34:16 upanel-2204 sshd[190135]: Accepted publickey for upanel from 10.0.2.2 port 8699 ssh2: ED25519 SHA256:34smbxWVOmxCh3wR501x1VfKslzYdPxJl2vdCYR+jdU
+Oct 27 04:34:16 upanel-2204 sshd[190135]: pam_unix(sshd:session): session opened for user upanel(uid=1000) by (uid=0)
+Oct 27 04:34:16 upanel-2204 systemd-logind[695]: New session 1655 of user upanel.
+Oct 27 04:34:16 upanel-2204 systemd[1]: Started Session 1655 of User upanel.
+Oct 27 04:34:18 upanel-2204 sudo[190243]:   upanel : PWD=/home/upanel ; USER=root ; COMMAND=/usr/bin/test -f /var/tmp/upanel-accept-p14-5/RESULT
+Oct 27 04:34:18 upanel-2204 sudo[190243]: pam_unix(sudo:session): session opened for user root(uid=0) by (uid=1000)
+Oct 27 04:34:18 upanel-2204 sudo[190243]: pam_unix(sudo:session): session closed for user root
+Oct 27 04:34:18 upanel-2204 sshd[190240]: Received disconnect from 10.0.2.2 port 8699:11: disconnected by user
+Oct 27 04:34:18 upanel-2204 sshd[190240]: Disconnected from user upanel 10.0.2.2 port 8699
+Oct 27 04:34:18 upanel-2204 sshd[190135]: pam_unix(sshd:session): session closed for user upanel
+Oct 27 04:34:19 upanel-2204 systemd[1]: session-1655.scope: Deactivated successfully.
+Oct 27 04:34:19 upanel-2204 systemd[1]: session-1655.scope: Consumed 1.061s CPU time.
+Oct 27 04:34:19 upanel-2204 systemd-logind[695]: Session 1655 logged out. Waiting for processes to exit.
+Oct 27 04:34:19 upanel-2204 systemd-logind[695]: Removed session 1655.
+Oct 27 04:34:19 upanel-2204 runuser[190270]: pam_unix(runuser:session): session opened for user alice(uid=1002) by (uid=0)
+Oct 27 04:34:20 upanel-2204 sudo[190271]:    alice : PWD=/home/upanel ; USER=root ; COMMAND=/usr/bin/systemctl status --no-pager
+Oct 27 04:34:20 upanel-2204 sudo[190271]: pam_unix(sudo:session): session opened for user root(uid=0) by (uid=1002)
+Oct 27 04:34:20 upanel-2204 sudo[190271]: pam_unix(sudo:session): session closed for user root
+Oct 27 04:34:20 upanel-2204 runuser[190270]: pam_unix(runuser:session): session closed for user alice
+Oct 27 04:34:20 upanel-2204 runuser[190273]: pam_unix(runuser:session): session opened for user alice(uid=1002) by (uid=0)
+Oct 27 04:34:20 upanel-2204 sudo[190274]: pam_unix(sudo:auth): conversation failed
+Oct 27 04:34:20 upanel-2204 sudo[190274]: pam_unix(sudo:auth): auth could not identify password for [alice]
+Oct 27 04:34:20 upanel-2204 runuser[190273]: pam_unix(runuser:session): session closed for user alice
+Oct 27 04:34:25 upanel-2204 sshd[190303]: Accepted publickey for upanel from 10.0.2.2 port 14742 ssh2: ED25519 SHA256:34smbxWVOmxCh3wR501x1VfKslzYdPxJl2vdCYR+jdU
+Oct 27 04:34:25 upanel-2204 sshd[190303]: pam_unix(sshd:session): session opened for user upanel(uid=1000) by (uid=0)
+Oct 27 04:34:25 upanel-2204 systemd-logind[695]: New session 1656 of user upanel.
+Oct 27 04:34:25 upanel-2204 systemd[1]: Started Session 1656 of User upanel.
+Oct 27 04:34:28 upanel-2204 sudo[190372]:   upanel : parse error in /etc/sudoers.d/zz-p145-broken near line 1 ; PWD=/home/upanel ; USER=root ;
+Oct 27 04:34:28 upanel-2204 sudo[190372]:   upanel : PWD=/home/upanel ; USER=root ; COMMAND=/usr/bin/test -f /var/tmp/upanel-accept-p14-5/RESULT
+Oct 27 04:34:28 upanel-2204 sudo[190372]: pam_unix(sudo:session): session opened for user root(uid=0) by (uid=1000)
+Oct 27 04:34:29 upanel-2204 sudo[190372]: pam_unix(sudo:session): session closed for user root
+Oct 27 04:34:29 upanel-2204 sshd[190370]: Received disconnect from 10.0.2.2 port 14742:11: disconnected by user
+Oct 27 04:34:29 upanel-2204 sshd[190370]: Disconnected from user upanel 10.0.2.2 port 14742
+Oct 27 04:34:29 upanel-2204 sshd[190303]: pam_unix(sshd:session): session closed for user upanel
+Oct 27 04:34:29 upanel-2204 systemd-logind[695]: Session 1656 logged out. Waiting for processes to exit.
+Oct 27 04:34:29 upanel-2204 systemd[1]: session-1656.scope: Deactivated successfully.
+Oct 27 04:34:29 upanel-2204 systemd[1]: session-1656.scope: Consumed 1.166s CPU time.
+Oct 27 04:34:29 upanel-2204 systemd-logind[695]: Removed session 1656.
+Oct 27 04:34:33 upanel-2204 systemd[1]: Configuration file /etc/systemd/system/upanel-fwrollback@.service is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Oct 27 04:34:33 upanel-2204 systemd[1]: Configuration file /etc/systemd/system/upanel-netrollback@.service is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Oct 27 04:34:34 upanel-2204 systemd[1]: Configuration file /run/systemd/system/netplan-ovs-cleanup.service is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Oct 27 04:34:53 upanel-2204 runuser[190526]: pam_unix(runuser:session): session opened for user alice(uid=1002) by (uid=0)
+Oct 27 04:34:53 upanel-2204 sudo[190527]:    alice : PWD=/home/upanel ; USER=root ; COMMAND=/usr/bin/journalctl -n 200 --no-pager
+Oct 27 04:34:53 upanel-2204 sudo[190527]: pam_unix(sudo:session): session opened for user root(uid=0) by (uid=1002)

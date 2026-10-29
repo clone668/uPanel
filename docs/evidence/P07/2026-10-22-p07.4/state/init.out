@@ -1,0 +1,8 @@
+{
+  "database_path": "/var/tmp/upanel-accept-p07-4/webdata/upanel.db",
+  "user_id": 1,
+  "username": "admin",
+  "display_name": "管理员",
+  "role": "admin",
+  "schema_version": 6
+}

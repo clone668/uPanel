@@ -1,0 +1,3 @@
+计划 sch_b1f2568d7107465e3b13d32cb685ad52 的时间槽 2026-10-25T08:19:00Z 已触发过，沿用操作 op_69b4abb28aaed5849dead631ff5eb5af
+等待操作 op_69b4abb28aaed5849dead631ff5eb5af 跑到终态（最多 33s）
+操作 op_69b4abb28aaed5849dead631ff5eb5af 结束于 failed：COMMAND_FAILED: 脚本 "p12-4 超时 8edab69b" 超过 3 秒被终止

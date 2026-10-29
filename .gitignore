@@ -31,6 +31,13 @@
 *.tar.gz
 *.zip
 
+# 例外：证据目录里的 *.out 是**真机读数**（纯文本命令输出），不是编译产物。
+# 上面那条 `*.out` 本来是拦 Go 测试二进制的，结果把
+# docs/evidence/P14/…/facts/ssh-bob-*.out、P12/…/wait-timeout.out 这类读数一起吞了——
+# 文档里引用它们，仓库里却没有，验收链就断了。只对 .out 开例外：
+# .key/.pem/.db 仍然一律不进来（测试机上的密钥、库副本不该进仓库）。
+!/docs/evidence/**/*.out
+
 # 秘密与本地配置
 .env
 .env.*
