@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "deployment_id": "dep_ed8e30bcbbf594e511e8c5a08eb65d9c",
+  "name": "webapp",
+  "definition": {
+    "name": "webapp",
+    "image_reference": "nginx:1.27-alpine",
+    "container_port": 80,
+    "host_bind_address": "127.0.0.1",
+    "host_port": 18088,
+    "environment": [
+      {
+        "name": "APP_MODE",
+        "value": "p15-3"
+      }
+    ],
+    "mounts": [
+      {
+        "source_root_id": "deploydata",
+        "relative_path": ".",
+        "container_path": "/data",
+        "read_only": false
+      }
+    ],
+    "resource_limits": {
+      "memory_limit_bytes": 134217728,
+      "cpu_limit": "0.5"
+    },
+    "health_check": {
+      "enabled": true,
+      "kind": "http",
+      "port": 80,
+      "path": "/",
+      "interval_seconds": 5,
+      "timeout_seconds": 2,
+      "retries": 3
+    },
+    "volume_dependencies": [
+      "vol_2d67da1e349c9de68f668bed209ee466"
+    ]
+  },
+  "config_digest": "sha256:e406bf01077426a220be5d61da6fb5b0525204a032484e6366ba60d5ae225147",
+  "image": {
+    "requested": "nginx:1.27-alpine",
+    "digest": "sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10",
+    "repo_digests": [
+      "nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"
+    ],
+    "config_digest": "sha256:e406bf01077426a220be5d61da6fb5b0525204a032484e6366ba60d5ae225147",
+    "resolved_at": "2026-10-27T12:48:01Z"
+  },
+  "previous": {
+    "requested": "traefik/whoami:v1.10.3",
+    "digest": "sha256:43a68d10b9dfcfc3ffbfe4dd42100dc9aeaf29b3a5636c856337a5940f1b4f1c",
+    "config_digest": "sha256:ab9215e4ce0d9431509a7144f55f3809a2d768446d81183cfe0c27aa93a2c551",
+    "resolved_at": "2026-10-27T12:48:35Z"
+  },
+  "updated_at": "2026-10-27T12:48:35Z"
+}

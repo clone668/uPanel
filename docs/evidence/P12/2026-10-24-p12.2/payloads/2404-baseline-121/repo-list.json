@@ -1,0 +1,1 @@
+{"data":{"items":[{"id":"rep_57315fdde0acb34c61f55fbc68daee0f","name":"p12-2 本地仓库","backend":"local","location":{"root_id":"root1","relative_path":"backups/p12-2"},"password_secret_ref":"sec_57397fbdd8ae891f44b54615664c038f","version":1}],"repository_state_query":"backup.repository.state"},"request_id":"0c22608ae5badaa9fdca7ff61a4b181d"}

@@ -1,0 +1,4 @@
+PHASE=main
+PASS=199 FAIL=0 NOT RUN=2
+FAILED_NAMES= (none)
+NOTRUN_NAMES= | 容器里读到的 marker | 运行中卷失联 → systemd 自动停单元

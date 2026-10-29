@@ -1,0 +1,58 @@
+# DISK-02 读数绑定的确切字节（LVM 与 RAID 两场共用同一份）
+
+两份读数（`lvm/2404-lvm-root-guard.log`、`raid/2404-raid-root-guard.log`）跑的是**同一批二进制**，
+只是装在两台拓扑不同、丢掉的客机上。字节若有任何一个不同，两份读数就不能并排比较。
+
+## 二进制
+
+`go build -trimpath` 直出，**没有走 `scripts/release.sh`**，因此 `BuildDate` 与版本号都是空/占位
+（Q510：`BuildDate` 由发布脚本注入，为改文档措辞去重编译会让读数失去意义）。
+
+```
+5ad12b15820439bd6b9fbc5514090a5d938d7a4f1899c85de82ad54eb01a5533 *upanel-agent
+cd6dc5ee829343ab62633f9fadf0a59d8ceb442a48ac6cc4808be589dfa99a77 *upanel-web
+563f938935d6220a4d1e80cf0a386db6135eb29dfbed5d780455f49a31f0425b *upanelctl
+```
+
+（名字前面的 `*` 是 `sha256sum` 二进制模式的标记，不是文件名的一部分。）
+
+## 仓库状态
+
+```
+HEAD          8e52b36bf93579d8bd739604258d09ebdd4d595a
+工作区         脏，git status --porcelain 354 行
+```
+
+工作区是脏的，所以**"这份二进制 = 这个 commit"不成立**。成立的是上面三个 sha256——
+它们才是读数的身份。HEAD 只是"当时从哪个提交长出来的"。
+
+## 验收脚本
+
+```
+c07b0e4f1f55182c211abae4b40843993403dbe8a4282690583a2df897b8e56b *tests/integration/p16-5-root-disk-recursion.sh
+```
+
+**两份存档读数都是这一版跑出来的。** RAID 第一场用的 `b305501a…36f2` 有 5 条锁断言的期望写错了
+（把"锁"当成"整台机所有物理盘"，产品实际按目标自己的依赖链加锁，见 `docs/DECISIONS.md` Q522），
+那两场读数留在 `lvm/runs1-pre-fix/`、`raid/runs1-pre-fix/`，不删。
+
+同一份脚本在两种拓扑上跑出两个场景（`SCENE=lvm` / `SCENE=raid`），断言集相同，期望的锁由
+`lock_for()` 按**目标自己**的 sysfs 链路算：整盘 → 它自己；分区 → 它所在的整盘；目标是叠层设备
+→ 依赖链上的每一块物理盘（LVM 一根 PV → 一把锁；RAID1 两块成员 → 两把锁）。
+RAID 场另有一条只在"物理盘多于一块"时执行的断言：单盘目标的锁**不许**含别的盘。
+
+## 客机
+
+| | LVM 那一场 | RAID 那一场 |
+|---|---|---|
+| 主机名 | `upanel-lvm` | `upanel-md` |
+| 发行版 | Ubuntu 24.04 cloud image | Ubuntu 24.04 cloud image |
+| 内核 | `6.8.0-147-generic` | `6.8.0-147-generic` |
+| 虚拟化 | QEMU `-accel tcg,thread=multi -cpu max`（whpx 会让 24.04 客机 panic） | 同上 |
+| 根设备 | `/dev/mapper/upanel--vg-root`（`dm-0`，PV 是 `sda2`） | `/dev/md0`（RAID1，成员 `sda2`+`sdb2`） |
+| 备用盘（反面对照） | `/dev/sdb`，4 GiB，空白 | `/dev/sdc`，4 GiB，空白 |
+
+两台的根都是在客机里迁出来的（第二块盘 → PV/VG/LV 或 mdadm → mkfs → rsync → chroot `grub-install`
+→ 重启），没有用 `subiquity` 的 `layout: lvm`，因为 `H:\Code\vms\images\` 里只有 cloud image、
+没有 server installer ISO。迁移脚本原样留档：`lvm/migrate-lvm.sh`、`lvm/in-chroot-lvm.sh`、
+`raid/migrate-md.sh`、`raid/in-chroot-md.sh`。

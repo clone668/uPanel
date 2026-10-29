@@ -1,0 +1,11 @@
+# host：单测与静态检查（VM 验收期间不跑，验收结束后跑）
+
+## go test ./internal/shares/ ./internal/agentstore/
+ok  	upanel/internal/shares	(cached)
+ok  	upanel/internal/agentstore	3.217s
+
+## go vet
+vet clean
+
+## gofmt -l
+(空=干净)

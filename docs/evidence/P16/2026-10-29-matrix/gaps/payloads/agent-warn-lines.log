@@ -1,0 +1,2 @@
+{"time":"2026-10-29T02:37:56.318573226Z","level":"WARN","msg":"上传失败，暂存已删除","program":"upanel-agent","upload_id":"up_b1a5a893dc8ff6bbabb0bb067f30b054","root_id":"small","path":"existing.bin","reason":"磁盘空间不足，暂存已删除"}
+{"time":"2026-10-29T02:38:03.970791265Z","level":"WARN","msg":"上传失败，暂存已删除","program":"upanel-agent","upload_id":"up_5ee5ffaa2f5812426959f063ef46b07c","root_id":"rw","path":"broken.bin","reason":"传输中断（已写入 3145728 字节）：unexpected EOF"}

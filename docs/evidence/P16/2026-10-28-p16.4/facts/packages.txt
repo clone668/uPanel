@@ -1,0 +1,108 @@
+== dist/SHA256SUMS（1.0 两包）
+751a274d2e3810a5459303f44b4a193b8a566d036ea3bcb968a2e8e409555fba  upanel-1.0.0-linux-amd64.tar.gz
+c94ed4d50f11805070583ea207c858bfae057740297cebe5f2de5d743352c6db  upanel-1.0.0-linux-arm64.tar.gz
+
+== 包内 VERSION
+-- amd64
+1.0.0
+commit: 8e52b36-dirty
+build_date: 2026-10-28T03:59:13Z
+arch: amd64
+-- arm64
+1.0.0
+commit: 8e52b36-dirty
+build_date: 2026-10-28T03:59:13Z
+arch: arm64
+== 包体积与文件数
+44149944 dist/upanel-1.0.0-linux-amd64.tar.gz
+40945025 dist/upanel-1.0.0-linux-arm64.tar.gz
+
+== 包内 sha256sum -c（amd64，解包后原地校验）
+docs/STORAGE_RECOVERY.md: OK
+docs/SUPPORT_MATRIX.md: OK
+docs/USER_GUIDE.md: OK
+21
+
+== 包内文件与权限（amd64 全量清单）
+-rw-r--r-- README.md
+-rw-r--r-- SHA256SUMS
+-rw-r--r-- VERSION
+-rw-r--r-- bin/upanel-agent
+-rw-r--r-- bin/upanel-web
+-rw-r--r-- bin/upanelctl
+-rwxr-xr-x deploy/scripts/backup-state.sh
+-rwxr-xr-x deploy/scripts/install.sh
+-rwxr-xr-x deploy/scripts/uninstall.sh
+-rw-r--r-- deploy/systemd/upanel-agent.service
+-rw-r--r-- deploy/systemd/upanel-web.service
+-rw-r--r-- deploy/upanel.example.json
+-rw-r--r-- docs/ACCESS.md
+-rw-r--r-- docs/INSTALL.md
+-rw-r--r-- docs/KNOWN_LIMITATIONS.md
+-rw-r--r-- docs/LOCAL_START.md
+-rw-r--r-- docs/RECOVERY.md
+-rw-r--r-- docs/RELEASE_NOTES.md
+-rw-r--r-- docs/SHARES_CLIENT.md
+-rw-r--r-- docs/STORAGE_RECOVERY.md
+-rw-r--r-- docs/SUPPORT_MATRIX.md
+-rw-r--r-- docs/USER_GUIDE.md
+
+== 包内文件与权限（amd64，取自 tar 自身记录——宿主是 Windows，解出来的 stat 看不到执行位）
+drwxr-xr-x 0/0 0 2026-10-28 11:59 upanel-1.0.0-linux-amd64/
+drwxr-xr-x 0/0 0 2026-10-28 11:59 upanel-1.0.0-linux-amd64/bin/
+drwxr-xr-x 0/0 0 2026-10-28 11:59 upanel-1.0.0-linux-amd64/deploy/
+drwxr-xr-x 0/0 0 2026-10-28 11:59 upanel-1.0.0-linux-amd64/deploy/scripts/
+drwxr-xr-x 0/0 0 2026-10-28 11:59 upanel-1.0.0-linux-amd64/deploy/systemd/
+-rw-r--r-- 0/0 4658 2026-10-28 11:59 upanel-1.0.0-linux-amd64/deploy/systemd/upanel-agent.service
+-rw-r--r-- 0/0 3037 2026-10-28 11:59 upanel-1.0.0-linux-amd64/deploy/systemd/upanel-web.service
+-rw-r--r-- 0/0 1033 2026-10-28 11:59 upanel-1.0.0-linux-amd64/deploy/upanel.example.json
+drwxr-xr-x 0/0 0 2026-10-28 11:59 upanel-1.0.0-linux-amd64/docs/
+-rw-r--r-- 0/0 8121 2026-10-28 11:59 upanel-1.0.0-linux-amd64/docs/ACCESS.md
+-rw-r--r-- 0/0 18916 2026-10-28 11:59 upanel-1.0.0-linux-amd64/docs/INSTALL.md
+-rw-r--r-- 0/0 9471 2026-10-28 11:59 upanel-1.0.0-linux-amd64/docs/KNOWN_LIMITATIONS.md
+-rw-r--r-- 0/0 33603 2026-10-28 11:59 upanel-1.0.0-linux-amd64/docs/LOCAL_START.md
+-rw-r--r-- 0/0 19424 2026-10-28 11:59 upanel-1.0.0-linux-amd64/docs/RECOVERY.md
+-rw-r--r-- 0/0 6358 2026-10-28 11:59 upanel-1.0.0-linux-amd64/docs/RELEASE_NOTES.md
+-rw-r--r-- 0/0 9698 2026-10-28 11:59 upanel-1.0.0-linux-amd64/docs/SHARES_CLIENT.md
+-rw-r--r-- 0/0 13061 2026-10-28 11:59 upanel-1.0.0-linux-amd64/docs/STORAGE_RECOVERY.md
+-rw-r--r-- 0/0 10624 2026-10-28 11:59 upanel-1.0.0-linux-amd64/docs/SUPPORT_MATRIX.md
+-rw-r--r-- 0/0 15348 2026-10-28 11:59 upanel-1.0.0-linux-amd64/docs/USER_GUIDE.md
+-rw-r--r-- 0/0 5762 2026-10-28 11:59 upanel-1.0.0-linux-amd64/README.md
+-rw-r--r-- 0/0 1837 2026-10-28 11:59 upanel-1.0.0-linux-amd64/SHA256SUMS
+-rw-r--r-- 0/0 73 2026-10-28 11:59 upanel-1.0.0-linux-amd64/VERSION
+-rwxr-xr-x 0/0 35522540 2026-10-28 11:59 upanel-1.0.0-linux-amd64/bin/upanel-web
+-rwxr-xr-x 0/0 28341854 2026-10-28 11:59 upanel-1.0.0-linux-amd64/bin/upanel-agent
+-rwxr-xr-x 0/0 18102286 2026-10-28 11:59 upanel-1.0.0-linux-amd64/bin/upanelctl
+-rwxr-xr-x 0/0 35623 2026-10-28 11:59 upanel-1.0.0-linux-amd64/deploy/scripts/install.sh
+-rwxr-xr-x 0/0 10959 2026-10-28 11:59 upanel-1.0.0-linux-amd64/deploy/scripts/uninstall.sh
+-rwxr-xr-x 0/0 12345 2026-10-28 11:59 upanel-1.0.0-linux-amd64/deploy/scripts/backup-state.sh
+
+== 包内文件与权限（arm64）
+drwxr-xr-x upanel-1.0.0-linux-arm64/
+drwxr-xr-x upanel-1.0.0-linux-arm64/bin/
+drwxr-xr-x upanel-1.0.0-linux-arm64/deploy/
+drwxr-xr-x upanel-1.0.0-linux-arm64/deploy/scripts/
+drwxr-xr-x upanel-1.0.0-linux-arm64/deploy/systemd/
+-rw-r--r-- upanel-1.0.0-linux-arm64/deploy/systemd/upanel-agent.service
+-rw-r--r-- upanel-1.0.0-linux-arm64/deploy/systemd/upanel-web.service
+-rw-r--r-- upanel-1.0.0-linux-arm64/deploy/upanel.example.json
+drwxr-xr-x upanel-1.0.0-linux-arm64/docs/
+-rw-r--r-- upanel-1.0.0-linux-arm64/docs/ACCESS.md
+-rw-r--r-- upanel-1.0.0-linux-arm64/docs/INSTALL.md
+-rw-r--r-- upanel-1.0.0-linux-arm64/docs/KNOWN_LIMITATIONS.md
+-rw-r--r-- upanel-1.0.0-linux-arm64/docs/LOCAL_START.md
+-rw-r--r-- upanel-1.0.0-linux-arm64/docs/RECOVERY.md
+-rw-r--r-- upanel-1.0.0-linux-arm64/docs/RELEASE_NOTES.md
+-rw-r--r-- upanel-1.0.0-linux-arm64/docs/SHARES_CLIENT.md
+-rw-r--r-- upanel-1.0.0-linux-arm64/docs/STORAGE_RECOVERY.md
+-rw-r--r-- upanel-1.0.0-linux-arm64/docs/SUPPORT_MATRIX.md
+-rw-r--r-- upanel-1.0.0-linux-arm64/docs/USER_GUIDE.md
+-rw-r--r-- upanel-1.0.0-linux-arm64/README.md
+-rw-r--r-- upanel-1.0.0-linux-arm64/SHA256SUMS
+-rw-r--r-- upanel-1.0.0-linux-arm64/VERSION
+-rwxr-xr-x upanel-1.0.0-linux-arm64/bin/upanel-web
+-rwxr-xr-x upanel-1.0.0-linux-arm64/bin/upanel-agent
+-rwxr-xr-x upanel-1.0.0-linux-arm64/bin/upanelctl
+-rwxr-xr-x upanel-1.0.0-linux-arm64/deploy/scripts/install.sh
+-rwxr-xr-x upanel-1.0.0-linux-arm64/deploy/scripts/uninstall.sh
+-rwxr-xr-x upanel-1.0.0-linux-arm64/deploy/scripts/backup-state.sh

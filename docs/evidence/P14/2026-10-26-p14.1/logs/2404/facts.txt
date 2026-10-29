@@ -1,0 +1,29 @@
+collected_at(interfaces) = 2026-10-26T12:50:38Z
+iface docker0 kind=bridge   phys=False state=down     mtu=1500 carrier=False addrs=['172.17.0.1/16(ipv4)']
+iface ens4   kind=ethernet phys=True  state=up       mtu=1500 carrier=True addrs=['10.0.2.15/24(ipv4)', 'fec0::5054:ff:fe12:3456/64(ipv6)', 'fe80::5054:ff:fe12:3456/64(ipv6)']
+iface lo     kind=loopback phys=False state=unknown  mtu=65536 carrier=True addrs=['127.0.0.1/8(ipv4)', '::1/128(ipv6)']
+capability backend=netplan-networkd editable=False target='ens4' reasons=['本机存在网桥接口（docker0）：PLAN §19 规定 1.0 只改单个物理网卡的 IPv4，其余先只读']
+routes=8 default=[('ipv4', '0.0.0.0/0', '10.0.2.2', 'ens4'), ('ipv6', '::/0', 'fe80::2', 'ens4')]
+gateways=[('ipv4', '10.0.2.2', 'ens4'), ('ipv6', 'fe80::2', 'ens4')]
+listeners=19 truncated=False
+  listen tcp  0.0.0.0         22    pid=1      proc=systemd        unit=init.scope wildcard=True loopback=False
+  listen tcp  ::              22    pid=1      proc=systemd        unit=init.scope wildcard=True loopback=False
+  listen tcp  127.0.0.53      53    pid=160538 proc=systemd-resolve unit=systemd-resolved.service wildcard=False loopback=True
+  listen tcp  127.0.0.54      53    pid=160538 proc=systemd-resolve unit=systemd-resolved.service wildcard=False loopback=True
+  listen udp  127.0.0.53      53    pid=160538 proc=systemd-resolve unit=systemd-resolved.service wildcard=False loopback=True
+  listen udp  127.0.0.54      53    pid=160538 proc=systemd-resolve unit=systemd-resolved.service wildcard=False loopback=True
+  listen udp  10.0.2.15       68    pid=160599 proc=systemd-network unit=systemd-networkd.service wildcard=False loopback=False
+  listen tcp  0.0.0.0         111   pid=1      proc=systemd        unit=init.scope wildcard=True loopback=False
+  listen tcp  ::              111   pid=1      proc=systemd        unit=init.scope wildcard=True loopback=False
+  listen udp  0.0.0.0         111   pid=1      proc=systemd        unit=init.scope wildcard=True loopback=False
+  listen udp  ::              111   pid=1      proc=systemd        unit=init.scope wildcard=True loopback=False
+  listen tcp  0.0.0.0         2049  pid=0      proc=               unit= wildcard=True loopback=False
+  listen tcp  ::              2049  pid=0      proc=               unit= wildcard=True loopback=False
+  listen tcp  127.0.0.1       19471 pid=1066837 proc=upanel-web     unit=ssh.service wildcard=False loopback=True
+  listen tcp  127.0.0.1       33675 pid=160663 proc=containerd     unit=containerd.service wildcard=False loopback=True
+  listen udp  0.0.0.0         36389 pid=0      proc=               unit= wildcard=True loopback=False
+  listen udp  ::              44441 pid=0      proc=               unit= wildcard=True loopback=False
+  listen tcp  0.0.0.0         44581 pid=0      proc=               unit= wildcard=True loopback=False
+  listen tcp  ::              44807 pid=0      proc=               unit= wildcard=True loopback=False
+firewall manager=ufw installed=True enabled=False editable=True rules=0 defaults=None/None/None logging=None
+firewall manager_reasons=['发现 ufw，且没有别的防火墙管理器在'] reasons=[] issues=[]

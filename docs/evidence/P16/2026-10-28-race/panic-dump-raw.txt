@@ -1,0 +1,499 @@
+Oct 29 00:15:42 upanel-2404 systemd[1]: Starting upanel-web.service - uPanel Web 管理面板...
+Oct 29 00:15:43 upanel-2404 upanelctl[93289]: 配置来源: /etc/upanel/upanel.json
+Oct 29 00:15:43 upanel-2404 upanelctl[93289]: 运行模式: production
+Oct 29 00:15:43 upanel-2404 upanelctl[93289]: Web 监听: 127.0.0.1:9443（仅回环: true）
+Oct 29 00:15:43 upanel-2404 upanelctl[93289]: 面板 HTTPS: 已启用（upanel-2404，到期 2029-01-30T07:29:44Z）
+Oct 29 00:15:43 upanel-2404 upanelctl[93289]:   证书指纹 sha256: c542d82d2eff7ceba159cbd907614b79f20eb8b721ad1d5a759a915fbd030d1a
+Oct 29 00:15:43 upanel-2404 upanelctl[93289]:   证书域名: localhost, upanel-2404
+Oct 29 00:15:43 upanel-2404 upanelctl[93289]:   注意: 面板证书是自签名的：浏览器会提示不受信任，请按安装说明核对指纹后再接受，或换成受信任证书
+Oct 29 00:15:43 upanel-2404 upanelctl[93289]: 代理 socket: /run/upanel/agent.sock
+Oct 29 00:15:43 upanel-2404 upanelctl[93289]: 数据库: /var/lib/upanel/upanel.db（busy_timeout=5000ms）
+Oct 29 00:15:43 upanel-2404 upanelctl[93289]: 日志: level=info format=json
+Oct 29 00:15:43 upanel-2404 upanelctl[93289]: 平台: linux/amd64（production 可用: true）
+Oct 29 00:15:43 upanel-2404 systemd[1]: Started upanel-web.service - uPanel Web 管理面板.
+Oct 29 00:15:44 upanel-2404 upanel-web[93295]: {"time":"2026-10-29T00:15:44.55045366Z","level":"INFO","msg":"启动","program":"upanel-web","version":"1.0.0","commit":"8e52b36-dirty","go_version":"go1.27.3","mode":"production","os":"linux","arch":"amd64","config_source":"/etc/upanel/upanel.json"}
+Oct 29 00:15:44 upanel-2404 upanel-web[93295]: {"time":"2026-10-29T00:15:44.794449579Z","level":"INFO","msg":"数据库已打开","program":"upanel-web","path":"/var/lib/upanel/upanel.db","journal_mode":"wal","foreign_keys":true,"busy_timeout_ms":5000}
+Oct 29 00:15:44 upanel-2404 upanel-web[93295]: {"time":"2026-10-29T00:15:44.819001242Z","level":"INFO","msg":"数据库 schema 已就绪","program":"upanel-web","path":"/var/lib/upanel/upanel.db","schema_version":14,"applied_versions":"[]"}
+Oct 29 00:15:44 upanel-2404 upanel-web[93295]: {"time":"2026-10-29T00:15:44.87904054Z","level":"INFO","msg":"已确定允许的请求源","program":"upanel-web","allowed_origins":"[https://127.0.0.1:9443 https://localhost:9443]"}
+Oct 29 00:15:44 upanel-2404 upanel-web[93295]: {"time":"2026-10-29T00:15:44.881366556Z","level":"INFO","msg":"前端资源已就绪","program":"upanel-web","source":"嵌入二进制"}
+Oct 29 00:15:44 upanel-2404 upanel-web[93295]: {"time":"2026-10-29T00:15:44.914069973Z","level":"INFO","msg":"历史监控开始采集","program":"upanel-web","interval":"2s","filesystem_interval":"30s","raw_retention":"24h0m0s","minute_retention":"720h0m0s","hour_retention":"8760h0m0s","max_rows":2000000}
+Oct 29 00:15:45 upanel-2404 upanel-web[93295]: {"time":"2026-10-29T00:15:45.03278176Z","level":"INFO","msg":"代理客户端已配置","program":"upanel-web","socket":"/run/upanel/agent.sock"}
+Oct 29 00:15:45 upanel-2404 upanel-web[93295]: {"time":"2026-10-29T00:15:45.037799194Z","level":"INFO","msg":"健康探测调度已启动","program":"upanel-web","tick":"5s"}
+Oct 29 00:15:45 upanel-2404 upanel-web[93295]: {"time":"2026-10-29T00:15:45.050530778Z","level":"INFO","msg":"开始任务对账","program":"upanel-web","interval":"30s","batch":100}
+Oct 29 00:15:45 upanel-2404 upanel-web[93295]: {"time":"2026-10-29T00:15:45.235465605Z","level":"WARN","msg":"面板 HTTPS 材料注意","program":"upanel-web","detail":"面板证书是自签名的：浏览器会提示不受信任，请按安装说明核对指纹后再接受，或换成受信任证书"}
+Oct 29 00:15:45 upanel-2404 upanel-web[93295]: {"time":"2026-10-29T00:15:45.236757914Z","level":"INFO","msg":"面板 HTTPS 已就绪","program":"upanel-web","cert":"upanel-2404","fingerprint_sha256":"c542d82d2eff7ceba159cbd907614b79f20eb8b721ad1d5a759a915fbd030d1a","not_after":"2029-01-30T07:29:44Z","min_version":"TLS 1.2"}
+Oct 29 00:15:45 upanel-2404 upanel-web[93295]: {"time":"2026-10-29T00:15:45.249467998Z","level":"INFO","msg":"Web 服务已开始监听","program":"upanel-web","address":"127.0.0.1:9443","network":"tcp","scheme":"https","mode":"production","loopback_only":true,"version":"1.0.0","schema_version":14,"pid":93295,"started_at":"2026-10-29T00:15:45.044295437Z"}
+Oct 29 00:15:45 upanel-2404 upanel-web[93295]: {"time":"2026-10-29T00:15:45.248871294Z","level":"INFO","msg":"任务对账扫描完成","program":"upanel-web","scanned":0,"advanced":0,"deferred":0,"unconfirmed":0,"unknown":0,"write_failed":0,"skipped_inflight":0}
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: SIGQUIT: quit
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: PC=0x4900e1 m=0 sigcode=0
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: goroutine 0 gp=0x1baa780 m=0 mp=0x1bacae0 [idle]:
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.futex(0x1bacc38, 0x80, 0x0, 0x0, 0x0, 0x0)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/sys_linux_amd64.s:575 +0x21 fp=0x7ffc483bc2f0 sp=0x7ffc483bc2e8 pc=0x4900e1
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.futexsleep(0x1baa780?, 0x454c25?, 0x7ffc483bc368?)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/os_linux.go:73 +0x30 fp=0x7ffc483bc340 sp=0x7ffc483bc2f0 pc=0x449b10
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.notesleep(0x1bacc38)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/lock_futex.go:47 +0x87 fp=0x7ffc483bc378 sp=0x7ffc483bc340 pc=0x41e347
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.mPark(...)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/proc.go:1985
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.stoplockedm()
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/proc.go:3278 +0x73 fp=0x7ffc483bc3d0 sp=0x7ffc483bc378 pc=0x454e93
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.schedule()
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/proc.go:4158 +0x3a fp=0x7ffc483bc410 sp=0x7ffc483bc3d0 pc=0x4573da
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.park_m(0x16ca2ef003c0)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/proc.go:4319 +0x279 fp=0x7ffc483bc470 sp=0x7ffc483bc410 pc=0x4578d9
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.mcall()
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:463 +0x53 fp=0x7ffc483bc488 sp=0x7ffc483bc470 pc=0x48cbb3
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: goroutine 1 gp=0x16ca2ee6a1e0 m=nil [IO wait]:
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.gopark(0x0?, 0x0?, 0x0?, 0x0?, 0x0?)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2f4fe348 sp=0x16ca2f4fe328 pc=0x48748a
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.netpollblock(0x1a586f0?, 0x2f4fe3b0?, 0xca?)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/netpoll.go:575 +0xf7 fp=0x16ca2f4fe380 sp=0x16ca2f4fe348 pc=0x448dd7
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: internal/poll.runtime_pollWait(0x733ea9066400, 0x72)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/netpoll.go:351 +0x85 fp=0x16ca2f4fe3a0 sp=0x16ca2f4fe380 pc=0x486685
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: internal/poll.(*pollDesc).wait(0x16ca2f2ae000?, 0x1c8?, 0x0)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         internal/poll/fd_poll_runtime.go:84 +0x27 fp=0x16ca2f4fe3d8 sp=0x16ca2f4fe3a0 pc=0x4e4da7
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: internal/poll.(*pollDesc).waitRead(...)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         internal/poll/fd_poll_runtime.go:89
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: internal/poll.(*FD).Accept(0x16ca2f2ae000)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         internal/poll/fd_unix.go:618 +0x27d fp=0x16ca2f4fe480 sp=0x16ca2f4fe3d8 pc=0x4e629d
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: net.(*netFD).accept(0x16ca2f2ae000)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         net/fd_unix.go:149 +0x29 fp=0x16ca2f4fe538 sp=0x16ca2f4fe480 pc=0x5889e9
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: net.(*TCPListener).accept(0x16ca2f2d4580)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         net/tcpsock_posix.go:159 +0x1b fp=0x16ca2f4fe588 sp=0x16ca2f4fe538 pc=0x59821b
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: net.(*TCPListener).Accept(0x16ca2f2d4580)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         net/tcpsock.go:387 +0x30 fp=0x16ca2f4fe5c8 sp=0x16ca2f4fe588 pc=0x597670
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: crypto/tls.(*listener).Accept(0x16ca2ef1a3d8)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         crypto/tls/tls.go:78 +0x24 fp=0x16ca2f4fe618 sp=0x16ca2f4fe5c8 pc=0x67c164
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: net/http.(*Server).Serve(0x16ca2f390640, {0x1af9730, 0x16ca2ef1a3d8})
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         net/http/server.go:3574 +0x379 fp=0x16ca2f4fe748 sp=0x16ca2f4fe618 pc=0x719ad9
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: upanel/internal/api.(*Server).Serve(0x16ca2f2b8308, {0x1afa018, 0x16ca2f154080})
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         upanel/internal/api/server.go:406 +0x7f8 fp=0x16ca2f4fea98 sp=0x16ca2f4fe748 pc=0xea8e78
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: main.run({0x16ca2ee88040, 0x2, 0x2}, {0x1af5520, 0x16ca2ee68028}, {0x1af5520, 0x16ca2ee68030})
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         upanel/cmd/upanel-web/main.go:814 +0x5825 fp=0x16ca2f4ffe70 sp=0x16ca2f4fea98 pc=0xed9ba5
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: main.main()
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         upanel/cmd/upanel-web/main.go:60 +0x5e fp=0x16ca2f4ffeb8 sp=0x16ca2f4ffe70 pc=0xed435e
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.main()
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/proc.go:302 +0x427 fp=0x16ca2f4fffe0 sp=0x16ca2f4ffeb8 pc=0x44fdc7
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2f4fffe8 sp=0x16ca2f4fffe0 pc=0x48e5a1
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: goroutine 2 gp=0x16ca2ee6a780 m=nil [force gc (idle)]:
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.gopark(0x0?, 0x0?, 0x0?, 0x0?, 0x0?)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2eeacfa8 sp=0x16ca2eeacf88 pc=0x48748a
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.goparkunlock(...)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/proc.go:480
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.forcegchelper()
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/proc.go:387 +0xb3 fp=0x16ca2eeacfe0 sp=0x16ca2eeacfa8 pc=0x450093
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2eeacfe8 sp=0x16ca2eeacfe0 pc=0x48e5a1
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: created by runtime.init.7 in goroutine 1
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/proc.go:375 +0x1a
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: goroutine 3 gp=0x16ca2ee6b0e0 m=nil [GC sweep wait]:
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.gopark(0x1?, 0x0?, 0x0?, 0x0?, 0x0?)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2eead788 sp=0x16ca2eead768 pc=0x48748a
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.goparkunlock(...)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/proc.go:480
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.bgsweep(0x16ca2eed4000)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/mgcsweep.go:324 +0x151 fp=0x16ca2eead7c8 sp=0x16ca2eead788 pc=0x43ad51
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.gcenable.gowrap1()
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/mgc.go:214 +0x17 fp=0x16ca2eead7e0 sp=0x16ca2eead7c8 pc=0x47def7
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2eead7e8 sp=0x16ca2eead7e0 pc=0x48e5a1
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: created by runtime.gcenable in goroutine 1
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/mgc.go:214 +0x66
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: goroutine 4 gp=0x16ca2ee6b2c0 m=nil [GC scavenge wait]:
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.gopark(0x10000?, 0x1167500?, 0x0?, 0x0?, 0x0?)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2eeadf78 sp=0x16ca2eeadf58 pc=0x48748a
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.goparkunlock(...)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/proc.go:480
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.(*scavengerState).park(0x1baa020)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/mgcscavenge.go:425 +0x49 fp=0x16ca2eeadfa8 sp=0x16ca2eeadf78 pc=0x438849
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.bgscavenge(0x16ca2eed4000)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/mgcscavenge.go:658 +0x59 fp=0x16ca2eeadfc8 sp=0x16ca2eeadfa8 pc=0x438db9
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.gcenable.gowrap2()
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/mgc.go:215 +0x17 fp=0x16ca2eeadfe0 sp=0x16ca2eeadfc8 pc=0x47deb7
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2eeadfe8 sp=0x16ca2eeadfe0 pc=0x48e5a1
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: created by runtime.gcenable in goroutine 1
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/mgc.go:215 +0xa5
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: goroutine 17 gp=0x16ca2ef00000 m=nil [GOMAXPROCS updater (idle)]:
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.gopark(0x0?, 0x0?, 0x0?, 0x0?, 0x0?)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2eea8788 sp=0x16ca2eea8768 pc=0x48748a
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.goparkunlock(...)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/proc.go:480
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.updateMaxProcsGoroutine()
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/proc.go:7146 +0xe7 fp=0x16ca2eea87e0 sp=0x16ca2eea8788 pc=0x45d4e7
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2eea87e8 sp=0x16ca2eea87e0 pc=0x48e5a1
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: created by runtime.defaultGOMAXPROCSUpdateEnable in goroutine 1
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/proc.go:7134 +0x37
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: goroutine 5 gp=0x16ca2ee6b4a0 m=nil [finalizer wait]:
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.gopark(0x0?, 0x16ca2eeac658?, 0xf?, 0x51?, 0x16ca2eed4068?)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2eeac620 sp=0x16ca2eeac600 pc=0x48748a
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.runFinalizers()
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/mfinal.go:210 +0x107 fp=0x16ca2eeac7e0 sp=0x16ca2eeac620 pc=0x42bfa7
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2eeac7e8 sp=0x16ca2eeac7e0 pc=0x48e5a1
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: created by runtime.createfing in goroutine 1
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/mfinal.go:172 +0x3d
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: goroutine 18 gp=0x16ca2ef001e0 m=nil [cleanup wait]:
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.gopark(0x0?, 0x0?, 0x0?, 0x0?, 0x0?)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2eea8f68 sp=0x16ca2eea8f48 pc=0x48748a
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.goparkunlock(...)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/proc.go:480
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.(*cleanupQueue).dequeue(0x1baa440)
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/mcleanup.go:522 +0xd3 fp=0x16ca2eea8fa0 sp=0x16ca2eea8f68 pc=0x428cd3
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.runCleanups()
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/mcleanup.go:718 +0x45 fp=0x16ca2eea8fe0 sp=0x16ca2eea8fa0 pc=0x429345
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2eea8fe8 sp=0x16ca2eea8fe0 pc=0x48e5a1
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: created by runtime.(*cleanupQueue).createGs in goroutine 1
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]:         runtime/mcleanup.go:672 +0xa5
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: goroutine 6 gp=0x16ca2f2e8000 m=nil [select]:
+Oct 29 00:17:00 upanel-2404 upanel-web[93295]: runtime.gopark(0x16ca2eeae788?, 0x2?, 0x0?, 0x0?, 0x16ca2eeae784?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2eeae610 sp=0x16ca2eeae5f0 pc=0x48748a
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.selectgo(0x16ca2eeae788, 0x16ca2eeae780, 0x0?, 0x0, 0x0?, 0x1)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/select.go:351 +0xa97 fp=0x16ca2eeae750 sp=0x16ca2eeae610 pc=0x461f37
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: database/sql.(*DB).connectionOpener(0x16ca2f2dc1a0, {0x1af9e58, 0x16ca2ef9cfa0})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         database/sql/sql.go:1266 +0x89 fp=0x16ca2eeae7b8 sp=0x16ca2eeae750 pc=0x765b89
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: database/sql.OpenDB.gowrap1()
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         database/sql/sql.go:846 +0x1f fp=0x16ca2eeae7e0 sp=0x16ca2eeae7b8 pc=0x76d1bf
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2eeae7e8 sp=0x16ca2eeae7e0 pc=0x48e5a1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: created by database/sql.OpenDB in goroutine 1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         database/sql/sql.go:846 +0x135
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: goroutine 19 gp=0x16ca2ef003c0 m=nil [select, locked to thread]:
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.gopark(0x16ca2eea97a8?, 0x2?, 0x68?, 0x0?, 0x16ca2eea9794?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2eea9618 sp=0x16ca2eea95f8 pc=0x48748a
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.selectgo(0x16ca2eea97a8, 0x16ca2eea9790, 0x0?, 0x0, 0x0?, 0x1)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/select.go:351 +0xa97 fp=0x16ca2eea9758 sp=0x16ca2eea9618 pc=0x461f37
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.ensureSigM.func1()
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/signal_unix.go:1093 +0x188 fp=0x16ca2eea97e0 sp=0x16ca2eea9758 pc=0x481f68
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2eea97e8 sp=0x16ca2eea97e0 pc=0x48e5a1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: created by runtime.ensureSigM in goroutine 1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/signal_unix.go:1076 +0xc5
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: goroutine 7 gp=0x16ca2f2e81e0 m=4 mp=0x16ca2eeb1808 [syscall]:
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.notetsleepg(0x1bce580, 0xffffffffffffffff)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/lock_futex.go:123 +0x29 fp=0x16ca2eeaefa0 sp=0x16ca2eeaef78 pc=0x41e629
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: os/signal.signal_recv()
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/sigqueue.go:152 +0x98 fp=0x16ca2eeaefc0 sp=0x16ca2eeaefa0 pc=0x4899d8
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: os/signal.loop()
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         os/signal/signal_unix.go:23 +0x13 fp=0x16ca2eeaefe0 sp=0x16ca2eeaefc0 pc=0x5a1ff3
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2eeaefe8 sp=0x16ca2eeaefe0 pc=0x48e5a1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: created by os/signal.Notify.func2.1 in goroutine 1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         os/signal/signal.go:164 +0x1f
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: goroutine 20 gp=0x16ca2ef00960 m=nil [select]:
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.gopark(0x16ca2eea9f98?, 0x2?, 0x0?, 0x0?, 0x16ca2eea9f8c?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2eea9e18 sp=0x16ca2eea9df8 pc=0x48748a
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.selectgo(0x16ca2eea9f98, 0x16ca2eea9f88, 0x0?, 0x0, 0x0?, 0x1)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/select.go:351 +0xa97 fp=0x16ca2eea9f58 sp=0x16ca2eea9e18 pc=0x461f37
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: os/signal.NotifyContext.func1()
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         os/signal/signal.go:304 +0x7c fp=0x16ca2eea9fe0 sp=0x16ca2eea9f58 pc=0x5a23fc
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2eea9fe8 sp=0x16ca2eea9fe0 pc=0x48e5a1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: created by os/signal.NotifyContext in goroutine 1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         os/signal/signal.go:303 +0x165
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: goroutine 21 gp=0x16ca2ef00b40 m=nil [select]:
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.gopark(0x16ca2f043f68?, 0x2?, 0x34?, 0xd0?, 0x16ca2f043f3c?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2f043dc0 sp=0x16ca2f043da0 pc=0x48748a
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.selectgo(0x16ca2f043f68, 0x16ca2f043f38, 0x16ca2f154080?, 0x0, 0x0?, 0x1)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/select.go:351 +0xa97 fp=0x16ca2f043f00 sp=0x16ca2f043dc0 pc=0x461f37
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: upanel/internal/alerts.(*Service).Run(0x16ca2ef6b800, {0x1afa018, 0x16ca2f154080}, 0x0?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/internal/alerts/evaluator.go:599 +0x13d fp=0x16ca2f043fb0 sp=0x16ca2f043f00 pc=0x9d9e7d
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: main.run.gowrap1()
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/cmd/upanel-web/main.go:263 +0x29 fp=0x16ca2f043fe0 sp=0x16ca2f043fb0 pc=0xeda509
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2f043fe8 sp=0x16ca2f043fe0 pc=0x48e5a1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: created by main.run in goroutine 1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/cmd/upanel-web/main.go:263 +0x208e
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: goroutine 26 gp=0x16ca2ef00d20 m=nil [select]:
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.gopark(0x16ca2f333f68?, 0x2?, 0x0?, 0x0?, 0x16ca2f333f3c?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2f333dc0 sp=0x16ca2f333da0 pc=0x48748a
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.selectgo(0x16ca2f333f68, 0x16ca2f333f38, 0x16ca2f154080?, 0x0, 0x16ca2ef042a0?, 0x1)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/select.go:351 +0xa97 fp=0x16ca2f333f00 sp=0x16ca2f333dc0 pc=0x461f37
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: upanel/internal/notifications.(*Service).Run(0x16ca2f144690, {0x1afa018, 0x16ca2f154080}, 0x16ca2f149dc8?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/internal/notifications/dispatch.go:68 +0x13d fp=0x16ca2f333fb0 sp=0x16ca2f333f00 pc=0xe3db1d
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: main.run.gowrap2()
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/cmd/upanel-web/main.go:430 +0x25 fp=0x16ca2f333fe0 sp=0x16ca2f333fb0 pc=0xeda265
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2f333fe8 sp=0x16ca2f333fe0 pc=0x48e5a1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: created by main.run in goroutine 1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/cmd/upanel-web/main.go:430 +0x2926
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: goroutine 23 gp=0x16ca2ef00f00 m=nil [select]:
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.gopark(0x16ca2eeab798?, 0x2?, 0x8a?, 0x1e?, 0x16ca2eeab73c?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2eeab5a8 sp=0x16ca2eeab588 pc=0x48748a
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.selectgo(0x16ca2eeab798, 0x16ca2eeab738, 0x0?, 0x0, 0x0?, 0x1)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/select.go:351 +0xa97 fp=0x16ca2eeab6e8 sp=0x16ca2eeab5a8 pc=0x461f37
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: main.run.func3()
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/cmd/upanel-web/main.go:275 +0xf3 fp=0x16ca2eeab7e0 sp=0x16ca2eeab6e8 pc=0xeda373
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2eeab7e8 sp=0x16ca2eeab7e0 pc=0x48e5a1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: created by main.run in goroutine 1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/cmd/upanel-web/main.go:271 +0x224d
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: goroutine 30 gp=0x16ca2ef010e0 m=nil [GC worker (idle)]:
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.gopark(0x33095aae6e16?, 0x16ca2eeabfd0?, 0xbf?, 0x1a?, 0x16ca2eeabfa8?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2eeabf40 sp=0x16ca2eeabf20 pc=0x48748a
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.gcBgMarkWorker(0x16ca2ef04770)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/mgc.go:1807 +0xeb fp=0x16ca2eeabfc8 sp=0x16ca2eeabf40 pc=0x42f1eb
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.gcBgMarkStartWorkers.gowrap1()
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/mgc.go:1711 +0x17 fp=0x16ca2eeabfe0 sp=0x16ca2eeabfc8 pc=0x47e3f7
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2eeabfe8 sp=0x16ca2eeabfe0 pc=0x48e5a1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: created by runtime.gcBgMarkStartWorkers in goroutine 8
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/mgc.go:1711 +0xfc
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: goroutine 8 gp=0x16ca2f2e8b40 m=nil [runnable]:
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: modernc.org/sqlite/lib._vdbeRecordDecodeInt(0x16ca2ee8a370, 0x4, 0x733ea8cf64c8)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         modernc.org/sqlite@v1.60.1/lib/sqlite_g_000000000001ffff.go:12893 +0x33b fp=0x16ca2f346628 sp=0x16ca2f346620 pc=0x92fffb
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: modernc.org/sqlite/lib._sqlite3VdbeRecordCompareWithSkip(0x16ca2ee8a370, 0x2f, 0x733ea8cf64bc, 0x733ea8fb0898, 0x1)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         modernc.org/sqlite@v1.60.1/lib/sqlite_g_000000000001feab.go:20244 +0x366 fp=0x16ca2f346708 sp=0x16ca2f346628 pc=0x90ac66
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: modernc.org/sqlite/lib._vdbeRecordCompareString(0x16ca2ee8a370, 0x2f, 0x733ea8cf64bc, 0x733ea8fb0898)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         modernc.org/sqlite@v1.60.1/lib/sqlite_g_000000000001feab.go:23837 +0x1d3 fp=0x16ca2f346780 sp=0x16ca2f346708 pc=0x912773
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: modernc.org/sqlite/lib._sqlite3BtreeIndexMoveto(0x16ca2ee8a370, 0x733ea8f74bd0, 0x733ea8fb0898, 0x733ea8fb0890)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         modernc.org/sqlite@v1.60.1/lib/sqlite_g_000000000001dea8.go:1897 +0x352 fp=0x16ca2f346828 sp=0x16ca2f346780 pc=0x89d532
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: modernc.org/sqlite/lib._sqlite3VdbeExec(0x16ca2ee8a370, 0x733ea8f70988)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         modernc.org/sqlite@v1.60.1/lib/sqlite_g_0000000000000480.go:22417 +0x23a5 fp=0x16ca2f347168 sp=0x16ca2f346828 pc=0x7efe45
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: modernc.org/sqlite/lib._sqlite3Step(0x16ca2ee8a370, 0x733ea8f70988)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         modernc.org/sqlite@v1.60.1/lib/sqlite_g_000000000001deab.go:3968 +0x6c fp=0x16ca2f3471a8 sp=0x16ca2f347168 pc=0x8aa00c
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: modernc.org/sqlite/lib.Xsqlite3_step(0x16ca2ee8a370, 0x733ea8f70988)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         modernc.org/sqlite@v1.60.1/lib/sqlite.go:12110 +0xab fp=0x16ca2f3471f0 sp=0x16ca2f3471a8 pc=0x7954eb
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: modernc.org/sqlite.(*conn).step(0x16ca2eee3da0, 0x733ea8f70988)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         modernc.org/sqlite@v1.60.1/conn.go:435 +0x31 fp=0x16ca2f347228 sp=0x16ca2f3471f0 pc=0x981291
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: modernc.org/sqlite.(*stmt).query(0x16ca2f2125e8, {0x1afa018, 0x16ca2f154080}, {0x16ca2f242000, 0x9, 0x9})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         modernc.org/sqlite@v1.60.1/stmt.go:337 +0x21d fp=0x16ca2f3473b0 sp=0x16ca2f347228 pc=0x98be9d
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: modernc.org/sqlite.(*conn).query(0x0?, {0x1afa018, 0x16ca2f154080}, {0xf9a840?, 0x16ca2ef042a0?}, {0x16ca2f242000, 0x9, 0x9})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         modernc.org/sqlite@v1.60.1/conn.go:1210 +0x7c fp=0x16ca2f347418 sp=0x16ca2f3473b0 pc=0x98483c
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: modernc.org/sqlite.(*conn).QueryContext(0x4b30c2?, {0x1afa018?, 0x16ca2f154080?}, {0xf9a840?, 0x19f8c28?}, {0x16ca2f242000?, 0x16ca2ef042a0?, 0x16ca2f347ae8?})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         modernc.org/sqlite@v1.60.1/conn.go:1436 +0x27 fp=0x16ca2f347468 sp=0x16ca2f347418 pc=0x984d87
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: database/sql.ctxDriverQuery({0x1afa018?, 0x16ca2f154080?}, {0x733ea908a840?, 0x16ca2eee3da0?}, {0x0?, 0x0?}, {0xf9a840?, 0x0?}, {0x16ca2f242000, 0x9, ...})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         database/sql/ctxutil.go:48 +0xbf fp=0x16ca2f3474c8 sp=0x16ca2f347468 pc=0x76233f
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: database/sql.(*DB).queryDC.func1()
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         database/sql/sql.go:1791 +0x15c fp=0x16ca2f347588 sp=0x16ca2f3474c8 pc=0x76db3c
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: database/sql.withLock({0x1af85e0, 0x16ca2ef4b180}, 0x16ca2f3476e8)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         database/sql/sql.go:3621 +0x71 fp=0x16ca2f3475c8 sp=0x16ca2f347588 pc=0x76ca51
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: database/sql.(*DB).queryDC(0x16ca2ef1a801?, {0x1afa018, 0x16ca2f154080}, {0x0, 0x0}, 0x16ca2ef4b180, 0x16ca2f238430, {0xf9a840, 0x11d}, {0x16ca2f347a68, ...})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         database/sql/sql.go:1786 +0x1b7 fp=0x16ca2f347778 sp=0x16ca2f3475c8 pc=0x768697
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: database/sql.(*DB).query(0x16ca2f2dc1a0, {0x1afa018, 0x16ca2f154080}, {0xf9a840, 0x11d}, {0x16ca2f347a68, 0x9, 0x9}, 0x10?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         database/sql/sql.go:1769 +0x108 fp=0x16ca2f3477f0 sp=0x16ca2f347778 pc=0x768468
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: database/sql.(*DB).QueryContext.func1(0x5?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         database/sql/sql.go:1747 +0x4f fp=0x16ca2f347858 sp=0x16ca2f3477f0 pc=0x76d8cf
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: database/sql.(*DB).retry(0x16ca2f211120?, 0x16ca2f3478c8)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         database/sql/sql.go:1581 +0x42 fp=0x16ca2f3478a0 sp=0x16ca2f347858 pc=0x7674e2
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: database/sql.(*DB).QueryContext(0xf5040b?, {0x1afa018?, 0x16ca2f154080?}, {0xf9a840?, 0x16ca2f2125a0?}, {0x16ca2f347a68?, 0x16ca2f211150?, 0x16ca2f211158?})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         database/sql/sql.go:1746 +0x98 fp=0x16ca2f347930 sp=0x16ca2f3478a0 pc=0x7682d8
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: upanel/internal/store.(*DB).PendingMetricBuckets(0x16ca2f0c7560, {0x1afa018, 0x16ca2f154080}, {0xf4e38b, 0x3}, {0xf5040b, 0x6}, {0x0, 0xee27335c0, 0x0}, ...)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/internal/store/metricstore.go:227 +0x48a fp=0x16ca2f347b40 sp=0x16ca2f347930 pc=0x9c11aa
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: upanel/internal/metrics.(*Recorder).aggregateOne(0x16ca2f0c1a40, {0x1afa018, 0x16ca2f154080}, {0xf4e38b, 0x3}, {0xf5040b, 0x6}, {0x1d17bbca, 0xee274877b, 0x0}, ...)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/internal/metrics/recorder.go:342 +0x302 fp=0x16ca2f347c70 sp=0x16ca2f347b40 pc=0x9cfe62
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: upanel/internal/metrics.(*Recorder).aggregate(0x16ca2f0c1a40, {0x1afa018, 0x16ca2f154080}, {0x16ca2eed8f50?, 0x330a9f4740ae?, 0x0?})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/internal/metrics/recorder.go:317 +0x71 fp=0x16ca2f347cf0 sp=0x16ca2f347c70 pc=0x9cfab1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: upanel/internal/metrics.(*Recorder).Pass(0x16ca2f0c1a40, {0x1afa018, 0x16ca2f154080})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/internal/metrics/recorder.go:241 +0xf3 fp=0x16ca2f347d58 sp=0x16ca2f347cf0 pc=0x9cf173
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: upanel/internal/metrics.(*Recorder).Run(0x16ca2f0c1a40, {0x1afa018, 0x16ca2f154080})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/internal/metrics/recorder.go:227 +0x4ac fp=0x16ca2f347fb8 sp=0x16ca2f347d58 pc=0x9cef6c
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: main.run.gowrap3()
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/cmd/upanel-web/main.go:516 +0x1f fp=0x16ca2f347fe0 sp=0x16ca2f347fb8 pc=0xeda21f
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2f347fe8 sp=0x16ca2f347fe0 pc=0x48e5a1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: created by main.run in goroutine 1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/cmd/upanel-web/main.go:516 +0x3197
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: goroutine 207 gp=0x16ca2ef012c0 m=nil [IO wait]:
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.gopark(0x16ca2eedab10?, 0x485c13?, 0x40?, 0x4b?, 0x16ca2eedac40?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2eedaaf0 sp=0x16ca2eedaad0 pc=0x48748a
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.netpollblock(0xffffffffffffffff?, 0x2eedab70?, 0xca?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/netpoll.go:575 +0xf7 fp=0x16ca2eedab28 sp=0x16ca2eedaaf0 pc=0x448dd7
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: internal/poll.runtime_pollWait(0x733ea9066600, 0x72)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/netpoll.go:351 +0x85 fp=0x16ca2eedab48 sp=0x16ca2eedab28 pc=0x486685
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: internal/poll.(*pollDesc).wait(0x16ca2ef4b080?, 0x16ca2f0a6000?, 0x0)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         internal/poll/fd_poll_runtime.go:84 +0x27 fp=0x16ca2eedab80 sp=0x16ca2eedab48 pc=0x4e4da7
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: internal/poll.(*pollDesc).waitRead(...)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         internal/poll/fd_poll_runtime.go:89
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: internal/poll.(*FD).Read(0x16ca2ef4b080, {0x16ca2f0a6000, 0x1000, 0x1000})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         internal/poll/fd_unix.go:170 +0x2a8 fp=0x16ca2eedac18 sp=0x16ca2eedab80 pc=0x4e5808
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: net.(*netFD).Read(0x16ca2ef4b080, {0x16ca2f0a6000?, 0x0?, 0x1a07f80?})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         net/fd_posix.go:68 +0x25 fp=0x16ca2eedac60 sp=0x16ca2eedac18 pc=0x587c25
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: net.(*conn).Read(0x16ca2ee68168, {0x16ca2f0a6000?, 0x16ca2f39cc00?, 0x1a074e0?})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         net/net.go:196 +0x45 fp=0x16ca2eedaca8 sp=0x16ca2eedac60 pc=0x590865
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: net/http.(*persistConn).Read(0x16ca2efb4b40, {0x16ca2f0a6000?, 0x1af5580?, 0x1b896d0?})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         net/http/transport.go:2300 +0x47 fp=0x16ca2eedad08 sp=0x16ca2eedaca8 pc=0x72d227
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: bufio.(*Reader).fill(0x16ca2f3630e0)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         bufio/bufio.go:113 +0x103 fp=0x16ca2eedad40 sp=0x16ca2eedad08 pc=0x68f5c3
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: bufio.(*Reader).Peek(0x16ca2f3630e0, 0x1)
+Oct 29 00:17:01 upanel-2404 systemd[1]: upanel-web.service: Main process exited, code=exited, status=2/INVALIDARGUMENT
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         bufio/bufio.go:152 +0x52 fp=0x16ca2eedad58 sp=0x16ca2eedad40 pc=0x68f6f2
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: net/http.(*persistConn).readLoop(0x16ca2efb4b40)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         net/http/transport.go:2493 +0x17e fp=0x16ca2eedafc8 sp=0x16ca2eedad58 pc=0x72ddde
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: net/http.(*Transport).dialConn.gowrap2()
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         net/http/transport.go:2123 +0x17 fp=0x16ca2eedafe0 sp=0x16ca2eedafc8 pc=0x7358b7
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2eedafe8 sp=0x16ca2eedafe0 pc=0x48e5a1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: created by net/http.(*Transport).dialConn in goroutine 206
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         net/http/transport.go:2123 +0x1da5
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: goroutine 33 gp=0x16ca2f2e8d20 m=nil [select]:
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.gopark(0x16ca2f45ff70?, 0x2?, 0x8a?, 0x1e?, 0x16ca2f45ff1c?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2f45fd88 sp=0x16ca2f45fd68 pc=0x48748a
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.selectgo(0x16ca2f45ff70, 0x16ca2f45ff18, 0x16ca2f154080?, 0x0, 0x100000000000000?, 0x1)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/select.go:351 +0xa97 fp=0x16ca2f45fec8 sp=0x16ca2f45fd88 pc=0x461f37
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: upanel/internal/apphealth.(*Scheduler).Run(0x16ca2f410210, {0x1afa018, 0x16ca2f154080})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/internal/apphealth/scheduler.go:75 +0xdb fp=0x16ca2f45ffb8 sp=0x16ca2f45fec8 pc=0xece83b
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: main.run.gowrap4()
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/cmd/upanel-web/main.go:713 +0x1f fp=0x16ca2f45ffe0 sp=0x16ca2f45ffb8 pc=0xeda1df
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2f45ffe8 sp=0x16ca2f45ffe0 pc=0x48e5a1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: created by main.run in goroutine 1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/cmd/upanel-web/main.go:713 +0x48c5
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: goroutine 10 gp=0x16ca2f2e8f00 m=nil [IO wait]:
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.gopark(0x16ca2eedfb10?, 0x485c13?, 0x40?, 0x3a?, 0x16ca2eedfc40?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2eedfaf0 sp=0x16ca2eedfad0 pc=0x48748a
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.netpollblock(0xffffffffffffffff?, 0x2eedfb70?, 0xca?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/netpoll.go:575 +0xf7 fp=0x16ca2eedfb28 sp=0x16ca2eedfaf0 pc=0x448dd7
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: internal/poll.runtime_pollWait(0x733ea9066a00, 0x72)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/netpoll.go:351 +0x85 fp=0x16ca2eedfb48 sp=0x16ca2eedfb28 pc=0x486685
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: internal/poll.(*pollDesc).wait(0x16ca2ef4b480?, 0x16ca2f360000?, 0x0)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         internal/poll/fd_poll_runtime.go:84 +0x27 fp=0x16ca2eedfb80 sp=0x16ca2eedfb48 pc=0x4e4da7
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: internal/poll.(*pollDesc).waitRead(...)
+Oct 29 00:17:01 upanel-2404 systemd[1]: upanel-web.service: Failed with result 'exit-code'.
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         internal/poll/fd_poll_runtime.go:89
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: internal/poll.(*FD).Read(0x16ca2ef4b480, {0x16ca2f360000, 0x1000, 0x1000})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         internal/poll/fd_unix.go:170 +0x2a8 fp=0x16ca2eedfc18 sp=0x16ca2eedfb80 pc=0x4e5808
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: net.(*netFD).Read(0x16ca2ef4b480, {0x16ca2f360000?, 0x0?, 0x1a07f80?})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         net/fd_posix.go:68 +0x25 fp=0x16ca2eedfc60 sp=0x16ca2eedfc18 pc=0x587c25
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: net.(*conn).Read(0x16ca2ee68350, {0x16ca2f360000?, 0x16ca2f0c78f0?, 0x1a074e0?})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         net/net.go:196 +0x45 fp=0x16ca2eedfca8 sp=0x16ca2eedfc60 pc=0x590865
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: net/http.(*persistConn).Read(0x16ca2ef73a40, {0x16ca2f360000?, 0x1af5580?, 0x1b896d0?})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         net/http/transport.go:2300 +0x47 fp=0x16ca2eedfd08 sp=0x16ca2eedfca8 pc=0x72d227
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: bufio.(*Reader).fill(0x16ca2eee3e60)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         bufio/bufio.go:113 +0x103 fp=0x16ca2eedfd40 sp=0x16ca2eedfd08 pc=0x68f5c3
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: bufio.(*Reader).Peek(0x16ca2eee3e60, 0x1)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         bufio/bufio.go:152 +0x52 fp=0x16ca2eedfd58 sp=0x16ca2eedfd40 pc=0x68f6f2
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: net/http.(*persistConn).readLoop(0x16ca2ef73a40)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         net/http/transport.go:2493 +0x17e fp=0x16ca2eedffc8 sp=0x16ca2eedfd58 pc=0x72ddde
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: net/http.(*Transport).dialConn.gowrap2()
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         net/http/transport.go:2123 +0x17 fp=0x16ca2eedffe0 sp=0x16ca2eedffc8 pc=0x7358b7
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2eedffe8 sp=0x16ca2eedffe0 pc=0x48e5a1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: created by net/http.(*Transport).dialConn in goroutine 9
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         net/http/transport.go:2123 +0x1da5
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: goroutine 11 gp=0x16ca2f2e90e0 m=nil [select]:
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.gopark(0x16ca2eedef48?, 0x2?, 0xc0?, 0xed?, 0x16ca2eedeef4?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2eeded78 sp=0x16ca2eeded58 pc=0x48748a
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.selectgo(0x16ca2eedef48, 0x16ca2eedeef0, 0x16ca2f2d4740?, 0x0, 0x16ca2f0757a0?, 0x1)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/select.go:351 +0xa97 fp=0x16ca2eedeeb8 sp=0x16ca2eeded78 pc=0x461f37
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: net/http.(*persistConn).writeLoop(0x16ca2ef73a40)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         net/http/transport.go:2833 +0xe6 fp=0x16ca2eedefc8 sp=0x16ca2eedeeb8 pc=0x72f6c6
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: net/http.(*Transport).dialConn.gowrap3()
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         net/http/transport.go:2124 +0x17 fp=0x16ca2eedefe0 sp=0x16ca2eedefc8 pc=0x735877
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2eedefe8 sp=0x16ca2eedefe0 pc=0x48e5a1
+Oct 29 00:17:01 upanel-2404 systemd[1]: upanel-web.service: Consumed 1min 2.295s CPU time, 16.0M memory peak, 0B memory swap peak.
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: created by net/http.(*Transport).dialConn in goroutine 9
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         net/http/transport.go:2124 +0x1e05
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: goroutine 29 gp=0x16ca2f2e92c0 m=nil [GC worker (idle)]:
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.gopark(0x1afdf80?, 0x16ca2f027000?, 0x1c?, 0xa?, 0x0?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2eeaff40 sp=0x16ca2eeaff20 pc=0x48748a
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.gcBgMarkWorker(0x16ca2ef04770)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/mgc.go:1807 +0xeb fp=0x16ca2eeaffc8 sp=0x16ca2eeaff40 pc=0x42f1eb
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.gcBgMarkStartWorkers.gowrap1()
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/mgc.go:1711 +0x17 fp=0x16ca2eeaffe0 sp=0x16ca2eeaffc8 pc=0x47e3f7
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2eeaffe8 sp=0x16ca2eeaffe0 pc=0x48e5a1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: created by runtime.gcBgMarkStartWorkers in goroutine 8
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/mgc.go:1711 +0xfc
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: goroutine 34 gp=0x16ca2f2e9860 m=nil [select]:
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.gopark(0x16ca2f35bf08?, 0x3?, 0x0?, 0x0?, 0x16ca2f35beea?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2f35bd38 sp=0x16ca2f35bd18 pc=0x48748a
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.selectgo(0x16ca2f35bf08, 0x16ca2f35bee4, 0x16ca2f154080?, 0x0, 0xf5c95b?, 0x1)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/select.go:351 +0xa97 fp=0x16ca2f35be78 sp=0x16ca2f35bd38 pc=0x461f37
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: upanel/internal/operations.(*Service).RunReconciler(0x16ca2f362060, {0x1afa018, 0x16ca2f154080})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/internal/operations/reconcile.go:204 +0x2dc fp=0x16ca2f35bfb8 sp=0x16ca2f35be78 pc=0xdf28fc
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: main.run.gowrap5()
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/cmd/upanel-web/main.go:745 +0x1f fp=0x16ca2f35bfe0 sp=0x16ca2f35bfb8 pc=0xed9e7f
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2f35bfe8 sp=0x16ca2f35bfe0 pc=0x48e5a1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: created by main.run in goroutine 1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/cmd/upanel-web/main.go:745 +0x4fe5
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: goroutine 41 gp=0x16ca2f4343c0 m=nil [chan receive]:
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.gopark(0x0?, 0x0?, 0x0?, 0x0?, 0x0?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2f43de50 sp=0x16ca2f43de30 pc=0x48748a
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.chanrecv(0x16ca2ef042a0, 0x0, 0x1)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/chan.go:667 +0x4ae fp=0x16ca2f43dec8 sp=0x16ca2f43de50 pc=0x418d2e
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.chanrecv1(0x0?, 0x0?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/chan.go:509 +0x12 fp=0x16ca2f43def0 sp=0x16ca2f43dec8 pc=0x418852
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: upanel/internal/api.(*Server).Serve.func1()
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/internal/api/server.go:396 +0x76 fp=0x16ca2f43dfe0 sp=0x16ca2f43def0 pc=0xec8d96
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2f43dfe8 sp=0x16ca2f43dfe0 pc=0x48e5a1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: created by upanel/internal/api.(*Server).Serve in goroutine 1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         upanel/internal/api/server.go:394 +0x7d7
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: goroutine 478 gp=0x16ca2ee6ba40 m=nil [select]:
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.gopark(0x16ca2f453fa8?, 0x2?, 0x0?, 0x2e?, 0x16ca2f453f8c?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2f453e18 sp=0x16ca2f453df8 pc=0x48748a
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.selectgo(0x16ca2f453fa8, 0x16ca2f453f88, 0x16ca2ef042a0?, 0x0, 0x0?, 0x1)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/select.go:351 +0xa97 fp=0x16ca2f453f58 sp=0x16ca2f453e18 pc=0x461f37
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: modernc.org/sqlite.interruptOnDone.func1()
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         modernc.org/sqlite@v1.60.1/sqlite.go:93 +0x7f fp=0x16ca2f453fe0 sp=0x16ca2f453f58 pc=0x991abf
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2f453fe8 sp=0x16ca2f453fe0 pc=0x48e5a1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: created by modernc.org/sqlite.interruptOnDone in goroutine 8
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         modernc.org/sqlite@v1.60.1/sqlite.go:92 +0xf5
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: goroutine 208 gp=0x16ca2f019a40 m=nil [select]:
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.gopark(0x16ca2f008f48?, 0x2?, 0xc0?, 0x8d?, 0x16ca2f008ef4?)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/proc.go:474 +0xca fp=0x16ca2f008d78 sp=0x16ca2f008d58 pc=0x48748a
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.selectgo(0x16ca2f008f48, 0x16ca2f008ef0, 0x16ca2f084340?, 0x0, 0x16ca2f0e4c30?, 0x1)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/select.go:351 +0xa97 fp=0x16ca2f008eb8 sp=0x16ca2f008d78 pc=0x461f37
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: net/http.(*persistConn).writeLoop(0x16ca2efb4b40)
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         net/http/transport.go:2833 +0xe6 fp=0x16ca2f008fc8 sp=0x16ca2f008eb8 pc=0x72f6c6
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: net/http.(*Transport).dialConn.gowrap3()
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         net/http/transport.go:2124 +0x17 fp=0x16ca2f008fe0 sp=0x16ca2f008fc8 pc=0x735877
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: runtime.goexit({})
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         runtime/asm_amd64.s:1264 +0x1 fp=0x16ca2f008fe8 sp=0x16ca2f008fe0 pc=0x48e5a1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: created by net/http.(*Transport).dialConn in goroutine 206
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]:         net/http/transport.go:2124 +0x1e05
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: rax    0xca
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: rbx    0x0
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: rcx    0x4900e3
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: rdx    0x0
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: rdi    0x1bacc38
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: rsi    0x80
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: rbp    0x7ffc483bc330
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: rsp    0x7ffc483bc2e8
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: r8     0x0
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: r9     0x0
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: r10    0x0
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: r11    0x286
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: r12    0x457660
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: r13    0x16ca2f2bea80
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: r14    0x1baa780
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: r15    0xffffffffffffffff
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: rip    0x4900e1
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: rflags 0x286
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: cs     0x33
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: fs     0x0
+Oct 29 00:17:01 upanel-2404 upanel-web[93295]: gs     0x0
+Oct 29 00:17:08 upanel-2404 systemd[1]: upanel-web.service: Scheduled restart job, restart counter is at 1.
+Oct 29 00:17:08 upanel-2404 systemd[1]: Starting upanel-web.service - uPanel Web 管理面板...
+Oct 29 00:17:09 upanel-2404 upanelctl[93353]: 配置来源: /etc/upanel/upanel.json
+Oct 29 00:17:09 upanel-2404 upanelctl[93353]: 运行模式: production
+Oct 29 00:17:09 upanel-2404 upanelctl[93353]: Web 监听: 127.0.0.1:9443（仅回环: true）
+Oct 29 00:17:09 upanel-2404 upanelctl[93353]: 面板 HTTPS: 已启用（upanel-2404，到期 2029-01-30T07:29:44Z）
+Oct 29 00:17:09 upanel-2404 upanelctl[93353]:   证书指纹 sha256: c542d82d2eff7ceba159cbd907614b79f20eb8b721ad1d5a759a915fbd030d1a
+Oct 29 00:17:09 upanel-2404 upanelctl[93353]:   证书域名: localhost, upanel-2404
+Oct 29 00:17:09 upanel-2404 upanelctl[93353]:   注意: 面板证书是自签名的：浏览器会提示不受信任，请按安装说明核对指纹后再接受，或换成受信任证书
+Oct 29 00:17:09 upanel-2404 upanelctl[93353]: 代理 socket: /run/upanel/agent.sock
+Oct 29 00:17:09 upanel-2404 upanelctl[93353]: 数据库: /var/lib/upanel/upanel.db（busy_timeout=5000ms）
+Oct 29 00:17:09 upanel-2404 upanelctl[93353]: 日志: level=info format=json
+Oct 29 00:17:09 upanel-2404 upanelctl[93353]: 平台: linux/amd64（production 可用: true）
+Oct 29 00:17:09 upanel-2404 systemd[1]: Started upanel-web.service - uPanel Web 管理面板.
+Oct 29 00:17:10 upanel-2404 upanel-web[93358]: {"time":"2026-10-29T00:17:10.269952159Z","level":"INFO","msg":"启动","program":"upanel-web","version":"1.0.0","commit":"8e52b36-dirty","go_version":"go1.27.3","mode":"production","os":"linux","arch":"amd64","config_source":"/etc/upanel/upanel.json"}
+Oct 29 00:17:10 upanel-2404 upanel-web[93358]: {"time":"2026-10-29T00:17:10.324231521Z","level":"INFO","msg":"数据库已打开","program":"upanel-web","path":"/var/lib/upanel/upanel.db","journal_mode":"wal","foreign_keys":true,"busy_timeout_ms":5000}
+Oct 29 00:17:10 upanel-2404 upanel-web[93358]: {"time":"2026-10-29T00:17:10.33466889Z","level":"INFO","msg":"数据库 schema 已就绪","program":"upanel-web","path":"/var/lib/upanel/upanel.db","schema_version":14,"applied_versions":"[]"}
+Oct 29 00:17:10 upanel-2404 upanel-web[93358]: {"time":"2026-10-29T00:17:10.34665647Z","level":"INFO","msg":"已确定允许的请求源","program":"upanel-web","allowed_origins":"[https://127.0.0.1:9443 https://localhost:9443]"}
+Oct 29 00:17:10 upanel-2404 upanel-web[93358]: {"time":"2026-10-29T00:17:10.350415596Z","level":"INFO","msg":"前端资源已就绪","program":"upanel-web","source":"嵌入二进制"}
+Oct 29 00:17:10 upanel-2404 upanel-web[93358]: {"time":"2026-10-29T00:17:10.361194767Z","level":"INFO","msg":"历史监控开始采集","program":"upanel-web","interval":"2s","filesystem_interval":"30s","raw_retention":"24h0m0s","minute_retention":"720h0m0s","hour_retention":"8760h0m0s","max_rows":2000000}
+Oct 29 00:17:10 upanel-2404 upanel-web[93358]: {"time":"2026-10-29T00:17:10.424841092Z","level":"INFO","msg":"代理客户端已配置","program":"upanel-web","socket":"/run/upanel/agent.sock"}
+Oct 29 00:17:10 upanel-2404 upanel-web[93358]: {"time":"2026-10-29T00:17:10.425556597Z","level":"INFO","msg":"健康探测调度已启动","program":"upanel-web","tick":"5s"}
+Oct 29 00:17:10 upanel-2404 upanel-web[93358]: {"time":"2026-10-29T00:17:10.42909392Z","level":"INFO","msg":"开始任务对账","program":"upanel-web","interval":"30s","batch":100}
+Oct 29 00:17:10 upanel-2404 upanel-web[93358]: {"time":"2026-10-29T00:17:10.542728078Z","level":"WARN","msg":"面板 HTTPS 材料注意","program":"upanel-web","detail":"面板证书是自签名的：浏览器会提示不受信任，请按安装说明核对指纹后再接受，或换成受信任证书"}
+Oct 29 00:17:10 upanel-2404 upanel-web[93358]: {"time":"2026-10-29T00:17:10.548730918Z","level":"INFO","msg":"面板 HTTPS 已就绪","program":"upanel-web","cert":"upanel-2404","fingerprint_sha256":"c542d82d2eff7ceba159cbd907614b79f20eb8b721ad1d5a759a915fbd030d1a","not_after":"2029-01-30T07:29:44Z","min_version":"TLS 1.2"}
+Oct 29 00:17:10 upanel-2404 upanel-web[93358]: {"time":"2026-10-29T00:17:10.549554124Z","level":"INFO","msg":"Web 服务已开始监听","program":"upanel-web","address":"127.0.0.1:9443","network":"tcp","scheme":"https","mode":"production","loopback_only":true,"version":"1.0.0","schema_version":14,"pid":93358,"started_at":"2026-10-29T00:17:10.440877099Z"}
+Oct 29 00:17:10 upanel-2404 upanel-web[93358]: {"time":"2026-10-29T00:17:10.582674745Z","level":"INFO","msg":"任务对账扫描完成","program":"upanel-web","scanned":0,"advanced":0,"deferred":0,"unconfirmed":0,"unknown":0,"write_failed":0,"skipped_inflight":0}

@@ -181,6 +181,55 @@ sudo BIN_DIR=/tmp/upanel-bin sh tests/integration/p04-3-storage-health-acceptanc
 
 ---
 
+### 3.3 历史监控的配置（P13.1 起）
+
+面板会把代理已经采集到的系统快照**再记一份到自己的库里**，这样才有“过去怎么走的”可以查
+（`GET /api/v1/system/metrics`）。采集仍在代理侧，Web 只做轮询、去重、聚合与保留：
+
+```json
+{
+  "web": {
+    "metrics": {
+      "enabled": true,
+      "interval_seconds": 2,
+      "raw_retention_seconds": 86400,
+      "minute_retention_seconds": 2592000,
+      "hour_retention_seconds": 31536000,
+      "max_rows": 2000000
+    }
+  }
+}
+```
+
+| 键 | 默认 | 范围 | 说明 |
+| --- | --- | --- | --- |
+| `enabled` | `true` | 布尔 | 关掉之后不再写新样本，**旧数据仍然可查**：`/system/metrics` 回 `enabled=false` 并说明原因。首页的实时指标不受影响 |
+| `interval_seconds` | `2` | 1—60 | 轮询代理快照的间隔。默认比代理的 5 秒采集快一档：5 秒轮询 5 秒采集会踩点，踩上就丢一整份快照 |
+| `raw_retention_seconds` | `86400` | 60—604800 | 原始样本（≈5 秒一个点）的保留时长，默认 24 小时 |
+| `minute_retention_seconds` | `2592000` | 60—31536000 | 1 分钟聚合的保留时长，默认 30 天 |
+| `hour_retention_seconds` | `31536000` | 60—315360000 | 1 小时聚合的保留时长，默认 365 天 |
+| `max_rows` | `2000000` | 10000—50000000 | `metric_samples` 的行数上限。超了先丢**最老的整桶原始样本**，再往下丢分钟、小时；最新那个桶永远保留 |
+
+几条运行时事实，排查时会用到：
+
+- **保留窗口必须逐级递增**：`minute_retention_seconds` ≥ `raw_retention_seconds`、
+  `hour_retention_seconds` ≥ `minute_retention_seconds`。倒过来是启动错误——聚合出来的桶会比源数据先过期，
+  曲线会在中途整齐地断掉。
+- **聚合只处理已经结束的桶**，并且**先聚合、再裁剪**：裁剪点是 `now - 保留窗口 - 2 个桶宽`，
+  留出两个桶宽的余量，避免“桶刚要聚合就被裁掉”。面板重启后不需要补账本，
+  它按 `NOT EXISTS` 找“源有、目标没有”的桶，自己把落下的补上（每轮最多 4000 个桶，200 一批）。
+- **缺失就是没有点**：采集失败、代理断开、值为 `null` 的时刻不写样本，也**从不补 0**。
+  每个序列带 `missing_points`；`observed_from`/`observed_to` 都是 `null` 才表示“这个区间真的没有数据”。
+- **查多少点由服务端决定**：单次最多 1440 个点，超了不报错而是加粗步长（按跨度落到
+  raw/minute/hour 里覆盖得住的最细一层）。响应里的 `resolution` 与 `step_seconds` 是实际用的值。
+- 状态在 `GET /api/v1/system/metrics/status`：`collecting` 说的是**这个进程**在不在采集，
+  `last_sample_at`、`inserted`、`pruned` 也只算这个进程，重启后从零开始；行数 `samples` 是全表统计，
+  不要按刷新曲线的频率去轮询它。
+- 想验证“保留真的会删数据”，把 `raw_retention_seconds` 临时压到 `60`，跑几分钟就能看到
+  原始样本被裁、分钟桶留下。**这个压缩配置只用于验收，不要留在生产配置里。**
+
+---
+
 ## 4. 前端开发
 
 ```sh

@@ -1,0 +1,4 @@
+GET /api/v1/schedules -> 403
+GET /api/v1/scripts -> 403
+GET /api/v1/schedules/sch_df1ff453f73b9acaf1421bcd76e56285 -> 403
+GET /api/v1/scripts/scr_bc01e788001d291a1cc827cab70650aa -> 403

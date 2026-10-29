@@ -1,0 +1,36 @@
+
+[1/13] 校验发布包
+sha256sum: bin/upanelctl: No such file or directory
+bin/upanelctl: FAILED open or read
+sha256sum: deploy/scripts/backup-state.sh: No such file or directory
+deploy/scripts/backup-state.sh: FAILED open or read
+sha256sum: deploy/scripts/install.sh: No such file or directory
+deploy/scripts/install.sh: FAILED open or read
+sha256sum: deploy/scripts/uninstall.sh: No such file or directory
+deploy/scripts/uninstall.sh: FAILED open or read
+sha256sum: deploy/systemd/upanel-agent.service: No such file or directory
+deploy/systemd/upanel-agent.service: FAILED open or read
+sha256sum: deploy/systemd/upanel-web.service: No such file or directory
+deploy/systemd/upanel-web.service: FAILED open or read
+sha256sum: deploy/upanel.example.json: No such file or directory
+deploy/upanel.example.json: FAILED open or read
+sha256sum: docs/ACCESS.md: No such file or directory
+docs/ACCESS.md: FAILED open or read
+sha256sum: docs/INSTALL.md: No such file or directory
+docs/INSTALL.md: FAILED open or read
+sha256sum: docs/LOCAL_START.md: No such file or directory
+docs/LOCAL_START.md: FAILED open or read
+sha256sum: docs/RECOVERY.md: No such file or directory
+docs/RECOVERY.md: FAILED open or read
+sha256sum: docs/SHARES_CLIENT.md: No such file or directory
+docs/SHARES_CLIENT.md: FAILED open or read
+sha256sum: docs/STORAGE_RECOVERY.md: No such file or directory
+docs/STORAGE_RECOVERY.md: FAILED open or read
+sha256sum: WARNING: 13 listed files could not be read
+
+==== 安装没有完成（校验和不匹配：包被改过或传输损坏，不要继续安装）====
+没有任何步骤完成，系统未被修改。
+
+修好之后用同一条命令重跑：
+  /root/upanel-pkg/deploy/scripts/install.sh --source /root/upanel-pkg
+服务相关日志：journalctl -u upanel-web -u upanel-agent -n 100 --no-pager

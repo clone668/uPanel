@@ -1,0 +1,7 @@
+Warning: Permanently added '[127.0.0.1]:2223' (ED25519) to the list of known hosts.
+402564380dfbdf7ace3c995a3918669848614a67fd0fffccd1f8527bbc5f9b9a  /var/tmp/upanel-bin/upanel-agent
+5edd2bbb0400a148fe28168ea87e1c951afb1216d259af439a062f227a7f24ff  /var/tmp/upanel-bin/upanel-web
+ef69fa7362d77d64a1620f0693b2272e5f5a0b262fe64fc908d3258245df3f44  /var/tmp/upanel-bin/upanelctl
+c2a5236a32c7b6672b140768685fcec65105a2bb3ab374f1be26798a6a45e6ab  /tmp/p14-5-acceptance.sh
+5.15.0-198-generic
+Ubuntu 22.04.5 LTS

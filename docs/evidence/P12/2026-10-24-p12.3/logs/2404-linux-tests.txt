@@ -1,0 +1,12 @@
+# Linux 专属用例在 2404 上实跑（cgo 关闭的交叉编译测试二进制，直接跑在 VM 上）
+# 命令：sudo /tmp/backup.test -test.run 'TestRecoveryCoreOnRealRestic|TestResticRestoreThroughInheritedDirectoryFD|TestSlowProgressCallbackDoesNotFailTheCommand' -test.v
+# restic: restic 0.16.4 compiled with go1.22.2 on linux/amd64
+# sha256(backup.test) = 2175f4900af2fef29d7e2be8996b3d4ff8096cb70f7f8b577d8221ba3df5d2bc
+
+=== RUN   TestSlowProgressCallbackDoesNotFailTheCommand
+--- PASS: TestSlowProgressCallbackDoesNotFailTheCommand (2.80s)
+=== RUN   TestResticRestoreThroughInheritedDirectoryFD
+--- PASS: TestResticRestoreThroughInheritedDirectoryFD (10.53s)
+=== RUN   TestRecoveryCoreOnRealRestic
+--- PASS: TestRecoveryCoreOnRealRestic (55.63s)
+PASS

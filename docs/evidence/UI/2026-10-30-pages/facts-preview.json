@@ -1,0 +1,284 @@
+[
+  {
+    "name": "page-overview",
+    "path": "/",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-overview.png",
+    "errors": [],
+    "unmatched": [],
+    "overflow": 0,
+    "scrollH": 1211,
+    "h1": "概览"
+  },
+  {
+    "name": "page-storage",
+    "path": "/storage",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-storage.png",
+    "errors": [],
+    "unmatched": [],
+    "overflow": 0,
+    "scrollH": 2371,
+    "h1": "存储"
+  },
+  {
+    "name": "page-storage-device",
+    "path": "/storage/devices/sda",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-storage-device.png",
+    "errors": [],
+    "unmatched": [],
+    "overflow": 0,
+    "scrollH": 2367,
+    "h1": "sda"
+  },
+  {
+    "name": "page-services",
+    "path": "/services",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-services.png",
+    "errors": [],
+    "unmatched": [],
+    "overflow": 0,
+    "scrollH": 14302,
+    "h1": "服务与进程"
+  },
+  {
+    "name": "page-service-unit",
+    "path": "/services/ssh.service",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-service-unit.png",
+    "errors": [],
+    "unmatched": [],
+    "overflow": 0,
+    "scrollH": 900,
+    "h1": "ssh.service"
+  },
+  {
+    "name": "page-processes",
+    "path": "/processes",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-processes.png",
+    "errors": [],
+    "unmatched": [],
+    "overflow": 0,
+    "scrollH": 6065,
+    "h1": "进程"
+  },
+  {
+    "name": "page-files",
+    "path": "/files",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-files.png",
+    "errors": [],
+    "unmatched": [],
+    "overflow": 0,
+    "scrollH": 900,
+    "h1": "文件"
+  },
+  {
+    "name": "page-shares",
+    "path": "/shares",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-shares.png",
+    "errors": [],
+    "unmatched": [],
+    "overflow": 0,
+    "scrollH": 1478,
+    "h1": "共享"
+  },
+  {
+    "name": "page-apps",
+    "path": "/apps",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-apps.png",
+    "errors": [],
+    "unmatched": [],
+    "overflow": 0,
+    "scrollH": 5127,
+    "h1": "应用"
+  },
+  {
+    "name": "page-updates",
+    "path": "/updates",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-updates.png",
+    "errors": [],
+    "unmatched": [],
+    "overflow": 0,
+    "scrollH": 3544,
+    "h1": "更新"
+  },
+  {
+    "name": "page-logs",
+    "path": "/logs",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-logs.png",
+    "errors": [],
+    "unmatched": [],
+    "overflow": 0,
+    "scrollH": 1331,
+    "h1": "日志"
+  },
+  {
+    "name": "page-jobs",
+    "path": "/jobs",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-jobs.png",
+    "errors": [],
+    "unmatched": [
+      "http://127.0.0.1:5173/api/v1/jobs"
+    ],
+    "overflow": 0,
+    "scrollH": 900,
+    "h1": "任务中心"
+  },
+  {
+    "name": "page-backup",
+    "path": "/backup",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-backup.png",
+    "errors": [],
+    "unmatched": [
+      "http://127.0.0.1:5173/api/v1/backup/repositories",
+      "http://127.0.0.1:5173/api/v1/backup/policies"
+    ],
+    "overflow": 0,
+    "scrollH": 900,
+    "h1": "备份"
+  },
+  {
+    "name": "page-alerts",
+    "path": "/alerts",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-alerts.png",
+    "errors": [],
+    "unmatched": [
+      "http://127.0.0.1:5173/api/v1/system/metrics/status",
+      "http://127.0.0.1:5173/api/v1/system/metrics",
+      "http://127.0.0.1:5173/api/v1/alerts/rules",
+      "http://127.0.0.1:5173/api/v1/alerts/events",
+      "http://127.0.0.1:5173/api/v1/notification-deliveries"
+    ],
+    "overflow": 0,
+    "scrollH": 1162,
+    "h1": "监控告警"
+  },
+  {
+    "name": "page-schedules",
+    "path": "/schedules",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-schedules.png",
+    "errors": [],
+    "unmatched": [
+      "http://127.0.0.1:5173/api/v1/schedules",
+      "http://127.0.0.1:5173/api/v1/scripts",
+      "http://127.0.0.1:5173/api/v1/backup/policies",
+      "http://127.0.0.1:5173/api/v1/certificates"
+    ],
+    "overflow": 0,
+    "scrollH": 900,
+    "h1": "计划任务"
+  },
+  {
+    "name": "page-network",
+    "path": "/network",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-network.png",
+    "errors": [],
+    "unmatched": [
+      "http://127.0.0.1:5173/api/v1/network/interfaces",
+      "http://127.0.0.1:5173/api/v1/network/routes",
+      "http://127.0.0.1:5173/api/v1/network/listeners",
+      "http://127.0.0.1:5173/api/v1/firewall",
+      "http://127.0.0.1:5173/api/v1/network/config",
+      "http://127.0.0.1:5173/api/v1/firewall/config"
+    ],
+    "overflow": 0,
+    "scrollH": 900,
+    "h1": "网络"
+  },
+  {
+    "name": "page-settings",
+    "path": "/settings",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-settings.png",
+    "errors": [],
+    "unmatched": [],
+    "overflow": 0,
+    "scrollH": 900,
+    "h1": "设置"
+  },
+  {
+    "name": "page-host",
+    "path": "/settings/host",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-host.png",
+    "errors": [],
+    "unmatched": [
+      "http://127.0.0.1:5173/api/v1/system/capabilities"
+    ],
+    "overflow": 0,
+    "scrollH": 900,
+    "h1": null
+  },
+  {
+    "name": "page-terminal",
+    "path": "/terminal",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-terminal.png",
+    "errors": [],
+    "unmatched": [
+      "http://127.0.0.1:5173/api/v1/terminal/sessions"
+    ],
+    "overflow": 0,
+    "scrollH": 900,
+    "h1": "终端"
+  },
+  {
+    "name": "page-deployments",
+    "path": "/apps/deployments",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-deployments.png",
+    "errors": [],
+    "unmatched": [
+      "http://127.0.0.1:5173/api/v1/deployments/managed",
+      "http://127.0.0.1:5173/api/v1/backup/policies"
+    ],
+    "overflow": 0,
+    "scrollH": 900,
+    "h1": "受管部署"
+  },
+  {
+    "name": "page-accounts",
+    "path": "/accounts",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-accounts.png",
+    "errors": [],
+    "unmatched": [
+      "http://127.0.0.1:5173/api/v1/accounts"
+    ],
+    "overflow": 0,
+    "scrollH": 900,
+    "h1": null
+  },
+  {
+    "name": "page-notfound",
+    "path": "/no-such-page",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-notfound.png",
+    "errors": [],
+    "unmatched": [],
+    "overflow": 0,
+    "scrollH": 900,
+    "h1": null
+  },
+  {
+    "name": "page-services-mobile",
+    "path": "/services",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-services-mobile.png",
+    "errors": [],
+    "unmatched": [],
+    "overflow": 0,
+    "scrollH": 42229,
+    "h1": "服务与进程"
+  },
+  {
+    "name": "page-storage-dark",
+    "path": "/storage",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-storage-dark.png",
+    "errors": [],
+    "unmatched": [],
+    "overflow": 0,
+    "scrollH": 2371,
+    "h1": "存储"
+  },
+  {
+    "name": "page-apps-dark",
+    "path": "/apps",
+    "out": "H:\\Code\\uPanel\\docs\\evidence\\UI\\2026-10-30-pages\\page-apps-dark.png",
+    "errors": [],
+    "unmatched": [],
+    "overflow": 0,
+    "scrollH": 5127,
+    "h1": "应用"
+  }
+]

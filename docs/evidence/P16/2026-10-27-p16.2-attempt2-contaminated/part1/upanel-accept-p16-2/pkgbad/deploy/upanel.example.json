@@ -1,0 +1,40 @@
+{
+  "web": {
+    "mode": "production",
+    "listen_address": "127.0.0.1:9443",
+    "tls_cert_path": "",
+    "tls_key_path": "",
+    "shutdown_timeout_seconds": 10,
+    "metrics": {
+      "enabled": true,
+      "interval_seconds": 2,
+      "raw_retention_seconds": 86400,
+      "minute_retention_seconds": 2592000,
+      "hour_retention_seconds": 31536000,
+      "max_rows": 2000000
+    }
+  },
+  "agent": {
+    "socket_path": "/run/upanel/agent.sock",
+    "shutdown_timeout_seconds": 10,
+    "web_user": "upanel-web",
+    "socket_group": "upanel-web",
+    "database_path": "/var/lib/upanel-agent/agent.db",
+    "secret_key_path": "/etc/upanel/agent.key",
+    "storage": {
+      "smart_enabled": true,
+      "smart_interval_minutes": 15,
+      "smartctl_path": "",
+      "network_capacity_timeout_seconds": 10
+    }
+  },
+  "database": {
+    "path": "/var/lib/upanel/upanel.db",
+    "busy_timeout_ms": 5000
+  },
+  "log": {
+    "level": "info",
+    "format": "json",
+    "add_source": false
+  }
+}

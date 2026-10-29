@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"network.confirm 的参数只有 interface_id 与 token 两个字段（到达地址由服务端从连接取）：json: unknown field \"arrived_on\""},"request_id":"d03c8b3087cb18d2190563dfe50ebbdd"}

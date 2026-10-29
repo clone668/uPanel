@@ -1,0 +1,11 @@
+# 24.04 第 3 轮：停用 PATCH 被产品判 400（Q426 的现场）
+
+## web.log（同一通道：09:00:25 启用成功 → 09:04:36 停用 400）
+{"time":"2026-10-26T09:00:25.358037152Z","level":"INFO","msg":"请求完成","program":"upanel-web","request_id":"71f12057f4b5e783874238d357de27c8","request_id_inherited":false,"method":"PATCH","path":"/api/v1/notification-channels/5","route":"/api/v1/notification-channels/:id","status":200,"bytes":350,"duration_ms":82,"remote_addr":"127.0.0.1:45020","user_agent":"curl/8.5.0"}
+{"time":"2026-10-26T09:04:36.532683111Z","level":"WARN","msg":"请求被拒绝","program":"upanel-web","request_id":"1d0fa12991496eaae5583dcd83c8a08c","request_id_inherited":false,"method":"PATCH","path":"/api/v1/notification-channels/5","route":"/api/v1/notification-channels/:id","status":400,"bytes":128,"duration_ms":32,"remote_addr":"127.0.0.1:60334","user_agent":"curl/8.5.0"}
+
+## audit_events
+(58, '2026-10-26T09:04:36Z', 'notification.channel.update', 'failure', '{"error_code":"VALIDATION_ERROR","http_method":"PATCH","http_path":"/api/v1/notification-channels/5","stage":"validation"}')
+(55, '2026-10-26T09:00:25Z', 'notification.channel.update', 'success', '{"before":{"enabled":false,"max_attempts":2,"name":"验收-回调-必失败","secret_ref":null,"target":"https://127.0.0.1:19470/always500","type":"webhook","version":1},"channel_id":5,"enabled":true,"max_attempts":2,"name":"验收-回调-必失败","secret_ref":"[redacted]","settings":{"url":"https://127.0.0.1:19470/always500"},"target":"https://127.0.0.1:19470/always500","type":"webhook","version":2}')
+
+(5, '验收-回调-必失败', 1, 2)

@@ -1,0 +1,419 @@
+ok  	upanel/cmd/upanel-agent	8.971s
+ok  	upanel/cmd/upanel-web	43.536s
+--- FAIL: TestCheckConfigPrintsTLSFingerprint (0.31s)
+    main_test.go:641: 开了 TLS 时推导出来的允许源必须是 https: "配置来源: /tmp/TestCheckConfigPrintsTLSFingerprint1109126734/001/upanel.json\n运行模式: production\nWeb 监听: 127.0.0.1:19443（仅回环: true）\n面板 HTTPS: 已启用（upanel.test，到期 2027-01-26T10:53:29Z）\n  证书指纹 sha256: 7079b18ef8e86d9fc033a412525de9138dfb9b035f7b69a88f25163a7e8b7a5a\n  证书域名: upanel.test\n  注意: 面板证书是自签名的：浏览器会提示不受信任，请按安装说明核对指纹后再接受，或换成受信任证书\n代理 socket: /run/upanel/agent.sock\n数据库: /var/lib/upanel/upanel.db（busy_timeout=5000ms）\n日志: level=info format=json\n平台: linux/amd64（production 可用: true）\n"
+FAIL
+FAIL	upanel/cmd/upanelctl	1037.218s
+ok  	upanel/internal/accounts	3.973s
+panic: test timed out after 1h30m0s
+	running tests:
+		TestFileActionsRejectUnknownFields (50s)
+
+goroutine 2431 [running]:
+testing.(*M).startAlarm.func1()
+	/usr/local/go/src/testing/testing.go:2961 +0x605
+created by time.goFunc
+	/usr/local/go/src/time/sleep.go:182 +0x45
+
+goroutine 1 [chan receive]:
+testing.(*T).Run(0xc0001f6248, {0x16677de, 0x22}, 0x1f4c770)
+	/usr/local/go/src/testing/testing.go:2268 +0xb3e
+testing.runTests.func1(0xc0001f6248)
+	/usr/local/go/src/testing/testing.go:2744 +0x85
+testing.tRunner(0xc0001f6248, 0xc00035fa40)
+	/usr/local/go/src/testing/testing.go:2195 +0x21d
+testing.runTests({0x1644f5d, 0x6}, {0x16539b2, 0x15}, 0xc000016180, {0x1feb770, 0x1df, 0x1df}, {0xc2b0985b07ab1b98, 0x4e9c7a46d97, ...})
+	/usr/local/go/src/testing/testing.go:2742 +0x9ea
+testing.(*M).Run(0xc000402e60)
+	/usr/local/go/src/testing/testing.go:2602 +0xf45
+main.main()
+	_testmain.go:1002 +0x165
+
+goroutine 2434 [select]:
+database/sql.(*DB).connectionOpener(0xc00051e270, {0x1f4a6f8, 0xc00013a690})
+	/usr/local/go/src/database/sql/sql.go:1266 +0xed
+created by database/sql.OpenDB in goroutine 2401
+	/usr/local/go/src/database/sql/sql.go:846 +0x287
+
+goroutine 2430 [runnable]:
+database/sql.(*Tx).awaitDone(0xc0001dd0e0)
+	/usr/local/go/src/database/sql/sql.go:2217 +0x4a
+created by database/sql.(*DB).beginDC in goroutine 2401
+	/usr/local/go/src/database/sql/sql.go:1930 +0x428
+
+goroutine 2428 [select]:
+database/sql.(*DB).connectionOpener(0xc000226dd0, {0x1f4a6f8, 0xc0000c4af0})
+	/usr/local/go/src/database/sql/sql.go:1266 +0xed
+created by database/sql.OpenDB in goroutine 2401
+	/usr/local/go/src/database/sql/sql.go:846 +0x287
+
+goroutine 2401 [runnable]:
+modernc.org/sqlite/lib._walChecksumBytes(0x7d9bdc9ec028?, 0x1, 0x7d9bdc96c028, 0x1000, 0x7d9bdd66c688, 0x7d9bdd66c688)
+	/tmp/gomodcache/modernc.org/sqlite@v1.60.1/lib/sqlite.go:39634 +0x6c5
+modernc.org/sqlite/lib._walEncodeFrame(0xc0001ae8f0, 0x7d9bdd66c628, 0xb, 0x0, 0x7d9bdc96c028, 0x7d9bdc9ec020)
+	/tmp/gomodcache/modernc.org/sqlite@v1.60.1/lib/sqlite_g_000000000001dea8.go:2599 +0x667
+modernc.org/sqlite/lib._walWriteOneFrame(0xc0001ae8f0, 0x7d9bdc9ee020, 0x7d9bdc96d060, 0x0, 0x101a0)
+	/tmp/gomodcache/modernc.org/sqlite@v1.60.1/lib/sqlite_g_000000000001feab.go:25205 +0x1f0
+modernc.org/sqlite/lib._walFrames(0xc0001ae8f0, 0x7d9bdd66c628, 0x1000, 0x7d9bdc9b9060, 0x13, 0x1, 0xa)
+	/tmp/gomodcache/modernc.org/sqlite@v1.60.1/lib/sqlite_g_000000000001fea8.go:16842 +0x1c4c
+modernc.org/sqlite/lib._walSehFrames(0xc0001ae8f0, 0x7d9bdd66c628, 0x7d9bdd646420)
+	/tmp/gomodcache/modernc.org/sqlite@v1.60.1/lib/sqlite.go:39830 +0x1e5
+modernc.org/sqlite/lib._modernc_seh_try(0xc0001ae8f0, 0x7d9bdd66c628, 0x1f507f8, 0x7d9bdd646420, 0x1f507c8)
+	/tmp/gomodcache/modernc.org/sqlite@v1.60.1/lib/seh.go:115 +0x18b
+modernc.org/sqlite/lib._walSehTry(...)
+	/tmp/gomodcache/modernc.org/sqlite@v1.60.1/lib/sqlite.go:39842
+modernc.org/sqlite/lib._sqlite3WalFrames(0xc0001ae8f0, 0x7d9bdd66c628, 0x1000, 0x7d9bdc9b9060, 0x13, 0x1, 0xa)
+	/tmp/gomodcache/modernc.org/sqlite@v1.60.1/lib/sqlite.go:38531 +0x33f
+modernc.org/sqlite/lib._pagerWalFrames(0xc0001ae8f0, 0x7d9bdc9ef028, 0x7d9bdc9b9060, 0x13, 0x1)
+	/tmp/gomodcache/modernc.org/sqlite@v1.60.1/lib/sqlite_g_000000000001feab.go:10660 +0x657
+modernc.org/sqlite/lib._sqlite3PagerCommitPhaseOne(0xc0001ae8f0, 0x7d9bdc9ef028, 0x0, 0x0)
+	/tmp/gomodcache/modernc.org/sqlite@v1.60.1/lib/sqlite_g_000000000001ffff.go:9927 +0x554
+modernc.org/sqlite/lib._sqlite3BtreeCommitPhaseOne(0xc0001ae8f0, 0x7d9bdd5d6b28, 0x0)
+	/tmp/gomodcache/modernc.org/sqlite@v1.60.1/lib/sqlite_g_000000000001ffff.go:6728 +0x2d1
+modernc.org/sqlite/lib._vdbeCommit(0xc0001ae8f0, 0x7d9bdd64c028, 0x7d9bdc8f8818)
+	/tmp/gomodcache/modernc.org/sqlite@v1.60.1/lib/sqlite_g_0000000000003e80.go:20326 +0x28b7
+modernc.org/sqlite/lib._sqlite3VdbeHalt(0xc0001ae8f0, 0x7d9bdc8f8818)
+	/tmp/gomodcache/modernc.org/sqlite@v1.60.1/lib/sqlite_g_000000000001deab.go:4169 +0xd36
+modernc.org/sqlite/lib._sqlite3VdbeExec(0xc0001ae8f0, 0x7d9bdc8f8818)
+	/tmp/gomodcache/modernc.org/sqlite@v1.60.1/lib/sqlite_g_0000000000000480.go:21667 +0x1486
+modernc.org/sqlite/lib._sqlite3Step(0xc0001ae8f0, 0x7d9bdc8f8818)
+	/tmp/gomodcache/modernc.org/sqlite@v1.60.1/lib/sqlite_g_000000000001deab.go:3968 +0x1ee
+modernc.org/sqlite/lib.Xsqlite3_step(0xc0001ae8f0, 0x7d9bdc8f8818)
+	/tmp/gomodcache/modernc.org/sqlite@v1.60.1/lib/sqlite.go:12110 +0x1cb
+modernc.org/sqlite/lib.Xsqlite3_exec(0xc0001ae8f0, 0x7d9bdd64c028, 0x7d9bdd68fa70, 0x0, 0x0, 0x0)
+	/tmp/gomodcache/modernc.org/sqlite@v1.60.1/lib/sqlite_g_0000000000000480.go:98 +0xb34
+modernc.org/sqlite.(*tx).exec(0xc000082880, {0x1f4a458, 0x2012f40}, {0x16456cb, 0x6})
+	/tmp/gomodcache/modernc.org/sqlite@v1.60.1/tx.go:74 +0x22f
+modernc.org/sqlite.(*tx).Commit(0xc000082880)
+	/tmp/gomodcache/modernc.org/sqlite@v1.60.1/tx.go:36 +0x49
+database/sql.(*Tx).Commit.func1()
+	/usr/local/go/src/database/sql/sql.go:2318 +0x51
+database/sql.withLock({0x1f492a8, 0xc0000d2380}, 0xc00033ec20)
+	/usr/local/go/src/database/sql/sql.go:3621 +0xa3
+database/sql.(*Tx).Commit(0xc0001dd0e0)
+	/usr/local/go/src/database/sql/sql.go:2317 +0x205
+upanel/internal/store.(*DB).WithTx(0xc0003e8420, {0x1f4a458, 0x2012f40}, 0xc00033edc0)
+	/tmp/upanel-src/internal/store/store.go:276 +0x473
+upanel/internal/store.(*DB).applyMigration(0xc0003e8420, {0x1f4a458, 0x2012f40}, {0x3, {0xc00030a485, 0xa}, {0xc000258000, 0x16dd}, {0xc000297d00, 0x40}})
+	/tmp/upanel-src/internal/store/migrate.go:192 +0x216
+upanel/internal/store.(*DB).Migrate(0xc0003e8420, {0x1f4a458, 0x2012f40}, {0x1f46348, 0x16dc000})
+	/tmp/upanel-src/internal/store/migrate.go:118 +0xe97
+upanel/internal/agentstore.(*DB).Migrate(...)
+	/tmp/upanel-src/internal/agentstore/store.go:92
+upanel/internal/agent.newTestSecretStoreWith(0xc0002846c8, {0x1647df6?, 0x0?})
+	/tmp/upanel-src/internal/agent/secrets_helpers_test.go:44 +0x64a
+upanel/internal/agent.newTestSecretStore(0xc0002846c8)
+	/tmp/upanel-src/internal/agent/secrets_helpers_test.go:26 +0x37
+upanel/internal/agent.newOperationServerWithLogger(0xc0002846c8, 0xc0003eaa50, {0x0, 0x0})
+	/tmp/upanel-src/internal/agent/operations_test.go:167 +0x852
+upanel/internal/agent.newOperationServer(0xc0002846c8, 0xc0003eaa50)
+	/tmp/upanel-src/internal/agent/operations_test.go:141 +0x45
+upanel/internal/agent.newFileActionServer(0xc0002846c8, 0xc00042c008)
+	/tmp/upanel-src/internal/agent/filesaction_test.go:205 +0x179
+upanel/internal/agent.TestFileActionsRejectUnknownFields(0xc0002846c8)
+	/tmp/upanel-src/internal/agent/filesaction_test.go:265 +0x24a
+testing.tRunner(0xc0002846c8, 0x1f4c770)
+	/usr/local/go/src/testing/testing.go:2195 +0x21d
+created by testing.(*T).Run in goroutine 1
+	/usr/local/go/src/testing/testing.go:2260 +0xb13
+FAIL	upanel/internal/agent	5403.041s
+ok  	upanel/internal/agentclient	11.127s
+ok  	upanel/internal/agentstore	2473.769s
+ok  	upanel/internal/alerts	129.884s
+panic: test timed out after 1h30m0s
+	running tests:
+		TestAppLogsSystemdRejectsContainerParams (3m29s)
+
+goroutine 1787 [running]:
+testing.(*M).startAlarm.func1()
+	/usr/local/go/src/testing/testing.go:2961 +0x605
+created by time.goFunc
+	/usr/local/go/src/time/sleep.go:182 +0x45
+
+goroutine 1 [chan receive, 5 minutes]:
+testing.(*T).Run(0xc000288248, {0x1db6dbf, 0x28}, 0x29f8988)
+	/usr/local/go/src/testing/testing.go:2268 +0xb3e
+testing.runTests.func1(0xc000288248)
+	/usr/local/go/src/testing/testing.go:2744 +0x85
+testing.tRunner(0xc000288248, 0xc0003dfa40)
+	/usr/local/go/src/testing/testing.go:2195 +0x21d
+testing.runTests({0x1d865a6, 0x6}, {0x1d95e56, 0x13}, 0xc000016600, {0x2aa84f0, 0x18f, 0x18f}, {0xc2b09ba530d83d71, 0x4ea011b048d, ...})
+	/usr/local/go/src/testing/testing.go:2742 +0x9ea
+testing.(*M).Run(0xc00026f220)
+	/usr/local/go/src/testing/testing.go:2602 +0xf45
+main.main()
+	_testmain.go:842 +0x165
+
+goroutine 1725 [sync.WaitGroup.Wait]:
+sync.runtime_SemacquireWaitGroup(0x49389f?, 0xa0?)
+	/usr/local/go/src/runtime/sema.go:114 +0x2e
+sync.(*WaitGroup).Wait(0xc0000c02d0)
+	/usr/local/go/src/sync/waitgroup.go:206 +0xc5
+golang.org/x/crypto/argon2.processBlocks({0xc00857e000, 0x20000, 0x20000}, 0x3, 0x20000, 0x2, 0x2)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/argon2.go:239 +0x175
+golang.org/x/crypto/argon2.deriveKey(0x2, {0xc0002dc138, 0xf, 0x20}, {0xc0000c0430, 0x10, 0x10}, {0x0, 0x0, 0x0}, ...)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/argon2.go:119 +0x22c
+golang.org/x/crypto/argon2.IDKey(...)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/argon2.go:102
+upanel/internal/auth.VerifyPassword({0xc000504271, 0xf}, {0xc00008c070, 0x62})
+	/tmp/upanel-src/internal/auth/password.go:149 +0x17f
+upanel/internal/auth.(*Service).VerifyCredentials(0xc000028240, {0x29f4ca0, 0xc00007fc50}, {{0xc00050428b, 0x5}, {0xc000504271, 0xf}, {0x1d9021a, 0x9}, {0x0, ...}})
+	/tmp/upanel-src/internal/auth/session.go:131 +0x2be
+upanel/internal/api.(*Server).handleLogin(0xc0001b8008, 0xc000000400)
+	/tmp/upanel-src/internal/api/auth.go:126 +0xc45
+github.com/gin-gonic/gin.(*Context).Next(0xc000000400)
+	/tmp/gomodcache/github.com/gin-gonic/gin@v1.12.0/context.go:192 +0x1b3
+upanel/internal/api.(*Server).originGuard.func1(0xc000000400)
+	/tmp/upanel-src/internal/api/auth.go:290 +0x117
+github.com/gin-gonic/gin.(*Context).Next(0xc000000400)
+	/tmp/gomodcache/github.com/gin-gonic/gin@v1.12.0/context.go:192 +0x1b3
+upanel/internal/api.(*Server).hstsMiddleware.func1(0xc000000400)
+	/tmp/upanel-src/internal/api/middleware.go:163 +0x78
+github.com/gin-gonic/gin.(*Context).Next(0xc000000400)
+	/tmp/gomodcache/github.com/gin-gonic/gin@v1.12.0/context.go:192 +0x1b3
+upanel/internal/api.bodyLimitMiddleware.func1(0xc000000400)
+	/tmp/upanel-src/internal/api/middleware.go:117 +0x185
+github.com/gin-gonic/gin.(*Context).Next(0xc000000400)
+	/tmp/gomodcache/github.com/gin-gonic/gin@v1.12.0/context.go:192 +0x1b3
+upanel/internal/api.recoveryMiddleware.func1(0xc000000400)
+	/tmp/upanel-src/internal/api/middleware.go:91 +0x97
+github.com/gin-gonic/gin.(*Context).Next(0xc000000400)
+	/tmp/gomodcache/github.com/gin-gonic/gin@v1.12.0/context.go:192 +0x1b3
+upanel/internal/api.accessLogMiddleware.func1(0xc000000400)
+	/tmp/upanel-src/internal/api/middleware.go:42 +0x65
+github.com/gin-gonic/gin.(*Context).Next(0xc000000400)
+	/tmp/gomodcache/github.com/gin-gonic/gin@v1.12.0/context.go:192 +0x1b3
+upanel/internal/api.requestIDMiddleware.func1(0xc000000400)
+	/tmp/upanel-src/internal/api/middleware.go:30 +0x35d
+github.com/gin-gonic/gin.(*Context).Next(0xc000000400)
+	/tmp/gomodcache/github.com/gin-gonic/gin@v1.12.0/context.go:192 +0x1b3
+github.com/gin-gonic/gin.(*Engine).handleHTTPRequest(0xc000286540, 0xc000000400)
+	/tmp/gomodcache/github.com/gin-gonic/gin@v1.12.0/gin.go:722 +0x810
+github.com/gin-gonic/gin.(*Engine).ServeHTTP(0xc000286540, {0x29f42c8, 0xc000028480}, 0xc00013c3c0)
+	/tmp/gomodcache/github.com/gin-gonic/gin@v1.12.0/gin.go:672 +0x427
+upanel/internal/api.doLogin(0xc000288fc8, 0xc0001b8008, {0xc0000ca300, 0x31}, 0x0)
+	/tmp/upanel-src/internal/api/auth_test.go:43 +0x54b
+upanel/internal/api.loginOK(0xc000288fc8, 0xc0001b8008)
+	/tmp/upanel-src/internal/api/auth_test.go:50 +0x85
+upanel/internal/api.appLogsFixture(0xc000288fc8, 0x0, {0x29f2bf0, 0xc000104780}, {0x0, 0x0})
+	/tmp/upanel-src/internal/api/applogs_test.go:81 +0x89a
+upanel/internal/api.TestAppLogsSystemdRejectsContainerParams(0xc000288fc8)
+	/tmp/upanel-src/internal/api/applogs_test.go:151 +0x27e
+testing.tRunner(0xc000288fc8, 0x29f8988)
+	/usr/local/go/src/testing/testing.go:2195 +0x21d
+created by testing.(*T).Run in goroutine 1
+	/usr/local/go/src/testing/testing.go:2260 +0xb13
+
+goroutine 1786 [runnable]:
+golang.org/x/crypto/argon2.blamkaGeneric(0xc00015f0f8, 0xc00015f100, 0xc00015f108, 0xc00015f110, 0xc00015f118, 0xc00015f120, 0xc00015f128, 0xc00015f130, 0xc00015f138, 0xc00015f140, ...)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/blamka_generic.go:45 +0x8f8
+golang.org/x/crypto/argon2.processBlockSSE(0xc00ed92400, 0xc00ed92000, 0xc00e84f400, 0x1)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/blamka_amd64.go:31 +0x245
+golang.org/x/crypto/argon2.processBlockXOR(...)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/blamka_amd64.go:59
+golang.org/x/crypto/argon2.processBlocks.func1(0x2, 0x2, 0x1, 0xc0000c02d0)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/argon2.go:226 +0x270
+created by golang.org/x/crypto/argon2.processBlocks in goroutine 1725
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/argon2.go:237 +0x1d4
+
+goroutine 1785 [runnable]:
+golang.org/x/crypto/argon2.blamkaGeneric(0xc000152f68, 0xc000152f70, 0xc000152fe8, 0xc000152ff0, 0xc000153068, 0xc000153070, 0xc0001530e8, 0xc0001530f0, 0xc000153168, 0xc000153170, ...)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/blamka_generic.go:45 +0x8f8
+golang.org/x/crypto/argon2.processBlockSSE(0xc00ad8bc00, 0xc00ad8b800, 0xc00aadb000, 0x1)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/blamka_amd64.go:39 +0x317
+golang.org/x/crypto/argon2.processBlockXOR(...)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/blamka_amd64.go:59
+golang.org/x/crypto/argon2.processBlocks.func1(0x2, 0x2, 0x0, 0xc0000c02d0)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/argon2.go:226 +0x270
+created by golang.org/x/crypto/argon2.processBlocks in goroutine 1725
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/argon2.go:237 +0x1d4
+
+goroutine 1726 [select, 5 minutes]:
+database/sql.(*DB).connectionOpener(0xc0002a36c0, {0x29f4cd8, 0xc0002242d0})
+	/usr/local/go/src/database/sql/sql.go:1266 +0xed
+created by database/sql.OpenDB in goroutine 1725
+	/usr/local/go/src/database/sql/sql.go:846 +0x287
+FAIL	upanel/internal/api	5406.840s
+ok  	upanel/internal/apphealth	94.955s
+ok  	upanel/internal/appruntime	7.587s
+ok  	upanel/internal/apps	435.389s
+ok  	upanel/internal/apt	5.432s
+ok  	upanel/internal/audit	168.136s
+--- FAIL: TestDefaultPasswordParamsTiming (180.89s)
+    password_test.go:173: 单次 Argon2id 校验耗时 1m30.976442106s
+    password_test.go:178: 校验耗时 1m30.976442106s 过长，需重新基准
+panic: test timed out after 1h30m0s
+	running tests:
+		TestLoginIssueAndAuthenticate (35s)
+
+goroutine 1559 [running]:
+testing.(*M).startAlarm.func1()
+	/usr/local/go/src/testing/testing.go:2961 +0x605
+created by time.goFunc
+	/usr/local/go/src/time/sleep.go:182 +0x45
+
+goroutine 1 [chan receive, 2 minutes]:
+testing.(*T).Run(0xc00015e008, {0xf19835, 0x1d}, 0x13d5f18)
+	/usr/local/go/src/testing/testing.go:2268 +0xb3e
+testing.runTests.func1(0xc00015e008)
+	/usr/local/go/src/testing/testing.go:2744 +0x85
+testing.tRunner(0xc00015e008, 0xc000155a40)
+	/usr/local/go/src/testing/testing.go:2195 +0x21d
+testing.runTests({0xf10787, 0x6}, {0xf1597c, 0x14}, 0xc000016030, {0x1417610, 0x34, 0x34}, {0xc2b09e9796f558a9, 0x4e99fb62b50, ...})
+	/usr/local/go/src/testing/testing.go:2742 +0x9ea
+testing.(*M).Run(0xc000074dc0)
+	/usr/local/go/src/testing/testing.go:2602 +0xf45
+main.main()
+	_testmain.go:148 +0x165
+
+goroutine 1518 [sync.WaitGroup.Wait]:
+sync.runtime_SemacquireWaitGroup(0x49133f?, 0xb8?)
+	/usr/local/go/src/runtime/sema.go:114 +0x2e
+sync.(*WaitGroup).Wait(0xc000096030)
+	/usr/local/go/src/sync/waitgroup.go:206 +0xc5
+golang.org/x/crypto/argon2.processBlocks({0xc00023e000, 0x20000, 0x20000}, 0x3, 0x20000, 0x2, 0x2)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/argon2.go:239 +0x175
+golang.org/x/crypto/argon2.deriveKey(0x2, {0xc0000f9350, 0xf, 0x20}, {0xc00015c8e0, 0x10, 0x10}, {0x0, 0x0, 0x0}, ...)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/argon2.go:119 +0x22c
+golang.org/x/crypto/argon2.IDKey(...)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/argon2.go:102
+upanel/internal/auth.HashPasswordWith({0x20000, 0x3, 0x2, 0x10, 0x20}, {0xf1381d, 0xf})
+	/tmp/upanel-src/internal/auth/password.go:126 +0x49d
+upanel/internal/auth.(*Service).CreateUser(0xc00001a280, {0x13d5560, 0x143d0c0}, {{0xf107cf, 0x5}, {0xf107cf, 0x5}, {0xf1381d, 0xf}, {0xf107cf, ...}})
+	/tmp/upanel-src/internal/auth/users.go:157 +0x2f7
+upanel/internal/auth.mustCreateAdmin(0xc00015e488, 0xc00001a280, {0xf107cf, 0x5})
+	/tmp/upanel-src/internal/auth/users_test.go:63 +0x169
+upanel/internal/auth.TestLoginIssueAndAuthenticate(0xc00015e488)
+	/tmp/upanel-src/internal/auth/session_test.go:15 +0x1e5
+testing.tRunner(0xc00015e488, 0x13d5f18)
+	/usr/local/go/src/testing/testing.go:2195 +0x21d
+created by testing.(*T).Run in goroutine 1
+	/usr/local/go/src/testing/testing.go:2260 +0xb13
+
+goroutine 1541 [select, 2 minutes]:
+database/sql.(*DB).connectionOpener(0xc0001020d0, {0x13d5640, 0xc00011e000})
+	/usr/local/go/src/database/sql/sql.go:1266 +0xed
+created by database/sql.OpenDB in goroutine 1518
+	/usr/local/go/src/database/sql/sql.go:846 +0x287
+
+goroutine 1558 [runnable]:
+golang.org/x/crypto/argon2.blamkaGeneric(0xc000192f68, 0xc000192f70, 0xc000192fe8, 0xc000192ff0, 0xc000193068, 0xc000193070, 0xc0001930e8, 0xc0001930f0, 0xc000193168, 0xc000193170, ...)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/blamka_generic.go:45 +0x8f8
+golang.org/x/crypto/argon2.processBlockSSE(0xc0066cdc00, 0xc0066cd800, 0xc000d8e000, 0x1)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/blamka_amd64.go:39 +0x317
+golang.org/x/crypto/argon2.processBlockXOR(...)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/blamka_amd64.go:59
+golang.org/x/crypto/argon2.processBlocks.func1(0x0, 0x2, 0x1, 0xc000096030)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/argon2.go:226 +0x270
+created by golang.org/x/crypto/argon2.processBlocks in goroutine 1518
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/argon2.go:237 +0x1d4
+
+goroutine 1557 [runnable]:
+golang.org/x/crypto/argon2.processBlockSSE(0xc002799400, 0xc002799000, 0xc004a15800, 0x1)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/blamka_amd64.go:24 +0x34b
+golang.org/x/crypto/argon2.processBlockXOR(...)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/blamka_amd64.go:59
+golang.org/x/crypto/argon2.processBlocks.func1(0x0, 0x2, 0x0, 0xc000096030)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/argon2.go:226 +0x270
+created by golang.org/x/crypto/argon2.processBlocks in goroutine 1518
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/argon2.go:237 +0x1d4
+FAIL	upanel/internal/auth	5404.532s
+--- FAIL: TestResticRecoveryArgumentsAreFixedAndLiteral (0.01s)
+    retention_test.go:57: backup: 复制恢复目录句柄失败: bad file descriptor
+--- FAIL: TestDialRetriesOnceWhenHandshakeStalls (1.78s)
+    ssh_test.go:430: 第一轮卡住、第二轮正常，却判定连不上: backup: 与 127.0.0.1:41801 的握手失败（网络层）: ssh: handshake failed: read tcp 127.0.0.1:39354->127.0.0.1:41801: i/o timeout
+FAIL
+FAIL	upanel/internal/backup	35.676s
+ok  	upanel/internal/certificates	218.908s
+ok  	upanel/internal/config	6.095s
+ok  	upanel/internal/containers	5.708s
+ok  	upanel/internal/debversion	2.274s
+ok  	upanel/internal/deploy	29.164s
+ok  	upanel/internal/discovery	6.656s
+ok  	upanel/internal/files	24.100s
+ok  	upanel/internal/hostcaps	2.530s
+ok  	upanel/internal/httpx	3.194s
+==================
+WARNING: DATA RACE
+Read at 0x00c0000984f0 by goroutine 50:
+  upanel/internal/journal.TestStreamClientClosedStops()
+      /tmp/upanel-src/internal/journal/journal_test.go:689 +0x324
+  testing.tRunner()
+      /usr/local/go/src/testing/testing.go:2195 +0x21c
+  testing.(*T).Run.gowrap1()
+      /usr/local/go/src/testing/testing.go:2260 +0x38
+
+Previous write at 0x00c0000984f0 by goroutine 51:
+  upanel/internal/journal.(*fakeStreamer).Start()
+      /tmp/upanel-src/internal/journal/journal_test.go:92 +0x3d0
+  upanel/internal/journal.(*Querier).start()
+      /tmp/upanel-src/internal/journal/stream.go:179 +0x1e9
+  upanel/internal/journal.(*Querier).Stream()
+      /tmp/upanel-src/internal/journal/stream.go:103 +0x3a8
+  upanel/internal/journal.TestStreamClientClosedStops.func1()
+      /tmp/upanel-src/internal/journal/journal_test.go:680 +0x118
+
+Goroutine 50 (running) created at:
+  testing.(*T).Run()
+      /usr/local/go/src/testing/testing.go:2260 +0xb12
+  testing.runTests.func1()
+      /usr/local/go/src/testing/testing.go:2744 +0x84
+  testing.tRunner()
+      /usr/local/go/src/testing/testing.go:2195 +0x21c
+  testing.runTests()
+      /usr/local/go/src/testing/testing.go:2742 +0x9e9
+  testing.(*M).Run()
+      /usr/local/go/src/testing/testing.go:2602 +0xf44
+  main.main()
+      _testmain.go:94 +0x164
+
+Goroutine 51 (running) created at:
+  upanel/internal/journal.TestStreamClientClosedStops()
+      /tmp/upanel-src/internal/journal/journal_test.go:679 +0x2dc
+  testing.tRunner()
+      /usr/local/go/src/testing/testing.go:2195 +0x21c
+  testing.(*T).Run.gowrap1()
+      /usr/local/go/src/testing/testing.go:2260 +0x38
+==================
+--- FAIL: TestStreamClientClosedStops (0.11s)
+    testing.go:1867: race detected during execution of test
+FAIL
+FAIL	upanel/internal/journal	152.191s
+ok  	upanel/internal/logging	3.674s
+ok  	upanel/internal/logs	9.146s
+ok  	upanel/internal/metrics	265.431s
+ok  	upanel/internal/monitoring	6.167s
+ok  	upanel/internal/network	13.746s
+ok  	upanel/internal/nginx	3.569s
+ok  	upanel/internal/notifications	369.627s
+ok  	upanel/internal/operations	1518.821s
+ok  	upanel/internal/packages	4.337s
+ok  	upanel/internal/platform	1.959s
+ok  	upanel/internal/power	2.456s
+ok  	upanel/internal/processes	5.124s
+ok  	upanel/internal/proxies	509.147s
+ok  	upanel/internal/schedules	4.399s
+ok  	upanel/internal/scripts	3.031s
+ok  	upanel/internal/services	7.869s
+ok  	upanel/internal/shares	19.379s
+--- FAIL: TestOSCapacityReaderNetworkTimeoutQuarantines (0.07s)
+    capacity_test.go:69: 隔离期内还等了 9.207787ms：应当在内存里直接拒绝
+{"capacity":null,"error":"需要且只需要一个挂载点路径"}
+{"capacity":null,"error":"需要且只需要一个挂载点路径"}
+{"capacity":null,"error":"挂载点必须是绝对路径"}
+{"capacity":null,"error":"需要且只需要一个挂载点路径"}
+{"capacity":{"total_bytes":"40483942400","available_bytes":"35163762688","used_percent":13.1,"inode_total":"5111808","inode_available":"4967570","inode_used_percent":2.8,"collected_at":"0001-01-01T00:00:00Z"},"error":""}
+{"capacity":null,"error":"storage: 容量不可读: statfs /nonexistent-upanel-check 失败: no such file or directory"}
+FAIL
+FAIL	upanel/internal/storage	109.773s
+ok  	upanel/internal/store	346.005s
+ok  	upanel/internal/syscmd	22.749s
+ok  	upanel/internal/terminal	27.829s
+?   	upanel/internal/testsupport	[no test files]
+ok  	upanel/internal/tlscert	5.079s
+ok  	upanel/internal/totp	2.747s
+ok  	upanel/internal/version	2.751s
+ok  	upanel/internal/webui	2.211s
+?   	upanel/migrations	[no test files]
+?   	upanel/migrations/agentdb	[no test files]
+FAIL

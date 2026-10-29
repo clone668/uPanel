@@ -1,0 +1,29 @@
+db: /var/tmp/upanel-accept-p12-2/agent/agent.db
+user_version: 0
+applied: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+tables: ['backup_policies', 'backup_repositories', 'backup_restore_verifications', 'managed_accounts', 'managed_resources', 'operation_events', 'operations', 'preflight_plans', 'schedule_triggers', 'schedules', 'schema_migrations', 'scripts', 'secrets', 'shares']
+schedules rows: 0
+scripts rows: 14
+schedule_triggers rows: 18
+managed_accounts rows: 0
+operations rows: 180
+scripts(name,interpreter,version,content_bytes):
+  p12-4 探针 748d5996            /bin/sh    v1   371B
+  p12-4 探针 94bfe4c0            /bin/sh    v1   371B
+  p12-4 探针UTC 757959aa         /bin/sh    v1   449B
+  p12-4 探针UTC ae06b65e         /bin/sh    v1   449B
+  p12-4 探针UTC b44fc75d         /bin/sh    v1   449B
+  p12-4 超时 757959aa            /bin/sh    v1   38B
+  p12-4 超时 94bfe4c0            /bin/sh    v1   38B
+  p12-4 超时 ae06b65e            /bin/sh    v1   38B
+  p12-4 超时 b44fc75d            /bin/sh    v1   38B
+  p12-4 超时 fe28913e            /bin/sh    v1   38B
+  p12-4 长跑 757959aa            /bin/sh    v1   34B
+  p12-4 长跑 ae06b65e            /bin/sh    v1   34B
+  p12-4 长跑 b44fc75d            /bin/sh    v1   34B
+  p12-4 长跑 fe28913e            /bin/sh    v1   34B
+schedules(id,name,kind,enabled,agent_timer_ref):
+schedule_triggers: 18 rows, 18 行属于已删除的计划（历史留存）
+  latest: ('2026-10-25T08:09:00Z', 'script.run', 'triggered', '')
+  latest: ('2026-10-25T08:08:00Z', 'script.run', 'triggered', '')
+  latest: ('2026-10-25T08:07:00Z', 'script.run', 'triggered', '')

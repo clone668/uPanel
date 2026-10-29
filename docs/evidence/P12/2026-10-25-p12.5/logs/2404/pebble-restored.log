@@ -1,0 +1,15 @@
+Pebble 2026/10/25 19:40:50 Starting Pebble ACME server
+Pebble 2026/10/25 19:40:58 Generated new root issuer CN=Pebble Root CA 4ce858 with serial 19559639141b6bf7 and SKI 3b4827700c9950496962c96252b7b1a48e91a5f2
+Pebble 2026/10/25 19:40:58 Generated new intermediate issuer CN=Pebble Intermediate CA 24d808 with serial 7bfc7366511a65e4 and SKI 56e630576cb67e0756ae15a8d821ccdf8835c278
+Pebble 2026/10/25 19:40:58 Generated issuance chain: Pebble Root CA 4ce858 -> Pebble Intermediate CA 24d808
+Pebble 2026/10/25 19:40:58 Loaded profile "default" with certificate validity period of 7776000 seconds (promote CN=false)
+Pebble 2026/10/25 19:40:58 Using system DNS resolver for ACME challenges
+Pebble 2026/10/25 19:40:58 No CAA identities configured, using default [pebble.letsencrypt.org]
+Pebble 2026/10/25 19:40:58 Configured to reject 5% of good nonces
+Pebble 2026/10/25 19:40:58 Configured to attempt authz reuse for each identifier 50% of the time
+Pebble 2026/10/25 19:40:58 Configured to show 3 orders per page
+Pebble 2026/10/25 19:40:58 Management interface listening on: 127.0.0.1:15000
+Pebble 2026/10/25 19:40:58 Root CA certificate available at: https://127.0.0.1:15000/roots/0
+Pebble 2026/10/25 19:40:58 Listening on: 127.0.0.1:14000
+Pebble 2026/10/25 19:40:58 ACME directory available at: https://127.0.0.1:14000/dir
+Pebble 2026/10/25 19:41:01 GET /dir -> calling handler()

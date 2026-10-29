@@ -1,0 +1,37 @@
+## 环境
+Ubuntu 22.04.5 LTS 5.15.0-198-generic
+
+## GET / 响应头
+HTTP/1.1 200 OK
+Accept-Ranges: bytes
+Cache-Control: no-store
+Content-Length: 1629
+Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-1746fbd57feab535b8bfbaa29f98ae9b'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'
+Content-Type: text/html; charset=utf-8
+Cross-Origin-Opener-Policy: same-origin
+Last-Modified: Tue, 27 Oct 2026 16:22:17 GMT
+Referrer-Policy: no-referrer
+Strict-Transport-Security: max-age=15552000
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+X-Request-Id: 112e17bce80e443eba7df3b44399eabf
+Date: Tue, 27 Oct 2026 16:36:14 GMT
+
+
+## 未登录 GET /api/v1/users
+{"error":{"code":"UNAUTHENTICATED","message":"未登录或会话已过期"},"request_id":"d8a96683e37dc5cb5ae6744e2603997d"}
+
+HTTP 401
+
+## 跨源 POST /api/v1/jobs（Origin: https://evil.example）
+{"error":{"code":"CSRF_FAILED","message":"Origin 不在允许列表内"},"request_id":"5828cc938c4b728cbd180748575f6e8f"}
+
+HTTP 403
+
+## 单元加固（生效值）
+User=upanel-web
+PrivateDevices=yes
+ProtectSystem=strict
+NoNewPrivileges=yes
+StateDirectory=upanel
+RestrictSUIDSGID=yes

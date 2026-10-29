@@ -1,0 +1,47 @@
+# 浏览器放弃请求时，面板把它记成"服务端故障"和"代理不可用"（2026-10-28，最终字节）
+#
+# 现场：本轮第三次跑（smoke-run3-final-bytes.log）登录成功后，SPA 立刻并发拉三个面板接口，
+# 紧接着导航到部署页，浏览器把在飞的请求全部 abort。客机日志里留下下面五条（UTC）。
+# 三条响应是 500/500/503，但**没有任何人收到它们**——请求方已经走了。
+
+## 1) 会话校验这一层：context canceled 被记成 ERROR + 500
+{"time":"2026-10-28T05:09:36.744761558Z","level":"ERROR","msg":"会话校验失败","program":"upanel-web","error":"auth: 读取会话失败: context canceled","request_id":"cbad9a4977b5fae30204dc0c249a5cb1","path":"/api/v1/system/summary"}
+{"time":"2026-10-28T05:09:36.856135568Z","level":"ERROR","msg":"会话校验失败","program":"upanel-web","error":"auth: 读取会话失败: context canceled","request_id":"117de9a9bafd3c38a6e8713168b8e01c","path":"/api/v1/apps"}
+
+## 2) 存储这一层：同一个 context canceled 被记成"代理不可用" + 503
+{"time":"2026-10-28T05:09:36.787986015Z","level":"WARN","msg":"读取存储拓扑失败：代理不可用","program":"upanel-web","error":"agentclient: 代理不可用: Post \"http://agent/internal/v1/queries\": context canceled"}
+{"time":"2026-10-28T05:09:36.807078494Z","level":"WARN","msg":"读取设备列表失败：代理不可用","program":"upanel-web","error":"storage: 代理不可用: agentclient: 代理不可用: Post \"http://agent/internal/v1/queries\": context canceled","request_id":"48bf7457ddaa58453b326725dad6e78f"}
+
+## 3) 对应的三条访问日志（状态码就是上面错的那三个）
+05:09:36.788909334 GET /api/v1/system/summary  500  69ms
+05:09:36.862152087 GET /api/v1/apps            500 121ms
+05:09:36.811222176 GET /api/v1/storage/devices 503  87ms
+
+## 4) 排除过的两个别的原因
+* 不是面板进程崩了：`systemctl show upanel-web -p NRestarts` → `NRestarts=0`，
+  `ActiveEnterTimestamp=2026-10-28 05:08:27 UTC`（三条请求发生在这之后 69 秒，进程没重启过），
+  journal 里同期没有 panic / recover / stack。
+* 不是"代理没起来"那种预热：复现实验——`systemctl restart upanel-agent` 之后立刻每秒钟打一遍，
+  `system/summary` 与 `storage/devices` 在 t+1s、t+2s 是 503 `AGENT_UNAVAILABLE`（代理真不在），
+  t+3s 起全 200，15 秒内 45 次探测没有一次 500。**预热走的是 503 那条分支，和这次不是一回事。**
+* 也不是可复现的稳定故障：登录后用同一会话连打 4 轮 × 3 个接口，12 次全 200。
+
+## 5) 老实话
+根因是清楚的（`context canceled`），但**谁把它翻译成 500 /“代理不可用”是设计问题**：
+两层都把“调用方的请求已经取消”归进了“服务端/代理出故障”。日志里说服务端坏了、
+说代理不可用，实际是浏览器走了。这会让后来读日志的人（和做验收的人）追一个不存在的故障。
+
+本轮修了**会话校验那一层**（它把取消说成“服务内部错误”，错得最狠）：
+`internal/api/auth.go` 的 `requireSession` 先用 `clientGone()` 分辨取消，取消时记
+`WARN 客户端已断开，会话校验中止` 并写 499（nginx 惯例；没人接这个响应，只为让访问日志说实话），
+不再走 `internalError`。两条回归用例：`TestClientAbortedRequestIsNotReportedAsServerFault`、
+`TestClientGoneRecognisesCancellationOnly`；`go test ./internal/api/` 全绿（157 秒）。
+
+**没修**的是读查询那一层（`storage/devices` 那条 503）：判定散在 `agentclient` 与十来个领域包
+（storage / files / containers / discovery / logs / operations / accounts）里，各自
+`fmt.Errorf("%w: %v", ErrAgentUnavailable, err)`，要改得逐包确认，不能顺手改一处了事。
+记进 DECISIONS Q514 与 KNOWN_LIMITATIONS C13。
+
+因为修了这一层，最终交付字节又重打了一次（`bin/` 内容变了）：七相位与页面链路的读数都是在
+**重打之后**的字节上取的，见 `docs/evidence/P16/2026-10-28-p16.2-refreeze/`、
+`docs/evidence/P16/2026-10-28-p16.2-2404-final/` 与本目录的 `smoke-run3-final-bytes.log`。

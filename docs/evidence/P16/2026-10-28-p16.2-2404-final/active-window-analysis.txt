@@ -1,0 +1,31 @@
+# 为什么 "坏包让代理服务起不来" 这条断言在 24.04 上会假红（2026-10-28，最终字节 3f3b40c1…daf0）
+#
+# 现场：failup 相位在 24.04 上 20 PASS / 1 FAIL，唯一那条红是
+#   FAIL  坏包让代理服务起不来（这正是失败现场）: 不该等于 'active'
+# 而同一轮里"失败发生在第 13 步（代理没起来）""喊停时点名了 AGENT_UNAVAILABLE"
+# 等六条全 PASS——也就是说安装器判定得没错，是这条断言自己采到了瞬时状态。
+#
+# 下面是从客机 journal 里按微秒取的同一段窗口（05:53:35–05:55:00），
+# 数的是每轮 "Started" 到 "Main process exited" 之间 unit 停在 active 的时长。
+# 坏包是个 `#!/bin/sh` + `exit 1`，进程活不过几毫秒，但 systemd 记账有延迟：
+# 单元是 Type=simple，"Started" 一打就是 active，而"主进程 exit 1"要 0.23–0.40 秒后才落账。
+# Restart=on-failure + RestartSec=3s 让这个单元每约 3.4 秒重来一轮，于是
+# active 占空比 ≈ 0.24/3.4 ≈ 7%~12%。**单次 `systemctl is-active` 采样有约一成概率落在里面。**
+#
+# 结论：这是断言的采样竞态，不是产品缺陷——坏包一次都没起来（socket 从未出现，
+# 安装器第 13 步等满 30 秒后 die）。修的是断言，不是产品：改成跨一轮重启采样两次，
+# 只有"连续两次都是 active"才算真的活着；另外单独断言 socket 不存在（面板能不能用
+# 的直接判据）。改完只重跑 install+failup 两个相位，字节未变。
+#
+# 原始日志：journal-restart-cycle.txt（短精度）；run1-pre-tighten/ 是收紧断言之前的读数。
+  第 1 轮：Started 21219.430 → Main process exited 21219.723，active 持续 0.293 s
+  第 2 轮：Started 21223.090 → Main process exited 21223.333，active 持续 0.243 s
+  第 3 轮：Started 21226.844 → Main process exited 21227.079，active 持续 0.236 s
+  第 4 轮：Started 21230.598 → Main process exited 21230.836，active 持续 0.238 s
+  第 5 轮：Started 21234.350 → Main process exited 21234.593，active 持续 0.243 s
+  第 6 轮：Started 21238.090 → Main process exited 21238.324，active 持续 0.234 s
+  第 7 轮：Started 21241.857 → Main process exited 21242.103，active 持续 0.246 s
+  第 8 轮：Started 21245.595 → Main process exited 21245.834，active 持续 0.238 s
+  第 9 轮：Started 21249.368 → Main process exited 21249.643，active 持续 0.275 s
+  第 10 轮：Started 21253.293 → Main process exited 21253.694，active 持续 0.400 s
+  第 11 轮：Started 21257.238 → Main process exited 21257.598，active 持续 0.361 s

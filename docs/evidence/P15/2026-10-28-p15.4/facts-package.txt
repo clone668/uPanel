@@ -1,0 +1,43 @@
+== dist/SHA256SUMS（最终字节）
+af6d91027d81a958c0780bd90090f1619eb74d2ac32cebbf569437ddcf3014c1  upanel-1.0.0-linux-amd64.tar.gz
+c1bcbca5e27644cc0bccdef6ef33aaa36fd883f350ed1b95b3b429910ed0b028  upanel-1.0.0-linux-arm64.tar.gz
+
+== 文件大小
+44151768 dist/upanel-1.0.0-linux-amd64.tar.gz
+40945112 dist/upanel-1.0.0-linux-arm64.tar.gz
+
+== 包内 VERSION
+1.0.0
+commit: 8e52b36-dirty
+build_date: 2026-10-28T04:36:36Z
+arch: amd64
+
+== 包内清单（含权限，来自 tar tzvf）
+drwxr-xr-x 0 upanel-1.0.0-linux-amd64/
+-rw-r--r-- 5762 upanel-1.0.0-linux-amd64/README.md
+-rw-r--r-- 1837 upanel-1.0.0-linux-amd64/SHA256SUMS
+-rw-r--r-- 73 upanel-1.0.0-linux-amd64/VERSION
+drwxr-xr-x 0 upanel-1.0.0-linux-amd64/bin/
+-rwxr-xr-x 28341854 upanel-1.0.0-linux-amd64/bin/upanel-agent
+-rwxr-xr-x 35522540 upanel-1.0.0-linux-amd64/bin/upanel-web
+-rwxr-xr-x 18102286 upanel-1.0.0-linux-amd64/bin/upanelctl
+drwxr-xr-x 0 upanel-1.0.0-linux-amd64/deploy/
+drwxr-xr-x 0 upanel-1.0.0-linux-amd64/deploy/scripts/
+-rwxr-xr-x 12345 upanel-1.0.0-linux-amd64/deploy/scripts/backup-state.sh
+-rwxr-xr-x 35623 upanel-1.0.0-linux-amd64/deploy/scripts/install.sh
+-rwxr-xr-x 10959 upanel-1.0.0-linux-amd64/deploy/scripts/uninstall.sh
+drwxr-xr-x 0 upanel-1.0.0-linux-amd64/deploy/systemd/
+-rw-r--r-- 4658 upanel-1.0.0-linux-amd64/deploy/systemd/upanel-agent.service
+-rw-r--r-- 3037 upanel-1.0.0-linux-amd64/deploy/systemd/upanel-web.service
+-rw-r--r-- 1033 upanel-1.0.0-linux-amd64/deploy/upanel.example.json
+drwxr-xr-x 0 upanel-1.0.0-linux-amd64/docs/
+-rw-r--r-- 8121 upanel-1.0.0-linux-amd64/docs/ACCESS.md
+-rw-r--r-- 18916 upanel-1.0.0-linux-amd64/docs/INSTALL.md
+-rw-r--r-- 9471 upanel-1.0.0-linux-amd64/docs/KNOWN_LIMITATIONS.md
+-rw-r--r-- 33603 upanel-1.0.0-linux-amd64/docs/LOCAL_START.md
+-rw-r--r-- 19424 upanel-1.0.0-linux-amd64/docs/RECOVERY.md
+-rw-r--r-- 6358 upanel-1.0.0-linux-amd64/docs/RELEASE_NOTES.md
+-rw-r--r-- 9698 upanel-1.0.0-linux-amd64/docs/SHARES_CLIENT.md
+-rw-r--r-- 13061 upanel-1.0.0-linux-amd64/docs/STORAGE_RECOVERY.md
+-rw-r--r-- 10624 upanel-1.0.0-linux-amd64/docs/SUPPORT_MATRIX.md
+-rw-r--r-- 15348 upanel-1.0.0-linux-amd64/docs/USER_GUIDE.md

@@ -1,0 +1,2 @@
+mount 退出码 32
+mount.nfs: access denied by server while mounting 127.0.0.1:/srv/upanel/volumes/data

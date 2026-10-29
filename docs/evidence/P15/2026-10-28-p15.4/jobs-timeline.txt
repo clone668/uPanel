@@ -1,0 +1,43 @@
+Stopping uPanel 特权代理...
+upanel-agent.service: Deactivated successfully.
+Stopped uPanel 特权代理.
+upanel-agent.service: Consumed 2min 58.037s CPU time.
+Starting uPanel 特权代理...
+配置来源: /etc/upanel/upanel.json
+运行模式: production
+Web 监听: 127.0.0.1:9443（仅回环: true）
+面板 HTTPS: 已启用（upanel-2204，到期 2029-01-30T04:26:57Z）
+  证书指纹 sha256: 89c632a87f1a646bf0808cdfeae5431126365b28cc3179d6f30a62ec03089b39
+  证书域名: localhost, upanel-2204
+  注意: 面板证书是自签名的：浏览器会提示不受信任，请按安装说明核对指纹后再接受，或换成受信任证书
+代理 socket: /run/upanel/agent.sock
+数据库: /var/lib/upanel/upanel.db（busy_timeout=5000ms）
+日志: level=info format=json
+平台: linux/amd64（production 可用: true）
+Started uPanel 特权代理.
+Stopping uPanel 特权代理...
+upanel-agent.service: Deactivated successfully.
+Stopped uPanel 特权代理.
+upanel-agent.service: Consumed 6.330s CPU time.
+Starting uPanel 特权代理...
+配置来源: /etc/upanel/upanel.json
+运行模式: production
+Web 监听: 127.0.0.1:9443（仅回环: true）
+面板 HTTPS: 已启用（upanel-2204，到期 2029-01-30T04:26:57Z）
+  证书指纹 sha256: 89c632a87f1a646bf0808cdfeae5431126365b28cc3179d6f30a62ec03089b39
+  证书域名: localhost, upanel-2204
+  注意: 面板证书是自签名的：浏览器会提示不受信任，请按安装说明核对指纹后再接受，或换成受信任证书
+代理 socket: /run/upanel/agent.sock
+数据库: /var/lib/upanel/upanel.db（busy_timeout=5000ms）
+日志: level=info format=json
+平台: linux/amd64（production 可用: true）
+Started uPanel 特权代理.
+2026-10-28T04:38:36.083556667Z 已生成预检计划 {"action":"deployment.apply","ref":"pf_c7193702045d99fec654f525f7323b65","allowed":true,"blockers":0,"warnings":0,"locks":2,"requires_reauth":true,"requires_phrase":false}
+2026-10-28T04:38:39.447730036Z 已接受操作 {"action":"deployment.apply","locks":51,"operation_id":"op_1c2bcbb752a8b57450bb958f0dbb1747"}
+2026-10-28T04:39:05.640003263Z 操作完成 {"action":"deployment.apply","operation_id":"op_1c2bcbb752a8b57450bb958f0dbb1747","outcome":"verified"}
+2026-10-28T04:39:17.274272538Z 已生成预检计划 {"action":"deployment.update","ref":"pf_5e1bbaca479064997cc754adf1764b96","allowed":true,"blockers":0,"warnings":0,"locks":2,"requires_reauth":true,"requires_phrase":false}
+2026-10-28T04:39:17.52217623Z 已接受操作 {"action":"deployment.update","locks":51,"operation_id":"op_ecfab64457f937a07b817f18e222d2c6"}
+2026-10-28T04:39:48.878521072Z 操作完成 {"action":"deployment.update","operation_id":"op_ecfab64457f937a07b817f18e222d2c6","outcome":"verified"}
+2026-10-28T04:39:53.540402349Z 已生成预检计划 {"action":"deployment.remove","ref":"pf_a5f10c33c07983773ac4b2dbf58d5630","allowed":true,"blockers":0,"warnings":1,"locks":1,"requires_reauth":true,"requires_phrase":false}
+2026-10-28T04:39:53.696343366Z 已接受操作 {"action":"deployment.remove","locks":24,"operation_id":"op_e91572362320d69fd099f08194fc1056"}
+2026-10-28T04:40:11.922636987Z 操作完成 {"action":"deployment.remove","operation_id":"op_e91572362320d69fd099f08194fc1056","outcome":"verified"}

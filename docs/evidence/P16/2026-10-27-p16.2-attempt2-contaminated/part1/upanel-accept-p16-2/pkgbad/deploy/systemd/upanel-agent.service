@@ -1,0 +1,93 @@
+; uPanel 特权代理服务单元（P02.3）
+;
+; 边界（PLAN.md 第 2、4 节）：
+;   - 以 root 运行，是唯一执行特权系统操作的身份；
+;   - 只监听 Unix socket，不监听任何 TCP 端口；
+;   - 普通接口只允许 Web 服务账号（agent.web_user，默认 upanel-web）调用，
+;     依据是内核 SO_PEERCRED 报告的实际 UID；root 只能调用单独限定的专用路由，
+;     并且不接受任何命令字符串、argv 或任意路径。
+;
+; 约定路径：
+;   程序    /usr/local/lib/upanel/upanel-agent
+;   配置    /etc/upanel/upanel.json（与 Web 共用，代理只读取 agent 段）
+;   数据库  /var/lib/upanel-agent/agent.db（root:root 0600，目录 0700）
+;   密钥    /etc/upanel/agent.key（root:root 0600，由 `upanel-agent -init-key` 生成）
+;   socket  /run/upanel/agent.sock（root:upanel-web 0660，由本单元建立属主）
+;
+; 首次部署必须先以 root 运行一次 `upanel-agent -init-key`：没有密钥代理会拒绝启动
+; （它不会自己生成密钥，也不会退化成明文保存）。该文件必须单独备份——丢失后已保存的
+; 秘密永久不可解密。
+;
+; 本文件是模板：改动后至少运行
+;   systemd-analyze verify /etc/systemd/system/upanel-agent.service
+
+[Unit]
+Description=uPanel 特权代理
+Documentation=file:/usr/local/share/doc/upanel/LOCAL_START.md
+After=local-fs.target
+Before=upanel-web.service
+; 代理挂了 Web 仍应能起来并如实报告 AGENT_UNAVAILABLE，因此不是 Requires。
+
+[Service]
+Type=simple
+User=root
+Group=root
+
+ExecStartPre=/usr/local/bin/upanelctl check-config --config /etc/upanel/upanel.json
+ExecStart=/usr/local/lib/upanel/upanel-agent --config /etc/upanel/upanel.json
+
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=30s
+
+; socket 目录由 systemd 以 root:root 0755 创建。目录必须是“可进入但不可写”：
+; Web 账号要能走到 socket（0660 root:upanel-web），但任何用户都不能替换 socket。
+; 谁可以调用接口由 SO_PEERCRED 在每次请求上裁决，不靠目录权限。
+RuntimeDirectory=upanel
+RuntimeDirectoryMode=0755
+
+; 代理数据目录（数据库与操作记录）由 systemd 以 root:root 0700 创建：
+; 属组与其他用户连进入都不行，因此 upanel-web 读不到 agent.db 里的密文。
+; 数据库文件本身再由代理收到 0600（见 internal/agentstore）。
+StateDirectory=upanel-agent
+StateDirectoryMode=0700
+
+; 不声明 ConfigurationDirectory：/etc/upanel 归 Web 单元管理（P01.4，属主 upanel-web）。
+; 两个单元都声明同一个目录会互相改属主/权限，代理这边只需要以 root 只读配置即可。
+
+; 只暴露必要的东西，新建文件默认不给其他用户读。
+UMask=0077
+
+; ---- 加固（与后续挂载/磁盘操作兼容的最小集合）----
+NoNewPrivileges=yes
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RemoveIPC=yes
+; 地址族：Unix socket 是它对外的唯一入口，但**不是它唯一需要的地址族**。
+; 代理要干活就必须能发起 IPv4/IPv6 连接与监听测试：
+;   - `nginx -t` 会打开配置里所有 `listen` 套接字，再关掉（校验的一部分）；
+;   - 应用发现与健康探测连 127.0.0.1:<端口>（PLAN.md 第 15 节）；
+;   - 证书签发前的 HTTP-01 可达性检查连 <域名>:80。
+; 曾经这里写成 `AF_UNIX AF_NETLINK`，读起来像“更安全”，实际效果是**装好的机器上
+; 每一次 proxy.apply 都失败**：`nginx -t` 报
+;   nginx: [emerg] socket() 0.0.0.0:80 failed (97: Address family not supported by protocol)
+; 而手工以 root 起的代理没有这个限制，所以 P04—P09 一直没暴露；是 P10.4 在**装好的
+; 单元**上跑核心场景才把它抓出来。
+; 注意：`RestrictAddressFamilies` 限制的是“能不能用这个地址族”，不是“能不能监听”：
+; “不监听 TCP”由代码保证（代理从不 ListenTCP），并被下表与 SO_PEERCRED 一起约束。
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6
+; 刻意**不**启用 PrivateMounts / PrivateTmp / ProtectSystem=strict /
+; PrivateDevices / MountFlags：代理必须看到真实的挂载命名空间与 /dev 里的块设备，
+; 否则挂载只在代理内部生效（PLAN.md 第 4 节明确禁止盲目启用这些选项）。
+; 需要写 /etc/fstab、/srv/upanel 等路径时，按具体动作补 ReadWritePaths，
+; 不要用 ProtectSystem=strict 一刀切后在别处偷偷放宽。
+
+[Install]
+WantedBy=multi-user.target

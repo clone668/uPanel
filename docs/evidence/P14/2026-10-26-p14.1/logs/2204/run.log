@@ -1,0 +1,143 @@
+mkfifo: cannot create fifo '/var/tmp/upanel-accept-p14-1/tmp/json.in': File exists
+mkfifo: cannot create fifo '/var/tmp/upanel-accept-p14-1/tmp/json.out': File exists
+== 0. 环境
+PASS  验收脚本以 root 运行
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  python3 可用（响应解析与 /proc 解析）
+PASS  runuser 可用（以 Web 身份运行）
+PASS  服务账号 upanel-web 存在
+
+== 1. 装配：代理 + 管理员 + viewer + Web ==
+PASS  代理密钥文件已存在（沿用上一轮）
+PASS  代理启动并创建 socket
+PASS  init-admin 退出码
+PASS  Web 启动
+PASS  管理员登录 200
+PASS  创建 viewer 201
+PASS  viewer 登录 200
+
+== 2. A：四条端点的权限与没有写入口 ==
+PASS  未登录 /api/v1/network/interfaces → 401
+PASS  viewer /api/v1/network/interfaces → 403
+PASS  未登录 /api/v1/network/routes → 401
+PASS  viewer /api/v1/network/routes → 403
+PASS  未登录 /api/v1/network/listeners → 401
+PASS  viewer /api/v1/network/listeners → 403
+PASS  未登录 /api/v1/firewall → 401
+PASS  viewer /api/v1/firewall → 403
+PASS  viewer 被拒时给出 FORBIDDEN 而不是空数据
+PASS  写入口不存在：POST /api/v1/network/interfaces → 405
+PASS  写入口不存在：POST /api/v1/network/routes → 405
+PASS  写入口不存在：POST /api/v1/network/listeners → 405
+PASS  写入口不存在：POST /api/v1/firewall → 405
+PASS  P14.2 的写入口也还没有：POST /api/v1/network/apply → 404
+
+== 3. B/G：GET /network/interfaces 的形状与现场对照 ==
+PASS  admin 读网卡列表 200
+PASS  网卡列表有 collected_at
+PASS  collected_at 是本轮采集的（0 秒前）
+PASS  interfaces 不是空数组
+PASS  回环在列表里
+PASS  网卡 ens4 在本机存在
+PASS  网卡 ens4 的 physical 与 sysfs 一致
+PASS  网卡 ens4 的 kind 与 sysfs 一致
+PASS  网卡 ens4 的 mtu 与 sysfs 一致
+PASS  网卡 ens4 的 carrier 三态与 sysfs 一致
+PASS  网卡 lo 在本机存在
+PASS  网卡 lo 的 physical 与 sysfs 一致
+PASS  网卡 lo 的 kind 与 sysfs 一致
+PASS  网卡 lo 的 mtu 与 sysfs 一致
+PASS  网卡 lo 的 carrier 三态与 sysfs 一致
+PASS  现场全部网卡都在响应里
+PASS  lo 上有 ipv4 的 127.0.0.1
+PASS  127.0.0.1 的前缀长度是 8
+PASS  127.0.0.1 的 scope 是 host
+PASS  现场 ens4 的地址 10.0.2.15 出现在响应里
+
+== 4. C：能不能改——用现场事实独立重算判定 ==
+PASS  响应里有 capability
+PASS  capability.backend 在闭集内
+PASS  capability.backend 与 /run 下的渲染产物一致
+PASS  capability.editable 与现场事实一致（backend=netplan-networkd 物理网卡=1 复杂接口='' NM=no）
+PASS  可改时 reasons 是空数组
+PASS  可改时 target 就是那张唯一的物理网卡
+PASS  target 在网卡列表里且 physical=true
+
+== 5. D/G：GET /network/routes ==
+PASS  admin 读路由表 200
+PASS  路由家族都在闭集内
+PASS  目标一律写成网段（含前缀长度）
+PASS  pref_set=false 的路由 metric 是 0
+PASS  default 标记与目标网段自洽
+PASS  gateways 里有现场 IPv4 默认网关 10.0.2.2
+PASS  默认网关的出接口是 ens4
+PASS  默认路由也在 routes 里
+PASS  gateways 里有现场 IPv6 默认网关
+PASS  IPv6 默认路由也在 routes 里
+
+== 6. E/G：GET /network/listeners 与 /proc/net 现场对照 ==
+PASS  admin 读监听端口 200
+PASS  响应里没有内部字段 inode
+PASS  truncated=false（本机监听数远低于 2000 条上限）
+PASS  现场 /proc/net/{tcp,tcp6} 的 LISTEN 集合读到了（18 条）
+PASS  现场 TCP 监听一条都没漏
+PASS  响应里没有臆造的 TCP 监听
+PASS  wildcard 标记与绑定地址自洽
+PASS  loopback 标记只出现在回环段上
+PASS  本面板端口 19471 出现在监听表里
+PASS  占用 19471 的 pid 就是 Web 进程
+PASS  这个 pid 的内核 comm 是 upanel-web
+PASS  22 端口报出的进程名与内核 comm 一致
+PASS  协议都在闭集内
+
+== 7. F/G：GET /firewall 与 ufw 现场对照 ==
+PASS  admin 读防火墙 200
+PASS  firewall.manager 在闭集内
+NOTE  现场：nftables.conf=yes nftables.service(enable)=no iptables-persistent=no firewalld=no
+PASS  本机有 ufw → installed=true
+PASS  ufw 独占 → manager=ufw
+PASS  ufw 独占 → editable=true
+PASS  ufw 现场 inactive → enabled=false
+NOTE  ufw 现场没给出 Default 行（未启用时是这样），跳过默认策略对照
+PASS  规则条数与 ufw status numbered 一致
+PASS  规则 action 在闭集内
+PASS  每条规则都带 UFW 原话
+
+== 8. G：issues 语义（四条都查） ==
+PASS  interfaces：issues 是数组
+PASS  interfaces：issues.source 都在闭集内
+PASS  interfaces：issues.code 都在闭集内
+PASS  interfaces：每条 issue 都带说明
+NOTE  interfaces 的 issues 条数：0
+PASS  routes：issues 是数组
+PASS  routes：issues.source 都在闭集内
+PASS  routes：issues.code 都在闭集内
+PASS  routes：每条 issue 都带说明
+NOTE  routes 的 issues 条数：0
+PASS  listeners：issues 是数组
+PASS  listeners：issues.source 都在闭集内
+PASS  listeners：issues.code 都在闭集内
+PASS  listeners：每条 issue 都带说明
+NOTE  listeners 的 issues 条数：0
+PASS  firewall：issues 是数组
+PASS  firewall：issues.source 都在闭集内
+PASS  firewall：issues.code 都在闭集内
+PASS  firewall：每条 issue 都带说明
+NOTE  firewall 的 issues 条数：0
+
+== 9. H：只读——四条请求不碰系统 ==
+PASS  /etc/netplan 的清单与哈希没变
+PASS  /etc/ufw 的清单与哈希没变
+PASS  /etc/systemd/network 的清单与哈希没变
+PASS  两次采集的 collected_at 不同（2026-10-26T12:51:59Z → 2026-10-26T12:52:03Z），不是缓存
+
+== 10. I：卫生 ==
+PASS  日志里没有 panic
+PASS  代理仍在运行
+PASS  Web 仍在运行
+PASS  viewer 的四次越权读取各落了一条审计（4 条 failure）
+PASS  成功的读取不写审计（页面刷新不会把审计表灌满）
+
+通过 112 项，失败 0 项

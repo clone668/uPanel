@@ -1,0 +1,191 @@
+== 0. 环境与起点 ==
+PASS  二进制存在：/var/tmp/upanel-bin/upanel-agent
+PASS  二进制存在：/var/tmp/upanel-bin/upanel-web
+PASS  二进制存在：/var/tmp/upanel-bin/upanelctl
+PASS  夹具：有 python3
+PASS  夹具：有 curl
+PASS  夹具：有 ss
+PASS  夹具：有 runuser
+PASS  夹具：python3 能算 HMAC-SHA1（这一轮的码由脚本自己算）
+STAMP 2026-10-27T08:10:17Z 起点
+
+== 1. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19483 启动
+PASS  监听 19483 的 Web 进程不是 root（pid=193019 uid=997）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+PASS  登录响应里 totp_enabled 是 false（起点没开二次验证）
+PASS  设置页有入口（SPA 返回 index.html）
+PASS  起点：面板库没有二次验证状态行
+PASS  起点：代理库没有 totp_seed
+
+== 2. 未确认的登记不是启用（STAGES §16 之一） ==
+PASS  登记前的再认证（只给口令）
+PASS  POST /auth/totp/setup
+PASS  enrollment_id 是代理的引用（sec_+32 hex）
+PASS  otpauth_uri 是 totp 类型
+PASS  otpauth_uri 带着发行者与账号
+PASS  otpauth_uri 里的 digits 是 6
+PASS  otpauth_uri 里的 period 是 30
+PASS  从 URI 里取出了 base32 种子（长 32）
+PASS  setup 之后 session 仍是 totp_enabled=false
+PASS  setup 之后面板库 user_totp 仍是 0 行
+PASS  代理库那条种子是 temporary
+PASS  代理库没有 persistent 的 totp_seed
+PASS  未确认时无码登录照样 200
+PASS  未确认时登录响应 totp_enabled=false
+PASS  未确认时带码登录也 200（码被忽略，不会顺手启用）
+PASS  带码登录之后面板库仍然 0 行
+PASS  面板库里没有明文种子
+PASS  代理库里没有明文种子（只存密文）
+PASS  两个库里都没有 otpauth URI
+PASS  未确认时 totp-reset 退出码是 1（库里没有启用行）
+PASS  未确认时 totp-reset 说没有启用二次验证
+PASS  确认时码错是 401
+PASS  码错时响应码是 UNAUTHENTICATED
+PASS  码错之后面板库仍然 0 行
+PASS  码错之后 session 仍然 totp_enabled=false
+PASS  码错之后代理库那条种子仍是 temporary
+PASS  码错之后没有签发任何恢复码
+
+== 3. 六位数确认之后才启用，十枚恢复码只出现一次 ==
+PASS  确认用当前时间步的码
+PASS  确认之后 enabled=true
+PASS  一次性恢复码是 10 枚
+PASS  恢复码形状是 XXXXX-XXXXX
+PASS  十枚恢复码互不相同
+PASS  恢复码里没有 0/1/O/I
+PASS  确认之后 session totp_enabled=true
+PASS  面板库 user_totp 变成 1 行 enabled=1
+PASS  面板库记的 secret_ref 就是登记时那条
+FAIL  last_step 已经被写过（不是初始的 -1）: 期望 '1'，实际 '0'
+PASS  面板库恢复码 10 行
+PASS  10 行全是以 sha256: 开头的哈希
+PASS  第一枚恢复码的明文不在面板库
+PASS  代理库那条种子转成了 persistent
+PASS  代理库没有临时种子残留
+PASS  已启用再调 setup 是 422
+PASS  422 的响应码是 VALIDATION_ERROR
+PASS  被拒之后面板库仍是 1 行
+PASS  审计里有 auth.totp.setup
+PASS  审计里有 auth.totp.enable
+PASS  审计里没有出现 otpauth URI
+PASS  启用后旧会话（unconfirmed.jar）被作废
+PASS  启用后本条会话仍有效
+
+== 4. 登录变成两步，同一个码不能用第二次 ==
+PASS  已启用之后无码登录是 401
+PASS  缺码时的错误码是 UNAUTHENTICATED
+PASS  缺码时 details.totp_required=true（前端据此亮验证码框）
+PASS  缺码时一个会话都不签发（口令对了也不发）
+PASS  码错登录是 401
+PASS  码错时也回 totp_required=true
+PASS  码对登录是 200
+PASS  码对登录的响应里 totp_enabled=true
+PASS  同一个码第二次用是 401
+PASS  第二次的拒因是'刚刚用过'（重放）
+PASS  重放被拒时不签发会话
+PASS  下一个时间步的码现在就能用（±1 步窗口）
+PASS  已启用之后无码再认证是 401
+PASS  无码再认证也回 totp_required=true
+FAIL  带码再认证是 200: 期望 '200'，实际 '401'
+
+== 5. 恢复码只能用一次（STAGES §16 之二） ==
+FAIL  停代理之前的带码再认证: 期望 '200'，实际 '401'
+PASS  RC1 此刻还没被标记用过
+PASS  此刻面板库恢复码仍是 10 行
+PASS  代理已停止（socket 消失）
+PASS  代理不在时用 RC1 关闭 → 503（关闭不可能成功）
+PASS  503 的错误码是 AGENT_UNAVAILABLE
+PASS  带外读库：RC1 的 used_at 已经被写上（码一次性，失败也不回滚）
+PASS  关闭失败之后状态行还在（没有半清）
+PASS  关闭失败之后恢复码仍是 10 行
+PASS  代理重新启动
+PASS  代理回来后用同一枚 RC1 再关 → 401
+PASS  拒因是'每枚只能用一次'
+PASS  RC1 仍然保持'用过'（没有被复活）
+PASS  被拒之后恢复码仍是 10 行（用过的不删，只标记）
+PASS  被拒之后二次验证仍启用
+PASS  换第二枚 RC2 关闭 → 200
+PASS  关闭响应 enabled=false
+PASS  关闭响应报出作废的其它会话数 >= 1
+PASS  关闭之后面板库状态行没了
+PASS  关闭之后十枚恢复码一起没了
+PASS  关闭之后代理库那条种子是 destroyed
+PASS  关闭之后代理库没有 persistent 的 totp_seed
+PASS  关闭之后 session totp_enabled=false
+PASS  关闭之后无码登录又是 200
+PASS  关闭之后那条'另一台设备'的会话被作废
+PASS  关闭之后发起关闭的这一条会话仍有效
+
+== 6. 关闭时间用验证码那一半（口令 + 当前码） ==
+PASS  重新登记：再认证
+PASS  重新登记：setup
+PASS  重新登记：confirm
+PASS  重新登记之后又变成 10 枚恢复码
+PASS  关闭第 1 步：带码再认证
+PASS  关闭第 2 步用刚用过的码 → 401
+PASS  拒因是'刚刚用过'
+PASS  被拒之后二次验证仍启用
+FAIL  关闭第 2 步用下一个码 → 200: 期望 '200'，实际 '401'
+FAIL  用码关闭之后状态行没了: 期望 '0'，实际 '1'
+FAIL  用码关闭之后代理侧种子 destroyed: 期望 'destroyed'，实际 'persistent'
+
+== 7. CLI 本机恢复：唯一的'丢了手机也丢了恢复码'出口 ==
+FAIL  恢复演练：再认证: 期望 '200'，实际 '401'
+FAIL  恢复演练：setup: 期望 '200'，实际 '422'
+FAIL  恢复演练：confirm: 期望 '200'，实际 '409'
+PASS  恢复演练：库里 1 行状态 + 10 枚码
+PASS  root 跑 totp-reset 退出码是 0（面板库这一半做成了）
+PASS  报告 state_cleared=true
+PASS  报告清掉了 10 枚恢复码
+PASS  报告作废了 >= 1 条会话
+PASS  root 身份下 agent_status=forbidden
+PASS  forbidden 时带一句说明（不假装清干净了）
+PASS  CLI 输出里没有口令
+PASS  CLI 输出里没有恢复码
+PASS  恢复之后面板库状态行没了
+PASS  恢复之后恢复码没了
+Traceback (most recent call last):
+  File "<stdin>", line 12, in <module>
+sqlite3.OperationalError: near "data": syntax error
+FAIL  代理侧种子仍在 persistent（root 被拒，孤儿密文留在那里）: 期望 'persistent'，实际 ''
+PASS  全部会话作废：旧 jar 401
+PASS  恢复之后无码登录 200（二次验证真的没了）
+PASS  审计 actor 是本机 CLI（不是某个账号）
+PASS  审计里 actor_id 为 NULL（没有人证明过自己是谁）
+PASS  第二轮演练：再认证
+PASS  第二轮演练：setup
+PASS  第二轮演练：confirm
+PASS  以 upanel-web 身份跑 totp-reset 退出码 0
+PASS  upanel-web 身份下 agent_status=destroyed
+PASS  那条种子在代理库里变成 destroyed
+PASS  只剩 root 那一轮留下的孤儿密文（persistent=1）
+FAIL  孤儿密文里也没有明文种子: 期望 '0'，实际 '496'
+PASS  全部会话再次作废：旧 jar 401
+PASS  恢复之后无码登录 200
+PASS  已恢复之后再跑 totp-reset 退出码 1
+PASS  再跑时的说明是'没有启用二次验证'
+
+== 8. 前端产物里真有这一块（不是占位 dist） ==
+PASS  设置页返回的是 SPA 的 index.html
+PASS  抓下来的分片不止入口那一个
+PASS  拿到的前端产物不是空文件
+PASS  前端产物里有「二次验证」
+PASS  前端产物里有 /auth/totp 的三条路径
+PASS  前端产物里有一次性恢复码的提示
+PASS  前端产物里有 '同一个码不能用第二次' 这类说明
+
+== 9. 结论 ==
+NOT RUN  真浏览器里的登记/关闭点击流程: 这台 VM 上没有浏览器；交互由前端单测 + 本轮的接口读数共同覆盖
+NOT RUN  二维码图片: P00 冻结的依赖集里没有 QR 编码器，界面按文本 + 复制按钮呈现 otpauth_uri；要不要引 QR 库是独立决策
+NOT RUN  GET /auth/totp（还剩几枚恢复码）: 这一轮不开新接口；余量只能从 totp-reset 的输出与关闭流程看到
+NOT RUN  手机与服务器时钟相差超过 ±1 步: 需要改 VM 时钟，会同时搅乱窗口/过期/限速；±1 步边界由 internal/totp 的 RFC 6238 向量覆盖
+NOT RUN  登录限速打满（15 分钟 5 次）: 这一轮刻意只制造 4 次失败；打满之后所有断言都会变成 429
+NOT RUN  root 跑 totp-reset 之后那条孤儿密文的彻底清理: 代理侧密文仍占一行（已无人引用）；彻底清扫是 P16 的运维项
+PASS=149 FAIL=11 NOT RUN=6
+失败项： | last_step 已经被写过（不是初始的 -1） | 带码再认证是 200 | 停代理之前的带码再认证 | 关闭第 2 步用下一个码 → 200 | 用码关闭之后状态行没了 | 用码关闭之后代理侧种子 destroyed | 恢复演练：再认证 | 恢复演练：setup | 恢复演练：confirm | 代理侧种子仍在 persistent（root 被拒，孤儿密文留在那里） | 孤儿密文里也没有明文种子

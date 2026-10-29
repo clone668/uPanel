@@ -1,0 +1,16 @@
+== 环境
+== 单元状态
+== 打开 upanel.db 的进程
+== 找 sqlite3 解释器
+用 python3（Python 3.10.12）的 sqlite3 模块
+== 表清单（空闲开始前）
+== 空闲采样开始 2026-10-27T16:27:17Z
+== 空闲采样结束 2026-10-27T16:32:53Z
+== 表行数变化（空闲 5 分半）
+metric_samples	+774	(913 → 1687)
+== 采样明细（date db wal shm adb_wal rows_total note）
+== PRAGMA wal_checkpoint(TRUNCATE)
+busy=0 log=0 checkpointed=0
+journal_mode=wal
+autocheckpoint=1000
+== 完 2026-10-27T16:32:54Z

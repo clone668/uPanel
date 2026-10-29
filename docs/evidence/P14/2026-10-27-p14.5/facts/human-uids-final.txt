@@ -1,0 +1,2 @@
+upanel:x:1000:1000:uPanel acceptance operator:/home/upanel:/bin/bash
+p12sftp:x:1001:1001::/home/p12sftp:/bin/bash

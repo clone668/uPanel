@@ -1,0 +1,1 @@
+{"data":{"enrollment_id":"sec_c5ec98a3ff10d436ec9e42bf7cd91270","otpauth_uri":"otpauth://totp/uPanel:admin?algorithm=SHA1\u0026digits=6\u0026issuer=uPanel\u0026period=30\u0026secret=<已抹去：种子随本轮收尾一起销毁>","issuer":"uPanel","account":"admin","digits":6,"period":30,"expires_at":"2026-10-27T08:34:04Z"},"request_id":"84cfe4d1b86b33db2ffe69ca472155d4"}

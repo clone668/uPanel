@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"agent: 参数不合法: 第 1 条规则：network: 防火墙定义不合法: 规则标识只能用 a-z、0-9、-，最长 32 个字符，收到 \"Bad Id\""},"request_id":"879ca69486a785c87d600190ca0fe53c"}

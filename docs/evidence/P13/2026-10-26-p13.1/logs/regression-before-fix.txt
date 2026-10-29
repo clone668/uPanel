@@ -1,0 +1,5 @@
+--- FAIL: TestAggregateMetricBucketEqualValuesStayInRange (0.03s)
+    metricstore_test.go:200: 值相同时也必须聚合成功（浮点误差不能撞 CHECK）: store: 聚合 hour 桶 1792918800 失败: constraint failed: CHECK constraint failed: min_value <= value AND value <= max_value (275)
+FAIL
+FAIL	upanel/internal/store	0.998s
+FAIL

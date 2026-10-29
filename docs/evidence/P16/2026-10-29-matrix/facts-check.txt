@@ -1,0 +1,329 @@
+
+--- 仓库结构（P00 交付物）
+  present  go.mod
+  present  .nvmrc
+  present  .node-version
+  present  docs/DECISIONS.md
+  present  docs/DEPENDENCIES.md
+  present  docs/TEST_ENVIRONMENT.md
+  present  api/openapi.yaml
+  present  scripts/check.sh
+  present  web/package-lock.json
+
+==> line-endings
+  162 个脚本/迁移文件都是 LF
+<== PASS  line-endings
+
+==> sh-syntax
+  解析器: /usr/bin/sh
+  注意: 宿主是 Windows，这里的 sh 是 bash（抓不到 bashism）
+  82 个脚本解析通过
+<== PASS  sh-syntax
+
+--- Go 工具链
+  go.mod 约束: 1.27.3
+  本机 go 版本: go version go1.27.3 windows/amd64
+
+==> go-build
+<== PASS  go-build
+
+==> go-vet
+<== PASS  go-vet
+
+==> go-test
+ok  	upanel/cmd/upanel-agent	(cached)
+ok  	upanel/cmd/upanel-web	(cached)
+ok  	upanel/cmd/upanelctl	(cached)
+ok  	upanel/internal/accounts	(cached)
+ok  	upanel/internal/agent	38.427s
+ok  	upanel/internal/agentclient	(cached)
+ok  	upanel/internal/agentstore	(cached)
+ok  	upanel/internal/alerts	(cached)
+ok  	upanel/internal/api	(cached)
+ok  	upanel/internal/apphealth	(cached)
+ok  	upanel/internal/appruntime	(cached)
+ok  	upanel/internal/apps	(cached)
+ok  	upanel/internal/apt	(cached)
+ok  	upanel/internal/audit	(cached)
+ok  	upanel/internal/auth	(cached)
+ok  	upanel/internal/backup	(cached)
+ok  	upanel/internal/certificates	(cached)
+ok  	upanel/internal/config	(cached)
+ok  	upanel/internal/containers	(cached)
+ok  	upanel/internal/debversion	(cached)
+ok  	upanel/internal/deploy	(cached)
+ok  	upanel/internal/discovery	(cached)
+ok  	upanel/internal/files	(cached)
+ok  	upanel/internal/hostcaps	(cached)
+ok  	upanel/internal/httpx	(cached)
+ok  	upanel/internal/journal	(cached)
+ok  	upanel/internal/logging	(cached)
+ok  	upanel/internal/logs	(cached)
+ok  	upanel/internal/metrics	(cached)
+ok  	upanel/internal/monitoring	(cached)
+ok  	upanel/internal/network	(cached)
+ok  	upanel/internal/nginx	(cached)
+ok  	upanel/internal/notifications	(cached)
+ok  	upanel/internal/operations	(cached)
+ok  	upanel/internal/packages	(cached)
+ok  	upanel/internal/platform	(cached)
+ok  	upanel/internal/power	(cached)
+ok  	upanel/internal/processes	(cached)
+ok  	upanel/internal/proxies	(cached)
+ok  	upanel/internal/schedules	(cached)
+ok  	upanel/internal/scripts	(cached)
+ok  	upanel/internal/services	(cached)
+ok  	upanel/internal/shares	(cached)
+ok  	upanel/internal/storage	8.101s
+ok  	upanel/internal/store	(cached)
+ok  	upanel/internal/syscmd	(cached)
+ok  	upanel/internal/terminal	(cached)
+?   	upanel/internal/testsupport	[no test files]
+ok  	upanel/internal/tlscert	(cached)
+ok  	upanel/internal/totp	(cached)
+ok  	upanel/internal/version	(cached)
+ok  	upanel/internal/webui	(cached)
+?   	upanel/migrations	[no test files]
+?   	upanel/migrations/agentdb	[no test files]
+<== PASS  go-test
+
+==> go-build-linux
+<== PASS  go-build-linux
+
+==> go-vet-linux
+<== PASS  go-vet-linux
+
+==> gofmt
+<== PASS  gofmt
+
+--- Node 工具链
+  .nvmrc 约束: 22.23.3
+  本机 node 版本: v22.23.3
+
+==> node-version
+<== PASS  node-version
+
+==> web-typecheck
+<== PASS  web-typecheck
+
+==> web-lint
+<== PASS  web-lint
+
+==> web-test
+
+ RUN  v5.0.5 H:/Code/uPanel/web
+
+ ✓ src/api/files.test.ts (39 tests) 108ms
+ ✓ src/components/realdata-files.test.ts (27 tests) 98ms
+ ✓ src/components/realdata-logs.test.ts (24 tests) 100ms
+ ✓ src/components/realdata-p09-5.test.ts (51 tests) 169ms
+ ✓ src/components/power.test.ts (7 tests) 66ms
+ ✓ src/components/realdata-storage-write.test.ts (5 tests) 88ms
+ ✓ src/components/realdata-p08-4.test.ts (27 tests) 95ms
+ ✓ src/components/storage-write.test.ts (24 tests) 168ms
+ ✓ src/components/realdata-p07-5.test.ts (16 tests) 111ms
+ ✓ src/components/shares.test.ts (30 tests) 140ms
+ ✓ src/api/backup.test.ts (19 tests) 60ms
+ ✓ src/api/terminal.test.ts (17 tests) 72ms
+ ✓ src/api/volumes.test.ts (22 tests) 62ms
+ ✓ src/components/files.test.ts (15 tests) 85ms
+ ✓ src/api/firewall.test.ts (25 tests) 55ms
+ ✓ src/api/deployments.test.ts (19 tests) 60ms
+ ✓ src/api/schedules.test.ts (19 tests) 54ms
+ ✓ src/api/preflights.test.ts (19 tests) 61ms
+ ✓ src/api/network.test.ts (27 tests) 121ms
+ ✓ src/api/totp.test.ts (7 tests) 56ms
+ ✓ src/api/storage.test.ts (16 tests) 80ms
+ ✓ src/api/client.test.ts (12 tests) 61ms
+ ✓ src/api/processes.test.ts (12 tests) 51ms
+ ✓ src/utils/format.test.ts (27 tests) 51ms
+ ✓ src/api/packages.test.ts (20 tests) 54ms
+ ✓ src/api/metrics.test.ts (20 tests) 61ms
+ ✓ src/api/alerts.test.ts (20 tests) 58ms
+ ✓ src/components/firewall-write.test.ts (9 tests) 51ms
+ ✓ src/api/shares.test.ts (40 tests) 55ms
+ ✓ src/api/system.test.ts (5 tests) 45ms
+ ✓ src/api/hostcaps.test.ts (13 tests) 67ms
+ ✓ src/api/services.test.ts (13 tests) 53ms
+ ✓ src/components/schedules.test.ts (31 tests) 61ms
+ ✓ src/components/logs.test.ts (7 tests) 39ms
+ ✓ src/api/apps.test.ts (32 tests) 42ms
+ ✓ src/components/network-write.test.ts (9 tests) 42ms
+ ✓ src/components/totp-card.test.ts (6 tests) 47ms
+ ✓ src/api/logs.test.ts (21 tests) 26ms
+ ✓ src/utils/jobresult.test.ts (73 tests) 38ms
+ ✓ src/components/realdata-p11-1.test.ts (19 tests) 31ms
+ ✓ src/api/power.test.ts (16 tests) 14ms
+ ✓ src/api/jobs.test.ts (17 tests) 15ms
+ ✓ src/utils/polling.test.ts (5 tests) 19ms
+ ✓ src/api/storage-write.test.ts (27 tests) 17ms
+ ✓ src/api/jobstream.test.ts (19 tests) 19ms
+ ✓ src/api/accounts.test.ts (23 tests) 18ms
+ ✓ src/components/backup.test.ts (32 tests) 19ms
+ ✓ src/components/realdata-services.test.ts (22 tests) 131ms
+ ✓ src/components/services.test.ts (14 tests) 167ms
+ ✓ src/components/storage.test.ts (24 tests) 216ms
+ ✓ src/components/MetricChart.test.ts (6 tests) 29ms
+ ✓ src/components/panels.test.ts (18 tests) 80ms
+ ✓ src/components/realdata-processes.test.ts (31 tests) 247ms
+ ✓ src/components/realdata.test.ts (17 tests) 212ms
+ ✓ src/api/packageactions.test.ts (18 tests) 19ms
+ ✓ src/router/routes.test.ts (7 tests) 8ms
+ ✓ src/modules/registry.test.ts (7 tests) 11ms
+ ✓ src/router/redirect.test.ts (4 tests) 6ms
+ ✓ src/components/secondfactor.test.ts (8 tests) 7ms
+ ✓ src/utils/viewstate.test.ts (7 tests) 8ms
+ ✓ src/api/errors.test.ts (5 tests) 7ms
+ ✓ src/stores/mode.test.ts (5 tests) 6ms
+
+ Test Files  62 passed (62)
+      Tests  1176 passed (1176)
+   Start at  20:17:50
+   Duration  4.31s (import 73%, tests 15%, transform 11%, worker 2%)
+
+    Isolate  62 workers spawned · ~394ms startup each (spawn + environment, per file)
+             at least ~1.24s faster with isolate: false — reuses workers across files instead of one per file
+
+<== PASS  web-test
+
+==> web-build
+[36mvite v8.3.4 [32mbuilding client environment for production...[36m[39m
+transforming...
+✓ 2902 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                      1.53 kB │ gzip:  1.01 kB
+dist/assets/ApiErrorPanel-CdW-Ab42.css               0.28 kB │ gzip:  0.18 kB
+dist/assets/LoginView-iQVsytao.css                   0.37 kB │ gzip:  0.20 kB
+dist/assets/StatTile-DColcoO1.css                    0.56 kB │ gzip:  0.27 kB
+dist/assets/SettingsView-BNqQAkJb.css                0.56 kB │ gzip:  0.29 kB
+dist/assets/StorageActionDialog-Z-msGgyX.css         0.57 kB │ gzip:  0.25 kB
+dist/assets/FileActionConfirm-CERmUZxe.css           0.65 kB │ gzip:  0.28 kB
+dist/assets/HealthBadge-B8QssTuN.css                 0.77 kB │ gzip:  0.28 kB
+dist/assets/ServicesView-CtjRm_g9.css                0.97 kB │ gzip:  0.40 kB
+dist/assets/HostCapabilitiesView-C5yFBJHt.css        0.98 kB │ gzip:  0.40 kB
+dist/assets/LogEntryRow-BVpcOmIF.css                 0.98 kB │ gzip:  0.39 kB
+dist/assets/AccountsView-Bfc1iklN.css                1.08 kB │ gzip:  0.34 kB
+dist/assets/LogsView-BKptI5Fj.css                    1.09 kB │ gzip:  0.41 kB
+dist/assets/ServiceUnitView-BhNDIoai.css             1.48 kB │ gzip:  0.47 kB
+dist/assets/JobsView-BQXP5K1G.css                    1.65 kB │ gzip:  0.51 kB
+dist/assets/index-DAbemUCu.css                       1.68 kB │ gzip:  0.66 kB
+dist/assets/BackupView-C4iUYzU9.css                  1.74 kB │ gzip:  0.46 kB
+dist/assets/OverviewView-BU1w4ahk.css                1.90 kB │ gzip:  0.56 kB
+dist/assets/AlertsView-BInOrRov.css                  1.91 kB │ gzip:  0.61 kB
+dist/assets/SchedulesView-2rwJXCUR.css               1.94 kB │ gzip:  0.52 kB
+dist/assets/DeploymentsView-AI90Hp4b.css             1.95 kB │ gzip:  0.55 kB
+dist/assets/ProcessesView-CuBgCbuB.css               2.01 kB │ gzip:  0.63 kB
+dist/assets/FilesView-DoXwvewX.css                   2.32 kB │ gzip:  0.70 kB
+dist/assets/StorageDeviceView-tJ-xH2a2.css           2.34 kB │ gzip:  0.63 kB
+dist/assets/UpdatesView-CfpogR1k.css                 2.62 kB │ gzip:  0.74 kB
+dist/assets/StorageView-DIEkwAia.css                 2.96 kB │ gzip:  0.77 kB
+dist/assets/NetworkView-SMsKxMnZ.css                 3.36 kB │ gzip:  0.76 kB
+dist/assets/SharesView-DKojV3V6.css                  4.33 kB │ gzip:  0.98 kB
+dist/assets/AppsView-Dbv6GjgE.css                    4.67 kB │ gzip:  1.12 kB
+dist/assets/TerminalView-Czj1nvlS.css                4.79 kB │ gzip:  1.26 kB
+dist/assets/get-slot-6kXJmSMP.js                     0.08 kB │ gzip:  0.10 kB
+dist/assets/misc-DDs3MKLt.js                         0.14 kB │ gzip:  0.14 kB
+dist/assets/totp-CATfMCB0.js                         0.42 kB │ gzip:  0.27 kB
+dist/assets/viewstate-DgJTQ7dn.js                    0.44 kB │ gzip:  0.28 kB
+dist/assets/NotFoundView-DCsVoxJG.js                 0.52 kB │ gzip:  0.44 kB
+dist/assets/StatTile-CVrq56D2.js                     0.57 kB │ gzip:  0.37 kB
+dist/assets/polling-Q-Y5bBWa.js                      0.97 kB │ gzip:  0.59 kB
+dist/assets/preflights-BNQIxcA3.js                   1.62 kB │ gzip:  0.77 kB
+dist/assets/jobs-AldroWMc.js                         1.84 kB │ gzip:  1.11 kB
+dist/assets/Form-BeHWH2N2.js                         2.30 kB │ gzip:  1.12 kB
+dist/assets/format-D8lVO8hF.js                       2.32 kB │ gzip:  1.01 kB
+dist/assets/backup-Nr9geg8h.js                       2.75 kB │ gzip:  1.20 kB
+dist/assets/Space-B5l42ULl.js                        2.81 kB │ gzip:  1.31 kB
+dist/assets/services-BeMDBecK.js                     2.99 kB │ gzip:  1.46 kB
+dist/assets/jobstream-C-4gCQhO.js                    3.32 kB │ gzip:  1.81 kB
+dist/assets/LoginView-Ch4LPCls.js                    3.37 kB │ gzip:  1.69 kB
+dist/assets/HealthBadge-AcCexa4z.js                  3.68 kB │ gzip:  1.77 kB
+dist/assets/volumes-Dgj6S75e.js                      3.93 kB │ gzip:  1.96 kB
+dist/assets/ApiErrorPanel-DeRcNoX7.js                3.95 kB │ gzip:  2.11 kB
+dist/assets/text-DTK1r96C.js                         4.07 kB │ gzip:  1.56 kB
+dist/assets/storage-yUZ3BXhm.js                      4.22 kB │ gzip:  2.26 kB
+dist/assets/FileActionConfirm-ByNxGDyE.js            4.62 kB │ gzip:  2.11 kB
+dist/assets/files-D_CTQJWO.js                        5.13 kB │ gzip:  2.22 kB
+dist/assets/HostCapabilitiesView-BSs5Q0AW.js         6.62 kB │ gzip:  3.10 kB
+dist/assets/LogEntryRow-B0CFOOTL.js                  7.03 kB │ gzip:  3.04 kB
+dist/assets/ServicesView-DTTt1_1h.js                 7.42 kB │ gzip:  3.07 kB
+dist/assets/apps-CoEdUa5v.js                         8.58 kB │ gzip:  3.53 kB
+dist/assets/Switch-D42fGl4O.js                       9.67 kB │ gzip:  3.19 kB
+dist/assets/LogsView-n4EfHOSA.js                     9.86 kB │ gzip:  4.28 kB
+dist/assets/InputNumber-Dc76zTYS.js                 10.37 kB │ gzip:  3.63 kB
+dist/assets/StorageActionDialog-Dq1s4-ob.js         10.68 kB │ gzip:  4.40 kB
+dist/assets/SettingsView-Ds4scO-O.js                11.13 kB │ gzip:  4.49 kB
+dist/assets/CheckboxGroup-FAiUc4dU.js               11.88 kB │ gzip:  4.09 kB
+dist/assets/RadioGroup-CgWj9W9Y.js                  13.28 kB │ gzip:  4.01 kB
+dist/assets/OverviewView-BksVs4dM.js                13.56 kB │ gzip:  4.83 kB
+dist/assets/ServiceUnitView-BKnvWMHk.js             14.28 kB │ gzip:  5.79 kB
+dist/assets/JobsView-BBFZfN38.js                    16.23 kB │ gzip:  5.88 kB
+dist/assets/Progress-DdzYmHl_.js                    16.44 kB │ gzip:  4.39 kB
+dist/assets/ProcessesView-BjlVyJG6.js               18.50 kB │ gzip:  7.51 kB
+dist/assets/AccountsView-D9k3esVm.js                19.83 kB │ gzip:  7.88 kB
+dist/assets/UpdatesView-BBiOuI4F.js                 22.34 kB │ gzip:  8.61 kB
+dist/assets/StorageView-e3QqwZkr.js                 23.76 kB │ gzip:  8.83 kB
+dist/assets/StorageDeviceView-X5AQP94R.js           24.81 kB │ gzip:  8.50 kB
+dist/assets/SchedulesView-CnC0iNOe.js               28.69 kB │ gzip: 10.19 kB
+dist/assets/SecondFactorField-CPfcFFlZ.js           32.18 kB │ gzip: 10.48 kB
+dist/assets/jobresult-k6nSNBOo.js                   33.57 kB │ gzip: 11.56 kB
+dist/assets/FilesView-Wf6bZT9U.js                   34.33 kB │ gzip: 11.26 kB
+dist/assets/NetworkView-C4siVTop.js                 34.69 kB │ gzip: 11.59 kB
+dist/assets/BackupView-Db9DI6cm.js                  34.73 kB │ gzip: 11.70 kB
+dist/assets/Input-B65x5kUx.js                       35.72 kB │ gzip: 10.58 kB
+dist/assets/AppsView-BOW8Sf-n.js                    37.60 kB │ gzip: 12.70 kB
+dist/assets/DeploymentsView-BA3UX72C.js             38.59 kB │ gzip: 12.65 kB
+dist/assets/SharesView-DomxfLua.js                  58.29 kB │ gzip: 20.77 kB
+dist/assets/Select-M-ocIySO.js                      59.05 kB │ gzip: 16.85 kB
+dist/assets/_plugin-vue_export-helper-Cwe4zk7g.js   63.11 kB │ gzip: 19.62 kB
+dist/assets/AlertsView-DqLx-U47.js                 122.48 kB │ gzip: 36.72 kB
+dist/assets/Button-SWrrk6je.js                     146.73 kB │ gzip: 52.75 kB
+dist/assets/index-xWebLJ19.js                      235.54 kB │ gzip: 73.55 kB
+dist/assets/TerminalView-C6Ffa7ys.js               347.34 kB │ gzip: 89.66 kB
+
+[32m✓ built in 1.06s[39m
+<== PASS  web-build
+
+==> web-smoke
+<== PASS  根路径返回 200（HTTP 200）
+<== PASS  页面语言为 zh-CN
+<== PASS  页面有标题（uPanel）
+<== PASS  前端挂载成功（#app 有内容）
+<== PASS  显示面板品牌与副标题
+<== PASS  production 构建不显示演示模式横幅
+<== PASS  未登录访问 / 落到登录页
+<== PASS  没有未捕获的页面异常
+<== PASS  除预期的 API 探测外没有失败请求
+<== PASS  没有其他控制台错误
+
+PASS 10 / FAIL 0 / SKIP 0（共 10 项，production，目标 dist 预览，未登录）
+<== PASS  web-smoke
+
+==> openapi-lint
+
+    [33m╔═══════════════════════════════════════════════════════╗[39m
+    [33m║                                                       ║[39m
+    [33m║[39m  A new version of [36mRedocly CLI[39m ([32m2.72.0[39m) is available.  [33m║[39m
+    [33m║[39m  Update now: `[36mnpm i -g @redocly/cli@latest[39m`.          [33m║[39m
+    [33m║[39m  Changelog: https://redocly.com/docs/cli/changelog/   [33m║[39m
+    [33m║                                                       ║[39m
+    [33m╚═══════════════════════════════════════════════════════╝[39m
+
+[90mvalidating api\openapi.yaml...
+[39m[33mwarning[39m no-unused-components: 3
+[33mwarning[39m operation-4xx-response: 2
+[33mwarning[39m operation-2xx-response: 1
+
+[90mapi\openapi.yaml: validated in 187ms
+
+[39m[32mWoohoo! Your API description is valid. 🎉
+[39m[33mYou have 6 warnings.
+[39m
+<== PASS  openapi-lint
+
+=========================== 汇总 ===========================
+PASS 15 / FAIL 0 / NOT RUN 0
+明细: line-endings:PASS sh-syntax:PASS go-build:PASS go-vet:PASS go-test:PASS go-build-linux:PASS go-vet-linux:PASS gofmt:PASS node-version:PASS web-typecheck:PASS web-lint:PASS web-test:PASS web-build:PASS web-smoke:PASS openapi-lint:PASS
+NOT RUN 不等于通过；发布前必须按 docs/STAGES.md 补齐对应证据。
+============================================================

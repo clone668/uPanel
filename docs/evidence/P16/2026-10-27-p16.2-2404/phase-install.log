@@ -1,0 +1,45 @@
+Warning: Permanently added '[127.0.0.1]:2222' (ED25519) to the list of known hosts.
+STAMP 2026-10-27T15:38:32Z install 开始：/root/upanel-pkg
+PASS  全新安装前置：干净机器（无 /etc/upanel、无两个数据目录、无单元文件）
+PASS  安装器退出码
+PASS  安装器打出完成横幅
+PASS  13 步全走到
+PASS  第 1 步校验了发布包
+PASS  第 3 步说明依赖事实来自 host-caps
+PASS  缺 nginx 时只说缺、不擅自安装
+PASS  没有擅自 apt 安装依赖
+PASS  第 3 步给出装依赖的重跑方式
+PASS  第 9 步对全新安装跳过备份
+PASS  upanel-web 二进制 0755 root:root
+PASS  upanelctl 二进制 0755 root:root
+PASS  upanel-agent 在 /usr/local/lib/upanel 下 0755
+PASS  配置文件 0640 root:upanel-web
+PASS  代理密钥 0600 root:root
+PASS  面板库属主是 upanel-web（root 建的库 Web 写不进去）
+PASS  代理数据目录 0700 root:root
+PASS  两个单元都 enabled
+PASS  两个单元都 active
+PASS  Web 进程不是 root
+PASS  Web 进程就是 upanel-web
+PASS  代理进程是 root（它要碰 root 才能碰的东西）
+PASS  HTTPS 健康检查 200
+PASS  健康响应里有 status
+PASS  能从文件算出证书指纹
+PASS  端口上服务的正是装进去的那张证书
+PASS  代理 socket 存在
+PASS  代理 socket 0660 root:upanel-web
+PASS  管理员能登录
+PASS  登录拿到了 CSRF 令牌
+PASS  能力探测接口 200（admin）
+PASS  host_caps 已探完（ready）
+PASS  探完了就有报告，不是 null
+PASS  能力清单 21 条（缺的那几条是 absent，不是消失）
+PASS  systemd 在这台机器上是 present
+PASS  nginx 在这台机器上是 absent（干净 VM 没装）
+PASS  说不清的每一条都带原因
+PASS  建了标记账号（卸载/重装之后靠它证明数据还在）
+PASS  用户清单可读（admin）
+PASS  库里至少有两个账号（安装器建的 admin + 这次建的标记账号）
+NOTE  安装耗时 56252ms（/usr/bin/time 不在默认镜像里，用 date 前后取差）
+
+==== install: PASS=40 FAIL=0 NOT RUN=0 ====

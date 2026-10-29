@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"触发 ID 与当前时间槽不符（\"trg_f58f42276799ded33f4147fa6db464d1\"）；定时触发只能由 upanelctl schedule-trigger 发起"},"request_id":"b8e93967e3523a52fe2a51cc3fbebc27"}

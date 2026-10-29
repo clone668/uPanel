@@ -1,0 +1,148 @@
+验收脚本以 root 运行
+二进制存在且可执行 upanel-agent
+二进制存在且可执行 upanel-web
+二进制存在且可执行 upanelctl
+pythonN 可用（解析响应、受控种入）
+runuser 可用（以 Web 身份写库）
+Web 账号 upanel-web 存在
+代理密钥文件已存在（沿用上一轮）
+代理启动并创建 socket
+init-admin 退出码
+Web 启动
+管理员登录 N
+创建 viewer N
+viewer 登录 N
+采集状态 N
+取到可用的文件系统目标 /（空间规则要按挂载点建）
+viewer 读规则列表 N（权限 V）
+规则列表初始为空
+viewer 建规则 N（权限 A）
+viewer 建规则的错误码
+未登录读规则 N
+未登录的错误码
+管理员不带 CSRF 建规则 N
+不给 duration_seconds → N
+不给 duration_seconds 的错误码
+报错点出缺的是 duration_seconds
+未知指标 → N
+未知指标的报错点出名字
+duration_seconds 低于下限 → N
+报错说明下限是 N
+恢复线不低于告警线 → N（死区必须存在）
+报错点出 recovery_threshold
+次级指标跨 scope → N
+报错说明两个 scope 不在一处
+次级口径只给一个字段 → N
+报错说明三个字段要一起给
+建临时规则 N
+没有次级口径时 combination 被归一成 any（留个 all 会骗人）
+enabled=false 生效（临时规则不参与判定）
+新建规则的初始状态是 ok
+PATCH 不给 version → N
+报错说明 version 的用途
+PATCH 带上正确 version N
+改名生效
+version 递增
+没提的字段沿用原值（PATCH 是叠加不是覆盖）
+旧 version PATCH → N
+冲突的错误码
+改不存在的规则 → N
+不存在的错误码
+DELETE 的 version 不是数字 → N
+DELETE 用旧 version → N
+DELETE 不带 version 按当前版本删 N
+删不存在的规则 → N
+事件列表 state 取闭集外的值 → N
+事件列表 rule_id 不是数字 → N
+事件列表 N
+此刻还没有任何事件
+静默只给起点 → N（起止要同进同出）
+静默窗口终点早于起点 → N
+viewer 改静默 N（权限 A）
+没设过窗口时读静默 N
+没有窗口时 starts_at 是 null（不是空串）
+没有窗口时 ends_at 是 null（不是空串）
+受控序列就位（acceptN/rx_bytes_per_sec 已写入 N 个样本）
+设置维护静默 N
+静默窗口当前生效（active=true）
+静默理由被记住
+容量指标 duration_seconds 低于两个采集周期 → N
+报错点出 duration_seconds
+报错说清是“装不下两个点”
+建 RN（网卡入向 gte N/N，持续 N 秒，冷却 N 秒）N
+RN 的 scope 由指标反查成 interface
+建 RN（空间双口径 any，持续 N 秒）N
+RN 的 scope 由指标反查成 filesystem
+建 RN（空间双口径 all，持续 N 秒）N
+建 RN（永不超限的控制组）N
+超限但还没持续够 → pending（不是立刻触发）
+pending 的 last_reason 说明在计持续
+pending 期间还没有任何事件（持续没够就不报）
+持续够 N 秒后进入 firing
+触发时只开一条事件（不是每轮开一条）
+事件从“开始计持续”起等了 N 秒才开（≥ duration_seconds=N）
+事件当时就是 firing
+事件落着规则的阈值快照
+事件落在受控序列上（scope/target 可追溯）
+静默窗口内触发的事件被标记 silenced=true
+还在 firing 的事件 resolved_at 是 null（不是空串）
+没确认过的事件 acked_at 是 null
+RN（any）在真实容量数据上触发（QN 回归位）
+RN（all）在**同一份数据**上没有触发
+RN 开了一条事件
+RN 的事件也被标成 silenced（静默不拦判定，只标记通知）
+RN 一条事件都没有
+RN（永不超限）仍是 ok
+两轮之后 RN 仍只有一条事件（未变化不刷屏）
+两轮之后 RN 还是 firing
+RN 在这段时间里确实被评估过（last_eval_at N → N），仍判不触发
+清除静默 N
+清除后 active=false
+清除后 starts_at 是 null（不是空串）
+静默解除后建 RN N
+RN 在解除静默后正常触发（静默只影响标记，不影响判定）
+RN 的事件 silenced=false（silenced 是触发那一刻的快照）
+RN 那条早先的事件 silenced 仍是 true（历史不被后来的设置改写）
+断数期间正在报警的 RN **不收口**（没有数据不等于恢复正常）
+断数期间 RN 仍只有那一条 firing 事件
+断数期间事件也还是 firing
+断数期间评估循环真的跑过（last_eval_at=N 晚于断数时刻 N），“状态没动”是判定结果
+断数期间 RN 的 last_reason 说清是数据不够
+断数期间永不超限的控制组仍是 ok（没有数据不等于超限）
+代理进程已经退出（kill -N 失败，不是只删了 socket 文件）
+真实采集断掉时控制组 RN 仍是 ok（N 个样本不被当成“全部超限”）
+RN 的 last_reason 说清是真实数据不够
+真实采集断掉时 RN 没有被判成恢复（容量的容差是 N 秒，这一轮还不敢下结论）
+受控序列没断，RN 依然是 firing
+代理恢复启动
+回落到恢复线内并持续够 → 状态回到 ok
+恢复之后仍然只有那一条事件（恢复只发一次，不是新开一条）
+那条事件被原地收口成 resolved
+收敛事件带出实际持续时长（≥N 秒）
+收敛事件的 peak_value 覆盖整个区间（顶到 N 以上）
+收敛事件有 resolved_at
+恢复后规则进入冷却（cooldown_until 非空）
+冷却期内再超限不重新起算（状态仍是 ok）
+冷却期内仍然只有一条事件
+冷却期的 last_reason 说清是在等冷却
+删除正在 firing 的 RN N
+删掉规则不会删掉它的事件（历史保留）
+删规则时把打开的事件收口成 resolved
+被删规则的事件仍留着快照（rule_name 还在）
+被删规则的事件 rule_id 置空（外键 SET NULL，不是级联删除）
+被删规则的快照阈值还在
+清空后规则列表为空
+库里没有留下任何 firing 的事件（停用的规则不会留着永远在报的孤儿行）
+事件历史仍在库里
+审计里有 alert.rule.create
+审计里有 alert.rule.update
+审计里有 alert.rule.delete
+审计里有 alert.silence.update
+审计里记下了阈值（能回答“把线挪到了多少”）
+审计里记下了恢复线
+PATCH 的审计带改动前后的值
+被拒的请求也留了审计（alert.rule.manage）
+Web 日志里没有出现管理员口令
+Web 日志里没有出现 viewer 口令
+Web 日志里没有 panic
+Web 日志非空（失败会写进日志，不静默）

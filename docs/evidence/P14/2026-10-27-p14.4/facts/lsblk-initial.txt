@@ -1,0 +1,13 @@
+NAME    TYPE   SIZE FSTYPE   MOUNTPOINTS
+fd0     disk     4K          
+loop0   loop    74M squashfs /snap/core22/2955
+loop1   loop  44.7M squashfs /snap/snapd/28254
+loop2   loop 115.2M squashfs /snap/lxd/40911
+sda     disk    40G          
+├─sda1  part  39.9G ext4     /
+├─sda14 part     4M          
+└─sda15 part   106M vfat     /boot/efi
+sdb     disk     8G          
+└─sdb1  part     2G ext4     
+sdc     disk     4G          
+sdd     disk     4G          

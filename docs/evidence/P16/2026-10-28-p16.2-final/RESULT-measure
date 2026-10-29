@@ -1,0 +1,4 @@
+PHASE=measure
+PASS=14 FAIL=0 NOT RUN=3
+FAILED_NAMES= (none)
+NOTRUN_NAMES= | 上传 2 GiB 上限 | 文本编辑 1 MiB 上限 | 浏览器完成主要用户流程

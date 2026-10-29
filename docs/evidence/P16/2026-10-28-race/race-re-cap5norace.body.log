@@ -1,0 +1,12 @@
+=== RUN   TestOSCapacityReaderNetworkTimeoutQuarantines
+--- PASS: TestOSCapacityReaderNetworkTimeoutQuarantines (0.03s)
+=== RUN   TestOSCapacityReaderNetworkTimeoutQuarantines
+--- PASS: TestOSCapacityReaderNetworkTimeoutQuarantines (0.02s)
+=== RUN   TestOSCapacityReaderNetworkTimeoutQuarantines
+--- PASS: TestOSCapacityReaderNetworkTimeoutQuarantines (0.02s)
+=== RUN   TestOSCapacityReaderNetworkTimeoutQuarantines
+--- PASS: TestOSCapacityReaderNetworkTimeoutQuarantines (0.02s)
+=== RUN   TestOSCapacityReaderNetworkTimeoutQuarantines
+--- PASS: TestOSCapacityReaderNetworkTimeoutQuarantines (0.02s)
+PASS
+ok  	upanel/internal/storage	0.352s

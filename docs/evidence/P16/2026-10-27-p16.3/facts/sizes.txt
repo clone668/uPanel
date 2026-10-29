@@ -1,0 +1,13 @@
+2026-10-27T16:27:17Z	db=385024	wal=2735712	shm=32768	adb_wal=0	rows_total=933	note=before-idle
+2026-10-27T16:27:47Z	db=385024	wal=3110632	shm=32768	adb_wal=0	rows_total=993	note=t=30s
+2026-10-27T16:28:18Z	db=385024	wal=3469072	shm=32768	adb_wal=0	rows_total=1085	note=t=60s
+2026-10-27T16:28:48Z	db=385024	wal=3782192	shm=32768	adb_wal=0	rows_total=1145	note=t=90s
+2026-10-27T16:29:19Z	db=507904	wal=4128272	shm=32768	adb_wal=0	rows_total=1230	note=t=120s
+2026-10-27T16:29:49Z	db=507904	wal=4128272	shm=32768	adb_wal=0	rows_total=1290	note=t=150s
+2026-10-27T16:30:20Z	db=507904	wal=4128272	shm=32768	adb_wal=0	rows_total=1357	note=t=180s
+2026-10-27T16:30:50Z	db=507904	wal=4128272	shm=32768	adb_wal=0	rows_total=1417	note=t=210s
+2026-10-27T16:31:21Z	db=507904	wal=4128272	shm=32768	adb_wal=0	rows_total=1502	note=t=240s
+2026-10-27T16:31:52Z	db=507904	wal=4128272	shm=32768	adb_wal=0	rows_total=1562	note=t=270s
+2026-10-27T16:32:22Z	db=507904	wal=4128272	shm=32768	adb_wal=0	rows_total=1647	note=t=300s
+2026-10-27T16:32:53Z	db=507904	wal=4128272	shm=32768	adb_wal=0	rows_total=1707	note=t=330s
+2026-10-27T16:32:54Z	db=565248	wal=0	shm=32768	adb_wal=0	rows_total=1714	note=after-checkpoint

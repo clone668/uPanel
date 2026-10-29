@@ -4,8 +4,9 @@
 磁盘、分区、挂载、fstab 的现场恢复在 [STORAGE_RECOVERY.md](STORAGE_RECOVERY.md)，那份更详细，
 不要混着看。访问方式与证书核对在 [ACCESS.md](ACCESS.md)。
 
-一条前提先说清楚：**面板不会替你备份**。0.1 没有备份与恢复功能（那是 1.0 的 P12），
-所以下面凡是要“恢复备份”的地方，前提都是你自己按第 7 节做过备份。
+一条前提先说清楚：**面板的备份功能只备份"你让它备份的东西"**，它不会自动把你整台机器变可恢复。
+1.0 起面板自带 restic 备份（仓库/策略/恢复/抽样验证），但"面板自己坏了"这件事，
+仍然要靠第 7 节那份面板自身的备份（配置 + 两库 + `agent.key`）。这两件事不要互相替代。
 
 ---
 
@@ -231,11 +232,12 @@ sudo sqlite3 -readonly /var/lib/upanel/upanel.db ".dump" > /root/upanel-dump.sql
 
 ```sh
 sudo systemctl stop upanel-web upanel-agent
-B=/root/upanel-backup-<那天的日期>          # 见 INSTALL.md 第 7 节
+B=/root/upanel-backup-<那天的日期>          # 见 INSTALL.md 第 7 节；backup-state.sh 的布局是
+                                            # $B/etc-upanel、$B/panel-db、$B/agent-db
 
 # 面板库：主库 + WAL + shm 三个文件必须一起回来，否则一致性没有保证
 sudo rm -f /var/lib/upanel/upanel.db /var/lib/upanel/upanel.db-wal /var/lib/upanel/upanel.db-shm
-sudo cp -a "$B/web-db/." /var/lib/upanel/
+sudo cp -a "$B/panel-db/." /var/lib/upanel/
 sudo chown -R upanel-web:upanel-web /var/lib/upanel
 sudo chmod 0640 /var/lib/upanel/upanel.db
 
@@ -244,6 +246,10 @@ sudo rm -f /var/lib/upanel-agent/agent.db*
 sudo cp -a "$B/agent-db/." /var/lib/upanel-agent/
 sudo chown root:root /var/lib/upanel-agent/agent.db
 sudo chmod 0600 /var/lib/upanel-agent/agent.db
+
+# 配置与密钥（换了机器、或 /etc/upanel 也丢了才需要）——注意里面是 root 独占的密钥
+sudo cp -a "$B/etc-upanel/." /etc/upanel/
+sudo chown -R root:root /etc/upanel/agent.key && sudo chmod 0600 /etc/upanel/agent.key
 
 sudo systemctl start upanel-agent upanel-web
 ```
@@ -280,25 +286,71 @@ sudo systemctl start upanel-agent upanel-web
 
 ---
 
-## 6. 0.1 **没有**恢复路径的几件事（别指望）
+## 6. 网络/防火墙改坏了：先等那 120 秒
 
-如实列出，避免在故障现场浪费时间：
+1.0 的网络与防火墙写入都带**独立回滚**：改之前先挂一个 systemd timer，跑的是代理自己的二进制
+（`upanel-agent netrollback --token nrb_…`、`fwrollback --token fwrb_…`），读磁盘上的记录把配置退回去。
+它不依赖面板、不依赖浏览器、不依赖你有没有在看。
 
-| 场景 | 0.1 的状态 | 现在怎么办 |
+```sh
+# 现在有没有挂着的回滚任务
+systemctl list-timers 'upanel-netrollback@*' 'upanel-fwrollback@*' --all --no-pager
+# 挂了哪一份记录（token 就是文件名）
+ls -l /var/lib/upanel-agent/network/rollback/ /var/lib/upanel-agent/firewall/rollback/ 2>/dev/null
+# 记录里写了什么（改了哪张卡、旧地址是什么、什么时候到期）
+sudo cat /var/lib/upanel-agent/network/rollback/<token>.json
+```
+
+处置顺序：
+
+| 情况 | 该做什么 |
+|---|---|
+| 你还没在新地址上确认，也不想要这次改动了 | **什么都别做**，等 timer 到期；想立刻退就 `sudo systemctl start upanel-netrollback@<token>.service`（跑的是回滚**服务**；`start` 那个 `.timer` 只是把它武装起来，不会立刻跑） |
+| 你已经在**新地址**上连上面板并点了确认 | timer 与记录会被撤掉，这是正常结束 |
+| 你只在**旧地址**上看到面板还能开 | **不算确认**。候选配置没有被证明可用，回滚仍会发生 |
+| 回滚跑了但网络还是不对 | 进救援/单用户模式，看 `/etc/netplan/90-upanel-*.yaml` 与 `/var/lib/upanel-agent/network/rollback/<token>.json` 的 `panel_file_content`（原文件字节，回滚就按它还原），手工还原 |
+| 开机后网络就起不来 | 上次未确认的改动**由 Reconcile 在开机后重新挂 timer**，等它退；等不及就删掉面板那份 netplan 文件再 `netplan apply` |
+
+防火墙同形：`upanel-fwrollback@<token>.timer`，记录在 `/var/lib/upanel-agent/firewall/rollback/<token>.json`，
+里面是"改之前 `ufw` 的规则集"。**不要**在回滚期间手工往 `ufw` 里加规则——那会让"退回去"退到一半。
+
+---
+
+## 6.1 1.0 已经有的恢复路径（别再照 0.1 的老习惯找）
+
+| 场景 | 1.0 的状态 | 怎么做 |
 |---|---|---|
-| 网络配置改错后的自动回滚 | 未实现（PLAN 第 19 节，1.0 的 P14） | 0.1 不提供任何网络写操作，所以面板不会把你的网络改坏；手工改坏就按正常方式进单用户/救援模式修 |
-| APT 中断（`dpkg` 半配置） | 未实现（1.0 的 P11 才管软件更新） | 面板不执行 apt，安装脚本只在 `--install-deps` 时装点名的包；中断后用标准做法 `sudo dpkg --configure -a` 收拾 |
-| 在线更新与回退 | 未实现（1.0 的 P11） | 见 INSTALL.md 第 7 节的手工升级步骤 |
-| 备份与快照 | 未实现（1.0 的 P12） | 自己做第 7 节的备份 |
-| 定时任务与告警 | 未实现（1.0 的 P12 / P13） | 自己用 cron / 系统监控 |
+| 网络配置改错 | ✅ 自动回滚 | 见第 6 节 |
+| 防火墙规则改错 | ✅ 自动回滚 | 见第 6 节 |
+| APT 中断（`dpkg` 半配置） | ⚠ 面板会**在写之前**用模拟判定准入，但真中断了仍然要人工收拾 | `sudo dpkg --configure -a`；面板的更新页只做它明确选中的包，不做隐式 dist-upgrade |
+| 软件包升级后要退回去 | ⚠ 没有自动降级 | 面板会记录执行前后每个包的版本；退回去要你自己 `apt install <pkg>=<version>`，并确认依赖 |
+| 面板自身升级 | ⚠ 手工流程（没有在线更新） | INSTALL.md 第 7 节；升级前 `backup-state.sh`，迁移只向前 |
+| 部署更新后要回切 | ✅ 一键回切到上一版 | 部署页的回切；**只回切配置与镜像，不回切数据**，`.prev` 只有一份 |
+| 文件被改坏 | ✅ 写入前有备份（`file.write_text`） | 面板会在同目录留上一份；删除是不可恢复的 |
+| 误删文件 / 误格式化 | ✗ **没有**面板侧的恢复 | 只能靠 restic 备份或你自己的备份；格式化从来就没有自动恢复 |
+| 备份要恢复回来 | ✅ restic 恢复（要再认证；覆盖已有数据时另要短语 `OVERWRITE`） | 备份页 → 快照 → 恢复，选目标根与相对路径；恢复完**必须**自己验业务 |
+| 计划任务没按时跑 | ✅ 账本可查 | 计划任务页把"定义/单元装上没/enable 没/timer 在跑没"分开显示；任务中心有每次触发的记录 |
+| 告警没收到 | ✅ 投递账可查 | 监控告警页的"通知投递账"写明哪一次发没发出去、失败原因 |
 
 把这几条写在文档里，比让用户在故障时去界面上找一个不存在的按钮要好。
 
 ---
 
-## 7. 该备份什么（自己动手）
+## 7. 该备份什么（怎么动手）
 
-0.1 不提供备份功能，这是最小可用的一套手工备份，建议放进 cron：
+从 P16.1 起，安装器与卸载器都会在动数据库之前自动备份（见 INSTALL.md 第 7 节），
+单独做一次备份用同一个脚本：
+
+```sh
+sudo sh /path/to/deploy/scripts/backup-state.sh --to /var/backups/upanel/$(date +%F)
+#   → etc-upanel/（配置 + 面板证书 + agent.key）、panel-db/、agent-db/、MANIFEST.sha256
+```
+
+它会停服务、把两个库连同 `-wal`/`-shm` 一起拷、再起回服务，并写一份 sha256 清单；
+机器上有 `sqlite3` 时还会对每份副本跑 `PRAGMA integrity_check`（没有就如实说“未校验”）。
+放进 cron 时建议在它前面加 `systemctl is-active` 的判断，避免与别的手工操作撞车。
+
+要自己做而不用脚本，最小的一套是这个样子：
 
 ```sh
 B=/var/backups/upanel/$(date +%F)

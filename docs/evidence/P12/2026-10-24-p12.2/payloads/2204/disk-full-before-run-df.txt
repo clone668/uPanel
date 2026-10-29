@@ -1,0 +1,2 @@
+Filesystem     1024-blocks  Used Available Capacity Mounted on
+tmpfs                65536 63512      2024      97% /var/tmp/upanel-accept-p12-2/data-root/full-repo

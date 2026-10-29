@@ -1,0 +1,260 @@
+== P16.2 驱动开始 2026-10-28T03:49:22Z 平台=22.04 包=dist/upanel-1.0.0-linux-amd64.tar.gz
+== 传输与校验
+Warning: Permanently added '[127.0.0.1]:2223' (ED25519) to the list of known hosts.
+1.0.0
+commit: 8e52b36-dirty
+build_date: 2026-10-28T03:45:56Z
+arch: amd64
+包在 VM 内校验通过
+== PHASE=install
+Warning: Permanently added '[127.0.0.1]:2223' (ED25519) to the list of known hosts.
+STAMP 2026-10-28T03:49:43Z install 开始：/root/upanel-pkg
+PASS  全新安装前置：干净机器（无 /etc/upanel、无两个数据目录、无单元文件）
+PASS  安装器退出码
+PASS  安装器打出完成横幅
+PASS  13 步全走到
+PASS  第 1 步校验了发布包
+PASS  第 3 步说明依赖事实来自 host-caps
+PASS  缺 nginx 时只说缺、不擅自安装
+PASS  没有擅自 apt 安装依赖
+PASS  第 3 步给出装依赖的重跑方式
+PASS  第 9 步对全新安装跳过备份
+PASS  本机文档里有 README.md
+PASS  本机文档里有 VERSION
+PASS  本机文档里有 USER_GUIDE.md
+PASS  本机文档里有 SUPPORT_MATRIX.md
+PASS  本机文档里有 KNOWN_LIMITATIONS.md
+PASS  本机文档里有 RELEASE_NOTES.md
+PASS  本机文档份数（README + VERSION + 配置样例 + 十份 docs）
+PASS  upanel-web 二进制 0755 root:root
+PASS  upanelctl 二进制 0755 root:root
+PASS  upanel-agent 在 /usr/local/lib/upanel 下 0755
+PASS  配置文件 0640 root:upanel-web
+PASS  代理密钥 0600 root:root
+PASS  面板库属主是 upanel-web（root 建的库 Web 写不进去）
+PASS  代理数据目录 0700 root:root
+PASS  两个单元都 enabled
+PASS  两个单元都 active
+PASS  Web 进程不是 root
+PASS  Web 进程就是 upanel-web
+PASS  代理进程是 root（它要碰 root 才能碰的东西）
+PASS  HTTPS 健康检查 200
+PASS  健康响应里有 status
+PASS  能从文件算出证书指纹
+PASS  端口上服务的正是装进去的那张证书
+PASS  代理 socket 存在
+PASS  代理 socket 0660 root:upanel-web
+PASS  管理员能登录
+PASS  登录拿到了 CSRF 令牌
+PASS  能力探测接口 200（admin）
+PASS  host_caps 已探完（ready）
+PASS  探完了就有报告，不是 null
+PASS  能力清单 21 条（缺的那几条是 absent，不是消失）
+PASS  systemd 在这台机器上是 present
+PASS  nginx 在这台机器上是 absent（干净 VM 没装）
+PASS  说不清的每一条都带原因
+PASS  建了标记账号（卸载/重装之后靠它证明数据还在）
+PASS  用户清单可读（admin）
+PASS  库里至少有两个账号（安装器建的 admin + 这次建的标记账号）
+NOTE  安装耗时 32414ms（/usr/bin/time 不在默认镜像里，用 date 前后取差）
+
+==== install: PASS=47 FAIL=0 NOT RUN=0 ====
+PHASE=install
+PASS=47 FAIL=0 NOT RUN=0
+FAILED_NAMES= (none)
+NOTRUN_NAMES= (none)
+== PHASE=measure
+Warning: Permanently added '[127.0.0.1]:2223' (ED25519) to the list of known hosts.
+STAMP 2026-10-28T03:50:32Z measure 开始
+PASS  读到 Web 进程的 RSS（KiB）
+PASS  读到代理进程的 RSS（KiB）
+NOTE  RSS: web=288140KiB agent=25020KiB
+PASS  延迟样本数（health）
+NOTE  延迟 health: p50=0.0395s p95=0.0496s max=0.053317s
+PASS  延迟 p95（health）不超过 2s
+PASS  延迟样本数（summary）
+NOTE  延迟 summary: p50=0.0470s p95=0.0530s max=0.068571s
+PASS  延迟 p95（summary）不超过 2s
+PASS  超过 1 MiB 的请求体被拒（413）
+PASS  日志 limit=5000 越界被拒（400）
+PASS  日志 limit=1000 接受
+PASS  单页条数不超过 1000
+PASS  单页消息总量不超过 1 MiB
+NOTE  日志单页：76 条 / 21031 字节
+PASS  第 5 条并发事件流被限流（429）
+curl: (28) Operation timed out after 3001 milliseconds with 13 bytes received
+PASS  流断开后名额被释放（又能开一条）
+NOTE  两库目录合计 1493032 字节；60 秒空闲后见 /var/tmp/upanel-accept-p16-2/facts/growth-after.txt
+PASS  60 秒空闲里日志没有失控增长（< 500 行）
+NOTE  journal 行数：155 → 155
+NOT RUN  上传 2 GiB 上限: P06 已有该限额读数；本轮不造 2 GiB 文件
+NOT RUN  文本编辑 1 MiB 上限: 属 P06 范围
+NOT RUN  浏览器完成主要用户流程: VM 内没有浏览器；Playwright 隧道属另一份工件
+
+==== measure: PASS=14 FAIL=0 NOT RUN=3 ====
+PHASE=measure
+PASS=14 FAIL=0 NOT RUN=3
+FAILED_NAMES= (none)
+NOTRUN_NAMES= | 上传 2 GiB 上限 | 文本编辑 1 MiB 上限 | 浏览器完成主要用户流程
+== 取回 facts / logs
+Warning: Permanently added '[127.0.0.1]:2223' (ED25519) to the list of known hosts.
+
+== 全部相位无失败 ==
+
+===== 续跑追加于 2026-10-28T03:52:05Z =====
+== P16.2 驱动开始 2026-10-28T03:52:05Z 平台=22.04 包=dist/upanel-1.0.0-linux-amd64.tar.gz
+== 传输与校验
+Warning: Permanently added '[127.0.0.1]:2223' (ED25519) to the list of known hosts.
+1.0.0
+commit: 8e52b36-dirty
+build_date: 2026-10-28T03:45:56Z
+arch: amd64
+包在 VM 内校验通过
+== 重启 VM
+VM 已下线（约 0s 后 ssh 不可达）
+VM 回来了
+== PHASE=boot
+Warning: Permanently added '[127.0.0.1]:2223' (ED25519) to the list of known hosts.
+STAMP 2026-10-28T03:54:07Z boot 开始（重启之后）
+PASS  upanel-web 开机自启并 active
+PASS  upanel-agent 开机自启并 active
+PASS  两个单元都还是 enabled
+PASS  重启后代理 socket 又在了
+PASS  重启后健康检查 200
+PASS  重启后还是那张证书
+NOTE  开机到 Web active：56s（btime→ActiveEnterTimestamp）
+NOTE  其中面板自身：读不到 blame；整机：读不到 systemd-analyze
+PASS  开机到 Web 可用不超过 120s
+PASS  重启后管理员仍能登录（库没坏）
+PASS  重启后标记账号还在
+PASS  重启后配置没有被改写
+PASS  重启后代理密钥没有被改写
+PASS  重启后能力探测仍可用
+PASS  重启后 host_caps 仍是探完的
+PASS  重启后系统概览 200（代理链路通）
+
+==== boot: PASS=14 FAIL=0 NOT RUN=0 ====
+PHASE=boot
+PASS=14 FAIL=0 NOT RUN=0
+FAILED_NAMES= (none)
+NOTRUN_NAMES= (none)
+== PHASE=upgrade
+Warning: Permanently added '[127.0.0.1]:2223' (ED25519) to the list of known hosts.
+STAMP 2026-10-28T03:54:29Z upgrade 开始（同一份包再装一次 = 升级）
+PASS  升级退出码 0
+PASS  升级走到第 13 步
+PASS  第 9 步这次**没有**跳过备份
+PASS  不再是'全新安装跳过备份'
+PASS  备份目录存在
+PASS  备份清单只有 root 能读（0600）
+PASS  备份写了 MANIFEST.sha256
+PASS  成功备份不留 .incomplete
+PASS  备份里有 agent.key（秘密与库必须同一份）
+PASS  备份里有面板库
+PASS  备份里有代理库
+PASS  面板库副本 integrity_check = ok
+PASS  代理库副本 integrity_check = ok
+PASS  备份之后两个单元还是 active
+PASS  MANIFEST.sha256 全部校验通过
+PASS  升级没有改写配置文件
+PASS  升级没有改写 agent.key
+PASS  升级后两个单元 active
+PASS  升级后健康检查 200
+PASS  升级后管理员能登录
+PASS  升级后标记账号还在
+PASS  装进去的 VERSION 与包里的逐字相同
+
+==== upgrade: PASS=22 FAIL=0 NOT RUN=0 ====
+PHASE=upgrade
+PASS=22 FAIL=0 NOT RUN=0
+FAILED_NAMES= (none)
+NOTRUN_NAMES= (none)
+== PHASE=failup
+Warning: Permanently added '[127.0.0.1]:2223' (ED25519) to the list of known hosts.
+STAMP 2026-10-28T03:55:21Z failup 开始（造一次会失败的升级，再救回来）
+PASS  坏包升级没有成功（退出码非 0）
+PASS  坏包升级打出了失败横幅
+PASS  失败发生在第 13 步（代理没起来）
+PASS  喊停时点名了 panel 会只剩 AGENT_UNAVAILABLE
+PASS  喊停时贴出了代理的 journal
+PASS  没有打出安装完成横幅
+PASS  不是第 1 步校验失败（坏包是自洽的）
+PASS  失败之前备份已经完成（目录 + MANIFEST 在）
+PASS  失败升级的备份里面板库 integrity_check = ok
+PASS  失败升级的备份里代理库 integrity_check = ok
+PASS  失败升级的备份自身可校验
+PASS  失败之后面板库仍能通过 integrity_check
+PASS  失败之后代理库仍能通过 integrity_check
+PASS  坏包让代理服务起不来（这正是失败现场）
+PASS  重跑好包后退出码 0（失败可重入）
+PASS  恢复后代理服务 active
+PASS  恢复后 Web 服务 active
+PASS  恢复后健康检查 200
+PASS  恢复后管理员能登录
+PASS  恢复后标记账号还在（数据没丢）
+PASS  恢复后代理密钥没被改写
+
+==== failup: PASS=21 FAIL=0 NOT RUN=0 ====
+PHASE=failup
+PASS=21 FAIL=0 NOT RUN=0
+FAILED_NAMES= (none)
+NOTRUN_NAMES= (none)
+== PHASE=uninstall
+Warning: Permanently added '[127.0.0.1]:2223' (ED25519) to the list of known hosts.
+STAMP 2026-10-28T03:57:08Z uninstall 开始（默认卸载：保留数据）
+PASS  默认卸载退出码 0
+PASS  打出卸载完成横幅
+PASS  单元文件已删除（upanel-web.service）
+PASS  单元已不再登记（upanel-web.service）
+PASS  单元文件已删除（upanel-agent.service）
+PASS  单元已不再登记（upanel-agent.service）
+PASS  已删除 /usr/local/bin/upanel-web
+PASS  已删除 /usr/local/bin/upanelctl
+PASS  已删除 /usr/local/lib/upanel
+PASS  /etc/upanel 保留
+PASS  agent.key 还在且仍是 0600
+PASS  面板库保留
+PASS  代理库保留
+PASS  /srv/upanel 保留（永远不会自动删）
+PASS  默认卸载不打印备份行
+PASS  保留清单里点名了配置与两库
+PASS  服务已停
+PASS  端口不再响应（进程真的没了）
+PASS  重装退出码 0
+PASS  重装后健康检查 200
+PASS  重装后管理员能登录（账号在库里，不是重装的）
+PASS  重装后标记账号还在
+PASS  重装后 agent.key 没变（秘密仍然解得开）
+
+==== uninstall: PASS=23 FAIL=0 NOT RUN=0 ====
+PHASE=uninstall
+PASS=23 FAIL=0 NOT RUN=0
+FAILED_NAMES= (none)
+NOTRUN_NAMES= (none)
+== PHASE=purge
+Warning: Permanently added '[127.0.0.1]:2223' (ED25519) to the list of known hosts.
+STAMP 2026-10-28T03:57:52Z purge 开始（--purge-data --purge-config：删前必须备份）
+PASS  带清除的卸载退出码 0
+PASS  多出一份删除前的备份
+PASS  找到那份备份的路径
+PASS  输出里点名了备份路径
+PASS  备份有 MANIFEST
+PASS  备份里有 agent.key（删了也能解秘密）
+PASS  备份里 agent.key 与原来逐字相同
+PASS  备份里的面板库 integrity_check = ok
+PASS  备份里的代理库 integrity_check = ok
+PASS  备份里能查到标记账号（库是可用的，不只是能打开）
+PASS  --purge 之后 /etc/upanel 已删除
+PASS  --purge 之后 /var/lib/upanel 已删除
+PASS  --purge 之后 /var/lib/upanel-agent 已删除
+PASS  /srv/upanel 仍然保留（--yes-delete-srv 才动它）
+
+==== purge: PASS=14 FAIL=0 NOT RUN=0 ====
+PHASE=purge
+PASS=14 FAIL=0 NOT RUN=0
+FAILED_NAMES= (none)
+NOTRUN_NAMES= (none)
+== 取回 facts / logs
+Warning: Permanently added '[127.0.0.1]:2223' (ED25519) to the list of known hosts.
+
+== 全部相位无失败 ==

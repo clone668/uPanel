@@ -1,0 +1,9 @@
+# 前端产物里的四处文案（第 8 节那四条断言的原始读数）
+# 第 8 节从 /assets/*.js 出发，把动态 import 的分片一代代抓下来（55 个，合计 1,625,696 字节）
+# 拼成一份再 grep。下面是对同一份构建产物（web/dist）逐文件核出的归属，
+# 拼起来的文件本身不入库——重跑脚本即可再得到。
+
+二次验证                     命中 3 个文件: LoginView-DcSnyN1b.js, SettingsView-7GVkOILY.js, index-DkV-M8tf.js
+/auth/totp               命中 1 个文件: totp-CHcnGakN.js
+只显示这一次                   命中 1 个文件: SettingsView-7GVkOILY.js
+同一个码不能用第二次               命中 1 个文件: LoginView-DcSnyN1b.js

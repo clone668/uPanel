@@ -1,8 +1,95 @@
 # uPanel 开发进度账本
 
-最后更新：2026-10-23。
+最后更新：2026-10-30。
 
-当前事实：**P00—P08 全部 passed（P07.1—P07.5、P08.1—P08.4），P09 的 P09.1—P09.5 全部 passed（P09 阶段收口），P10.1—P10.4 全部 passed（P10 阶段收口）**，下一个子任务是 **P11.1**（APT 包列表/候选版本/安全更新/重启标志读取）（权威状态见 §1 的“当前阶段”与 §3 的阶段表；下面这段是交付历程摘要，按轮次追加，个别中间轮次没写进来）。P01.1 交付 Go 最小可运行骨架
+**核心验收矩阵 31 条 = 已验 31 / 部分 0 / 未验 0。** 最后一条"部分"（DISK-02 根盘在 LVM/RAID 下）
+于 2026-10-29 关掉：在客机里迁出两台根在叠层设备上的 Ubuntu 24.04（LVM `91/0/3`、RAID1 `113/0/3`），
+证明靠的是"物理盘自己没有文件系统却被标成系统盘"，不是"预检会拒"；顺带抓出一条写错的锁断言
+（Q522，脚本错、产品零改动）。**"一条不剩"不等于"什么都验过了"**——臂 64 端到端、掉电演练、
+裸机开机到可用、0.1→1.0 升级、降级/重建中的阵列等仍登记在 `docs/KNOWN_LIMITATIONS.md`。
+
+**P16.2 双平台端到端验收（读数都取在最终交付字节 `3f3b40c1…daf0` 上）：22.04 七相位 155 PASS /
+0 FAIL / 3 NOT RUN，24.04 七相位同样是 155 / 0 / 3、逐相位相同（47 / 14 / 14 / 22 / 21 / 23 / 14）；
+页面链路另行补测 43 PASS / 0 FAIL**。两个真机缺陷（Q499 22.04 上
+`/logs` 全 400、Q500 坏包升级伪成功）都是在真机上抓出来并修掉、在两台上各验一次。24.04 上首轮 `failup`
+红过一条，查清是断言自己的采样竞态——`Type=simple` 的单元 `Started` 一打就进 active，而"主进程 exit 1"
+要 0.23~0.40 秒后才记账，active 占空比约一成（Q515）；收紧断言（判 socket + 跨一轮重启采两次）后在同一份
+字节上重跑得 21/0/0，**判据不是放松而是换成不吃竞态的**，首轮读数留在证据目录的 `run1-pre-tighten/`。
+2026-10-27 那轮 24.04 的"开机到 Web active 152s > 120s"属于另一套 QEMU 参数（`tcg,thread=single`），
+这一轮用 `thread=multi` 没复现，**因此不能说那条已修好**，裸机读数仍记为未验证。P16.1 那批"只有 `sh -n`"
+的部署脚本（安装/升级/卸载/备份/恢复）在这一轮全部在真实 Ubuntu 上跑过。详见 §5 的「P16.2」小节与
+`docs/evidence/P16/` 下的证据目录（含两次作废轮、三次换字节重跑与 24.04 那一轮收紧断言前读数的分层说明）。
+
+**P16.4 完成 → P00—P16 全部完成，1.0 的文档集与发布包就位**。六份交付文档（用户手册、恢复手册、
+支持矩阵、已知限制、发布说明、证据索引）与重写后的 `README.md`（1.0 入口；原阶段流水账迁到
+`docs/DEVLOG.md`）一起进包：`release.sh` 的文档列表 6 → 10 份、**缺一份即 `exit 2`**，
+`install.sh` 装机落 **13 个文件**，install 相位新增 7 条断言盯着这件事。**在冻结的发布字节上重跑七相位
+155 PASS / 0 FAIL / 3 NOT RUN**（amd64 包 `751a274d…`）。P16.3 那条 fsync 修复（Q505）本轮补了真机读数：
+生产写路径在真机 ext4 上 `fsync(目录 fd) = 0`，`strace` 序列在证据里。**掉电语义、0.1→1.0 升级、
+arm64 端到端、裸机读数仍是未验证**。详见 §5 的「P16.4」小节与 `docs/evidence/P16/2026-10-28-p16.4/`。
+
+**P16.1 已实现、宿主检查通过、真机已验（由 P16.2 补上）**：`internal/hostcaps` 是唯一的能力探测实现，三个出口
+分别是 `upanelctl host-caps`（安装器与"面板起不来"时的排障）、代理
+`GET /internal/v1/capabilities` 的 `host_caps`、面板 `GET /api/v1/system/capabilities`（admin，
+只读快照，不触发新探测）。四条诚实性规则：只在 `/usr/sbin`、`/sbin`、`/usr/bin`、`/bin` 里找
+（**不走 `PATH`**）；每条只有 `present`/`absent`/`unknown` 三态、`unknown` 必须带原因；版本只在
+真读到才填；`host_caps: null` 是"还没探完"，**不等于空表**。21 条规格（systemd/journalctl/
+docker/nginx/restic/ssh/ufw/nfs/samba/apt/certbot/smartctl/sgdisk/mkfs/findmnt/shadow/sudo…）每条都
+带 `feature`（它能支撑面板的哪个功能）与 `hint`。`--line` 是六列 TSV、无表头、空字段表示"没有"、
+禁用 `-`/`n/a` 占位符，给 POSIX sh 用（安装器里没有 jq）。第二半是"安装/升级/卸载 + 两库与密钥
+备份 + 失败可重入"：`deploy/scripts/backup-state.sh`（**先停服务再拷**——SQLite 的 `-wal`/`-shm`
+是活的；`/etc/upanel`（含 `agent.key`）与两库**同一份**备份，丢了密文永久不可解；`.incomplete`
+标记区分"跑一半"）、`install.sh` 第 9 步在动库之前自动备份（失败即停，`--no-backup` 才跳过）且
+第 3 步的依赖事实改读同一份 `host-caps --line`、`uninstall.sh` 在 `--purge-*` 之前默认先备份
+（缺 `backup-state.sh` 即中止）、`release.sh` 打包带上它、`check.sh` 新增 `sh-syntax`。
+宿主读数：`sh scripts/check.sh` **PASS 15 / FAIL 0 / NOT RUN 0**（`sh-syntax` 在最终工作树上单跑：
+77 个脚本 `sh -n` 全部通过，解析器 `/usr/bin/sh`）、go 全包 test 全绿、前端 **62 文件 / 1175 用例**。
+**三个部署脚本在这台 Windows 宿主上一次都跑不起来**，只有 `sh -n` 这一个读数（且这里的 `sh` 是
+bash，抓不到 bashism）；备份/恢复/升级在真实 Ubuntu 上未验，能力探测页没有真机读数、没有
+Playwright 用例，24.04/22.04 差异未验。
+
+当前事实：**P00—P14 全部 passed**（P14.6 于 2026-10-27 在真实 Ubuntu 22.04 VM 上通过：
+`PASS 163 / FAIL 0 / NOT RUN 6`、退出码 0，证据 `docs/evidence/P14/2026-10-27-p14.6/`），
+**P15.3 已实现、宿主检查通过、真机验收通过**：2026-10-27 在 VM-A（Ubuntu 22.04.5 / docker 29.1.3 /
+compose 2.40.3 / restic 0.12.1）上 `PHASE=main` **229 PASS / 0 FAIL / 1 NOT RUN**，退出码 0，
+证据 `docs/evidence/P15/2026-10-27-p15.3/`；唯一 NOT RUN 是夹具盘 `/dev/sdd` 上已有 GPT、按上一轮
+夹具复用（`sgdisk`/`mkfs` 三步没重跑，卷的导入/挂载/文件系统 UUID 全部真读过）。真机这一轮**没有
+暴露新的产品缺陷**，改掉的 13 条全是验收脚本把断言对齐到产品代码时发现的问题（见 §5 的
+「P15.3 真机验收」小节与证据 README）。P15.3（`deployment.update`、
+镜像 digest 记录、按选择备份、健康探测与回切）交付 `internal/deploy` 的 `record.go`/`update.go`/
+`probe.go` 与代理侧的 `deployment.update` 动作、更新前备份适配层；接线阶段先写测试让缺陷现形，
+抓到 **3 个产品缺陷**（Q493）；P15.3 那一轮的 `sh scripts/check.sh` 是 **PASS 14 / FAIL 0 / NOT RUN 0**。
+**P15.4 已实现、宿主检查通过、真机验收通过（2026-10-28）**：部署页（`web/src/api/deployments.ts` +
+`web/src/views/DeploymentsView.vue`，入口 `/apps/deployments`）只读管理面，没有原始 Compose YAML、
+没有危险宿主挂载、没有特权选项——那三样在数据模型里写不出来，所以页面上连输入框都没有；创建/更新/
+删除走既有 `/operations/preflight` + `/jobs`，**没有新增写接口**，也没有“直接部署”按钮。宿主读数：
+前端 61 文件 / 1161 用例、`vue-tsc` 干净、`vite build` 成功、`sh scripts/check.sh` **PASS 14 / FAIL 0 /
+NOT RUN 0**（首跑 gofmt 抓到 5 个未格式化文件，`gofmt -w` 后重跑；`git diff -w` 为空，只有空白改动）。
+**真机读数（2026-10-28，Ubuntu 22.04.5 / docker 29.1.3 / compose 2.40.3，43 条断言全过）**：跑之前先修掉一个**阻断项**——三条部署动作都是 R=是，而登录不开再认证窗口，页面只把“这一步要求再认证”写成文案，真机上按确认必然 403 `REAUTH_REQUIRED`，页面链路一次都走不完（Q511）；跑的时候又抓到两处页面缺陷：`StatePanel` 的空状态把页面传的标题丢了、删除成功后还去读那份已删的部署（注定 404）（Q513）。修完在真机上走完 新建 → 预检 → 再认证 → 任务 `verified` → 详情 → 换镜像 →删除，三次任务全部 `outcome: verified`，面板侧 57 条请求全 200/202（`docs/evidence/P15/2026-10-28-p15.4/`）。**仍未验证**：200 份截断 / `skipped` / `config_drift` 三种现场只有单测；“删除没动卷数据”这次只有文案证据（部署没挂卷）；24.04 未跑；任务执行中读现场可能顶到 10 秒预算（Q512、KNOWN_LIMITATIONS C12）。下一个动作是 P16.1（统一能力探测与安装/升级/卸载）。P15.2（systemd 包装单元、挂载依赖、落地与删除、
+代理登记表接线）**已实现、宿主检查通过、真机验收通过**：2026-10-27 在 VM-A（Ubuntu 22.04.5）上
+`PHASE=main` **199 PASS / 0 FAIL / 2 NOT RUN**、`PHASE=boot` **51 PASS / 0 FAIL / 0 NOT RUN**，
+证据 `docs/evidence/P15/2026-10-27-p15.2/`。真机首跑暴露并修掉 **4 个产品缺陷**（Q484 新建预检
+缺版本令牌 → 100% 500；带 `deployment_id` 的预检漏填规范化参数 → 500；Q485 apply 落在已有的
+active 单元上时 `start` 是空操作、容器一个都没起；Q486 `is-enabled` 的退出码 1 被当成执行失败、
+`deployment.remove` 在真机上永远删不掉）与 **5 类验收脚本自身的错误**（Q487 的两条 NOT RUN 理由
+也在那里）。P15.1（受限部署定义、校验与 Compose 渲染）**已实现、宿主检查通过**。P14.6 交付 TOTP 二次验证
+（设置页登记 → 六位数确认 → 十枚一次性恢复码 → 两步关闭）、两步登录与四个再认证点、
+`upanelctl totp-reset` 本机恢复；真机抓到并修掉 **1 个产品缺陷**（Q480：确认用的那个码
+还能当登录码再用一次）与 **4 类验收脚本自身的断言错误**（Q481）。P13 交付历史监控（告警规则、持续时间、恢复阈值、
+空间双阈值、去重、冷却、维护静默；通知渠道与投递账；确认动作、投递账读接口、历史图表与告警
+列表、陈旧与缺失曲线）。P14.1—P14.4 交付网络/路由/UFW 只读与冲突检测、`network.apply` 的
+断连自动回滚、`firewall.apply` 的管理通路保护与不确认自动回滚、以及 NFS 受管理导出（详见
+§1 与 P14 小节）。
+P13.4 两台 Ubuntu VM（24.04、22.04）各 PASS 128 / FAIL 0 / NOT RUN 0，退出码 0；断言名单
+跨机逐字一致（归一后 `diff` 无输出），同一份脚本（sha256 `f86fb06f…`）同一组二进制；
+宿主检查 14/0/0。P13.2 两台 Ubuntu VM（24.04、22.04）各 PASS 148 / FAIL 0 / NOT RUN 0，
+退出码 0；断言名单跨机逐字一致（归一后 `diff` 无输出），同一份脚本（md5 `c74dd469…`）
+同一组二进制；宿主检查 14/0/0。P13.1 两台 Ubuntu VM（24.04、22.04）各 PASS 88 / FAIL 0 /
+NOT RUN 0，退出码 0；断言名单跨机逐字一致（归一后 `diff` 无输出），同一份脚本（md5
+`d08964c5…`）同一组二进制；宿主检查 14/0/0。P12.5 最终两台 Ubuntu VM（24.04 第 12 轮、
+22.04 第 2 轮）各 PASS 214 / FAIL 0 / NOT RUN 0，断言名单跨机逐字一致（归一后 `diff` 无输出），
+宿主检查 13/0/0（权威状态见 §1 与 §3；下面这段是交付历程摘要，按轮次追加，个别中间轮次
+没写进来）。P01.1 交付 Go 最小可运行骨架
 （两个服务入口 + CLI、严格 JSON 配置、结构化日志、`/api/v1/health/live`、代理 `capabilities`、
 Linux/mock 分离）；P01.2 交付持久层基础（SQLite 打开与 PRAGMA 校验、显式 SQL 迁移与校验和锁定、
 事务工具、封闭错误码与统一错误信封、request_id、Gin 路由与中间件组织、`upanelctl migrate`），
@@ -152,8 +239,286 @@ P07.1 先把“该拒的都拒”证完（判决层、可靠身份、整盘锁�
 
 ## 1. 当前任务
 
-- 当前阶段：**P12（备份恢复与计划任务）进行中：P12.1 已 passed**，下一个子任务
-  **P12.2**（策略、运行、快照列表、文件一致性说明、停受管理应用备份、面板 SQLite 在线备份）。
+- 当前阶段：**P16（完整单机版集成与发布）passed，也是 STAGES 的最后一个阶段。**
+  1.0 的功能面全部实现并真机验收过：双平台七相位 `155/0/3`（冻结字节 `3f3b40c1…daf0`）、
+  浏览器主流程两平台补齐（22.04 35/0/0、24.04 冒烟 35/0/0 + 写链路 43/0/0）、
+  `-race` 全量跑完且**产品代码零竞态**（问题全在测试侧，Q517—Q520）、宿主 `sh scripts/check.sh`
+  **PASS 15 / FAIL 0 / NOT RUN 0**。
+- 本轮工作（2026-10-30，**不是 STAGES 的子任务**）：负责人要求重做界面，做成「像群晕或飞牛那种 NAS
+  桌面版」，随后一句「继续，不要停下来，直接全部完成能交付给我测试」。四轮下来：①「桌面式外壳 + 设计
+  系统」重写 `web/`；②23 个视图逐页收口，**25 张图全看过、改了 15 处排版缺陷**（按钮塌成 11px、蓝块盖住
+  文件名、白带、双标题、看不见的进度轨道……）；③负责人第三次纠正「我说了是那种桌面版，你能理解什么是
+  桌面版吗」——判上一版外壳**只是带图标的仪表盘**，重做成**真桌面**：`/desk` 是首页（图标阵列 + 常驻坞），
+  打开模块是**在桌面上开一个窗口**（标题栏 / 拖动 / 缩角 / 双击铺满 / 关闭回桌面）；④重新打字节、
+  装进 Ubuntu 24.04.5 客机、经 SSH 隧道真登录、**7 张真机截图（真 /proc、229 个 systemd 单元、真块设备）
+  `pageerror` 0**。
+  **后端、契约、路由表、模块口径零改动**，所以 `3f3b40c1…daf0` 那份交付物与两台 VM 上的读数仍然
+  成立（Q510）——但**重新打的包是另一份字节**（amd64 `72997c0f…634a`），拿它做的看图读数只对这份字节有效。
+  宿主读数：66 文件 / 1219 用例全过、`vue-tsc` 0、`eslint` 0、`npm run build` 通过、
+  `sh scripts/check.sh` **15 / 0 / 0**。
+  **这些图仍然不是界面验收**：25 张宿主图是 Chromium 回放夹具，7 张真机图是截图、无断言，31 条矩阵
+  一条都没动。**9 个页面在真机上仍是空态**（这台机器没装 samba/nfs、没有任务与备份），空态对、非空态未知。
+  见 §5「界面重做（三）」、`docs/evidence/UI/2026-10-30-pages/` 与 `docs/evidence/UI/2026-10-30-desk{,-live}/`。
+  下一步：**本地已经没有可做的事**——剩下的每一条都要求真机上的非空数据（装包、建共享、跑备份、改网络），
+  在验收 VM 上按 `--install-deps` 补齐后才能看。
+- 本轮子任务（2026-10-29）：**核心验收矩阵逐项对照建立 + 三条"部分"逐条去补 + 最后一条"部分"关掉**——
+  新增 `docs/ACCEPTANCE_MATRIX.md`，STAGES §19 的 31 条逐行给状态与"目录 + 节"级证据指针，
+  45 条指针用脚本核过存在性、0 缺失。建矩阵那一轮**没有产生任何新的真机读数**（索引与定档工作）。
+  同一天接着按 `gaps/` 那一轮**补现场**：FILE-02（ENOSPC 真撞、断流、2 GiB 真推）与
+  APP-02（真 302 上游 + 金丝雀）从「部分」改成「已验」，读数 `PASS 80 / FAIL 0 / NOT RUN 0`
+  （`P16/2026-10-29-matrix/gaps/`，字节绑定见 `gaps/binaries.txt`）。
+  最后把 DISK-02 也关掉：在客机里迁出**两台根在叠层设备上的 Ubuntu 24.04**（LVM `91/0/3`、
+  RAID1 `113/0/3`，`P16/2026-10-29-matrix/disk02/`），递归保护在"根盘在 LVM/RAID 下"这一层
+  第一次有真机读数，顺带抓出一条写错的锁断言（Q522，脚本错、产品零改动）。
+  现在合计 **已验 31 / 部分 0 / 未验 0**；PROXY-02 是 10-30 复核出来的**引错证据**，不是补读数。
+- **下一步：没有下一个子任务——P00—P16 全部完成，矩阵 31 条一条"部分"不剩。**
+  仍然未验证的东西全部登记在 `docs/KNOWN_LIMITATIONS.md`（arm64 端到端、掉电演练、裸机开机到可用、
+  0.1→1.0 升级、真并发竞态、降级/重建中的 RAID、根在叠层设备上写满……）。
+  **它们不阻塞"1.0 已实现并验收"这个结论，但也不能被读成已验。**
+- 上一阶段（保留 P15.3 收尾时的记录原样）：**P15（受约束应用部署与更新）passed——P15.1—P15.4
+  全部实现、宿主检查通过、真机验收通过。** P15.3 交付：
+  - `record.go`：`<name>.deployment.json`（`0640`，规范化定义 + 镜像记录，只有 `sec_` 引用）、
+    `<name>.compose.yaml.prev`（`0600`，上一版原样字节）；`requireRecord` 把"盘上没有"与"有但
+    不是合法 JSON"分开报，两种都拒绝更新。
+  - `update.go`：`AssessUpdate` 只读预检（记录 → 盘上摘要 → 宿主事实 → 卷依赖 → 渲染 → 备份
+    策略）、`ExecuteUpdate` 执行（停单元 → `files_only` 备份 → 拉镜像 → digest 核对 → 写 `.prev`
+    → 写新配置并 `restart` → 探测 → 失败回切原样字节并再探）；`UpdateBudget` 一组常量把 10 分钟
+    硬线切成段，每段**动手前**判断够不够。
+  - `probe.go`：探宿主公开入口（通配地址换 `127.0.0.1`），`http` 判 `200—399`、`tcp` 判能建连，
+    不跟随重定向、禁 keep-alive，120 秒预算且 `Truncated` 不算通，启动宽限期内失败不算失败；
+    `Checked` 与 `Healthy` 分开（"没探成"≠"探不通"）。
+  - `applier.go`：`ApplyRequest.ReplaceExisting`（换掉盘上那份不同内容的配置）与 `MustRun`
+    （动词必须真的执行）分开两个字段，失败路径的"起回来"走 `Applier.RestartUnit`（只 restart、
+    不碰文件）。
+  - 代理侧：`deployment.update` 进动作表（五种 impact、锁含 `backup-policy:`/`backup-repo:`、
+    进度步骤 `stopping`/`backup`/`pulling`/`writing`/`probing`）；两个"已回切"的拒绝码翻成
+    `rolled_back` **且 error 为 nil**，读回值因此进得了审计；`deploybackup.go` 只收 `files_only`
+    策略。`deployment.apply` 同时接上健康探测，`health_probe_pending` 告警删除。
+  **已验证（宿主）**：`go test ./internal/agent/ ./internal/deploy/ ./cmd/...` 全绿、
+  `sh scripts/check.sh` **PASS 14 / FAIL 0 / NOT RUN 0**。**已验证（真机）**：2026-10-27 VM-A
+  （Ubuntu 22.04.5、docker 29.1.3 / compose 2.40.3 / restic 0.12.1）`PHASE=main`
+  **229 PASS / 0 FAIL / 1 NOT RUN**、退出码 0（`docs/evidence/P15/2026-10-27-p15.3/`）：
+  换镜像后 digest 与 `docker image inspect` 逐字相同、健康探测失败 104 秒后回切成
+  `rolled_back` 且 `error` 为空、按选择备份先停单元再备份且快照能被独立 `restic` 读到、
+  五种拒绝（`backup_policy_needs_apps` / `stale` / `record_mismatch` / `no_definition_record` /
+  `update_not_implemented` + `deployment_exists`）之后盘上配置与容器一个字节没动、拉不到镜像
+  失败后服务仍在应答。唯一 NOT RUN 是夹具盘 `/dev/sdd` 已有 GPT、按上一轮复用
+  （`sgdisk`/`mkfs` 没重跑）。细节见 §5 的 P15.3 两个小节与 CONTRACTS §8.8、DECISIONS Q488—Q494。
+- 上上个子任务：**P15.2（systemd 包装单元、挂载依赖、落地与删除）已实现、宿主检查通过、真机
+  验收通过。** P15.2 交付 `internal/deploy` 的三个文件与
+  代理侧接线：
+  - `unit.go`：确定性包装单元 `upanel-deploy-<name>.service`（`Type=oneshot` +
+    `RemainAfterExit=yes`、`ExecStart` = 固定的 `docker compose … up -d --remove-orphans
+    --no-build`、`ExecStop` = `down`、`Requires=docker.service`、`[Install]
+    WantedBy=multi-user.target`）、逐卷 `RequiresMountsFor` + `BindsTo`/`After`、
+    mount unit 名按 `systemd-escape --path` 逐字符实现（段内 `-` → `\x2d`）、
+    `ComposeArgv`（argv 里没有可写字符串）。
+  - `applier.go`：只碰单元与配置两个路径；临时文件 → fsync → chmod → rename → 目录 fsync；
+    配置 0600、单元 0644；**版本 = 配置字节的 `sha256:<hex>`**；同内容重放幂等、异内容
+    `ErrDeploymentExists`、单元被改过则整篇重写；成功与否看 `is-enabled`/`is-active` 的读回
+    （这两个动词的退出码是答案不是失败）；盘上已有单元而这次又写了新内容时启动动词是
+    `restart`（`unit_restarted=true`），因为 `start` 对 active 的 oneshot 是空操作；
+    删除先 `disable --now`，仍 active 就 `ErrUnitStillActive` 不删文件，数据卷与业务目录不动。
+  - `service.go`：`deployment.apply`（只创建；带 `deployment_id` 或 `version` 的更新路径明确
+    返回 `update_not_implemented`）与 `deployment.remove` 的预检/执行两阶段，执行前把预检的
+    每一步重跑一遍（秘密轮换、卷卸载、单元漂移都在这里被看见）；版本令牌
+    `deploymentStateVersion` 四态非空。
+  - 代理侧：`agent/deployaction.go` 把两条动作登记进生产表，`deployfacts.go` 供宿主事实
+    （受管理卷 → `VolumeFacts`、文件根按最长挂载点前缀定卷、每次重新问地址表），密钥环解析
+    `app_env` 的 `secret_ref`；单元起来之后再按 compose 项目做一次容器交叉核对，读到 0 个容器
+    → `partial` 而不是 `verified`。
+  **已验证（真机）**：2026-10-27 VM-A（Ubuntu 22.04.5、docker 29.1.3 / compose 2.40.3）
+  `PHASE=main` **199 PASS / 0 FAIL / 2 NOT RUN**、`PHASE=boot` **51 PASS / 0 FAIL / 0 NOT RUN**
+  （`docs/evidence/P15/2026-10-27-p15.2/`）。STAGES §17 的三条验收（真实部署、卷缺失重启不绕过、
+  删除保留数据）通过。**未验证（P15.2 范围外）**：`/deployments` 写接口与页面（P15.4）、24.04
+  差异、句柄级路径核对；`deployment.update` 等 P15.3 内容见上一条（已实现，真机已通过）。细节见
+  §5 的 P15.2 两个小节与 CONTRACTS §8.7。
+- 上一阶段：**P14（网络、NFS、账号、TOTP）已全部 passed**。P14.6（TOTP、一次性恢复码、
+  启用确认、CLI 本机恢复与会话失效）**已实现、
+  宿主检查通过，并在真实 Ubuntu 22.04 VM 上验收通过**：第二轮（修完 Q480/Q481 之后）
+  `PASS 163 / FAIL 0 / NOT RUN 6`、退出码 0（`docs/evidence/P14/2026-10-27-p14.6/`）。
+  STAGES §16 的两条硬要求都有真机读数：**TOTP 未确认不启用**（接口报 `totp_enabled=false`、
+  库里 `user_totp` 0 行、代理侧种子 `temporary`、无码登录照旧 200、带外 `totp-reset` 明确
+  失败并说"没有启用二次验证"、明文种子与 `otpauth://` 在五个库文件里命中 0）；**恢复码只能
+  用一次**（造出中间态：停代理 → 用 RC1 关闭失败 503，带外读到 `used_at` 已写 → 起回代理后
+  同一枚 401「每枚只能用一次」→ 换 RC2 才成功）。另外读到：码由脚本自己按 RFC 6238 算、
+  同一时间步第二次 401「刚刚用过」且不发 Cookie、下一个时间步立刻可用、确认用的码也算用掉
+  一步、`totp-reset` 在 root 下 `agent_status=forbidden`（`SO_PEERCRED` 只认 `upanel-web`）
+  而在 `upanel-web` 身份下 `destroyed`、审计 actor 是 `local-cli:<who>` 且 `actor_id` 为 NULL。
+  真机抓到 **1 个产品缺陷**（Q480：`EnableTotp` 把 `last_step` 写死 -1，确认用的那个码在同
+  一个 30 秒窗口里还能登录一次）与 **4 类验收脚本自身的断言错误**（Q481：脚本把偏移加到 ±1
+  窗口外面、空串当 needle、`jget` 的失败标记拼进 SQL）。
+  P14.5（受管理 Linux 账号 / SSH 公钥 / 受限 sudo 模板）**已实现、宿主检查通过，并在真实
+  Ubuntu 22.04 VM 上验收通过**：第三轮 `PASS 168 / FAIL 0 / NOT RUN 6`、退出码 0
+  （`docs/evidence/P14/2026-10-27-p14.5/`）。现场读数：`passwd -S` 读回 `P`（口令只经
+  `chpasswd` 的 stdin）、uid 由系统分配且落在 1000–59999、`authorized_keys` 里人手写的外来
+  钥匙在加/换/删之后逐字节不变、`sudo -l -U` 恰好一条且 `runuser` 换过去真的执行了模板
+  命令而模板外命令被 sudo 拒、**真机制造 visudo 失败后旧规则逐字节保住**、禁用是换壳
+  （`passwd -S` 仍 `P`）、key-only 账号能登而禁用后同一把钥匙被拒。真机抓到 **2 个产品
+  缺陷**（Q477：`Definition` 缺 json 标签，`display_name` 直接 400；Q478：`GET /accounts`
+  拿 Samba 能力当账号判据）与 **1 条与真机相反的文档断言**（Q479："没口令就登不上"）。P14.4（NFS 受管理导出：只维护
+  `/etc/exports.d/upanel.exports` 一份文件、行尾 `# upanel:<id>` 认领、网段是唯一访问控制、
+  只读靠导出行 `ro` + 目录 `0755`、卷掉线时运行时撤销、真实 NFSv3 客户端读写）**已实现、
+  单测/宿主检查已过、并在真实 Ubuntu 22.04 VM 上验收通过**：第七轮
+  `PASS 141 / FAIL 0 / NOT RUN 6`，退出码 0（`docs/evidence/P14/2026-10-27-p14.4/`）。四条硬性
+  现场都成立：`exportfs -v` 的实际导出表里有这条路径且带 `root_squash`；把允许网段换成名单外
+  之后**同一台机器**挂不上、改回来立刻又能挂上；只读共享上客户端写入被内核以 `Read-only file
+  system` 拒绝且服务端没多出文件；卷从挂载树里摘掉后 **13 秒**内撤销循环把导出行摘掉、
+  `runtime_revoked.volume_state=unmounted`、`config_applied=false`，卷挂回来**不自动复活**、
+  重新应用才恢复。真机抓到 **2 个产品缺陷**（Q471：0005 的 `protocol IN ('smb')` 让导出写下去了
+  却在落库时被 CHECK 挡住，`fakeStore` 完全不跑 SQL 所以单测掩盖了它；Q473：同一个目录的第二条
+  共享在预检被放行，`ExportConflicts` 只比"别人的导出文件"这一半）与 **1 条同类未修**
+  （SMB 路径在配置生效后落库失败同样不回滚，见下方 P14.4 小节）。P14.3（`firewall.apply` /
+  `firewall.confirm` / `firewall.rollback`
+  三个写动作 + `GET /firewall/config` 入口状态 + 前端改写卡片 + 独立 systemd 回滚 timer）
+  **已实现、单测/宿主检查已过、并在真实 Ubuntu 22.04 VM 上验收通过**：第三轮
+  `PASS 153 / FAIL 0 / NOT RUN 4`，退出码 0（`docs/evidence/P14/2026-10-27-p14.3/`）。两条硬性
+  用例都成立：**挡住管理通路会被拦在预检**（要启用、但规则集里没有 `from any` 的 22/tcp 放行 →
+  `allowed=false` + `FIREWALL_MANAGEMENT_PATH`，`ufw status` 仍 inactive、`show added` 仍
+  `(None)`；停用状态下同一份定义不拦）；**改完不确认会自己退回来**（apply 后停掉 Web 与代理 →
+  60 秒时新规则仍在、timer 仍武装 → `deadline` 后 systemd 拉起
+  `upanel-fwrollback@<token>.service` → 规则换回旧集、`ufw` 仍 active，journal 里动手的是
+  `upanel-agent[162295]` 不是 Web）。规则身份靠 comment `upanel:<id>`，只加缺的、删多的，
+  **手写的 `ufw allow 9000/tcp` 跨两次 apply 原样保留**；`-firewall-writes` 与
+  `-network-writes` 分开、默认都关。真机抓到 **1 个产品缺陷**（Q464：三个 `Assess` 的拒绝分支
+  没带 `Normalized`，`validatePlanResult` 判"预检结果不合法"，于是"你没有待确认的改动"被包装成
+  500）与 **1 处契约违反**（`rules` 在 ufw 读不到时会序列化成 `null`，违反自家 OpenAPI 的
+  `array`、前端 `.map` 直接崩），另有 **5 条验收方法修正**（Q465，最险的一条：看门狗用
+  `grep -qi active` 会匹配 `inactive`，把"未启用"永远读成"已启用"）。P14.2（`network.apply` /
+  `network.confirm` / `network.rollback` 三个写动作 + `GET /network/config` 入口状态 +
+  前端改写卡片 + 独立 systemd 回滚 timer）**已实现、单测/宿主检查已过、并在真实 Ubuntu 22.04 VM
+  上验收通过**：第五轮 `PASS 186 / FAIL 0 / NOT RUN 3`，退出码 0
+  （`docs/evidence/P14/2026-10-26-p14.2/`）。核心现场：把 `ens4` 改成不可达的
+  `10.99.99.99/24`（`outcome=verified`，旧地址与默认路由都消失）→ **停掉 Web 与代理**
+  → 60 秒时仍在不可达地址（窗口没被提前咬掉）→ `deadline+28s` 时地址自己回到
+  `10.0.2.15/24`，记录变 `rolled_back`，拉起回滚的是 systemd
+  （`upanel-netrollback@<token>.service`，journal 里有 `Starting …` / `upanel-agent[pid]: 回滚 … 已处理`
+  / `Finished …`），两条救命看门狗都写了 `not-needed`。**STAGES §16 的硬条件因此解除。**
+  写路径默认**仍是关闭**，但理由换了（Q458）：不再因为"没验过"，而是因为"改网卡等于把机器从
+  网络上摘掉，这个权力该在装机时由人给"（P16.1 服务单元 + P16.4 手册），验收不该顺手替所有
+  既有部署改掉一个安全默认值。本轮实现要点：执行顺序是**渲染 →
+  `netplan generate` → 先武装 timer → `netplan apply` → 读回内核事实**（顺序即安全：timer 装不上
+  就不改，apply 失败或核验不符立刻按记录回滚，不等 timer）；outcome 闭集 `verified`/
+  `rolled_back`/`unknown`，**没有 `failed`**——"跑完了但改动没留下"与"失败"是两件事；
+  `network.confirm` 的 `arrived_on` 由服务端从连接里取（`http.LocalAddrContextKey`，去 IPv6
+  zone 后 `Unmap()`，所以 `::ffff:192.168.1.50` 与 `192.168.1.50` 是同一个地址），调用方给的一律
+  忽略——这是"旧地址不能绕过新地址验证"的实现方式；回滚记录落成
+  `/var/lib/upanel-agent/network/rollback/<token>.json`（root 0600），不是面板数据库。
+  宿主检查第一轮还撞到一个**与本轮无关但真实的偶发缺陷**（Q446：`readAtTimeout` 对已取消的
+  context 抛硬币，`internal/storage` 有一条测试在全量并行时红），已按"已取消就不读盘"修掉。
+  P14.1 两台专用
+  Ubuntu VM 最终各 **PASS / FAIL 0 / NOT RUN 0**（22.04 112、24.04 116），退出码均 0；同一份
+  脚本（sha256 `147b7a93…`）同一组二进制；两台差 4 条已核实为 24.04 多一张 `docker0` 网桥
+  （§3 每卡 5 条 sysfs 对照多 5 条、§4 走 `editable=false` 分支少 1 条 target 对照），不是少验。
+  **P14.1（网卡与地址、路由与默认网关、监听端口与持有者、防火墙管理者与规则四条只读端点，
+  外加"这份现状能不能被本面板安全地改"的判定）已实现且已验**：四条端点全部 admin 且全部只读，
+  **写入口一条都没开**（验收里 POST 四条同路径与 `/network/apply` 必须 404/405）；查不到不等于
+  没有——`Issue{source,code,detail}` 的 code 是闭集 missing/permission_denied/timeout/
+  unparsable/failed，`ip` 整个不可用时仍从 sysfs 列网卡并另记一条 `ip/missing`，而不是退化成
+  空表；不猜——类型看 sysfs（`br0` 名字里有 br 但没有 bridge 目录就是 ethernet）、配置归属看
+  `/run` 下的渲染产物，不解析 netplan YAML；只读也不许慢——总 8 秒、命令 6 秒，超时如实记
+  `timeout` 并让其余来源照常产出。`editable=true` 只在 netplan+networkd、无 Wi-Fi/网桥/bond/
+  VLAN、物理以太网卡恰好一张、`/run/NetworkManager` 不存在时才成立，`false` 必带 `reasons`
+  （`unknown` 与 `none` 不合并）；审计**只记被拒的读**——成功读不落库，否则每刷一次页面就四条。
+  真机撞到并修掉 **2 个产品缺陷**（Q438 主机路由的 `destination` 不带前缀导致同一字段两种写法、
+  Q439 每台 Ubuntu 都带的 `/etc/nftables.conf` 被判成"ufw 与 nftables 同存"会让 P14.3 在标准
+  机器上永远打不开），另修正 **6 处验收方法**（Q440 runuser 壳与它 fork 的子进程、Q441 回环是
+  127.0.0.0/8、Q442 比结构一律走 `json.dumps`、Q443 截断响应找键、Q444 读不到时的 `0 == 0`
+  假绿、Q445 24.04 的 `ssh.socket` 让 22 端口持有者是 systemd）。**两台恰好走到判定的两个
+  分支**：22.04 `editable=true, target=ens4`，24.04 因遗留 `docker0` 网桥 `editable=false`
+  且理由点名网桥。见第 5 节 P14.1 小节与 `docs/evidence/P14/2026-10-26-p14.1/result.md`。
+  P13.4 两台专用
+  Ubuntu VM 最终各 **PASS 128 / FAIL 0 / NOT RUN 0**，退出码均 0；逐节断言数
+  （7/9/14/14/20/31/12/8/10/3）与断言名单跨机逐字一致（归一后 `diff` 无输出），同一份脚本
+  （sha256 `f86fb06f…`）同一组二进制；宿主最终检查 **14/0/0**。**P13.4（确认动作、投递账读
+  接口、历史图表与告警列表、陈旧与缺失曲线）已实现且已验**：确认只写"谁知道了"——`acked_at`/
+  `acked_by` 从不碰状态机，`state` 仍是 `firing`，第二个管理员再确认时时间与人都不变（幂等 +
+  `WHERE ... AND acked_at IS NULL` 首告者胜）；投递账读路径是顶层
+  `GET /notification-deliveries`（不挂通道下，因为一行账带的是**投递当时**的通道快照，且收件箱
+  要的是跨通道排序），行形状与通道端点回执共用同一个 DTO；历史曲线的三条展示口径写进契约
+  （缺失不是 0 / 没点不画轴 / null 显示"—"）；"陈旧"与"没开"分开说——`enabled` 说的是这个进程
+  答不答得了历史问题，`collecting` 才是在不在记，`enabled=false` 只剩"没有库"一种来路。
+  验收侧撞到并修掉 3 个问题，**全部在脚本这一侧**（Q429 20 秒新鲜度判据拿宿主 `now` 去量在
+  TCG 单线程上假红、Q430 把 `enabled` 与 `collecting` 当成一个意思红了 4 条、Q431 另五处装配与
+  判据缺陷），产品缺陷 0 个。见第 5 节 P13.4 小节和
+  `docs/evidence/P13/2026-10-26-p13.4/result.md`。P13.3 两台专用 Ubuntu VM 最终各
+  **PASS 211 / FAIL 0 / NOT RUN 0**，
+  退出码均 0；逐节断言数（13/11/48/12/44/34/35/14）与断言名单跨机逐字一致（只有两行量到
+  的数值不同，且都是 PASS）。**P13.3（通知通道、投递账、由代理发送）已实现且已验**：
+  发送发生在**代理**里——面板只知道"发到哪、说什么"，从头到尾拿不到明文，因为要发就得给
+  面板开一个"把 `secret_ref` 解成明文"的接口，而那会把所有用途的秘密（备份仓库口令、
+  TLS 私钥、SFTP 私钥）一起漏出去；`secret_ref` 的用途由**代理自己**核对，否则"不能读
+  明文"被绕成"把明文发给我"。投递失败一律回 **200**（`accepted`/`status`/`detail`/
+  `retryable`），因为"代理按你的要求发了、被对端拒绝"与"代理没理你"是两件事；`retryable`
+  只有代理能判（它才知道那是 4xx 临时拒绝、超时还是 5xx 永久错误）。投递入队与告警事件
+  **同一笔事务**，静默事件一条都不入队，`(event_id, channel_id, kind)` 部分唯一索引去重，
+  退避 `30s × 2^(n-1)`、10 分钟封顶、`max_attempts` 建在通道上（默认 3、上限 10）；
+  通道被停用/删除时 pending 判 `failed` 且**不计入 attempts**（一次都没发出去的东西不该
+  看起来像试过）。验收侧撞到并修掉 3 个问题，**全部在脚本这一侧**（Q424 接收器的 TLS 升级
+  在 Python 3.12 上必挂、Q425 退避不能用"我们到达时还剩多少秒"来量、Q426 空版本号拼进
+  PATCH 的 body 把产品合法的 400 读成了"停用没生效"），产品缺陷 0 个。见第 5 节 P13.3 小节。
+  P13.2 两台专用 Ubuntu VM 最终各 **PASS 148 / FAIL 0 / NOT RUN 0**，退出码均 0；逐节断言数
+  （7/9/48/63/9/8/4）与断言名单跨机逐字一致，宿主最终检查 **14/0/0**。
+  **P13.2（告警规则）已实现且已验**：见第 5 节 P13.2 小节。
+  P13.1 两台专用 Ubuntu VM 最终各
+  **PASS 88 / FAIL 0 / NOT RUN 0**，退出码均 0；逐节断言数与断言名单跨机逐字一致，宿主最终检查
+  **14/0/0**。**P13.1（历史监控）已实现且已验**：见第 5 节 P13.1 小节。
+  **P12.5（证书续期 timer 接入、备份页与计划任务页）已实现且已验**：P12.5 两台专用 Ubuntu VM
+  最终各 **PASS 214 / FAIL 0 / NOT RUN 0**，退出码均 0；逐节断言数与断言名单跨机逐字一致，
+  宿主最终检查 **13/0/0**。见第 5 节 P12.5 小节。
+  **P12.4（受管理 timer、时区/错过执行/不重叠/超时、内置动作复用任务框架、非 root 脚本）
+  已实现且已验**：计划与脚本只存在代理库，Web 侧是代理镜像直读（代理不在就 503
+  `AGENT_UNAVAILABLE`，不回空列表）；单元文件把时区、`Persistent`、最长运行、目标服务写死，
+  `systemd-analyze calendar` 算下次到期、`systemctl show` 读 systemd 的原话，
+  `installed`/`unit_file_state`/`active_state` 三种事实分开写。**"不重叠"靠
+  `schedule-trigger --wait` 把单元撑到操作终态**（systemd 的既有语义因此变成产品承诺），
+  触发放行只认 root、只接受已批准的定义、槽位折到 UTC 分钟、`UNIQUE(schedule_id, slot_at)`
+  保证重放不新增操作；定时操作每 30 秒被对账导入任务表，行为面板里的惰性"系统操作者"
+  （`role=viewer`、`disabled=1`、登录回答与"没有这个账号"同码同文案）。脚本落盘
+  `root:upanel-shell 0750`、解释器固定 `/bin/sh`、运行身份 `upanel-shell`（不在
+  sudo/docker/disk 组）、运行前核对 SHA-256、被计划引用时删不掉（`SCRIPT_IN_USE`）。
+  真机抓出并修掉 9 个产品缺陷（Q371 只写 `Type=oneshot` 就声称不重叠、Q374 解释器基名与
+  契约不符、Q375 `systemd-analyze calendar` 输出形状随时区变、Q376 脚本目录上级不可穿、
+  Q377 库约束不在预检说话、Q380 root 的 `--wait` 读不到自己要等的操作、Q381 导入即终态的
+  `needs_sync` 永不为 0、Q382 `busy_timeout` 5 秒仍 `database is locked`、Q385 一条列表读
+  10144 毫秒压过 Web 侧 10 秒上限）；验收方法修正 9 条（Q370、Q372、Q373、Q378、Q379、
+  Q383、Q384、Q386、Q387）。
+
+  **P12.3（`backup.restore` / `backup.verify` / `backup.prune`：恢复到新目录、覆盖恢复、
+  恢复验证、显式保留清理与失败处理）已实现且已验**：恢复先证明"目标是谁"（执行前重比
+  身份指纹与版本，不通过就 `DEVICE_IDENTITY_CHANGED`）；默认不覆盖，覆盖不是"先删再写"——
+  同父目录随机暂存树 → `RENAME_EXCHANGE` / `RENAME_NOREPLACE` → 发布后重新遍历核对 → 才删
+  旧树；写满、断连、restic 非零退出、抽样不一致都在"换"之前失败，暂存树清掉、原目标不动、
+  被停的应用照样拉起。`backup.verify` 两态自我说明（`sample_restore=false` 只做结构检查，
+  结果里 `restore_verified=False`）；`backup.prune` 预检冻结 `expected_delete_ids`，集合一变
+  就 `PREFLIGHT_STALE` 且不删任何东西，清理后重新读 SFTP 仓库证明"只动了指定仓库"。
+  真机抓出并修掉 4 个产品缺陷（Q356 借用 fd 被 GC 关掉、Q357 会话滑动但 Cookie 不续发、
+  Q359 仓库失效锁让 verify/prune 永久失败、Q360/Q363 失败消息只剩"有 10 个错误"且补原因
+  只认 `error:`），另修正 5 条验收方法（Q355/Q358/Q361/Q362/Q364，含"并发验收会把失败判给
+  产品"与"gofmt 未清零就不构建、部署逐文件核哈希"）。宿主 13/0/0，node 按 `.nvmrc` 用
+  v22.23.3。证据见 `docs/evidence/P12/2026-10-24-p12.3/result.md`。
+  **P12.2（策略、运行、快照列表、文件一致性说明、停受管理应用备份、面板 SQLite 在线备份）
+  已实现**：仓库与策略在面板侧只有**一份真相**——代理里的镜像，`/backup/*` 整组是它的编辑器
+  （代理不在时整组 503，不搞"先登记回头同步"）；`backup.run` 的参数按契约是
+  `backup_policy_id` + `version`，`apps` 由面板**展开**（systemd 单元 / 容器 id），调用方自己
+  给 apps 直接 400，代理侧再双向核对（多给 = 扩大授权、少给 = 停机不全，都拒）；一致性口径
+  闭集 `files_only` / `stop_managed_apps`，`stop_managed_apps` 少解析一个应用就整轮阻塞
+  （`BACKUP_APP_UNAVAILABLE` 点名是哪一个），compose 部署不降级、回 422 并说明理由；执行顺序
+  固定为 读现状 → 停（只认"刚才真在跑的"）→ 面板库在线副本 → `restic backup` → `restic stats`
+  回读快照 id → 拉起（失败路径也用 `WithoutCancel` 拉起）→ 清临时副本；面板库副本用
+  `VACUUM INTO` + `mode=ro`（不是 `os.Copy`，`-wal` 里的已提交事务不能丢），副本 0700/0600、
+  跑完即删、只在 `observed_state` 留摘要；快照列表**不带大小**（`size_included:false`，
+  `size_bytes` 字段不出现而不是写 0），`registered` / `found` 是状态字段不是 404。
+  宿主验证：`go build ./...`、`go vet ./...` 无输出，`go test ./...` 全包通过（`internal/api`
+  117.6 秒），`redocly lint api/openapi.yaml` 有效（6 条警告全部是改动前就有的）；
+  新增/改动的用例：`internal/api` 14 条、`internal/agent` 的 `backuprun_test.go` 3 条、
+  `internal/backup` 的 `policy_test.go` / `run_test.go` / `paneldb_test.go`、
+  `internal/agentstore` 的 `policystore_test.go`。真机又补齐 SFTP 写快照、断网、独立 tmpfs
+  存储满和运行中取消：失败场景不只核对任务终态，也核对源哈希不变、旧快照仍可读；取消为
+  `canceled`，断网/写满为 `failed + COMMAND_FAILED`。最终两台均 170/0/3，三条 NOT RUN
+  仅产品恢复、保留清理、浏览器 UI，分别属于 P12.3/P12.5。真机抓出并修掉 4 个产品缺陷
+  （Q343 短快照 id、Q344 认证写超时、Q345 进度堵管道、Q347 上层客户端提前取消慢查询），
+  证据见 `docs/evidence/P12/2026-10-24-p12.2/result.md`。
   **P12.1（restic 本地/SFTP 仓库、秘密引用、SFTP 主机密钥验证、仓库初始化与容量检测）
   passed**：这一段只做"仓库"这一层——仓库真的建起来了（`restic cat config` 读回的 64 位
   id 与脚本自己再读一次**逐字节相同**）、只建新仓库不覆盖已有数据、主机密钥由我们自己
@@ -661,6 +1026,193 @@ P07.1 先把“该拒的都拒”证完（判决层、可靠身份、整盘锁�
   （验收脚本里 `chmod +x`，`run-native-tests.sh` 里也补了一句，否则每条都判成“缺少测试二进制”）；
   ② `/tmp/upanel-bin` 必须是 0755，否则以 `upanel-web` 身份跑的 Web 进程穿不过去。
 
+- **P14.5 已实现、宿主已验证、真机验收已通过（2026-10-27）。**
+  **已实现**：`internal/accounts` 整层（`definition.go`/`sshkey.go`/`sudo.go`/`parse.go`/
+  `commands.go`/`assess.go`/`execute.go`/`errors.go`/`notices.go`/`types.go`/`system.go`/
+  `fs.go`/`fetch.go`）——判决（六个动作的预检、阻塞码闭集、执行前复核绑身份与状态版本）
+  与执行（`useradd --create-home --shell <闭集壳> --user-group`、`usermod --shell`、
+  `userdel` **不带 `-r`**、口令只经 `chpasswd` 的 stdin 且用完清零、authorized_keys 托管区
+  整块重写且区外逐字节不动、sudoers 走「候选 `visudo -c -f` → rename → `visudo -c` →
+  解析读回 → `sudo -l -U` 读回」五道门，任何一道不过都把文件恢复成逐字节相同的旧版本）；
+  迁移 `migrations/agentdb/0014_accounts_ssh_sudo.sql`（表重建补 `display_name`/
+  `shell_profile` 两列 + `managed_ssh_keys`/`managed_sudo_rules` 两张表，`ON DELETE CASCADE`）；
+  `internal/agentstore/accountstore.go`；代理侧六个动作注册（`internal/agent/accountaction.go`）
+  与只读查询 `accounts.ssh_keys`（`accountquery.go`）；`GET /accounts`、
+  `GET /accounts/:id/ssh-keys`（admin）；CONTRACTS §13.8；Web（`api/accounts.ts`、
+  `AccountsView.vue`、`/accounts` 路由、SharesView 入口、`summarizeAccountJob`，以及账号页
+  **自带的 5 分钟再认证**——`POST /secrets` 有自己的 reauth 窗口，第一次点"新建"必然撞上它，
+  把它留成"去别处先验一次"就是页面最糟的形态）；真机验收脚本
+  `tests/integration/p14-5-acceptance.sh`（1084 行 13 节，已在真机上跑了三轮）。
+  **已验证（仅宿主）**：`go build ./...` 干净、`gofmt -l internal cmd` 干净、
+  `go test -count=1 ./internal/accounts/ ./internal/agent/ ./internal/agentstore/
+  ./internal/api/ ./internal/shares/` 五个包全 ok（`internal/accounts` **37** 个顶层用例）；
+  前端 `typecheck`/`lint` 干净、`npm --prefix web run test` **57 文件 1116 用例**全绿
+  （`api/accounts.test.ts` 23 个）。其中 `engine_test.go`（**7** 个）是这一轮补上的：
+  用假 Store / 假命令执行器 / 假文件系统跑 `ExecuteWrite`，锁住四条最容易静默退化的不变量
+  ——口令只出现在 `chpasswd` 的 stdin 且用完全零、`useradd` 的 argv 逐项（没有 uid/gid/
+  groups）、`useradd` 退出码 9 拒绝接管既有账号、**门禁二失败时旧 sudoers 逐字节恢复且
+  无临时文件残留**、`authorized_keys` 托管区外的行一字不动、删账号不带 `-r` 且连带撤
+  sudoers、禁用是换壳不是 `usermod -L`、状态版本过期不动手。这四条还用变异核过：
+  去掉 `wipe(stdin)`、掐掉门禁二的恢复分支、给 `userdel` 加 `-r`、把 `ApplyKeys` 改成整份
+  重写——四刀全部被对应用例抓红，所以它们不是"写了就算"的绿灯。依据是 `types.go` 里
+  `Paths` 的那句注释：这条不变量"必须在单元测试里能反复验证，不能只靠一次虚拟机运行来担保"。
+  **真机已验证（2026-10-27，Ubuntu 22.04.5 / kernel 5.15.0-198，VM-A）**：第三轮
+  **PASS 168 / FAIL 0 / NOT RUN 6**、退出码 0（`docs/evidence/P14/2026-10-27-p14.5/`）。
+  STAGES §16 的四个点全部有真机读数：① 口令只经 `chpasswd` 的 stdin，任务参数里只有
+  `sec_` 引用，`passwd -S` 读回 `P`；② uid 由系统分配（`getent` 读回 1002，落在
+  1000–59999）、home 在 `/home` 下、登录壳是 `/bin/rbash`；③ `authorized_keys` 里人手写的
+  那条外来钥匙在加/换/删三次之后**逐字节不变**，文件 `0600` / 目录 `0700`，`ssh-keygen -lf`
+  的指纹与登记表一致；④ sudo 五道门全走了一遍：`0440` + 认领标记 + 无通配符、整份
+  `visudo -c` 通过、`sudo -l -U` 里恰好一条授权、`runuser` 换到 alice 之后 `sudo -n`
+  **真的执行**了模板命令而模板外的命令被 sudo 自己拒；**真机制造一次 visudo 失败**（候选
+  文件自己合格、rename 已发生、整份校验失败）时旧规则文件哈希与内容**逐字节不变**、没有
+  残留候选临时文件、失败原因带 `SUDO_VISUDO_FAILED`，移走坏文件后同一操作成功；手改成没有
+  认领标记的规则文件被 `SUDO_FILE_DAMAGED` 拒且逐字节保留；禁用是换壳（`passwd -S` 仍是
+  `P`，没用 `-L`）；`userdel` 不带 `-r`。sshd 那一面验的是「钥匙能用、口令不是门槛、壳才是
+  门槛」——key-only 账号能登，面板禁用后同一把钥匙被拒（sshd 原文
+  `This account is currently not available.`），再启用又能登，撤掉公钥后登不上。
+  真机抓出并修掉 **2 个产品缺陷**：Q477（`accounts.Definition` 一个 json 标签都没写，
+  `display_name` 直接 400——所有单测只构造 Go 结构体、从不走线格式，所以全绿也看不见）、
+  Q478（`GET /accounts` 把 Samba 的能力当账号判据，没装 Samba 的机器上账号功能整个不可用）;
+  另修掉 **1 条与真机相反的文档断言** Q479（"没口令就登不上"——publickey 认证不看 shadow 的
+  口令字段）与两条脚本缺陷，环境那条（`/etc/sudoers.d/` 里非 `0440` 的文件让整份
+  `visudo -c` 失败）记进 `docs/TEST_ENVIRONMENT.md` §8.12。
+  **NOT RUN（6 条，全部在脚本里列明理由）**：共享账号与 Samba passdb 两半（这台 VM 没装
+  `samba-common-bin`，不为一条验收去装包）、两条公钥动作并发写同一份 `authorized_keys`
+  （锁由单测覆盖）、第 11 把公钥被拒（上限判定在判决层，单测覆盖）、home 在别处/是符号链接
+  的账号（面板拒绝写，只在单测里造过）、面板自己的 TOTP 与登录策略（属于 P14.6）。
+  **受阻**：无。
+  设计取舍已写进 Q475（`account.apply` 遇 `type=share` 转给 `share.account.apply`）与
+  Q476（sudo 模板为什么不带单元参数——sudoers 的 `*` 跨参数）。
+
+- **P14.6（TOTP、一次性恢复码、启用确认、CLI 本机恢复与会话失效）**已实现（六层：纯逻辑、
+  秘密存储、代理接口、Web 侧、CLI 恢复、Web UI）、宿主检查全绿，**并在真实 Ubuntu 22.04 VM 上
+  验收通过**（第二轮 `PASS 163 / FAIL 0 / NOT RUN 6`、退出码 0，证据
+  `docs/evidence/P14/2026-10-27-p14.6/`；真机抓到 1 个产品缺陷 Q480 与 4 类脚本断言错误 Q481）。
+  **已实现（第一层）**：`internal/totp`——RFC 6238 的 HOTP/TOTP（HMAC-SHA1、动态截断、6 位）、
+  ±1 时间步窗口、`subtle.ConstantTimeCompare` 比较、`MatchStep` 返回匹配到的时间步（给
+  重放防护用）、`otpauth://` URI（标签按 unreserved 字符集转义）、一次性恢复码生成/规范化/
+  哈希（`sha256:` 前缀 + 常数时间比较）。
+  **已实现（第二层）**：`agentstore.Secrets` 的三个方法——`PutInternal`（写入内部用途
+  `totp_seed`，跳过"可上传"检查但保留其余校验）、`Binding`（一次查询读用途与引用，
+  **不解密**，供归属核对）、`Destroy`（清空密文与 nonce 留墓碑，重复调用幂等）。
+  **已实现（第三层）**：`internal/agent/totp.go` 的四条专用路由
+  `POST /internal/v1/totp/{enroll,confirm,verify,disable}`——`enroll` 生成种子并以**临时**
+  秘密写入（10 分钟自毁）＋回 `secret_ref` 与一次性 `otpauth://` URI；`confirm` 验码通过后
+  `Reference` 成持久秘密（引用 `totp:<user_id>`）；`verify` 先 `Binding` 核对用途与归属
+  再解密验码，回匹配到的时间步；`disable` 销毁并**幂等**（已销毁回 200 + `destroyed:false`，
+  不制造存在性探针）。未接线时四条路由 404，root 与陌生 UID 一律 403（gate 层面）。
+  接线在 `cmd/upanel-agent/main.go`（`Totp: secrets`）；契约 §15 的四个表行与一段
+  "未确认的登记是临时秘密 / 归属单独核对 / 码不对是结果不是错误"的说明已补齐。
+  **已实现（第四层，Web 侧）**：迁移 `0014_user_totp.sql`——`user_totp`（`user_id`
+  PRIMARY KEY + FK `ON DELETE CASCADE`、`secret_ref`、`enabled`、`last_step`、时间戳）与
+  `user_totp_recovery_codes`（`code_hash` 带 `sha256:` 的 `CHECK`、`used_at`、
+  `UNIQUE(user_id, code_hash)`）；**没有明文种子列**，种子只在代理里。
+  `internal/auth/totp.go` 是纯状态层：`TotpState`、`EnableTotp`（十枚码与状态行同一笔事务）、
+  `DisableTotp`（删行而不是置 `enabled=0`）、`AcceptTotpStep`（一条带 `last_step < ?` 的
+  UPDATE 同时完成判断与写入，并发下只有一个成功）、`ConsumeRecoveryCode`（`used_at IS NULL`
+  的条件 UPDATE，返回剩余枚数）、`RecoveryCodesRemaining`。`internal/agentclient/totp.go`
+  四个方法；`OK && Step <= 0` 视为协议走形（没有步就没法防重放）。
+  `internal/api/totp.go` 三条端点 + 共用的 `verifySecondFactor` 门；`internal/api/auth.go`
+  的登录拆成 `VerifyCredentials` → `verifySecondFactor` → `FinishLogin`（口令过了但码没过
+  时**一个会话都不签发**），`handleReauth` 同样两步（`VerifyReauthPassword` →
+  `MarkReauthenticated`），失败计数只在成功时清零（否则"口令已知、码乱猜"会得到一条不受
+  限速约束的六位数爆破通道）。**失败关闭**：账号启用了二次验证而 `opts.Totp == nil` 时
+  登录与再认证一律 503——一个"代理挂了所以先让他进去"的分支等于给攻击者一个"把代理弄挂"
+  的绕过方式。启用/关闭后作废该账号其余会话（保留发起本次操作的那条）。
+  **已实现（第五层，CLI 本机恢复）**：`upanelctl totp-reset`——丢了 authenticator 与全部
+  恢复码时唯一的入口（那时 Web 上没有任何合法路径）。清状态行与恢复码、作废该账号全部会话、
+  记 `auth.totp.reset`（actor 为 `local-cli:<who>` 快照，`actor_id` 为 NULL），并尽力让代理
+  销毁种子；代理那一步失败**不阻断恢复**，但输出如实报 `agent_status`
+  （`destroyed`/`already_gone`/`unreachable`/`forbidden`/`skipped`）。契约 §14.1 补了这一段。
+  **已实现（第六层，Web UI）**：`api/totp.ts`（三条接口 + `secondFactorRequired` 只认
+  `details.totp_required === true`）、`components/secondfactor.ts`（`sanitizeCode` 只留数字
+  且截六位、`isCodeComplete`、`isRecoveryCodeShape`）、`SecondFactorField.vue`（六个页面共
+  用，免得哪一处忘了带码或忘了清空）、`TotpSettingsCard.vue`（登记 → 确认 → 十枚恢复码
+  一次性展示 → 两步关闭）、`views/SettingsView.vue` 与 `/settings` 路由（`registry` 里
+  `settings` 从"未实现"改成 `P14.6`）、`LoginView.vue` 改两步（401 + `totp_required` 时
+  亮出验证码框且**不清已输入的口令**）、`api/auth.ts` + `stores/session.ts` 带上
+  `totp_enabled` 与 `signIn(..., totp?)`。四个既有再认证点（`StorageActionDialog`、
+  `AccountsView`、`BackupView`、`TerminalView`）全部改成按 `session.totpEnabled` 多带一个
+  码，成功后两个字段一起清空。**没有 QR 库**（P00 冻结的依赖集里没有编码器）——`otpauth_uri`
+  以文本 + 复制按钮呈现，理由写在组件注释里；扩依赖是独立决策，不在这一层顺手做。
+  关闭的两步照服务端约束写进文案：第 1 步的再认证已经用掉当前时间步，所以第 2 步只能用
+  **恢复码**或**下一个**六位数。
+  **已验证（仅宿主）**：`internal/totp` **14** 个用例全绿，其中
+  `TestCodeMatchesRFC6238Vectors` 用的是 RFC 6238 附录 B 那六组向量
+  （`94287082`/`07081804`/`14050471`/`89005924`/`69279037`/`65353130`），另有一条从向量
+  推出的 6 位读数（8 位值末六位）；`internal/agent` 的 TOTP 用例 **24** 条断言（含子用例）
+  全绿，覆盖"响应里除了 URI 没有第二个地方能拿到种子"、信封字段逐键核对、未确认就 verify
+  被拒、他人引用在 verify/confirm/disable 三处都 403、拿普通秘密的引用冒充种子 400、
+  临时种子过期后要求重新登记、`disable` 两次分别回 `destroyed:true`/`false`、未接线 404、
+  方法/Content-Type/对端 UID 三道门。写测试时抓到自己的一个真实缺陷：`url.PathEscape` 按
+  path-segment 规则**不转义** `:` 与 `@`，`admin@example.com` 会被 authenticator 应用当成
+  "issuer=admin, account=example.com"——改成只放行 unreserved 字符的 `escapeLabel`。
+  **已验证（仅宿主）·第四、五层**：新增 **22** 个用例全绿——`internal/api` **9** 个
+  （登记全流程含"码错时库里一枚恢复码都没有"、已启用再登记 422、三条路由 admin-only、
+  `Totp=nil` 时三条入口 503 且已启用账号登录 503 失败关闭、代理不可用 503、登记过期 409、
+  带码登录/缺码 401 + `totp_required`/码错 401/**同一时间步第二次 401 重放**/下一步放行、
+  再认证带码、关闭时口令错 403 与码错 401 都不动状态也不去销毁种子、恢复码关闭与二次关闭 404、
+  关闭只作废**其它**会话），`internal/auth` **4** 个（十枚码入库全为哈希、重复启用被拒、
+  同一/更早时间步被拒且未启用账号不会被建出行、恢复码一次性与大小写/连字符不敏感、
+  别人的码无效、关闭连恢复码一起删且可重新登记），`internal/agentclient` **6** 个
+  （四条调用的线格式、缺 `secret_ref`/`otpauth_uri` 与 `OK` 无 `step` 判为协议走形、
+  `destroyed:false` 不被说成 true、代理 403 保留为 `*Error`），`cmd/upanelctl` **3** 个
+  （清状态 + 恢复码 + 作废会话 + 审计 `auth.totp.reset` 且 `actor_id` 为 NULL、
+  输出里没有口令与恢复码、代理不可达时恢复仍成功但如实标注、未启用/不存在的账号明确失败）。
+  连同此前两层：`internal/totp` **14** 例、`internal/agent` **24** 条断言。
+  宿主上两轮全绿：`go test ./internal/api/ ./internal/auth/ ./internal/store/
+  ./internal/agentclient/ ./internal/agent/ -count=1`（api 包 166s、agent 包 46s）
+  与 `go test ./cmd/upanelctl/ ./internal/totp/ ./internal/audit/ -count=1`。
+  **已验证（仅前端单测）·第六层**：新增 **21** 个用例全绿——`src/api/totp.test.ts` **7** 个
+  （三条请求的方法/路径/字段名、`disable` 只带调用方真的给了的因子、码错时错误体不加工、
+  `secondFactorRequired` 只认 `details.totp_required === true`，口令错误不被说成"请输验证码"）、
+  `src/components/secondfactor.test.ts` **8** 个（字母全角符号被洗掉、超六位截断、
+  六位才发请求、恢复码大小写与连字符不敏感）、`src/components/totp-card.test.ts` **6** 个
+  （SSR：未启用时页面上没有 `otpauth://` 也没有恢复码、已启用时第 2 步的输入框还不出现、
+  文案里必须有"下一个"与"作废其它会话"、设置页从会话取 `totp_enabled` 而不凭空显示已启用）。
+  连同这六层的前端改动：`npm run typecheck` 无输出、`eslint .` 无告警、
+  `npm run test` **60 个文件 / 1137 个用例全绿**（23.5s）。
+  **已验证（真机）**：2026-10-27，Ubuntu 22.04.5（kernel 5.15.0-198），第二轮
+  `PASS 163 / FAIL 0 / NOT RUN 6`、退出码 0（`docs/evidence/P14/2026-10-27-p14.6/`；同一组
+  二进制 agent `0040ed6b…` / web `179ccfa0…` / ctl `8da5b176…`，脚本 `f3c6f442…`）。第一轮
+  `PASS 149 / FAIL 11`，11 条红里 1 条是产品缺陷（Q480）、10 条是脚本自己的断言错误（Q481），
+  修完再跑才全绿。STAGES §16 两条硬要求的现场读数：
+  ① **TOTP 未确认不启用**——setup 之后 session 仍 `totp_enabled=false`、面板库 `user_totp`
+  **0 行**（不是 `enabled=0`）、代理侧种子 `state='temporary'`、无码登录 200、带码登录也 200
+  （码被忽略，不会顺手启用）、码错 confirm 401 且仍 0 行/0 枚恢复码、带外
+  `upanelctl totp-reset` 退出码 1 并明说"没有启用二次验证"、明文种子与 `otpauth://` 在面板库/
+  代理库及它们的 `-wal`/`-shm` 五处命中 **0**。
+  ② **恢复码只能使用一次**——判据是那个**中间态**：先带码再认证把窗口推到 5 分钟 → 停代理 →
+  用 RC1 关闭得 503 `AGENT_UNAVAILABLE`，带外读到该行 `used_at` **已写**（失败也不回滚）、
+  状态行与 10 枚码都还在 → 起回代理 → **同一枚** RC1 401「每枚只能用一次」（没有复活）→
+  换 RC2 才 200，状态行与十枚哈希一起消失、种子 `destroyed`、另一台设备的会话 401 而发起
+  关闭的这一条保留。（不能靠"关掉之后旧码不认"来验：那时整张表都没了，分不清"用过"还是
+  "不存在"。）
+  另外读到：码由脚本按 RFC 6238 用 python 标准库自己算（独立于产品实现，验的是"面板认不认
+  真码"）、同一时间步第二次 401「刚刚用过」且不签发 Cookie、下一个时间步立刻可用（±1 窗口）、
+  **确认用的码也算用掉一步**（Q480 的回归断言）、root 跑 `totp-reset` 得 `agent_status=forbidden`
+  而 `runuser -u upanel-web` 得 `destroyed`（两种情况下面板库都清干净、会话全废、审计 actor
+  是 `local-cli:*` 且 `actor_id` 为 NULL、输出里没有口令也没有恢复码）、前端产物里
+  `二次验证`/`/auth/totp`/`只显示这一次`/`同一个码不能用第二次` 四处文案都在。
+  修完 Q480 之后宿主再跑一遍 `sh scripts/check.sh`：**PASS 14 / FAIL 0 / NOT RUN 0**
+  （line-endings、go-build、go-vet、go-test、go-build-linux、go-vet-linux、gofmt、
+  node-version、web-typecheck、web-lint、web-test、web-build、web-smoke、openapi-lint 全绿）。
+  **未实现**：账号页上的"还剩几枚恢复码"——需要一条 `GET /auth/totp` 只读端点，
+  本轮不开新接口，恢复码余量仍只能靠 `upanelctl totp-reset` 的输出与关闭流程看到。
+  **未验证（真机范围外，逐条有理由，均为 NOT RUN）**：真浏览器里从登记点到登录的交互
+  （这台 VM 上没有浏览器；由前端 21 例 SSR/请求形状单测 + 本轮接口读数共同覆盖）、
+  二维码图片（P00 冻结依赖集里没有 QR 编码器，界面按文本 + 复制按钮呈现 `otpauth_uri`）、
+  手机与服务器时钟相差超过 ±1 步（要改 VM 时钟，会同时搅乱窗口/过期/限速；边界由
+  `internal/totp` 的 RFC 6238 向量覆盖）、登录限速打满（本轮刻意只制造 4 次失败，打满之后
+  所有断言都会变成 429）、24.04 那台 VM（本轮只跑 22.04：P14.6 的对象全在账号/代理层，
+  与发行版无关；全套回归由 P16.2 补上——24.04 上七相位 147/1/3（2026-10-27 那轮，唯一那条红是模拟器引导慢），最终交付字节上是 155/0/3；页面链路也在同一份字节上补齐（22.04 43/43、24.04 35/35 + 43/43），见 §5 的「P16.2」「P16.2 补记」与「P16.2 补记之二」）。
+  **已知残留（写进账本，不装作没有）**：以 root 运行 `totp-reset` 时代理侧那条密文会留下
+  （SO_PEERCRED 只认 `upanel-web`，root 被拒）。它已无人引用、任何登录都不会再校验它，
+  但密文仍占着代理秘密库的一行；彻底清理要么以 `upanel-web` 身份重跑，要么留给代理做一次
+  孤儿 `totp_seed` 清扫（P16 的运维项，尚未实现）。真机第 7 节读到的 `persistent=1` 就是它，
+  并且顺手验过：那条孤儿密文里没有明文种子（`grep` 命中 0）。
+
 ## 2. 状态定义
 
 - not_started：未开始。
@@ -686,11 +1238,11 @@ P07.1 先把“该拒的都拒”证完（判决层、可靠身份、整盘锁�
 | P09 | 现有 Web 应用与 Docker | **已完成**（P09.1—P09.5 全部 passed）| P09.5 **passed**：应用卡片、搜索、分组、一键打开、状态区分与常用入口首页集成——**只动前端，不新增接口**。卡片四件事分开画（`runtime_state` / `http_state` / `dependency_protection` / `runtime_note`），「容器在跑但回 500」同时写“运行中”与“入口异常”；按钮按服务器给的 `capabilities` 画（link 只有 `open`、受保护单元只剩 `logs`、看不见的绑定一个都不给）；`open` 是锚点（`target="_blank"`、`noopener noreferrer`）不是请求，地址是服务器地址——真机入口 `http://10.0.2.15:18897/` 回 200 而同端口回环 000，回环/`localhost`/带凭据/`javascript:` 的入口在写入口就 400；启停只落 `service.control`/`container.control`（不引入 `app.control`，那条路会绕过依赖卷门禁）；收藏按用户、幂等；搜索在页面（`GET /apps?q=` 结果集不变）；非空分组删不掉且成员不被顺手移走；`group_id` 形状对但不存在 → 200 + 空、**形状不对 → 400**（Q277，改的是 openapi 的描述不是代码）。VM 上 **PASS=211 / FAIL=0 / NOT RUN=0**，真机**无产品缺陷**（4 处失败：1 处契约文字 + 3 处脚本毛病）；前端 40 文件 / 720 用例、真机载荷回放 51 条断言、宿主 `check.sh` PASS 13/0/0；证据 `docs/evidence/P09/2026-10-22-p09.5/`、回放夹具 `web/src/fixtures/p09-5-vm/`。P09.4 **passed**：应用摘要里的状态/按钮/日志/依赖保护全部**来自底层对象的观测**，并在启动路径上加一道**只能收紧**的依赖卷门禁。`internal/appruntime` 一次请求内合成三件事：状态逐来源枚举（systemd `active`/`reloading`→`running`、`failed`→`failed`、`activating`/`deactivating`→`unknown`、单元不在列表→`unknown`；docker `running`→`running`、`stopped`→`stopped`、其余→`unknown`）、**能力来自对象自己的能力集合**（不再由 `type` 推导）、保护判定。三处容易写错的钉死了：**`unknown` 不是 `stopped`**（绑在不存在的单元/被重建的容器上要人重新确认绑定，而不是给一个点下去必然失败的按钮）、**受保护单元仍有日志能力**（`ssh.service` 三项生命周期全 false、`logs` 为 true）、**门禁只拦启动**（`stop` 永不拦——卷掉线时最想做的就是停机，拦它只会把人逼回命令行、绕过审计）。门禁 `internal/appruntime/gate.go` 跑在 `CreatePreflight` 已有判决**之后**，只能把 `allowed` 从 true 改成 false（Q273；依赖关系只在 Web 库里，代理不该知道应用元数据）：未挂载→`VOLUME_OFFLINE`、身份不符→`VOLUME_IDENTITY_CHANGED`、读不到卷清单→`VOLUME_CHECK_UNAVAILABLE`（fail closed），提交被钉住的预检是 409 `DEPENDENCY_BLOCKED`，真机用 `docker inspect` 现场对照容器确实没动。`managed` 只给「docker + `restart` 是 no/空 + 有依赖卷」（Q274）——它说的是“经面板发起的启动会被检查”，不是“依赖被接管了”；手工 `docker start`、开机自启、`systemctl enable` 过的单元、`restart: always` 四条绕过路径都在 note 里点名，这几种一律 `unmanaged`。`GET /api/v1/apps/{id}/logs` 按绑定判别 journal / docker，两种 `page` 形状各自与 `/logs`、`/containers/{id}/logs` 一致；`unit`/`source` 这类“想改对象”的参数一律 400（对象来自绑定）。两条**没做**的明写着而不拿门禁冒充（Q276、Q275）：运行时卷失联自动停止要代理侧常驻协调者，本轮不做；docker 的 `failed` 这一版不区分（DTO 里没有 ExitCode，非 running 一律 `stopped`）。VM 上 **PASS=165 / FAIL=0 / NOT RUN=0**（11 节），**真机没抓出产品缺陷**，10 处失败全是脚本自己的毛病（子壳变量、拿受保护单元当夹具、`/storage/volumes` 读成 `data.items`、`lsblk -r` 与 `-l` 在 util-linux 2.39 互斥、拿旧服务快照断言新单元、把“改完之后的版本号”当乐观锁、`pfget` 拼路径去跑表达式）；宿主 `check.sh` PASS 13/0/0、`go test -count=1 ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.4/`。P09.3 **passed**：Docker 只读查询（容器/镜像/网络/数据卷/部署）、容器日志（时间键集分页 + SSE 流，每账号 4 条并发）、现有受支持容器的 start/stop/restart。**Web 进程从不碰 `docker.sock`**——所有查询与动作在代理里用固定子命令完成，真机验了 Web 账号不在 docker 组、`docker ps` 被拒、`/proc/<pid>/fd` 里没有 sock。**容器身份只认完整 64 位小写十六进制**（唯一会进 argv 的可写字符串，名字只在输出里出现；短 ID 可猜，全 ID 不行），`^[0-9a-f]{64}$` 在 Web 与代理各校验一次。**风险是闭集而不是启发式**：privileged、host 网络/pid/ipc、危险 capability、挂 `docker.sock`、挂宿主 `/` → `risk.level=high` + `managed=false` + 三项能力全 false，并在预检（`CONTAINER_NOT_MANAGED`）与执行前复核（`controlBlockedError` → 409 `PREFLIGHT_STALE`）**两处**拒绝。**不该要的东西不请求**：inspect 格式串里没有 `Config.Env`、没有完整标签表（只取六个 `com.docker.compose.*`），真机放了唯一口令，清单/详情/日志/SSE/代理日志里都搜不到，日志正文经 `logging.Redact` 成 `[redacted]`。启停每条都“预检 → 任务 → 读回”并与 `docker inspect` 现场对照：**退出码 0 不算成功，读回状态一致才算**（`observed_state.verified`）。compose 项目是派生身份 `dep_`+sha256 前缀，只做精确匹配 GET，外部 YAML 不执行不解析不落盘。VM 上 **PASS=217 / FAIL=0 / NOT RUN=1**（五遍；唯一 NOT RUN 是“执行前复核（受理之后再变）”，需毫秒级可重复竞态，由 `TestContainerControlExecuteStaleState` 覆盖）；真机抓出并修掉 **3 个**产品缺陷（Q270 `--tail`/`--until` 顺序让往回翻页只剩边界一条 → 时间窗分页；Q271 套接字还在但守护进程死了被当成命令失败/500 → 按 `Cannot connect to the Docker daemon` 判 `UnavailableError`，清单降级 200 + `available=false`、预检 `allowed=false` + `DOCKER_UNAVAILABLE`；Q272 代理的 5xx 域内码被 Web 改写成 `AGENT_UNAVAILABLE`）；宿主 `check.sh` PASS 13/0/0、`go test ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.3/`。P09.2 **passed**：本机端口/服务/容器发现、管理员确认候选、普通健康检查与 SSRF 约束。三路来源（`/proc/net/tcp{,6}` LISTEN → inode → `/proc/<pid>/fd` → cgroup v2 → `.service`、裸监听、`docker ps -a --no-trunc`），候选 `target_id` 只有 `local_…`/`cntr_…` 两种形状；**SSRF 不是过滤而是写不出来**——探测地址一律由代理拼成 `http(s)://127.0.0.1:<port><path>`（`Proxy: nil`、不跟重定向、TLS 校验开、正文 64 KiB 截断），调用方没有任何位置能放主机名/IP/完整 URL；确认候选＝`POST /apps`（不另开接口）；结论只进 `app_health_results`（`0008`），定义仍在 `apps.health_json`；调度 5 秒一拍/一轮 60 秒/每应用 30—300 秒/最小间隔 5 秒，代理不可用写一条 `unknown` 即结束本轮。两条诚实性规矩：**“没看”不能变成“没有”**（探测侧 `unknown` vs `error`，入 Q257；绑定合并侧来源没采成不进 `missing_bindings`，Q260），**没发出去的探测不填 address/url**。为三条容器验收在测试机上装 `docker.io` 29.1.3 + `alpine:3.20` **夹具**（非依赖；无 docker 的机器上那三条仍是 NOT RUN）。VM 上 **PASS=120 / FAIL=0 / NOT RUN=1**（六遍 93/0 → 120/0；唯一 NOT RUN 属 P09.4）；真机抓出并修掉 **3 个**产品缺陷（Q258 pid 1 代持的 `.socket` 监听让端口出现两次、Q259 docker-proxy 在 `docker.service` cgroup 里让容器出现两次且抑制必须在单元分类之前、Q260 停 dockerd 后容器应用被误判“需重新确认”）+ 一条语义修正 Q257；宿主 `check.sh` PASS 13/0/0、`go test ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.2/`。**下一子任务 P09.3**（Docker 只读查询、日志、现有受支持容器的启停）。P09.1 **passed**：应用/分组/收藏元数据、link/systemd/docker/compose 判别模型、公共入口与内部目标分离。四张表（`apps`/`app_groups`/`app_favorites`/`app_volume_dependencies`，`0007_apps.sql`）；`type` 决定 `binding` 的唯一合法键，规范化 JSON + `uq_apps_binding`（`WHERE type <> 'link'`）+ `CHECK` 让唯一性由数据库保证；`public_url` 只受理浏览器能打开的地址（生产禁回环/通配），健康检查 `target_id` 形状写不出 IP/主机名/URL，`169.254.169.254` 真机试过；摘要字段只填“不知道”（link `not_applicable`，其余 `unknown` + `last_checked_at=null` + `dependency_protection=unmanaged`），`capabilities` 只有 `open`；依赖卷不建外键（Q248），写入经代理确认，503 不写库、422 带 `volume_id`；删除只删元数据，收藏按用户隔离且不写审计。VM 上 **PASS=210 / FAIL=0 / NOT RUN=0**（第八遍；第七遍复跑同样 210/0/0）。真机**无产品缺陷**，前几遍 23 个 FAIL 全为脚本自身问题（断言写错 4 处、破坏性动作漏再认证、夹具没清干净 1 处），并把“预检绑定快照”这条产品语义钉进脚本；宿主 `check.sh` PASS 13/0/0、`go test ./...` 全绿；证据 `docs/evidence/P09/2026-10-22-p09.1/`。|
 | P10 | 反向代理、HTTPS、0.1 发布 | **passed**（P10.1—P10.4 全部完成）| P10.3 **passed**：证书四件事——staging 必填（`staging *bool` 缺失即 400，默认值就等于"不小心调用正式 ACME"）、`--server` 只由 staging 推导（调用方给不了地址）、签发前先做 HTTP-01 可达性检查；手动导入拆两条通道（公钥走一次性上传，1 MiB、10 分钟、绑会话；私钥走 `POST /secrets`），私钥不进 argv/日志/库，落地前 `Take` + `CoversDomain`；账本按域名唯一、`crt_` 在预检展开期定死、**唯一写入点 `OnJobFinished`**；到期信息 `valid`/`expiring`（21 天窗）/`expired` 现场读盘；续期读 jobs 表做同域名 1 小时冷却（429 `RESOURCE_BUSY`）。**续期与生效分家**：续期只换盘上文件，生效靠下一次 `proxy.apply` 的轮换**实测**（SNI 握手取叶证书指纹，与盘上不一致就 reload，`reload_reason=cert_rotated`，12 × 250 ms settle 预算，仍不一致报 `PROXY_TLS_SERVED_STALE` 告警）。VM 上 **PASS=176 / FAIL=0 / NOT RUN=7**（四遍收敛 114/37 → 165/2 → 172/4 → 176/0），真机抓出 **1 个**产品缺口（续期之后新证书在任何路径上都不生效）。证据 `docs/evidence/P10/2026-10-23-p10.3/`。P10.2 **passed**：配置生成（纯函数渲染、确定性 apr1 盐）、原子写入（临时文件 + fsync + rename + fsync 目录）、`nginx -t` 整棵树门禁、失败回滚与回滚复验、`nginx -s reload`（只 reload 不 restart，单元没在跑就 skip）、`applied` 四态推导（不落库）、改名与停用的文件清理（先备份）、账号文件权限按 worker 用户定、删除记录的孤儿配置门禁 409、`proxy.apply` 参数服务端展开。VM 上 153 项断言全过，真机抓出 1 个缺陷（Q290 预检偶发 8 秒 → 单元探测排在采集扫掠后面，6.389s vs 0.17s）。证据 `docs/evidence/P10/2026-10-23-p10.2/`。P10.1 **passed**：Nginx 发现、域名冲突判断、站点定义登记（单域名单 upstream、WebSocket 开关、请求限制、访问策略）。事实与判断分家：代理登记 `nginx.state`（`{fresh}`）只给事实，`internal/proxies` 出判断；**展示用 5 秒快照、写入门禁用直读**（缓存窗口里刚手工加的 `server_name` 正是唯一需要判准的时刻）；冲突三态 `clear`/`taken`/`unknown`，**`unknown` 与 `taken` 一样 409 阻断**（`nginx reload` 不因 `server_name` 撞车失败，只会安静地用第一个块），证据带文件 + `server_name` 所在行 + 原文 + `broken_files`；读不到主机事实是 503 而不是“没有冲突”。符号链接按真实路径去重（`sites-enabled/default` 只算一次）；域名 IDNA 归一并禁通配符/协议/端口/路径；**上游端口不得等于面板真正监听的端口**（取自监听地址，不写死 9443）；默认值与 nginx 一致（`1m`/`60s`）；访问模式与附加字段双向一致（多给也 400）；`secret_ref` 只进不出。**P10.1 不写配置**：没有 `applied_*` 字段、审计固定 `"applied": false`、`/etc/nginx` 全部文件内容摘要前后相等（Q280）。VM 上 **PASS=100 / FAIL=0 / NOT RUN=0**，真机抓出 **1 个**产品缺陷（Q279：`nginx -v` 时限写成无单位 `5` → 5 纳秒，Windows 上被 `t.Skip` 的单测证明不了）；证据 `docs/evidence/P10/2026-10-22-p10.1/` |
 | P11 | 软件更新与电源 | **已完成**（P11.1、P11.2、P11.3 全部 passed）| P11.3 **passed**：`system.power`（`reboot`/`poweroff`）走既有预检→再认证→提交→执行→审计链路——结果只到 `accepted`、`verified_at` 为空，唯一站得住的证据是 `boot_id` 变了（`confirmed`/`unchanged`/`unreachable`/`unknown` 四个闭集，没有第五个）；**关机只承认“回来过”，电源是否真切断“只能由现场回答”**，断言同时钉死“不许出现关机成功 / 不许 `outcome=verified`”；关键任务闸门（有写操作在跑 → 预检 `allowed=false` 并点名 blocker、提交 409 `POWER_JOBS_RUNNING`、`boot_id` 不动）与倒计时取消（终态 `canceled`、无 `power_check`、`boot_id` 不变）互为正反面；`power-global` 锁串行化。两台 VM 各 **PASS 109 / FAIL 0 / NOT RUN 2**（多出的一条是新增的 `env-no-foreign-units`；两条 NOT RUN 是“脚本与被测机器同一台”的位置问题，各自在下一阶段被同一事实的 PASS 覆盖），逐节断言数两台完全相同；真机 `boot_id` `591a2533→5389231a→4a25a825`（22.04）与 `97057b04→22486dd5→813e082b`（24.04），24.04 关机后 QEMU 进程从宿主消失（真断电而非假关机；串口原文 `reboot: Power down` 留在证据里）；宿主 `check.sh` PASS 13 / FAIL 0（web 45 文件 820 用例，修完后在最终代码上重跑）。真机抓出并修掉 **2 个产品缺陷**：电源操作把自己算成在跑的关键任务（每个 `system.power` 停在 `revalidate` 报 `POWER_JOBS_RUNNING`，而前一步预检是 `allowed`）——修法是 `OperationID` 从 `PlanInput` 递到 `InFlight(exclude)`，闸门判据一字未动，两层回归测试钉住；**代理起服时抢走正在服务的 socket**（第 2 轮 22.04 的 6 条 503 根因：外层 systemd 单元每 3 秒重生并清 `/run`，`prepareSocketPath` 又无条件 `os.Remove`，删掉的是还活着的代理的路径）——修法是先探测：连得上拒绝启动、`ECONNREFUSED`/`ENOENT` 才算陈旧、说不清按有人处理，两个回归测试钉住“活的不许抢”和“陈旧的必须能清”；另有 **1 条假绿**：审计查询漏了 `FROM audit_events`，SQLite 报错被吞、空串里找不到口令就 PASS（“没查成 ≠ 清白”），改成查询失败也判失败并重跑阶段三；十条脚本与流程缺陷、九条限制见证据（其中第二条是 24.04 的客户机热重启本轮没验到）。证据 `docs/evidence/P11/2026-10-23-p11.3/`。P11.2 **passed**：四个写动作（`package.refresh`/`install`/`remove`/`upgrade`）——模拟即准入（`apt-get -s` 的 `Inst`/`Remv`/`Conf` 与保留原因当依据）、执行后重读 dpkg 与计划逐条核对（`observed_state.verified`；退出码 0 不是证据）、四把 apt/dpkg 锁只探测从不删、非交互六件套（`noninteractive`/`--force-confdef`/`--force-confold`/`Use-Pty=0`/`LISTCHANGES=none`/`NEEDRESTART_MODE=l`）、四个动作全部不可取消、`remove` 额外要 `REMOVE` 短语、`upgrade` 只走 `--only-upgrade` 永不 `dist-upgrade`、删除保护名单硬编码在代码里。两台 VM 各 **PASS 169 / FAIL 0 / NOT RUN 4**、两次 `exit=0`；宿主 `check.sh` PASS 13 / FAIL 0（web 43 文件 791 用例）；`//go:build unix` 三个包首次在 Linux 真跑（`syscmd` 24+1 SKIP / `processes` 41 / `apt` 77）。真机抓出 **6 个缺陷**：退出码 -1 不说谁停的（`syscmd.Result.Signal`）、socket 尸体被当就绪（脚本抢跑）、锁探测单测与实现矛盾（分平台断言）、38.7s 再模拟被前端 20s 掐断、`wait_job` 按次数算的“300 秒”实际 400+、升级夹具靠“恰好有个可升级的包”（改自建 `file:` 源 + conffile 真冲突）。证据 `docs/evidence/P11/2026-10-23-p11.2/`。P11.1 **passed**：软件包与更新只读页——代理出事实（dpkg 登记 + `apt-cache policy` 候选 + 重启标志/`boot_id`）、Web 算判断（`candidate_relation`/`upgradable`/`security`/`pockets`/`counts`/分页/筛选），`internal/debversion` 做版本比较。真机抓出并修掉 **1 个产品缺陷**：arch 限定名（`bind9-libs:amd64`）在 `apt-cache policy` 里块头被 apt 剥成 `bind9-libs:`，按请求名索引必然落空 → 整类包的候选被谎报成“读不到”；修法是基础名回退 + 同名双架构时**不回退**（如实报 `unknown`），对账脚本自己也复刻了同一个 bug，改法不同之后才敢当对账。24.04 的 apt 比 22.04 慢 28 倍（26.6s vs 384ms / 731 与 676 个包名），超时分成 45s/60s/120s/30s 四层，**启动预热删掉**（26s→62s 反而误报不可用）。两台 VM 各 **PASS 64 / FAIL 0 / NOT RUN 7**，对账 0 失配；宿主 `check.sh` PASS 13 / FAIL 0。证据 `docs/evidence/P11/2026-10-23-p11.1/` |
-| P12 | 备份恢复与计划任务 | **进行中**（P12.1 passed；P12.2—P12.5 未开始）| P12.1 **passed**：restic 仓库这一层——本地/SFTP 两种后端、秘密引用与用途把关、SFTP 主机密钥自验（按算法逐个重握手直到拿到登记的那把）、known_hosts 由我们写（0600，`StrictHostKeyChecking=no` 全链路一次不出现）、初始化后用 `restic cat config` 读回仓库 id 核对、容量检测（`statfs` / `StatVFS`，读不到是 `supported=false` 而不是 0）、现状查询三态（`initialized` 为 `null` 表示读不到）。两台 VM 各 **PASS 133 / FAIL 0 / NOT RUN 5**、`EXIT=0`，逐节断言数两台完全相同；仓库 id 两台独立核对（`5b2ac62d…` / `6044228b…`）。真机抓出并修掉 **3 个产品缺陷**：主机密钥协商按服务器偏好先递 ECDSA 导致登记指纹误报不匹配、一次握手读超时就把"连不上"定死、上层预算耗尽的超时被写成"restic 以退出状态 -1 结束"（并把只读查询预算从 30 秒提到 45 秒）。另有 3 条假绿与 3 条脚本缺陷。宿主 `check.sh` PASS 13 / FAIL 0（web 45 文件 820 用例）。**备份/恢复本身是 P12.2/P12.3**，BACKUP-01 的"备份后恢复"本轮无对象可验（NOT RUN）。证据 `docs/evidence/P12/2026-10-23-p12.1/` |
-| P13 | 历史监控和告警 | not_started | — |
-| P14 | 网络、NFS、账号、TOTP | not_started | 需独立网络回滚验收 |
-| P15 | 应用部署与更新 | not_started | — |
-| P16 | 集成、恢复与 1.0 发布 | not_started | — |
+| P12 | 备份恢复与计划任务 | **已完成**（P12.1、P12.2、P12.3、P12.4、P12.5 全部 passed）| P12.5 **passed**：证书续期 timer 接入（面板按账本展开 `certificate{domain,staging}`、代理按域名查盘上 `live/<domain>`、触发只发 `{domain,staging,scheduled:true}` 于是 `--keep-until-expiring` 天然生效、结果按 observed 回写、面板按域名对账导入任务表）与备份页/计划任务页依赖的接口形状（快照大小、`GET /scripts/:id` 的 `{script:…}` 包装、`needsReauth` 从代理 `ActionPolicy` 派生、prune 待删名单由预检算、前端产物里带这些动作）。两台 VM（24.04/systemd 255/certbot 2.9.0、22.04/systemd 249/certbot 1.21.0）最终各 **PASS 214 / FAIL 0 / NOT RUN 0**、exit 0，逐节断言数（25/20/44/24/30/15/20/10/19/7）与归一化后的断言名单跨机逐字一致，同一份脚本（md5 `9fd078cb…`）同一组二进制；全程真实 Pebble ACME 走完 HTTP-01、换证、失败留原因三段。真机抓出并修掉 4 个产品缺陷（Q390 定时续期预检绑不上目标身份、Q391 失败原因到不了任务与账本、Q392 P12.4 的"尚未接线"闸没拆、Q393 审计行里的空 `certificate_id`/`email`），方法修正 5 条（Q394 Pebble 缓存已通过的授权一小时、Q395 §0 不断言 80/5002 空闲、Q396 §9 用整轮开始时的会话、Q397 prune 数总条数与水位取在触发之后、Q398 采样器 `ps -e -C` 自己压垮 2 vCPU 客户机）；24.04 跑 12 轮、22.04 跑 2 轮才全绿。宿主 `check.sh` 最终 13/0/0。证据 `docs/evidence/P12/2026-10-25-p12.5/`。P12.4 **passed**：受管理 timer（单元写死时区/`Persistent`/最长运行/目标服务）、计划与脚本只存在代理库且 Web 直读镜像（代理不在 503，不回空列表）、`schedule-trigger --wait` 让"单元 active"等于"这次操作还在跑"（不重叠）、触发只认 root 且槽位折到 UTC 分钟幂等、定时操作被对账导入任务表并挂一个登录不了的系统操作者、非 root 脚本（`root:upanel-shell 0750`、`/bin/sh`、运行前核 SHA-256、被引用时删不掉）。两台 VM（24.04/systemd 255、22.04/systemd 249）最终各 **PASS 246 / FAIL 0 / NOT RUN 0**、exit 0，逐节断言数与名单跨机逐字一致；真机抓出并修掉 9 个产品缺陷（Q371/Q374/Q375/Q376/Q377/Q380/Q381/Q382/Q385），方法修正 9 条（Q370/Q372/Q373/Q378/Q379/Q383/Q384/Q386/Q387）；宿主 `check.sh` 最终 13/0/0。证据 `docs/evidence/P12/2026-10-24-p12.4/`。P12.3 **passed**：`backup.restore`（新目录/覆盖/失败不发布/停拉应用）、`backup.verify`（结构检查与真实抽样两态自我说明）、`backup.prune`（冻结 `expected_delete_ids`、`PREFLIGHT_STALE`、只删本策略、清残留锁）。两台 VM（24.04/restic 0.16.4、22.04/restic 0.12.1）最终各 **PASS 117 / FAIL 0 / NOT RUN 0**、exit 0，断言名单跨机逐字一致；写满（inode 耗尽）与 SFTP 断连都核对源/旧目标哈希不变、无暂存残留、应用仍 active。真机抓出并修掉 Q356/Q357/Q359/Q360+Q363 四个产品缺陷（失败消息那条是两次修到位的，记作一个），方法修正 Q355/Q358/Q361/Q362/Q364；宿主 `check.sh` 最终 13/0/0（node 按 `.nvmrc` 用 v22.23.3）。证据 `docs/evidence/P12/2026-10-24-p12.3/`。P12.2 **passed**：代理镜像唯一真相、`backup.run` 预检与执行、面板展开 `apps` 并由代理双向核对、停受管理应用、`VACUUM INTO` 面板库在线副本、完整快照 id + `restic stats` 回读、快照列表/详情。两台 VM 最终各 **PASS 170 / FAIL 0 / NOT RUN 3**、exit 0，逐条结果一致；SFTP 成功、断网、独立 tmpfs 写满、运行中取消都有真机证据，失败场景同时核对源不变和旧快照可读。真机抓出并修掉 Q343/Q344/Q345/Q347 四个产品缺陷；宿主 `check.sh` 最终 13/0/0。证据 `docs/evidence/P12/2026-10-24-p12.2/`。P12.1 **passed**：本地/SFTP 仓库、秘密引用、主机密钥核对、初始化、容量与现状三态；两台各 133/0/5，证据 `docs/evidence/P12/2026-10-23-p12.1/`。**BACKUP-01 的"备份后恢复并校验"现在有产品侧真机证据**（P12.3）；timer 触发与证书续期都有真机证据（P12.4/P12.5）；剩下的 BACKUP 相关缺口只有**浏览器里对备份页与计划任务页的真实点击**——P12.5 验的是产物与接口形状，不是交互（见第 8 节） |
+| P13 | 历史监控和告警 | **passed**（P13.1—P13.4 全部 passed）| P13.4 **passed**：确认动作只写"谁知道了"（`acked_at`/`acked_by` 不碰状态机，确认后 `state` 仍是 `firing`、`resolved_at` 不被写；幂等且首告者胜——`WHERE id=? AND acked_at IS NULL` 让第二个管理员再点也保留第一个人的时间与人；已恢复的事件也能确认；viewer 能看事件但不能认领）；投递账读路径是顶层 `GET /notification-deliveries`（一行账带的是**投递当时**的通道快照，收件箱要的是跨通道排序，挂通道下就成了 N+1），行形状与通道端点回执共用同一个 DTO，`limit` 超过 200 按 200 截断而不报错；历史曲线三条展示口径（缺失不是 0——缺口里没有行、`missing_points` 是唯一证据、minute/hour 聚合桶落进缺口区间是聚合的正常产物不是回填；没点不画轴；null 显示"—"）；"陈旧"与"没开"分开说：`enabled` 说的是这个进程答不答得了历史问题，`collecting` 才是在不在记，关掉采集是 `enabled=true + collecting=false + reason`，`enabled=false` 只剩"没有库"一种来路。两台 VM（24.04/systemd 255/TCG 单线程、22.04/systemd 249/whpx）各 **PASS 128 / FAIL 0 / NOT RUN 0**、exit 0，逐节断言数（7/9/14/14/20/31/12/8/10/3）与归一化后的断言名单跨机逐字一致（`diff` 无输出），同一份脚本（sha256 `f86fb06f…`）同一组二进制；产品缺陷 0 个，验收方法修正 3 组（Q429 新鲜度判据的两个时刻必须都取自同一份响应、Q430 `enabled` 不是 `collecting`、Q431 另五处装配与判据缺陷）；宿主 `check.sh` **14/0/0**。24.04 两轮（127/1 → 128/0），22.04 两轮（换脚本前后各一轮 128/0）。见第 5 节 P13.4 小节与 `docs/evidence/P13/2026-10-26-p13.4/`。P13.3 **passed**：通知由**代理**投递（面板拿不到明文）、`secret_ref` 用途由代理自己核对、投递失败仍回 200 并把 `retryable` 交给代理判、入队与事件同事务、`(event_id, channel_id, kind)` 去重、30 秒退避与 10 分钟封顶、`max_attempts` 建在通道上、停用/删除判死且不计 attempts；两台 VM 各 211/0/0，见第 5 节 P13.3 小节与 `docs/evidence/P13/2026-10-26-p13.3/`。P13.2 **passed**：三态状态机（`ok`→`pending`→`firing`→`ok`，落在规则行上、CAS 加版本，数据不足时原地不动、没有第四态）、"持续"= 窗口内**每一个**样本都在线外、恢复要跨过 `recovery_threshold` 死区并同样持续 `duration_seconds`、`any`/`all` 双口径对偶（同一份真实容量数据上 `any` 触发、`all` 不触发）、一个事件周期只有一行（触发 INSERT / 恢复原地 UPDATE，`UNIQUE INDEX ... WHERE state='firing'` 把"未变化不刷屏、恢复只发一次"变成结构保证）、事件存规则快照且删除规则时 `rule_id` 置空不级联、维护静默只标记 `silenced` 不压判定、"没有数据不是 0"。两台 VM（24.04/systemd 255、22.04/systemd 249）各 **PASS 148 / FAIL 0 / NOT RUN 0**、exit 0，逐节断言数（7/9/48/63/9/8/4）与归一化后的断言名单跨机逐字一致，同一份脚本（md5 `c74dd469…`）同一组二进制。真机抓出并修掉 3 个产品缺陷（Q414 覆盖率容差与 `duration_seconds` 地板要按每条序列自己的写入节奏算、Q417 `last_reason` 每轮都要写、Q418 可空字段回 `null` 不回空串）、验收方法修正 6 条（Q415 整机 fd 是验收前置条件、Q416 查询辅助不许吞 SQL 错误、Q419 三处判据修正、Q420 算术里不许塞命令替换）；宿主 `check.sh` **14/0/0**。24.04 跑了六轮（117/25 → 139/3 → 142/0 → 145/2 → 崩溃 → 148/0），22.04 两轮（142/0 → 148/0）。证据 `docs/evidence/P13/2026-10-26-p13.2/`。P13.1 **passed**：三层粒度（raw 5 秒留 24h / minute 留 30d / hour 留 365d）、长格式表 + `min_value`/`max_value`/`sample_count` + `WITHOUT ROWID` 复合主键、`INSERT OR IGNORE` 去重、只卷已结束的桶（按样本数加权、先聚合后裁剪、留两个桶宽、启动自愈补算）、读哪一层由"时间跨度 × 实际保留窗口"决定而不是步长、缺失就是没有行（`missing_points` 计数、永不补零）、`GET /system/metrics` 与 `/system/metrics/status` 两条 V 权限端点。两台 VM（24.04/systemd 255、22.04/systemd 249）各 **PASS 88 / FAIL 0 / NOT RUN 0**、exit 0，逐节断言数（6/5/22/9/10/23/8/5）与归一化后的断言名单跨机逐字一致，同一份脚本（md5 `d08964c5…`）同一组二进制。真机抓出并修掉 1 个产品缺陷（Q404 加权平均的浮点误差撞 `CHECK(min<=value<=max)`，整个小时桶永久写不进去，那一小时所有指标的 hour 行缺失）、方法修正 4 条（Q405 缺口判据窗口右端也要让一个桶宽、Q406 换行符与执行位属于构建输入、Q407 三处恒真/错期望/取样点早的断言）；宿主 `check.sh` **14/0/0**。证据 `docs/evidence/P13/2026-10-26-p13.1/`。 |
+| P14 | 网络、NFS、账号、TOTP | **passed**（P14.1—P14.6 全部 passed。P14.6 **真机通过**：2026-10-27 Ubuntu 22.04.5，第二轮 `PASS 163 / FAIL 0 / NOT RUN 6`、退出码 0，证据 `docs/evidence/P14/2026-10-27-p14.6/`；第一轮 `149 / FAIL 11` 抓到 **1 个产品缺陷**（Q480：`EnableTotp` 把 `last_step` 写死 -1，确认用的那个码在同一个 30 秒窗口里还能登录一次）与 **4 类脚本断言错误**（Q481：偏移加到 ±1 窗口外面、空串当 needle、`jget` 的失败标记拼进 SQL）。STAGES §16 两条硬要求都有现场读数——**未确认不启用**（库 0 行 + 代理种子 `temporary` + 带外 CLI 明确失败）与**恢复码只能一次**（停代理造出中间态：`used_at` 已写而状态行还在，起回代理后同一枚 401）。分层实现：`internal/totp` 通过 RFC 6238 向量、代理侧四条 `/internal/v1/totp/*` 24 条断言、Web 侧（迁移 0014、状态层、`/auth/totp/*` 三端点、登录与再认证两步、失败关闭）与 `upanelctl totp-reset` 合计 **22** 个新用例全绿、Web UI（设置页 + 两步登录 + 四个再认证点）**21** 个新用例全绿且 `typecheck`/`lint`/全量 1137 例通过；**真机第二轮 `PASS 163 / FAIL 0 / NOT RUN 6`、退出码 0**）| P14.1 **passed**：四条只读端点（`/network/interfaces`、`/network/routes`、`/network/listeners`、`/firewall`，全 admin）、`capability`/`editable` 判定与"查不到也要说清楚"的 `Issue` 闭集。**没有开任何写入口**（POST 四条同路径与 `/network/apply` 在真机上必须 404/405）。两台专用 Ubuntu VM 各 PASS 112（22.04）/ 116（24.04）、FAIL 0、NOT RUN 0，退出码 0；同一份脚本（sha256 `147b7a93…`）同一组二进制；`/etc/netplan`、`/etc/ufw`、`/etc/systemd/network` 三处前后哈希不变证只读。**两台走到判定的两个分支**：22.04 `editable=true, target=ens4`，24.04 因遗留 `docker0` 网桥 `editable=false` 且理由点名网桥。真机抓出并修掉 2 个产品缺陷（Q438 主机路由 `destination` 无前缀、Q439 `/etc/nftables.conf` 每台 Ubuntu 都有 → 误判 nftables 同存），验收方法修正 6 条（Q440—Q445）。证据 `docs/evidence/P14/2026-10-26-p14.1/`。**P14.2 `network.apply` passed**（22.04 VM 第五轮 `PASS 186 / FAIL 0 / NOT RUN 3`、退出码 0，证据 `docs/evidence/P14/2026-10-26-p14.2/`：地址被改成不可达的 `10.99.99.99/24` → 停 Web 与代理 → `deadline+28s` 由 `upanel-netrollback@<token>.service` 自己退回来，两条看门狗均 `not-needed`；旧地址确认被 `CONFIRM_WRONG_ADDRESS` 拒；复杂 netplan 返回 `NETWORK_UNSUPPORTED`）——执行顺序"渲染 → `netplan generate` → 先武装 timer → `netplan apply` → 读回内核事实"，outcome 闭集 `verified`/`rolled_back`/`unknown`（**无 `failed`**），`network.confirm` 的 `arrived_on` 由服务端从连接取（v4-unmap 归一化），回滚记录落成 root 0600 的文件。**STAGES §16 的硬条件因此解除**；但 `-network-writes` 仍默认关闭，理由换成"改网卡等于把机器从网络上摘掉，这个权力该在装机时由人给"（Q458，落到 P16.1 服务单元与 P16.4 手册）。**P14.3 `firewall.apply` passed**（22.04 VM 第三轮 `PASS 153 / FAIL 0 / NOT RUN 4`、退出码 0，证据 `docs/evidence/P14/2026-10-27-p14.3/`：启用 + 规则集里没有 `from any` 的 22/tcp 放行 → 预检 `FIREWALL_MANAGEMENT_PATH` 拦下且现场一字节没动；apply 后**停掉 Web 与代理** → 60 秒时新规则仍在 → `deadline` 后 `upanel-fwrollback@<token>.service` 使规则自己换回旧集且 `ufw` 仍 active，journal 里动手的是 `upanel-agent[pid]`；手写 `ufw allow 9000/tcp` 跨两次 apply 原样保留）——规则身份靠 comment `upanel:<id>`，apply 只加缺的删多的、**不整体重建**（整体 reset 会连手写规则一起清掉），指纹只算"启用状态 + 带标记的规则"；管理通路判据是"启用状态下每个对外可达管理端口都要有 `from any` 的 tcp 放行"（`ufw allow from 10.0.0.5 to any port 22` 不算），认不全管理端口时 `FIREWALL_MANAGEMENT_UNKNOWN` 并停下；`-firewall-writes` 与 `-network-writes` 是两个开关、默认都关。真机抓出并修掉 **1 个产品缺陷**（Q464 三个 `Assess` 的拒绝分支没带 `Normalized` → "没有待确认的改动"被包装成 500）、**1 处契约违反**（`rules` 在 ufw 读不到时序列化成 `null`，违反 OpenAPI 的 `array`）、**5 条验收方法修正**（Q465）。**P14.4 `share.apply` / `share.disable` / `share.delete` 的 NFS 那一半 passed**（22.04 VM 第七轮 `PASS 141 / FAIL 0 / NOT RUN 6`、退出码 0，证据 `docs/evidence/P14/2026-10-27-p14.4/`：只维护 `/etc/exports.d/upanel.exports` 一份文件、行尾 `# upanel:<id>` 认领、`/etc/exports` 前后 sha256 不变；`exportfs -v` 的实际导出表里路径在、`root_squash` 在、没有 `no_root_squash`/`async`/`insecure`/`*`；把允许网段换成 `192.168.77.0/24` 后**同一台机器**挂不上、改回 `127.0.0.0/8` 立刻又能挂上；只读共享导出行 `ro` + 目录 `0755`，客户端写入被内核以 `Read-only file system` 拒绝、服务端没多出文件；卷摘出挂载树后 **13 秒**内撤销循环摘掉导出行并 `exportfs -ra`，`runtime_revoked.volume_state=unmounted` + `config_applied=false`，卷挂回来**不自动复活**、重新应用才恢复，客户端随后又能挂上并读到之前写进去的文件；停用/删除只摘导出行，目录与文件一个不少、内容哈希不变，收尾只剩一条已停用的共享记录）——判据一律读 `exportfs -v` 的实际导出表（`exportfs -ra` 的退出码不是证据），只读的两道锁是"导出行 `ro` + 目录 `0755`"（NFSv3 客户端的 `findmnt` OPTIONS 永远报 `rw`，只读是服务端回 EROFS），`nfs:exports` 与 `samba:config` 是两把锁。真机抓出并修掉 **2 个产品缺陷**（Q471：0005 的 `CHECK (protocol IN ('smb'))` 让导出写下去了却在落库时被挡，`fakeStore` 不跑 SQL 所以单测掩盖了它 → 0013 表重建迁移；Q473：同一个目录的第二条共享在预检被放行 → `SameDirShares` + `sharesSharingDir`，预检与执行同一条判据）、**1 条同类未修**（SMB 路径在配置生效后落库失败不回滚），**7 类验收方法缺陷**（Q474，最险的一条：`"$(PRE_ALLOWED)"` 少一个 `$` 把变量当命令执行，一条语法错带红第 7—10 节；另有 `umount -l` 让 knfsd 持有文件系统导致"卸卷"永远 busy）。**P14.5 账号 / SSH 公钥 / 受限 sudo 模板 passed**（2026-10-27，Ubuntu 22.04.5 / kernel 5.15.0-198，第三轮 `PASS 168 / FAIL 0 / NOT RUN 6`、退出码 0，证据 `docs/evidence/P14/2026-10-27-p14.5/`）：口令只经 `chpasswd` 的 stdin（任务参数里只有 `sec_` 引用，`passwd -S` 读回 `P`）；uid 由系统分配（`getent` 读回 1002，落在 1000–59999）、home 在 `/home` 下、登录壳 `/bin/rbash`；`authorized_keys` 托管区里人手写的外来钥匙在加/换/删三次之后**逐字节不变**、文件 `0600` / 目录 `0700`、`ssh-keygen -lf` 的指纹与登记表一致；sudo 五道门全走一遍——`0440` + 认领标记 + 无通配符、整份 `visudo -c` 通过、`sudo -l -U` 恰好一条、`runuser` 换到 alice 之后 `sudo -n` **真的执行**了模板命令而模板外命令被 sudo 自己拒；**真机制造 visudo 失败**（候选合格、rename 已发生、整份校验失败）时旧规则文件哈希与内容逐字节保住、没有残留候选临时文件、失败原因带 `SUDO_VISUDO_FAILED`；手改成没有认领标记的规则文件被 `SUDO_FILE_DAMAGED` 拒且逐字节保留；禁用是换壳（`passwd -S` 仍是 `P`，没用 `-L`）；`userdel` 不带 `-r`；sshd 那一面验的是「钥匙能用、口令不是门槛、壳才是门槛」（key-only 账号能登 → 面板禁用后同一把钥匙被拒，sshd 原文 `This account is currently not available.` → 启用又能登 → 撤掉公钥后登不上）。真机抓出并修掉 **2 个产品缺陷**（Q477：`accounts.Definition` 一个 json 标签都没写，`display_name` 直接 400——所有单测只构造 Go 结构体、从不走线格式，所以全绿也看不见；Q478：`GET /accounts` 把 Samba 的能力当账号判据，没装 Samba 的机器上账号功能整个不可用）与 **1 条与真机相反的文档断言**（Q479："没口令就登不上"——publickey 认证不看 shadow 的口令字段） |
+| P15 | 应用部署与更新 | **passed**（P15.1—P15.4 全部实现并真机验收通过；P15.4 的页面链路 2026-10-28 在 22.04 上 43/43）| P15.4 **已实现、宿主检查通过、真机未验**：部署页只读管理面（`/etc/upanel/deploy` 的三个文件 + systemd 的两个回答），**没有新增写接口**——创建/更新/删除走既有 `/operations/preflight` + `/jobs`（`deployment.apply`/`update`/`remove`），页面上没有“直接部署”；`compose_yaml`/`privileged`/`devices`/`network_mode`/`cap_add` 在数据模型里没有落点，所以连输入框都不存在（留框再拒等于暗示那件事可行）。交付 `web/src/api/deployments.ts`（形状常量、两条查询、只读纯函数、三份预检参数、草稿校验）、`jobresult.ts` 的 `summarizeDeploymentJob`（`rolled_back` 不许说“已更新”、`containers_checked=false` 必须写“没有独立读数”）、`DeploymentsView.vue`（列表/详情/新建/换镜像/删除，轮询 2s×300=10 分钟对上 `UpdateBudget=9min`，预检 120 秒过期由 ticker 关确认）、路由 `/apps/deployments` 与应用页入口（**不去顶“容器”那一格**，`routes.test.ts` 断言 `containers.implementedIn` 仍为 `null`，Q495）、CONTRACTS §8.9 与 Q495/Q496。宿主读数：前端 **61 文件 / 1161 用例**、`vue-tsc` 干净、`vite build` 成功（`DeploymentsView` chunk 36.23 kB）、`routes.test.ts` 11 条。**未验证（NOT RUN）**：本轮**没有任何真机读数**，页面链路没被人点过、也没有 Playwright 用例（`web-smoke` 只走“未登录落到登录页”）；`truncated`/`skipped`/`config_drift` 三种现场只在单测里造过；从这一页发起的三个动作一次都没跑过（动作本身在 P15.2/P15.3 验过，走的是脚本）；24.04 差异未验。自查抓到 3 个实现缺陷（`64 << 30` 被截成 0、空行过滤与校验冲突、`getManagedDeployment` 改成 `async`），都不是真机发现的。P15.3 **已实现、宿主检查通过、真机验收通过**：`internal/deploy` 新增 `record.go`/`update.go`/`probe.go`——`<name>.deployment.json`（`0640`，规范化定义 + 镜像记录，无明文秘密）、`<name>.compose.yaml.prev`（`0600`，上一版原样字节）、`deployment.update` 的预检与执行（停单元 → `files_only` 备份 → 拉镜像 → digest 核对 → 写 `.prev` → 写新配置并 `restart` → 健康探测 → 失败回切原样字节并再探）、面板侧健康探测（探宿主公开入口、`http` 判 `200—399`、`tcp` 判能建连、不跟随重定向、禁 keep-alive、120 秒预算且截断不算通、启动宽限期内失败不算失败）、时间预算切段（`UpdateBudget=9min` / `UpdateBackupBudget=360s` / `UpdateRollbackReserve=120s` / `UpdateMinStep=5s`，每段动手前判断够不够）。代理侧 `internal/agent/deployaction.go` 登记 `deployment.update`（五种 impact、锁含 `backup-policy:`/`backup-repo:`、进度步骤 `stopping`/`backup`/`pulling`/`writing`/`probing`），`internal/agent/deploybackup.go` 是更新前备份的适配层（只收 `files_only`，预检与执行两处都拒 `stop_managed_apps`）。`deployment.apply` 同时接上健康探测（`ApplyOutcome.Health`，探测失败把 `verified` 降成 `partial`），`AssessApply` 的 `health_probe_pending` 告警删除。`go test ./internal/agent/ ./internal/deploy/ ./cmd/...` 全绿（`update_test.go` 13 个用例），`sh scripts/check.sh` **PASS 14 / FAIL 0 / NOT RUN 0**。接线阶段先写测试让缺陷现形，抓到 **3 个产品缺陷**（`ErrDeploymentExists` 挡住更新、配置只在 `!exists` 时写、`restartQuietly` 静默失败），细节见 DECISIONS Q493。**已验证（真机，2026-10-27，VM-A Ubuntu 22.04.5 / docker 29.1.3 / compose 2.40.3 / restic 0.12.1）**：`PHASE=main` **229 PASS / 0 FAIL / 1 NOT RUN**、退出码 0（`docs/evidence/P15/2026-10-27-p15.3/`）——换镜像后记录里的 digest 与 `docker image inspect -f '{{.Id}}'` 逐字相同、健康探测失败 104 秒后回切成 `rolled_back` 且 `error` 为空（`.prev` 与记录都没被动）、按选择备份先停单元再备份且快照能被独立 `restic snapshots` 读到、六种拒绝之后盘上配置与容器一个字节没动、钉一个拉不到的 digest 失败后服务仍在应答；唯一 NOT RUN 是夹具盘 `/dev/sdd` 已有 GPT、按上一轮复用（`sgdisk`/`mkfs` 没重跑，卷的导入/挂载/UUID 全部真读过）。真机这一轮**没有暴露新的产品缺陷**，改掉的 13 条是验收脚本把断言对齐到产品代码时发现的问题（见 §5 的「P15.3 真机验收」小节与证据 README）。P15.2 **已实现、宿主检查通过、接线完成、真机验收通过**：`internal/deploy` 新增 `unit.go`/`applier.go`/`service.go`——包装单元 `upanel-deploy-<name>.service`（`Type=oneshot`+`RemainAfterExit=yes`、`ExecStart` 固定 `docker compose … up -d --remove-orphans --no-build`、`ExecStop` = `down`、`Requires=docker.service`、`[Install] WantedBy=multi-user.target`，逐卷 `RequiresMountsFor` 与 `BindsTo`/`After`，mount unit 名按 `systemd-escape --path` 逐字符实现）、`Applier`（配置 0600/单元 0644、临时文件+fsync+rename、**版本=配置字节 sha256**、同内容幂等重放、异内容 `ErrDeploymentExists`、单元漂移重写、成功与否看 `is-enabled`/`is-active` 读回、删除先 `disable --now` 且仍 active 则 `ErrUnitStillActive` 不删文件、数据卷与业务目录不动）、`Service`（`deployment.apply` 只创建 + `deployment.remove`，预检与执行两阶段，执行前重跑全部判据）。`HostEnv.Volumes` 由集合换成 `VolumeFacts{MountPoint, FilesystemUUID, Mounted, MountedUUID}`，“文件根必须落在它登记的卷挂载点之内”与“启动前 UUID 核对”（`CheckVolumesReady`）因此成立。`go test ./internal/deploy/` **51 个顶层用例全绿**，`sh scripts/check.sh` **PASS 14 / FAIL 0 / NOT RUN 0**。**已验证（真机，2026-10-27，VM-A Ubuntu 22.04.5 / docker 29.1.3 / compose 2.40.3）**：`PHASE=main` **199 PASS / 0 FAIL / 2 NOT RUN**、`PHASE=boot` **51 PASS / 0 FAIL / 0 NOT RUN**（`docs/evidence/P15/2026-10-27-p15.2/`）——真实 `docker compose` 部署起来、宿主端口 HTTP 200、重放不重写不重启、masked mount unit 让 `systemctl start` 失败且没有替我们建目录、重启后单元 `enabled` 但 `inactive` 且系统盘没多出数据、解除 mask 挂回卷后自己起来、删除后单元与配置消失而数据逐字节还在。**未验证**：`/deployments` 写接口与页面（P15.4）、24.04 差异、bind mount 前的句柄级路径核对（`deployment.update`/镜像 digest/按选择备份/健康探测与回切已在 P15.3 真机验收通过）。P15.1 **已实现、宿主检查通过、未接线**：`internal/deploy` 交付受约束 `DeploymentDefinition`（十字段闭集，`privileged`/`devices`/`network_mode`/`cap_add`/`compose_yaml` 等写不出来，请求里出现即 400 `unknown_field`）、八个稳定拒绝码、三段校验（形状 → 宿主事实 → 秘密）、确定性 Compose 渲染（`restart` 恒 `"no"`、长语法挂载 + `bind.create_host_path: false`、`$`→`$$` 防 compose 插值、健康检查不进容器、不写顶层 `name`）、配置摘要与秘密只经 `app_env` 解出；挂载必须落在部署数据根内、所在卷必须写进 `volume_dependencies`（否则依赖卷门禁查不到它）。`go test ./internal/deploy/` 20 个顶层用例 / 100 条 PASS 全绿（含 §17 恶意输入逐条）。**未验证**：无真机读数、无调用方（两个入口尚未 import）、渲染结果未被真实 `docker compose config` 读回；STAGES §17 的三条验收（真实部署/升级、卷缺失重启不绕过、健康失败显示失败）一条都还没有真机证据。P15.2 起接线。证据：CONTRACTS §8.6、DECISIONS Q482、`go test` 输出（无独立证据目录——本子任务没有可跑的现场） |
+| P16 | 集成、恢复与 1.0 发布 | **passed**（P16.1 已实现、宿主检查通过、**真机已验**；P16.2 双平台端到端（2026-10-27 首轮）**22.04 148/0/3、24.04 147/1/3**，那条红已归因为单线程 TCG、换了 QEMU 参数后未复现（不等于修好）；P16.3 七维度复核完成、补了一条 fsync 缺陷（Q505）；P16.4 文档集与发布包完成，**在冻结的 1.0 发布字节上重跑七相位 155/0/3**，Q505 的写路径另做了真机 ext4 探针；P15.4 的页面修复与 Q514 的错误分类修复之后字节又重打两次，最终字节 `3f3b40c1…` 上七相位仍是 **155/0/3**（`P16/2026-10-28-p16.2-final/`），24.04 在同一份字节上也 **155/0/3**（`P16/2026-10-28-p16.2-2404-final/`；首轮 `failup` 有一条红查清为断言采样竞态，收紧断言后重跑 21/0/0，Q515）。**从浏览器完成主要用户流程**这一条也在同一份字节上补齐了两平台：22.04 写链路 43/43，24.04 冒烟 35/0/0 + 写链路 43/0/0（`P16/2026-10-28-p16.2-2404-browser/`；首轮卡在"装面板之后才补 docker、代理没重启"的启动时门，Q516，重启代理后全绿）。**掉电演练全程 NOT RUN**；**amd64 全模块 `-race` 已跑完（这是从 P03 记到 P16 的那句"未执行"的结案）**：全量 3h57m 得 44 ok / 7 FAIL / 3 撞超时 / 1 条 `DATA RACE`，补跑 9h03m 把三个大包跑完（`internal/api` 8h02m、0 竞态、0 失败），**产品代码零条数据竞争**，爆出来的问题全在测试侧（Q517—Q520 五处只动 `_test.go` 的修正，产品字节零变化）。**核心验收矩阵已逐项对照**：STAGES §19 的 31 条**已验 31 / 部分 0 / 未验 0**，见 `docs/ACCEPTANCE_MATRIX.md`（PROXY-02 于 10-30 复核为引错证据，从"部分"改成"已验"；FILE-02 与 APP-02 于 10-29 用 `P16/2026-10-29-matrix/gaps/` 补上真机现场，`PASS 80 / FAIL 0 / NOT RUN 0`；DISK-02 的 LVM/RAID 根盘同日由 `P16/2026-10-29-matrix/disk02/` 两台客机补上——LVM `PASS 91 / FAIL 0 / NOT RUN 3`、RAID1 `PASS 113 / FAIL 0 / NOT RUN 3`，最后一条"部分"就这么关掉了））| P16.1 **已实现、宿主检查通过、真机未验**：一份能力探测实现、三种问法（`upanelctl host-caps` / 代理 `host_caps` / 面板 `GET /system/capabilities`），四条诚实性规则（只在四个系统目录找、三态且 `unknown` 必须带原因、版本只在真读到才填、`null` ≠ 空表），21 条规格每条带 `feature` 与 `hint`；`--line` 六列 TSV 给安装脚本用。第二半：`backup-state.sh`（停服务 → 拷两库含 `-wal`/`-shm` 与 `/etc/upanel` 含 `agent.key` → 起回服务 → `MANIFEST.sha256`，`.incomplete` 标记区分跑一半）、`install.sh` 第 9 步动库前自动备份 + 第 3 步改读 `host-caps --line`、`uninstall.sh` 在 `--purge-*` 前默认先备份、`release.sh` 打包、`check.sh` 新增 `sh-syntax`。宿主 `sh scripts/check.sh` **PASS 15 / FAIL 0 / NOT RUN 0**、前端 62 文件 / 1175 用例；**部署脚本只拿到 `sh -n` 读数，没有一次真实运行；备份/恢复/升级与探测页在 Ubuntu 上一次都没跑过** |
 
 ## 4. 已冻结决策
 
@@ -4719,9 +5271,2277 @@ DELETE 只删定义不删数据），秘密用途闭集加两条。契约见 CON
 （`env.txt` 两台环境与二进制指纹、`result.md` 结果与三个缺陷、`logs/` 两台的完整输出与
 宿主检查、`payloads/{2204,2404}/` 各 42 个原始 JSON）。
 
+### P12.2（2026-10-24）— 策略、运行、快照与面板库副本：先定"谁说了算"
+
+**这一段的第一个决定不是代码，是"定义存在哪儿"。** 仓库与策略在面板侧**不建表**：
+代理里那份镜像就是唯一的真相，`/api/v1/backup/*` 整组是它的编辑器。理由不是省事——
+预检计划里的 `normalized_params` 是冻结的，执行时再向 Web 要一遍定义就等于让"被冻结的
+目标"可替换；而如果面板另存一份，两者迟早漂移，"这条策略绑的是哪个仓库"就会有两个答案。
+代价写在明处：代理不在时整组 **503**（`AGENT_UNAVAILABLE`），不是"先登记、回头同步"——
+那个"回头"从来没有发生过一次。CONTRACTS §14.1 的 `backup_repositories` / `backup_policies`
+两行因此仍属逻辑模型，本轮**没有**对应迁移。
+
+**产品面**（`internal/backup` → `internal/agent` → `internal/agentstore` → `internal/agentclient`
+→ `internal/api`）：
+
+- 仓库定义 CRUD（无 DELETE：契约里没有，且删定义会让"这些快照属于谁"无从回答）与策略 CRUD
+  （可以删：删策略不动仓库、不动快照，审计里明写 `cascaded=false` / `kept:[repository,snapshots]`）。
+  权限按"这条定义引用了什么"分层：仓库引用口令与私钥 → CSRF + 再认证；策略不引用秘密 → CSRF。
+- `backup.run` 的预检与执行。参数按契约 §5 是 `backup_policy_id` + `version`，第三个字段
+  `apps` 是**服务端展开**结果：`apps.TypeSystemd` → `systemd/<unit>`、`apps.TypeDocker` →
+  `container/<id>`。调用方在 `/preflights` 里自己给 `apps` 直接 400（严格解码，不是忽略）。
+  代理侧 `appsVsPolicy` **双向**核对：多给 = 扩大授权（拒）；少给 = 停机不全（阻塞，
+  `BACKUP_APP_UNAVAILABLE`），消息点名是哪个 `app_id`、为什么不降级。
+- 一致性口径闭集 `files_only` / `stop_managed_apps`，同时是快照标签
+  （`upanel:consistency:<mode>`）。`files_only` 会在预检里告警"正在写入的数据库在快照里
+  可能不一致"；`stop_managed_apps` 要求策略里**每一个** app_id 都能解析出可启停对象，
+  `compose`、只登记入口的链接型、已删应用三种情况回 422 `DEPENDENCY_BLOCKED` 并说明理由。
+- 执行顺序：读现状（只认"刚才真在跑的"）→ 停（逐条 `done/verified/note`）→ 面板库在线副本
+  → `restic backup` → `restic stats` 回读快照 id（`Verified` 只在读回来之后成立）→ 拉起
+  （`context.WithoutCancel`，**失败路径也要拉起**）→ 清临时副本。
+- 面板库副本用 `VACUUM INTO` + `mode=ro`，不用 `os.Copy`：直接拷 `.db` 会漏掉 `-wal` 里
+  已提交的事务，得到一份看起来正常、实际更旧的库。副本目录 0700 / 文件 0600，只在这次运行
+  期间存在，`observed_state` 里只留大小、`user_version`、`integrity_check` 与时间。
+- 快照查询两条：`backup.snapshots`（列表，`size_included:false`、`size_bytes` 字段**缺省**
+  而不是 0——每条要单独跑一次 `restic stats`）与 `backup.snapshot`（详情，带 stats 与
+  `restore_verified_at`）。`registered` / `found` 是**状态字段**，不回 404：404 会被读成
+  "这条路由不存在"。字节数按公共契约用十进制字符串输出，不用 Number。
+
+**实现初期的一处包测试红是判据错，不是产品错**（记进 DECISIONS Q342；后续真机缺陷另见下文）：`TestUpdateRepositoryVersionConflict`
+期望 409 拿到 400——用例自己的 PATCH body 里 `location` 少了 `relative_path`，400 出在
+`Normalize()`、在调用代理之前；结尾那条 `updatedV != 0` 读的又是前两次调用留下的痕迹。
+改判据（补全 body、断言前清零），不放宽断言。
+
+**另修一处不一致**：删策略原本回 `204`，而这份 API 的每个响应都带 `request_id` 信封——
+一个 204 会让前端那条通用解析路径在这里断掉。改成 `200` + 空对象，与站点、应用、分组一致。
+
+**验证（宿主）**：`go build ./...`、`go vet ./...` 无输出；`go test ./...` 全包通过
+（`internal/api` 117.6 秒）；`redocly lint api/openapi.yaml` 有效（6 条警告全部是改动前
+就有的：health 两条无 4XX、terminal connect 无 2XX、三个未被引用的通用组件）。
+新增用例：`internal/api/backup_test.go` 14 条（权限 401/403、无调用端 503、列表形状、
+create 要再认证 + 审计、版本冲突 409 / 记录不在 404 / 缺 version 400、策略 CRUD + 审计、
+`stop_managed_apps` 缺 app_ids 400、快照列表必须给 `repository_id`、列表无 size、
+详情带 size 且 `restore_verified_at` 为 null、调用方给 apps 400、策略不在 404、
+解析不出 422 并点名、compose 422、files_only 空数组），`internal/agent/backuprun_test.go`
+3 条（策略应用少给就阻塞、files_only 不带 apps、预检计划带评估），
+`internal/backup` 的 `policy_test.go` / `run_test.go` / `paneldb_test.go`，
+`internal/agentstore/policystore_test.go`。
+
+**验证（最终真机）**：同一最终脚本（sha256 `d7028b17…40c78`）与同一组二进制在
+Ubuntu 22.04 / restic 0.12.1、Ubuntu 24.04 / restic 0.16.4 上分别完整执行，均为
+**PASS 170 / FAIL 0 / NOT RUN 3，exit 0**。宿主逐字比较两台 `results.txt`，名称、数量、
+顺序一致；并结构化复核四个新增任务：SFTP succeeded，断网与写满 failed + COMMAND_FAILED，
+取消 canceled；SFTP 快照为完整 64 位 id、`verified_by=restic stats`，断线前后列表均包含它。
+断网只杀本次 restic 的 SFTP ssh；写满只使用独立 64 MiB tmpfs 且 filler 真撞 ENOSPC。
+两类失败的源哈希均未变，baseline 快照用完整 id 独立回读一致；写满后的只读核对使用
+`--no-cache --no-lock`，避免核对工具自己向已满仓库写锁。
+
+真机共抓出并修复 4 个产品缺陷：Q343（0.12 短快照 id 唯一解析）、Q344（Web 写超时容纳
+慢机器 Argon2id）、Q345（进度回调堵管道与 ErrWaitDelay 分类）、Q347（备份专用 100 秒
+agentclient 晚于代理 90 秒查询预算）。Q348 记录故障注入、PEM 编码、追加 filler、只读核对
+和证据边界的修正。最终宿主 `scripts/check.sh` 为 13/0/0，日志与所有失败现场均保留。
+
+**结论：P12.2 passed。** 剩余 NOT RUN 只有产品恢复、保留清理、浏览器 UI，分别属于
+P12.3/P12.5；不折算成通过。最终证据在远程与宿主两侧扫描测试口令和私钥标记均零命中。
+完整结果、二进制/脚本指纹、任务 id 和历史失败现场索引见
+`docs/evidence/P12/2026-10-24-p12.2/result.md`。
+
+### P12.3（2026-10-24/25）— 恢复：先证明"目标是谁"，再谈"把文件放进去"
+
+**这一段最难的地方不是 restic，是"替换一个目录"这件事本身。** 备份只要读，恢复要写，
+而且写在别人的数据上。所以恢复的顺序被定成一条链，每一环都不许跳过：
+
+1. **先证明目标是谁**。`target_root_id` 指的是面板登记过的根，执行前重新比对它的身份指纹
+   与版本；根被换成软链、被替换、被改写，`revalidate` 直接给 `DEVICE_IDENTITY_CHANGED`，
+   恢复不开始。这一条与磁盘动作共用同一个 ophand：**预检放行不等于执行时还放行**。
+2. **默认不覆盖**。目标必须不存在或为空；非空且没带 `overwrite` 时预检就 `allowed=false`。
+   要覆盖也不是"先删再写"，那是把旧数据当赌注：先在同父目录建随机暂存树，restic 经
+   `F_DUPFD_CLOEXEC` 复制的独立目录描述符写进 `/proc/self/fd/3`（口令仍只从
+   `RESTIC_PASSWORD` 走，私钥不落地），**写入目标与真实目标同一文件系统**，最后一步才换。
+3. **换是原子的**。目标已存在用 `RENAME_EXCHANGE`，不存在用 `RENAME_NOREPLACE`（宁可失败
+   也不覆盖别人刚建的东西）。换完重新遍历核对整棵树，通过之后才删旧树；核对不过，旧树还在。
+4. **失败不发布**。写满、断连、restic 非零退出、抽样不一致——任何一条都在"换"之前失败，
+   暂存树清掉、原目标一个字节都没动、**被停的应用照样拉起**（`defer` 走 `WithoutCancel`，
+   失败路径也执行）。停应用这一步只停"刚才真的在跑"的，跑完只拉起停过的那些。
+
+**验证分两态，而且必须自己说清楚是哪一态。** `backup.verify` 的 `sample_restore=false` 只做
+仓库结构检查（`restic check`），结果里 `restore_verified=False`——它不是"备份能恢复"的证明；
+`sample_restore=true` 才真抽样恢复到临时目录并核对内容。这个字段就是给 UI 和巡检看的，
+免得把"结构没坏"读成"能恢复"。
+
+**保留清理只删自己冻结的那一批。** `backup.prune` 预检把 `expected_delete_ids` 冻进计划，
+执行时集合一变就 `PREFLIGHT_STALE`，不删任何东西（`prune-stale-deleted-nothing-*` 两条分别
+覆盖本策略与第二策略）。清理只作用于指定仓库：本地 prune 之后重新读 SFTP 仓库的快照列表
+（**清理后**读，不复用清理前的响应，Q355），另一个仓库逐字未变。
+
+**两件跟"运维到底能不能用"有关的事。** 一是仓库里的失效锁：`check` 与 `forget --prune`
+要独占锁，主机崩一次就永久卡住，而 restic 那句"可以用 unlock 命令"在面板上等于没说——
+把口令只经标准输入、私钥只在 tmpfs 里短暂存在的产品，运维手上没有能跑的 restic。所以产品
+自己清（Q359）：命中残留锁句式先 `restic unlock`（不带 `--remove-all`，只删 restic 认定的
+失效锁）再重试一次。二是失败消息：`Fatal: There were 10 errors` 对运维没有任何信息量，
+写满磁盘、没权限、路径不存在在那一行里长成一个样子；补第一条具体错误（Q360），而具体错误
+的真实形状是 `ignoring error for <path>: <err>`，不是 `error:`（Q363，这一条是我自己第一版
+没修对、被真机打回来的）。
+
+产品面：`internal/backup/{restore,restore_types,prune,retention,exec,restic,restic_fd_unix,restic_fd_other}.go`、
+`internal/agent/{backuprecovery,appstop,backupquery,backupaction}.go`、
+`internal/agentstore/{verificationstore,backupstore}.go`、`internal/agentclient/backup.go`、
+`internal/api/{backup,backupexpand}.go`（`internal/backup` 里没有 `recovery.go`：恢复的核心
+在 `restore.go`，跨包串联在 `internal/agent/backuprecovery.go`）。契约 §12.3 补了失效锁与
+失败消息两条不可让的行为。
+
+**真机抓出并修掉 4 个产品缺陷**：Q356（`os.NewFile` 包装借用 fd，GC 把恢复目录句柄关掉，
+长恢复必踩）、Q357（会话在库里滑动续期、Cookie 按登录时刻到期，长任务跑到 30 分钟全 401）、
+Q359（失效锁）、Q360/Q363（失败消息只剩汇总，且补原因只认 `error:`）。验收方法上修正
+5 条：Q355（清理后必须重读现场）、Q358（按字节填满会被预检正确拦下）、Q361（并发验收会
+把失败判给产品，两份日志作废）、Q362（改用 inode 耗尽夹具，测"写到一半失败"）、
+Q364（`gofmt` 未清零就不构建；部署用 `install` 逐文件覆盖并逐文件核哈希，`mv` 通配曾静默
+留下旧的 `upanelctl`）。
+
+**结论：P12.3 passed。** 两台 VM（24.04/restic 0.16.4、22.04/restic 0.12.1）各
+**PASS 117 / FAIL 0 / NOT RUN 0**，退出码 0，逐节断言数与断言名单跨机逐字一致；宿主
+`check.sh` 13/0/0（node 必须按 `.nvmrc` 用 v22.23.3，默认的 v24 会被闸门拦下），
+`//go:build linux` 的三条用例另在两台 VM 上各实跑一遍全 PASS（Windows 宿主编译不到它们）。
+失败路径不只核对任务终态，还核对源/旧目标哈希不变、无暂存残留、应用仍 active。
+剩余 NOT RUN：浏览器恢复/清理 UI（P12.5）、timer 与错过执行策略/时区/非 root 脚本（P12.4，
+**已由 P12.4 解除**，见下一小节）。
+完整结果见 `docs/evidence/P12/2026-10-24-p12.3/result.md`。
+
+### P12.4（2026-10-25）— 受管理 timer 与受管理脚本：让"到点自己跑"变成可验证的事实
+
+**这一段的难点不是 cron 表达式，是"谁在替你做事、你凭什么相信它做了"。** 定时任务跑的时候
+没有人在看，出错也不会有人当场发现。所以整段的形状是——定义只有一份（代理里）、单元是可读的
+（时区/错过执行/最长运行/不重叠都写在文件里）、触发是幂等的（同一分钟重放不新增操作）、
+结果会被对账导入（任务表里看得到，也知道它从哪来）。
+
+1. **两份真相会立刻对不上。** 计划与脚本只存在代理库，Web 的 `/schedules*`、`/scripts*`
+   是代理镜像直读；代理不在就 503 `AGENT_UNAVAILABLE`，不回空列表——空列表会让管理员以为
+   "计划都没了"，然后照着记忆重建一遍。id 形状（`sch_`/`scr_` + 32 位十六进制）在打代理
+   之前就 400。
+2. **意图与事实分开写。** `enabled`/`version`/`timer_ref` 是面板要的，`installed`/
+   `unit_file_state`/`active_state` 是 systemd 的原话；`next_elapse` 读不到时字段缺席，
+   不编时间；`blockers` 永不为 `null`。
+3. **不重叠不是注释，是 `--wait`。** 单元初版只写了 `Type=oneshot` 并声称"上一次没跑完就
+   不会起第二次"——这句话是错的：`schedule-trigger` 把触发交给代理就返回，真活跑在代理
+   后台，单元几十毫秒就结束。真机上这会让长任务每分钟叠一层（第二个操作排队 30 秒后
+   `RESOURCE_BUSY`，journal 每分钟一条红）。修法是把"单元 active"和"这次操作还在跑"绑成
+   一件事（Q371）：`schedule-trigger --wait` 轮询到终态才退出，`TimeoutStartSec` 取计划
+   上限 + 60 秒收尾。
+4. **触发只认 root，输入只有触发 ID。** `POST /internal/v1/schedules/:id/trigger` 按路径
+   形状单独放行 UID 0，其它内部路由仍只接受 `upanel-web`；动作来自代理里已批准的定义，
+   调用方给不了 action/params。槽位折到 UTC 分钟、`TriggerID` 幂等、伪造槽 400，判决闭集
+   `triggered|blocked|duplicate|failed`（`blocked` 是策略在起作用，不是故障）。
+5. **系统操作者在库里有一行，但登录不了。** 保留 id `1<<62`，面板惰性建 `scheduler` 行
+   （`role='viewer'`、`disabled=1`、哈希前缀 `!`），登录回答与"没有这个账号"同码同文案，
+   用户列表里不出现。定时操作每 30 秒被对账导入 `jobs`（`cancellable=0`、`needs_sync=1`，
+   预检引用如实抄写），水位取 `jobs.created_at` 而不是导入时刻。
+6. **脚本是非 root 的。** 落盘 `root:upanel-shell 0750`、解释器固定 `/bin/sh`、运行身份
+   `upanel-shell`（不在 sudo/docker/disk 组里，写不了 `/etc`）、运行前核对 SHA-256、
+   被计划引用时删不掉（`SCRIPT_IN_USE`）、超时被终止并把原因写进任务。
+
+产品面：`internal/schedules/{module,installer,units,schedule,params,record}.go`、
+`internal/scripts/{module,scripts,params}.go`、`internal/agentstore/{schedulestore,scriptstore}.go`、
+`internal/agent/{scheduleaction,scheduleservice,scheduletrigger,scriptaction}.go`、
+`cmd/upanel-agent/scheduletargets.go`、`cmd/upanelctl/schedule.go`、
+`internal/agentclient/{schedule,client}.go`、`internal/api/{schedule,router,server}.go`。
+契约 §12.4 补了若干条不可让的行为，其中第（12）条是"读一份计划列表的代价随条数增长，
+调用上限也按这个定"。
+
+**真机抓出并修掉 9 个产品缺陷**：Q371（不重叠没被实现）、Q374（`interpreter` 库里存基名
+`sh`、契约写 `/bin/sh`，最后以 `CHECK constraint failed` 炸在真机上）、Q375
+（`systemd-analyze calendar` 在 UTC 机器上少打一行 `(in UTC)`，每条计划都被判成"不会触发"）、
+Q376（脚本目录的上级 `0700 root:root`，`upanel-shell` 连穿都穿不过）、Q377
+（`UNIQUE(kind, target_id)`/`UNIQUE(name)` 不在预检说话，预检放行、提交 409）、Q380
+（root 跑的 `--wait` 读不到它要等的那次操作，一直在空转）、Q381（导入即终态的任务
+`needs_sync` 永远停在 1，扫描每 30 秒再问一遍代理）、Q382（`busy_timeout` 5 秒仍
+`database is locked`）、Q385（一条列表读 10144 毫秒，压过 Web 侧 10 秒上限，健康的代理被
+报成"代理不可用"）。验收方法修正 9 条：Q370、Q372（行式 JSON 助手的答复不能带裸换行）、
+Q373、Q378、Q379、Q383（"一共只触发一次"不是"不重叠"）、Q384（两种"没有"被混成一种）、
+Q386（探针把"收敛"定成 `needs_sync==0`）、Q387（"不重叠"的判据认了 systemd 的行文与
+T+65 那一刻的抽样）。
+
+**结论：P12.4 passed。** 两台 VM（24.04/systemd 255、22.04/systemd 249）各
+**PASS 246 / FAIL 0 / NOT RUN 0**，退出码 0，逐节断言数与断言名单跨机逐字一致；宿主
+`check.sh` 13/0/0（web 45 文件 820 用例）。**22.04 是第二轮才绿的，首轮 5 条红全是验收
+工具自己的毛病（Q386、Q387），产品当时是对的**——同一份真 journal（`S F S F`，79 秒）
+证明实现没问题、判据错了，两轮都留了记录。剩余 NOT RUN：浏览器备份/定时任务 UI（P12.5）、
+证书续期的真实执行（P12.5，本轮只验"接线前就 blocked 且指向 P12.5"）、`go test -race`
+（宿主无 gcc，`-race requires cgo`）。
+完整结果见 `docs/evidence/P12/2026-10-24-p12.4/result.md`。
+
+### P12.5（2026-10-25）— 证书续期 timer 接入、备份页与计划任务页：没有人在看的时候，凭什么相信它做对了
+
+**这一段难的不是接线，是"凌晨三点没有人看"。** 定时续期跑在 systemd 里，触发那一刻面板
+可能关着、代理可能重启过、证书可能早就换掉，所以链路每一段都必须自己说明：定义由面板
+按账本展开（调用方填的域名一律不信）、单元由代理写、触发只认 root 且幂等、结果按
+observed 回写、面板再按域名对账导入任务表。判据也不是"接口返回 200"，而是**三处事实必须
+对得上**：账本的 `fingerprint` / `not_after` / `last_error`、任务表那一行、盘上
+`live/<domain>/cert.pem` 的真实指纹。
+
+1. **计划里存的是域名与 staging，不是证书 id。** 续期真正需要的只有两件事——域名和
+   要不要 staging——它们本身就是落盘事实，不是引用（Q388）。执行那一刻再去查证书记录，
+   账本可能已经对不上：行被删了、域名被改了、ACME 环境换了，凌晨三点就会对着一个不存在的
+   目标跑。所以 `schedule.apply` 只收调用方给的 `certificate_id`（或什么都不给），域名与
+   `staging` 由面板按账本展开填进去，调用方自己填的域名一律不信——否则就是一条
+   "给任意域名签证书"的旁路。
+2. **代理按域名回答"这张证书还在不在"。** `TargetLookup` 的入参从证书 id 改成域名，
+   查的是 `/etc/letsencrypt/live/<domain>` 这个盘上目录：账本是面板的镜像，盘上那个才是事实，
+   两者不一致时信盘上那个（`cmd/upanel-agent/scheduletargets.go`）。
+3. **签发与续期是同一条动作，靠 `scheduled` 分开语义。** 定时触发只发
+   `{domain, staging, scheduled:true}`，不带证书 id、不带 `force`，于是
+   `--keep-until-expiring` 天然生效——一张还没到期的证书不会被无谓地重签，这是速率限额的
+   用法；要"现在就重签"只有人在面板上点续期那一下（`forceRenewal` 认的正是这个条件）。
+4. **失败必须留下原因，而不是一句"动作执行失败"。** 注册表在动作失败时只写
+   `error.message`，失败任务的 `result` 按契约是空对象，certbot 的 `stderr_tail` 到不了
+   管理员眼前；一次每晚都在失败的续期，界面上分不出是 80 不通、账号失效还是速率限额。
+   `certbotFailure` 实现 `FailureReasoner`（Q391），判据是**任务表那句必须等于账本
+   `last_error`，并且必须出现 certbot 自己的话**。
+5. **预检要绑得上目标。** 判决说 `allowed=true` 却没有绑定，注册表按"实现错误"回 500，
+   systemd 只把单元的失败告诉你——人到手的是一个数字（Q390）。定时续期没有证书 id 可绑，
+   目标就是那个域名本身。
+6. **页面不自己判断"要不要再认证"。** 备份页与计划任务页的 `needsReauth` 从代理的
+   `ActionPolicy` 派生，页面不按"这个动作看起来危不危险"自己判：`backup.run/restore/prune`、
+   `certificate.issue/renew`、`schedule.*`、`script.*` 都要再认证，`backup.verify` 是唯一
+   不需要的那条。判错的后果很难看——对话框说"确认即可"，提交时服务端回 403
+   `REAUTH_REQUIRED`，管理员以为面板坏了。同理，prune 的待删名单不许页面拼：它由预检算出、
+   代理写进 `normalized_params.expected_delete_ids`、提交时按同一份复核（Q389）。
+
+产品面：`internal/schedules/{module,schedule}.go`、`cmd/upanel-agent/scheduletargets.go`、
+`internal/certificates/{ops,ledger}.go`、`internal/agent/{certificateaction,preflight}.go`、
+`internal/api/{schedule,scheduleexpand,preflightexpand}.go`、
+`web/src/views/{BackupView,SchedulesView}.vue`、`web/src/api/{backup,schedules,preflights}.ts`、
+`web/src/components/{backup,schedules}.ts`、`web/src/utils/jobresult.ts`、
+`web/src/modules/registry.ts`、`web/src/router/routes.ts`。契约 §12.5 补了若干条不可让的
+行为，其中第（7）条是"再认证标志从代理抄、参数只带该带的字段、`GET /scripts/:id` 外面包了
+一层 `{script:…}`"。
+
+**真机抓出并修掉 4 个产品缺陷**（Q390 定时续期预检绑不上目标身份、Q391 失败原因到不了任务
+与账本、Q392 `Module.Apply` 里 P12.4 的"尚未接线"闸没拆、Q393 审计行按解码它的结构体长
+——空的 `certificate_id`/`email`）；**验收方法修正 5 条**（Q394 关校验口造不出失败、Pebble
+把通过过的授权缓存一小时；Q395 断言 80 与 5002 是空的；Q396 §9 拿整轮开始时的会话去读接口；
+Q397 prune 数仓库总条数与水位取在触发之后；Q398 采样器 `ps -e -C` 自己把 2 vCPU 客户机
+压到运行队列 9 条）。24.04 一共跑了 12 轮、22.04 跑了 2 轮才全绿，前 11 轮的红按
+"夹具 → 判据 → 产品"的顺序一层层剥开。
+
+**结论：P12.5 passed。** 两台 VM（24.04/systemd 255/certbot 2.9.0、22.04/systemd 249/
+certbot 1.21.0）各 **PASS 214 / FAIL 0 / NOT RUN 0**，退出码 0；逐节断言数（25/20/44/24/30/
+15/20/10/19/7）与归一化后的断言名单跨机逐字一致；同一份脚本（md5 `9fd078cb…`）同一组
+二进制。宿主 `check.sh` **PASS 13 / FAIL 0 / NOT RUN 0**（按 `.nvmrc` 用
+`H:\Code\.toolchains\node-v22.23.3-win-x64`；同一个 commit 先拿系统 node v24.15.0 跑过一次是
+11/2，两条红都在工具链层——`node-version` 与 `openapi-lint` 的 libuv 收尾断言，换回锁定版本
+后同一份代码全绿，两次输出都留在证据里）。
+剩余 NOT RUN：浏览器里真实点击两个页面（本轮验的是"产物打进了二进制、里面带着这些动作"
+与"页面依赖的读接口活着"，不是渲染与交互；`web-smoke` 走的是首页/存储页，不覆盖这两个
+页面）、`go test -race`（宿主无 gcc）。
+完整结果见 `docs/evidence/P12/2026-10-25-p12.5/result.md`。
+
+### P13.1（2026-10-26）— 历史监控：先决定"什么时候该没有数据"，再谈怎么存
+
+**这一段难的不是存点，是回答"为什么这里没有点"。** 同一个"过去一小时 CPU 怎么走的"，
+一分钟前看和三个月后看读的不是同一张表；代理停过十分钟，那十分钟就**必须**是空的，
+不能补零、不能插值、不能拿上一次的值填——补过的曲线会让"当时机器是不是卡住了"这个问题
+永远问不出答案。所以先定三件事：时间戳是谁的、缺的时候留什么、读的时候从哪一层取。
+
+1. **时间戳是样本自己的采集时刻，向下对齐到桶边界，存成 INTEGER Unix 秒。** 快照里
+   每一段（CPU/负载/内存/网卡/容量）都有自己的 `collected_at`，用它而不是请求时刻：
+   采集循环卡住时，值的时间比请求时间旧，历史必须记那个旧时间。落库时 `alignUnix(TS, 桶宽)`
+   向下对齐，主键 `(scope,target_id,metric,resolution,ts)` 复合 + `WITHOUT ROWID`，
+   同一份快照重写不产生第二行（`INSERT OR IGNORE`）（Q399）。
+2. **读哪一层由"时间跨度 × 实际保留窗口"决定，不是由步长决定。** 初版按步长从细到粗试，
+   谁先塞进 1440 点就用谁——那是错的：保留窗口被配短了，raw 里根本没有三天前的点，
+   按步长选层会选中一个空层，页面得到"过去三天什么都没发生"。现在的规则是跨度落在哪个
+   窗口里就读哪一层（raw ≤24h / minute ≤30d / hour ≤365d），步长再在这个层上按
+   1440 点上限加粗并向上对齐层宽，响应回报 `resolution`/`step_seconds`/`max_points`（Q400）。
+3. **2 秒轮询代理快照、按 `collected_at` 去重、缺口就是没有行。** 轮询比代理的 5 秒采集
+   快一档，是为了不踩点（踩上就丢一整份快照）；去重靠 `lastSummaryAt` 与库层主键两道。
+   段状态不是 `ok`、值为 `null`、代理连不上——三种情况都不写行，`missing_points` 如实计数，
+   永不补零（Q401）。
+4. **聚合窗口=源粒度的保留窗口，裁剪点留两个桶宽，先聚合后裁剪。** 先裁后卷会让最老的
+   那个桶永远卷不上，所以顺序固定；`PendingMetricBuckets` 只认"源有数据、目标还没有行"的
+   桶，重启、崩溃、时钟回拨都能自愈补算（200 一批 / 每轮 4000 桶）（Q402）。
+5. **差分指标在进程重启后的第一份快照里必然缺失。** CPU 使用率与网卡速率是相邻两次
+   `/proc` 采样的差，代理重启后没有"上一次"，所以那四个 `load1/load5/load15/
+   memory_used_percent` 有四行、`cpu_usage_percent` 一行没有——这是正确行为，不是丢数据。
+   这条在验收里被反过来当过两次证据（见 Q405）。
+6. **状态接口只说本进程知道的事。** `GET /system/metrics/status` 的 `inserted/aggregated/
+   pruned` 是这个进程启动以来的计数，行数是查出来的；`collecting` 与 `enabled` 分开报，
+   采集关掉时 `reason` 说明是配置关的而不是"代理坏了"。
+
+产品面：`internal/metrics/{recorder,series,query,reader}.go`、`internal/store/metricstore.go`、
+`migrations/0011_metric_samples.sql`、`internal/api/metrics.go`、
+`cmd/upanel-web/main.go`（装配采集循环）。契约 §13.1 新增"P13.1 已实现范围"、§3 补
+`/system/metrics/status`、§14.1 重写 `metric_samples` 行。
+
+**真机抓出并修掉 1 个产品缺陷**：Q404——加权平均的浮点误差（一整桶样本值全等于 1.9 时
+`SUM(1.9*12)/SUM(12)` 算出 `1.8999999999999997`）撞上表上的
+`CHECK (min_value <= value AND value <= max_value)`，整个小时桶写不进去、每轮重试都失败，
+那一小时**所有**指标的 hour 行永久缺失。修法是把平均值夹回 `[MIN(min_value), MAX(max_value)]`
+（一组数的加权平均必然落在区间内，落到区间外的只可能是浮点误差，所以这是还原事实、不是
+放宽不变量），聚合与查询两处都夹，并留下用 1.9 / 14.2 复现的回归测试。
+**验收方法修正 4 条**：Q405 缺口判据窗口的右端也要让一个桶宽（重启后第一份快照的
+`collected_at` 落桶后会掉到 `GAP_END` 之前，被误判成"停机期间仍在写"）；Q406 换行符与
+执行位属于构建输入（`check.sh` 加第 14 关 `line-endings`，`scp` 的二进制要 `chmod 0755`）；
+Q407 三条"看着在验、其实什么都没证"的断言（恒真的 socket 断言、按粒度而不是按 scope 读
+series、关闭采集后的基准取样点在 `stop_web` 之前）。
+
+**结论：P13.1 passed。** 两台 VM（24.04 的 systemd 255 / Python 3.12.3 / sqlite 3.45.1、
+22.04 的 systemd 249 / Python 3.10.12 / sqlite 3.37.2）各 **PASS 88 / FAIL 0 / NOT RUN 0**，
+退出码 0；逐节断言数（6/5/22/9/10/23/8/5）与归一化后的断言名单跨机逐字一致（`diff` 无输出）；
+同一份脚本（md5 `d08964c5385a5156308386001c2190bf`）与同一组二进制（web `c99f56c3…`、
+agent `b469732d…`、ctl `5d4a1bbf…`）。宿主 `check.sh` **PASS 14 / FAIL 0 / NOT RUN 0**
+（按 `.nvmrc` 用 `H:\Code\.toolchains\node-v22.23.3-win-x64`）。
+剩余 NOT RUN：前端历史图表（属 P13.4，本子任务只交付后端端点与存储）、`go test -race`
+（宿主无 gcc，与 P12.5 同一理由）、"365 天真实老化"没有等真实时间（验收把三层保留窗口压到
+3m/2h/4h 验证等价行为；50 万行的行数上限裁剪路径只有单测覆盖，真机没跑到那个量）。
+完整结果见 `docs/evidence/P13/2026-10-26-p13.1/result.md`。
+
+### P13.2（2026-10-26）— 告警：难的不是"超了就叫"，是"凭什么说它一直在超"
+
+**这一个子任务真正要回答的是三个问题，代码量反而是最小的一部分。** 第一，什么叫"持续"——
+区间平均会把"冲高 30 秒又落回来"抹平，而那正是最需要看见的东西，所以判据是窗口
+`(now - duration, now]` 内**每一个**样本都在线外，有一个落回线内就掉回 `ok`。第二，什么叫
+"好了"——`recovery_threshold` 与 `threshold` 之间那条死区就是防刷屏的全部机制，恢复同样要
+持续 `duration_seconds`，跨不过死区就不算恢复。第三，什么叫"不知道"——窗口里没有样本、
+最新样本超过容差没更新、窗口前段还没攒够，这三种情况状态机**原地不动**，只把原因写进
+`last_reason`；采集停掉十分钟就自动"恢复"一次的告警，比没有告警更坏。已 firing 的规则遇到
+数据中断继续开着，"不知道"不能得出"已经好了"（P13.1 定下的"缺就是没有行、永不补零"这条
+口径，在告警这一层第二次被当成判据用）。
+
+1. **三态状态机落在规则行上，CAS 加版本。** `ok --超限--> pending --超限持续够--> firing
+   --恢复持续够--> ok`，`WHERE id=? AND version=? AND state=?`。数据不足时状态不变，因此
+   没有第四态；"unknown"不是状态，是这一轮没做判断。评估每 15 秒一轮，`pending` 的持续判断
+   因此从来不是一次算出来的（这一条直接生出了 Q417）。
+2. **一个事件周期只有一行。** 触发 INSERT `firing`，恢复原地 UPDATE 成 `resolved` 并写上
+   `resolved_at`、实际 `duration_seconds` 与 `peak_value`（按 `[started_at, resolved_at]`
+   重算的极值，不是触发那一刻的值）。"恢复只发一次、未变化不刷屏"是**结构**保证：
+   `UNIQUE INDEX idx_alert_events_open (rule_id) WHERE state='firing'`。规则删除时事件
+   不级联删除（`rule_id` 是 `ON DELETE SET NULL`，变 0），快照字段照旧，历史仍然说得清
+   "当时是什么条件"；删规则或停用前先把打开的事件收口，否则那行会变成永远 firing 的孤儿。
+3. **双口径是对偶的。** `any`：任一条件满足即超限，恢复要求两个都回到安全侧；`all`：全部
+   满足才超限，恢复只要一个回到安全侧。验收在同一份真实容量数据上同时验了这两面——
+   `any` 触发、`all` 不触发，一条判据证两面。
+4. **维护静默只压通知，不压判定。** 落在静默窗口内的事件记 `silenced=1`，事件照记、状态机
+   照跑。机器确实超限了，这是事实，不该因为"正在维护"就假装没发生。
+5. **可空字段回 `null` 而不是空串。** 这一条看着像文档活，实际是客户端语义：`new Date("")`
+   是非法时间，`x == null` 把空串判成"有值"，于是"这条事件恢复了没有"只能靠 `state` 猜
+   （Q418）。
+
+产品面：`internal/alerts/{alerts,evaluator,store}.go`、`internal/api/alerts.go`、
+`internal/metrics/cadence.go`（`WriteCadence`）、`migrations/0012_alerts.sql`。契约 §13.2
+新增"判定口径"八条、事件形状与去重、`silenced` 的边界、审计动作清单；`api/openapi.yaml`
+的 `AlertRule`/`AlertEvent`/`AlertSilence` 改成 OpenAPI 3.1 的可空写法。前端页面属 P13.4，
+通知渠道属 P13.3——本子任务只交付后端端点与存储，`silenced` 现在**只标记、不发送**，
+因为还没有发送方。
+
+**真机抓出并修掉 3 个产品缺陷**：Q414——覆盖率容差与 `duration_seconds` 地板按写死的 5 秒
+判，而容量序列走 `storage` 的 30 秒缓存，结果一条空间规则的表象是"配好了永远不响"、
+`last_reason` 却写"窗口内没有任何样本"（这会让 PLAN §18 要的空间/inode 告警静默失效，
+且不在任何检查里报错）；修法是 `metrics.WriteCadence` 成为唯一答案，新鲜度
+`max(3×节奏, 20s)`、窗口前段余量 `max(2×节奏, 10s)`、`duration_seconds ≥ 2×节奏`。
+Q417——`last_reason` 只在"进入 pending"那一轮写，后几轮落进"没迁移"的默认分支被覆盖成空串，
+**最需要解释的那一刻恰好什么都不说**，而这个症状与 Q414 长得一样、会把排查带偏；修法是从此
+每一轮都写进度（`已超限，正在计持续（还需 12s）`）。Q418——契约说可空、实现回空串，
+4 处 `*string` 修正加 3 个按**原始 JSON** 判 null 的回归测试。
+
+**验收方法修正 6 条**：Q415 整机 fd 总数是环境前置条件（24.04 上 `systemd-logind` 泄漏
+7477 个 fd，`storage.topology` 从 0.027 秒变成 25—41 秒，容量序列一个点也落不下来，25 条
+连锁失败；顺带解开了上一轮"agent 103% CPU"之谜）；Q416 查询辅助函数不许吞掉 SQL 错误
+（列名写成 `details`、真名 `redacted_details`，错误被 `2>/dev/null` 吞掉后与"查出来是空"
+长得一模一样）；Q419 三处判据修正（断言照着错的实现写、`R1_T0` 取晚 13 秒、把跨两次读的
+断言当原子事实——改成一个读事务的 `pending_probe`，另加一条不受取样时刻影响的强判据：
+事件的 `started_at` 必须比 `state_since` 至少晚 `duration_seconds`）；Q420 `$(( ))` 里塞
+命令替换等于给脚本埋地雷（一个解不出来的 Unix 秒整数就把整轮验收崩掉，红都不红）。
+
+**24.04 跑了六轮，每一轮红的性质都不一样**：117/25（环境病理，Q415）→ 139/3（脚本 bug，
+Q416）→ **142/0**（第一次全绿）→ 145/2（Q418 修完后一条断言反过来红 + 一处竞态，Q419）→
+崩在 §3.1、exit 2（脚本 bug，Q420）→ **148/0**。这不是同一件事重复六遍，而是四轮各自撞到
+不同层面的问题；22.04 跑了二轮（142/0 → 148/0）。第 1 轮的完整日志被后续轮次覆盖了，
+只留失败名单原文，已在 result.md 里如实注明——不把已经丢掉的日志假装还留着。
+
+**结论：P13.2 passed。** 两台 VM 各 **PASS 148 / FAIL 0 / NOT RUN 0**，退出码 0；逐节断言数
+（7/9/48/63/9/8/4）与归一化后的断言名单跨机逐字一致（`diff` 无输出）；同一份脚本
+（md5 `c74dd469e47a7c17aad05e94b628d930`）与同一组二进制（web `082752b3…`、agent
+`1610950d…`、ctl `e5e4ea6d…`）。宿主 `check.sh` **PASS 14 / FAIL 0 / NOT RUN 0**——这一轮
+它的意义在 `openapi-lint` 那关：Q418 那条契约漂移就是它挡住的（修之前 13/1，7 条
+`error struct: 7`），改成 OpenAPI 3.1 写法并通过 DTO 修正之后回到 valid + 6 warnings。
+剩余 NOT RUN：通知渠道（属 P13.3，`silenced` 目前没有任何发送方）、告警桌面与
+`POST /alerts/events/:id/ack`（属 P13.4，列已备好）、`go test -race`（宿主无 gcc）、
+"真把磁盘写满"这类破坏性场景没有在共享验收机上做。
+完整结果见 `docs/evidence/P13/2026-10-26-p13.2/result.md`。
+
+
+### P13.3（2026-10-26）— 通知：谁去发这封信，以及"发不出去"该怎么记账
+
+**这一个子任务真正的难点不在 SMTP 也不在 HTTPS，而在两个边界问题上。** 第一，**谁持有明文**：
+SMTP 口令与 webhook 令牌存在代理的加密库里，让面板去发就得给面板一个"把 `secret_ref` 解成
+明文"的接口——那是 CONTRACTS 从 P02.4 起就明确拒绝开的洞，而一旦开了，流出去的不只是 SMTP
+口令，而是**所有**用途的秘密。所以发送放进代理，明文从头到尾没有离开持有它的进程，面板只
+知道"发到哪、说什么"；代价是代理多了一项主动出网的能力，这是真实的风险增量，不靠"反正只有
+Web 账号能调"糊过去。第二，**"投递失败"是什么**：它不是接口失败，所以投递路由**一律回 200**，
+结果放在 `data` 里（`accepted`/`status`/`detail`/`retryable`），失败原因是对端原话
+（"550 5.1.1 user unknown"）而不是我们猜的"发送失败"；`retryable` 也只由代理判——只有它
+知道那是一次 SMTP 451 临时拒绝、一次 5xx 永久拒绝，还是一次超时，面板再猜一次就是第二套
+与事实无关的规则。
+
+1. **秘密用途由代理自己核对。** `secret_ref` 必须指向用途为 `notification_password` 的秘密，
+   不对就 400。不核对的话，面板只要把备份仓库口令的引用填进一条自己控制的 SMTP 通道，代理
+   就会把仓库口令当 AUTH 口令发到攻击者的服务器上——"不能读明文"被绕成"把明文发给我"，
+   正好绕过了第①条的全部意义。用途不对与秘密不存在回同一个 400，不区分，免得变成探测用途
+   的接口。
+2. **代理侧的硬限制不是"配置项"。** webhook 只 https、拒 URL 里的用户名口令与 `#片段`、
+   **不跟随重定向**（跟随等于让对端把告警正文引到我们没配过的地址上）、响应只读 4 KiB；
+   SMTP 只 `starttls`/`implicit`（**没有明文模式**）、TLS 最低 1.2、AUTH 只 PLAIN；单次投递
+   总时长 **8 秒**，比面板侧 10 秒的调用上限更短，免得面板先把代理掐掉、留下"不知道发没发
+   出去"的一行。
+3. **入队与事件同一笔事务。** 投递入队走 `alerts.Options{Notifier}`，在 `applyOutcome` 的
+   同一笔事务里执行；否则中间崩一次就留下"事件在库里、谁也不知道它发生过"，而告警最不能
+   容忍的正是"发生了但没人知道"。静默事件一条都不入队（"维护静默只压通知"在这层才真的
+   成立），`(event_id, channel_id, kind)` 部分唯一索引把去重变成结构保证。
+4. **退避与上限。** `30s × 2^(n-1)`、`maxRetryDelay = 10m` 封顶（不封顶的话 `max_attempts=10`
+   的通道最后一次尝试会排到几小时之后，那时人早就以为它在正常工作了）；`max_attempts` 建在
+   通道上（默认 3、上限 10），因为"重试几次"是"这条通道有多重要"的一部分。
+5. **判死要分清三种。** 对端永久拒绝 → `failed` 且带对端原话；次数用尽 → `failed` 且
+   `attempts == max_attempts`；**通道被停用或删除** → `failed`，但 `attempts` **一次都不加**
+   （一次都没发出去的东西不该看起来像试过），原因直接写"通道已停用，未发送"。
+6. **保存配置不发送。** 建好/改好一条通道之后，外面一个请求都不该收到、投递账 0 行——"保存
+   一次就往外面喷一封邮件"是取消不掉的行为。要发就显式点测试发送，那是唯一一次单发。
+
+产品面：`internal/notifications/{notifications,channels,deliveries,dispatch,agentsender}.go`、
+`internal/agent/notify.go`、`internal/api/notifications.go`、
+`migrations/0013_notification_channels.sql`。契约 §13.3 新增"回执形状"、"投递账"列语义、
+硬限制清单与一条**已知限制**（审计红字化按**键名片段**匹配，`secret_ref` 命中 `secret` 也被
+抹成 `[redacted]`，于是"凭据从 A 换成 B"在审计里看不出来——Q423，不在 P13.3 顺手改，
+因为那会动到 P08 共享、P12 备份已有的审计语义）。投递账的**读接口**属 P13.4。
+
+**真机验收抓到 0 个产品缺陷，抓到 3 个验收侧问题。** 这不等于"产品一次就对了"，只等于这一轮
+红的地方都在脚本这一侧，而且其中一条差点把产品判成错：
+
+- **Q424 接收器的 STARTTLS 在 Python 3.12 上必挂。** 首轮 27 条红里绝大多数是同一件事的连锁：
+  代理调 SMTP，`net/smtp` 卡在 STARTTLS 满 8 秒报 `use of closed network connection`，而
+  `openssl s_client -starttls smtp` 对同一个接收器**全程畅通**——两个客户端一个过一个不过，
+  最容易得出"产品的 SMTP 客户端坏了"。真因：`loop.start_tls` 的第二个参数决定握手解密后的
+  应用数据交给谁，3.12 上对端握手后的第一句 `EHLO` 会在 `await` 返回前几毫秒抵达、被当成
+  升级前的明文丢掉。定位靠三步：Go 探针复现 → 接收器打出 `dropped-while-paused
+  hex=45484c4f…`（正是明文 `EHLO`）→ `tcpdump -i lo -A` 证明线上发的是 ClientHello。修法
+  是加一层 `TLSBridge`（握手期间只进缓冲、返回后重放），并显式 `server_side=True`、接管新
+  transport、丢掉升级前的旧缓冲。
+- **Q425 退避不能用"我们到达时还剩多少秒"来量。** 第 3 轮 `此刻还剩 19 秒` 判红，产品一秒
+  不差：`next = now.Add(retryDelay(attempt))` 里的 `now` 取自 `DispatchOnce` 开头，而调度节拍
+  `dispatchInterval = 5s`，投递行入队即到期，所以首次尝试一定落在入队后的第一个节拍上——
+  `next_attempt_at - created_at ∈ [30, 35]`，区间宽度就是节拍本身。改成账本内两个时刻相减，
+  并把这段推导连同三个常量写进注释；两台机器实测 35 / 31，正好是节拍相位的两端。
+- **Q426 空版本号拼进 PATCH 的 body，把产品合法的 400 读成了"停用没生效"。** 第 3 轮那两条红
+  （`failed|2` + 原因 `boom`）看上去像产品把"停用判死"做成了"用尽上限判死"，还互相印证；
+  真因是 `chan_version` 多传了一个参数，版本号取成空串、请求体拼成
+  `{"enabled":false,"version":}`，产品回 `VALIDATION_ERROR`（audit 58、`stage=validation`），
+  停用从未发生。修法：调用改对，且这一步自己有四条断言、非数字版本号直接不发——**空值不再
+  能穿过断言链**；没赶上停用窗口时如实报"没赶上"，不再把"用尽上限"说成"停用判死"。
+
+**24.04 跑了六轮**：153/27（Q424）→ 203/5（种入权限、断言读错文件、超时措辞过窄）→
+204/3（Q426 + Q425）→ 210/1（Q425 的后半段）→ **211/0**（旧二进制）→ **211/0**（从当前
+工作树重新构建的二进制）。第 6 轮重新构建，是因为第 5 轮全绿时 `/tmp/upanel-bin` 里那批
+二进制的来源无法从仓库证明；第 5 轮仍留在履历里，不因为它是旧二进制就抹掉。22.04 一轮
+211/0，与第 6 轮同一份脚本、同一组二进制。
+
+**结论：P13.3 passed。** 两台 VM 各 **PASS 211 / FAIL 0 / NOT RUN 0**，退出码 0；逐节断言数
+（13/11/48/12/44/34/35/14）与归一化后的断言名单跨机逐字一致（`diff` 只有两行不同，差别在
+括号里量到的秒数，且两行都是 PASS）；同一份脚本（md5 `f8f6984d0f5e302970b161899a90ff28`）
+与同一组二进制（agent `f7acfd27…`、web `8c8b258d…`、ctl `45fb01be…`）。宿主 `check.sh`
+**PASS 14 / FAIL 0 / NOT RUN 0**。剩余 NOT RUN：真实第三方 SMTP 与公网 webhook、
+`30s→…→10m` 封顶只在单测、投递账读接口属 P13.4、多收件人/大正文、`retryable` 字段形状只有
+单测、`go test -race`（宿主无 gcc）。完整结果见
+`docs/evidence/P13/2026-10-26-p13.3/result.md`。
+
+### P13.4（2026-10-26）— 确认与陈旧：把"谁知道了"和"系统好了"分成两件事
+
+**这一层的难点不是画图，是让面板"别说谎"。** 三条边界各自都能悄悄说错话：把"有人点了知道了"
+说成"故障已恢复"；把"这段时间没有数据"画成"这段时间是 0"；把"配置里关掉了采集"说成"没有
+数据"，或者反过来把"这个进程没有库"说成"采集关掉了"。
+
+1. **确认不是恢复。** `POST /alerts/events/:id/ack` 只写 `acked_at`/`acked_by`，**不碰状态机**：
+   确认之后事件仍是 `firing`、`resolved_at` 仍是空，恢复由评估循环按 `recovery_threshold` 判。
+   这是有意的——"有人看到了"和"机器好了"是两种事实，合并成一个字段，人就再也没法知道那条告警
+   是被人按掉的还是自己好的。幂等与首告者胜由 SQL 保证（`WHERE id=? AND acked_at IS NULL`），
+   第二次确认原样返回第一次的时间与人；确认人取自**会话**而不是请求体里的名字（否则谁都能替
+   别人签收）；admin 才能确认，viewer 能看事件但不能认领；已恢复的事件也能确认（"这条你知道
+   了吗"与"它现在什么状态"无关）。Q427。
+2. **投递账的读接口是顶层 `GET /notification-deliveries`。** 挂在 `/notification-channels/:id/`
+   下读起来更 REST，但它会把一行投递说成"这个通道的属性"，而事实相反：一行账带着的是**投递
+   当时**的通道快照，通道改名、停用、删除都不该改写历史。更实际的理由是收件箱要回答"最近发
+   出去过什么"——那是跨通道的排序，挂通道下就得先列通道再逐个查再合并，一次查询变 N+1。
+   行的形状与通道端点里的投递回执**共用同一个 DTO**。`limit` 超过 200 按 200 截断而不报错
+   （读账读不出危险，截断比 400 对调用方更友好），非正整数才 400。Q428。
+3. **缺失不是 0。** `metric_samples` 的缺口**没有行**，不是写了 `value=0`；`missing_points` 是
+   缺口存在过的唯一证据；前端按 `step × 3` 切段，缺口两侧画成两条线。有一个容易读错的正常
+   产物：minute/hour **聚合桶可以落进缺口区间**——聚合覆盖的是整分钟，缺口只占它的一段，那是
+   聚合的正常产物，不是回填。契约里写清这一点，是因为验收自己就被它骗过一次（Q431 第 5 条）。
+4. **"陈旧"与"没开"分开说。** `/system/metrics/status` 的 `enabled` 说的是**这个进程答不答得了
+   历史问题**（库在就是 true），`collecting` 才是采集循环在不在这个进程里跑；关掉采集是
+   `enabled=true + collecting=false + reason`（"配置里关闭了历史采集
+   （`web.metrics.enabled=false`）：旧数据可查，不再写新数据"），此 `enabled=false` 只剩一种
+   来路：没有库（演示模式/未装配）。三态判据：未开启 / 没在采集 / 陈旧
+   （`collecting=true` 且 `last_sample_at` 距此刻超过 `max(3×interval, 20s)`）。Q430。
+
+**验收侧撞到并修掉的问题，全部在脚本这一侧（产品缺陷 0 个）：** Q429（20 秒新鲜度判据拿宿主
+`datetime.now()` 去量，24.04 走 TCG 单线程时从取回状态到算出结果过了十几秒，把新鲜样本量成
+陈旧；改成同一份响应里 `generated_at - last_sample_at`，两台实测 6 秒 / 1 秒）、Q430（把
+`enabled` 与 `collecting` 当成一个意思，第 8 节一次红 4 条；改断言与契约，产品一行没动）、
+Q431（目录 0700 把 `upanel-web` 挡在门外、请求体塞了契约之外的 `scope`、`COUNT(*) ... IS NULL`
+期望写反、缺口窗口右端取未来时刻被自己的种入填上、SQL 漏了 `metric`/`resolution='raw'` 把聚合
+行读成回填）。外加一次判据拆分：缺口"缺几桶"用定型窗口（右端 = 缺口结束时刻），"图上连不连"
+用延伸到缺口之后 30 秒的窗口——同一个窗口问不了两个问题。
+
+**24.04 跑了两轮**：127/1（Q429）→ **128/0**。**22.04 跑了两轮**：128/0（脚本 `2ce471ee…`）→
+**128/0**（脚本 `f86fb06f…`）。22.04 的第一次全绿不算最终成绩——脚本改过就必须两台重跑，
+"同一份脚本、同一组二进制"是跨机可比的前提。
+
+**结论：P13.4 passed。** 两台 VM 各 **PASS 128 / FAIL 0 / NOT RUN 0**，退出码 0；逐节断言数
+（7/9/14/14/20/31/12/8/10/3）与归一化后的断言名单跨机逐字一致（`diff` 无输出）；同一份脚本
+（sha256 `f86fb06f…`）与同一组二进制（agent `0d128952…`、web `cef620a7…`、ctl `c66d2c53…`）。
+宿主 `check.sh` **PASS 14 / FAIL 0 / NOT RUN 0**（go 46 个包、web 52 个文件 985 个用例、
+web-smoke 10 项、openapi valid 6 warnings）。剩余 NOT RUN：浏览器里的真实交互（VM 无
+Playwright，由 SSR 渲染测试与 `web-smoke` 覆盖）、确认之后要不要发一封通知（契约未定义，不在
+本子任务）、`go test -race`（宿主无 gcc）、真实业务负载下逼近
+`max(3×interval, 20s)` 这条线、长时间运行下的聚合与裁剪（沿用 P13.1 的缩短窗口，未重验）。
+完整结果见 `docs/evidence/P13/2026-10-26-p13.4/result.md`。
+
+### P14.1（2026-10-26）— 网络现状：先如实说出"现在是什么样"，再谈"能不能改"
+
+**范围**：`GET /network/interfaces`、`GET /network/routes`、`GET /network/listeners`、
+`GET /firewall` 四条只读端点（全部 admin，全部无副作用），以及给 P14.2/P14.3 用的两份判定：
+`capability`（这份 netplan 现状能不能被面板安全地改）与 `editable`（防火墙是不是 ufw 独占）。
+**本轮不开任何写入口**——POST 同路径与 `/network/apply` 在真机上必须 404/405，这条本身就是
+验收项。
+
+**三条贯穿口径**（写进 CONTRACTS §13.5）：
+
+- **查不到不等于没有**：每个来源都可能缺席，缺席时用 `Issue{source,code,detail}` 说出来，
+  `code` 是闭集 `missing`/`permission_denied`/`timeout`/`unparsable`/`failed`。`ip` 整条不可用时
+  仍从 sysfs 列出网卡（名字、MTU、MAC、载波、物理性都在，只是没有地址）并另记 `ip/missing`。
+  空数组和"读不到"在页面上长得一样，但一个是"这台机器没有网卡"，一个是"取数工具丢了"——
+  把后者画成前者，等于让人拿错误的现状去做决定。
+- **不猜**：网卡类型看 sysfs（有 `bridge` 目录才是网桥，`br0` 只是名字），物理性看
+  `device` 目录 + `type 1` + 没有 `wireless`/`phy80211`/`bonding`/VLAN 标记，配置归属看
+  `/run/systemd/network/` 与 `/run/NetworkManager/` 下的**渲染产物**。**不解析 netplan YAML**：
+  解析它意味着把"我以为的 netplan 语法"当成事实，而真正生效的是渲染结果。
+- **只读也不许慢**：一次采集总预算 8 秒、单条命令 6 秒。超时如实记 `timeout` 并让其余来源
+  照常产出——部分真相加一条说明，比一个不返回的请求有用。
+
+**`capability` 判定**：`backend` 闭集 `netplan-networkd`/`netplan-networkmanager`/
+`networkmanager`/`other`/`unknown`；`editable=true` 只在 `netplan-networkd` + 无 Wi-Fi/网桥/
+bond/VLAN + 物理以太网卡恰好一张 + `/run/NetworkManager` 不存在时成立，`false` 必带
+`reasons`（人话，能贴到页面上），`unknown` 与 `none` 不合并——"不知道"和"没有"是两件事。
+
+**防火墙管理者证据链**：firewalld = 程序在 或 `/run/firewalld` 在；nftables = `/etc/nftables.conf`
+存在**且** `*.wants/nftables.service` 被 enable；iptables-persistent = `/etc/ufw` 之外另有
+`/etc/iptables/rules.v{4,6}`。`editable=true` 只在 ufw 独占时给出。
+
+**审计口径**：只记**被拒的读**。`auditRoute` 只是把动作名放进 context，`s.reject` 才落库；
+成功读不写审计——否则一次页面刷新就是四条记录，把审计表灌成访问日志（与 §9 收藏不写审计
+同源）。验收断言因此是"failure ≥ 4 且 success == 0"，不是"有审计行"。
+
+**交付**：
+
+- 代理侧：`internal/network/`（`deps.go` 超时与 `Issue` 合成、`interfaces.go` 的
+  `detectKind`/`enrichFromSysfs`/`readType`、`routes.go`、`listeners.go`（读
+  `/proc/net/{tcp,tcp6,udp,udp6}`，inode 只用于反查、出口前清零、反查不到 `pid=0` 且
+  `process` 为空）、`firewall.go` 的 `nftablesManaged`/`parseUFWOutput`、`capability.go` 的
+  `rendererArtifacts`/`netplanConfigs`/`detectCapability`、`collector.go` 组装）；四个查询在
+  `internal/agent/networkquery.go` 登记（`network.interfaces`/`network.routes`/
+  `network.listeners`/`firewall.state`，全部无参数），**未接线时 503 而不是空表**。
+- Web 侧：`internal/api/network.go` 四个 handler + `internal/agentclient/network.go` 四个客户端
+  方法，全部走 `auditRoute` + admin 门；`api/openapi.yaml` 补齐四条路径与 `capability`/
+  `firewall` 两个对象；前端 `web/src/modules/network*` 与页面卡片（数据来自这四条，页面渲染
+  本身由 SSR 渲染测试覆盖）。
+- 单测 22 个顶层用例在 `internal/network/network_test.go`（含 `ip` 缺失回退、`ufw` 未安装不是
+  `none`、网桥阻断、多物理卡阻断、NetworkManager 在跑阻断、netplan 读不到判 `unknown`、
+  `/proc/net` 不可读、监听表截断要自报）。
+
+**真机验收**（`tests/integration/p14-1-acceptance.sh`，约 800 行，root 在 VM 内跑）：
+
+- 每条关键断言都配一条**现场独立读数**：逐卡对照 sysfs（physical/kind/mtu/carrier 三态）、
+  路由的现场默认网关与出接口、监听集合与 `/proc/net` **双向**比对（响应多一条少一条都红）、
+  防火墙与 `ufw status verbose|numbered` 对照、`capability` 在脚本里用现场事实**独立重算一遍**
+  再比对（不是拿产品的答案验产品）。
+- 只读的证明方式：`/etc/netplan`、`/etc/ufw`、`/etc/systemd/network` 三处的**文件清单 + 每个
+  文件 sha256** 在四条请求前后逐字节比对。刻意**不**比 `ip addr` 的输出——DHCP 租约的
+  `valid_lft` 每秒都在变，那种红是尺子在动，不是产品在写。
+- **两台走到判定的两个分支**：22.04 `backend=netplan-networkd, editable=true, target=ens4`；
+  24.04 同样的 backend，但 P09 容器验收留下的 `docker0` 网桥让 `editable=false`，`reasons` 点名
+  "本机存在网桥接口（docker0）"。绿色按钮与"灰掉并给出原因"两条路径都是真机验的。
+- 成绩：22.04 **PASS 112 / FAIL 0 / NOT RUN 0**（7/7/5/14/20/7/10/13/9/16/4），24.04
+  **PASS 116 / FAIL 0 / NOT RUN 0**（7/7/5/14/25/6/10/13/9/16/4），退出码均 0，同一份脚本
+  （sha256 `147b7a93…`）、同一组二进制（agent `92795acb…`、web `252a7ed6…`、ctl `6841cb3c…`）。
+
+**真机撞到并修掉的问题**：
+
+1. **Q438 产品缺陷**：主机路由的 `destination` 不带前缀（`ip -j route` 对网段给 `10.0.2.0/24`、
+   对主机路由只给 `10.0.2.2`），同一个字段两种写法，前端每处都得写两条分支、写漏一处就是
+   静默的错误比较。解析时补齐 `/32`、`/128`，单测 `TestRoutesNormalizeHostRoutesToPrefix` 钉住。
+2. **Q439 产品缺陷**：`/etc/nftables.conf` 每台 Ubuntu 都带（nftables 包的默认规则集），第一版
+   把"有文件"当成"nftables 在管"→ `manager=unknown` → `editable=false` → **P14.3 在一台最标准
+   的 Ubuntu 上永远打不开**。判据改成"它会不会在开机时把规则装进内核"：有 conf **且**
+   `*.wants/nftables.service` 在。单测两侧各一条，已知局限（手工 `nft -f` 载入没 enable 的
+   机器看不到证据）写进契约。
+3. **验收方法 6 条**：Q440 `$WEB_PID` 是 `runuser` 的壳（改读 `children`，并加一条不依赖脚本
+   记账的断言——报出的 pid 的 `/proc/<pid>/comm` 必须是 `upanel-web`）；Q441 回环是
+   127.0.0.0/8（`127.0.0.53:53` 是 systemd-resolved，原断言只放行 `127.0.0.1`）；Q442 比结构
+   一律走 `json.dumps`（`str(list)` 的引号差异一路假红）；Q443 别用 `head -c 400` 找键（长响应
+   前 400 字节只有网卡数组，且这个错误会随数据量变化）；Q444 读不到时的 `0 == 0` 是**假绿**
+   （24.04 上 `ufw status` 撞 6 秒上限，产品如实记 `ufw/timeout`，脚本却把"没读到"验成"没有
+   规则"——改成重读一次，仍读不到记 NOT RUN）；Q445 24.04 用 `ssh.socket` 由 PID 1 持有 22
+   端口（断言从"应该叫 sshd"改成"报出的进程名与内核里那个 pid 的 comm 一致"）。
+
+**NOT RUN（明确未验，不含糊）**：Wi-Fi/bond/VLAN/多物理卡/NetworkManager 在跑 这几条
+`editable=false` 的**具体**原因分支、三种非 `netplan-networkd` 的 backend、
+`manager=firewalld`/`nftables(enable)`/`iptables-persistent`/`none`、`ip` 与 `ufw` 缺失、
+`issues.code` 里的 `permission_denied`/`unparsable`/`failed`——**全部只有单测**，真机上造这些
+要写系统配置或删程序，属于破坏现场。页面在浏览器里的真实渲染 VM 内不可执行（无 Playwright），
+由 SSR 渲染测试与 `web-smoke` 覆盖（Q21）。
+
+**结论：P14.1 passed。** 完整结果见 `docs/evidence/P14/2026-10-26-p14.1/result.md`。
+
+### P14.2（2026-10-26）— 改地址：先让机器自己能把网络退回来，再谈能不能改
+
+**范围**：三个写动作 `network.apply`（单物理网卡 DHCP/静态 IPv4）、`network.confirm`（停回滚
+timer、保留新配置）、`network.rollback`（立刻退回），加上入口状态 `GET /network/config`、
+独立 systemd 回滚 timer、开机对账，以及前端那张改写卡片。**写路径默认关闭**，只认
+`-network-writes` 显式开关。
+
+**状态：passed（22.04 VM 第五轮，2026-10-26）。** 真机把 ens4 改成不可达的
+`10.99.99.99/24`，停掉 Web 与代理，地址在 `deadline+28s` 自己回来了——**STAGES §16 的硬条件
+因此解除**。开关仍然默认 `false`，但理由换了（Q458）：改网卡等于把机器从网络上摘掉，这个权力
+是装机时由人决定的事（P16.1 的服务单元、P16.4 的手册），不该由一次验收顺手替所有既有部署
+决定。开关的说明文字也按新理由改过——原来那句"仅用于测试 VM / 尚未验收"在第五轮之后是假的。
+
+**执行顺序就是安全模型**（`internal/network/applyengine.go` 的 `write`）：
+
+1. 渲染 `90-upanel-<iface>.yaml`（0600，原子替换；先写临时文件再 `Rename`）；
+2. `netplan generate` ——只渲染不生效。语法/语义过不去就**把面板文件恢复原状、不做 apply**，
+   现场一个字节没动；
+3. 写回滚记录、**先武装** systemd timer，然后才 `netplan apply`。timer 装不上就**不许改**：
+   一条改完之后没人能把它退回来的路，不该存在；
+4. `netplan apply` 失败 → 立刻按记录回滚，不等 timer 到期；
+5. **不信退出码**，读回内核事实（地址/前缀/网关/DHCP 拿到的地址）核验；不符 → 立刻回滚。
+
+`netplan apply` 返回 0 但内核没换地址是真实存在的（改名、竞态、`networkd` 没重载），所以
+第 5 步是判决，不是装饰。outcome 闭集 `verified`/`rolled_back`/`unknown`，**没有 `failed`**：
+它确实**跑完了**，只是改动没留下——说成"失败"会让人以为机器现在坏了，说成"成功"会让人以为
+新地址生效了，两句都不对。恢复也失败时是 `unknown`（"不知道现在什么样"），那时唯一正确的
+下一步是去看现场，所以 `RecoveryHint` 直接写这句。
+
+**`network.confirm` 的凭据不是 token，是"这次请求到达的地址"**：判据由服务端从连接里取
+（`http.LocalAddrContextKey`），调用方传的 `arrived_on` 一律忽略（`internal/api/networkexpand.go`
+在转发前注入，取不到连接地址就 500 且**不转发**）。归一化顺序是 `SplitHostPort` → 去 IPv6
+zone → `netip.ParseAddr().Unmap()`，所以 `::ffff:192.168.1.50` 与 `192.168.1.50` 会落到同一个
+字符串上——代理做的只是字符串相等比较，归一化漏一步，"从新地址确认"就会被判成从旧地址。
+这条正是"旧地址不能绕过新地址验证"的实现方式。
+
+**回滚记录是文件，不是库**：`/var/lib/upanel-agent/network/rollback/<token>.json`（root 0600，
+`nrb_` + 32 hex）。理由在 CONTRACTS §14.2 里：开机对账发生在数据库就绪之前，而且这份记录要
+在"面板进程自己被掐断"之后仍然存在——它属于 systemd 那一侧，不属于应用那一侧。
+
+**交付**：
+
+- 代理侧：`internal/network/applyengine.go`（`write`/`confirm`/`rollback`/`Reconcile`/
+  `ExecutePendingRollback`、`capturePrevious`/`restorePanelFile`/`verifyApplied`、
+  `armRollback`/`disarmRollback`）、`applytypes.go`（`RollbackRecord`/`ConfigState`/
+  `RollbackView`/`RollbackWindow=120s`/`ValidRollbackToken`）、`netplaninspect.go`（只看
+  `/etc/netplan` 与 `/run` 的渲染产物，**不解析别人的 YAML**）；`internal/agent/networkaction.go`
+  登记三个写动作（`Policy` 只放 admin、`network.apply` 要 `RECONFIGURE XXXXXX` 短语）；
+  `cmd/upanel-agent/main.go` 的 `-network-writes` 开关与开机 `Reconcile`。
+- Web 侧：`internal/api/networkexpand.go`（`arrived_on` 注入）、`internal/api/network.go` 的
+  `handleGetNetworkConfig`、`internal/agentclient/network.go` 的 `NetworkConfig`（缺
+  `collected_at`/`capability.backend`，或"说可以改却没有 `config_hash`"都按残缺响应拒）、
+  `api/openapi.yaml` 补 `/api/v1/network/config` 与 5 个 schema。
+- 前端：`web/src/api/network.ts` 的写路径纯函数（`buildDefinition`/`buildApplyParams`/
+  `rollbackSecondsLeft`/`countdownText`/`pendingHeadline`）、`preflights.ts` 的 `network.` 超时
+  分档（30 秒，代理那一段预算是 20 秒，前端必须比它宽）、`jobresult.ts` 的
+  `summarizeNetworkJob`（结论看 `outcome` 不看 `status`）、`NetworkApplyCard.vue`（倒计时只在
+  actionable 时起 1 秒 ticker）、`NetworkView.vue` 的第五条并行查询（写路径失败**不进**页面顶部
+  的"有一项没能读到"，它是另一件事）。
+
+**检查（已执行）**：
+
+- `go build ./...`、`go vet ./...` 干净；`internal/network` **39** 个顶层用例（其中
+  `applyengine_test.go` **17** 个：写完先武装 timer 再 apply、generate 失败不动现场、核验不符立刻
+  回滚、timer 装不上就不改、待确认记录挡住第二次写、`confirm` 要候选地址与窗口、开机对账
+  过期即回滚且未过期按剩余时间重新武装、DHCP 保留归属并丢掉旧地址；**Q456 补的两条**锁住
+  DHCP 新判据的两个方向——同名地址回来是 `verified`、另一个文件也在配这张网卡是 `rolled_back`）；
+  `internal/agent`
+  网络动作 13 个（判决原样过桥、兜底 blocker、三个 outcome、未知 outcome 报错）；
+  `internal/api` 的 `networkexpand_test.go` 6 个（含 `::ffff:` 与 zone 归一化、"取不到连接
+  地址就不转发"）+ 网络 handler 7 个。
+- 前端：`npm --prefix web run test` **54 文件 1031 用例全过**（新增 32 条：写路径纯逻辑 12、
+  `network.` 超时分档 2、`summarizeNetworkJob` 8、`NetworkApplyCard` 的 SSR 渲染 9、以及
+  `/network/config` 的请求路径），`npm run typecheck`（vue-tsc）通过。
+- 宿主 `scripts/check.sh` 在**最终工作树**上 **PASS 14 / FAIL 0 / NOT RUN 0**
+  （`docs/evidence/P14/2026-10-26-p14.2/logs/host-check.txt`）：go 47 包 ok + 3 个
+  no test files、gofmt 干净、Linux 交叉构建过、web 54 文件 1031 用例、`web-smoke` 10/0/0、
+  `openapi-lint` valid + 6 warnings（与基线一致）。
+- 第一轮 check 是 **FAIL 1**（`go-test`）：`internal/storage` 的
+  `TestDeviceSuperblockProberCancelledContext` 红了。查下去是本轮无关但真实的偶发缺陷——
+  `readAtTimeout` 对**已经取消**的 context 抛硬币（`ctx.Done()` 与读完成的 `done` 同时就绪时
+  均匀随机）。修法是进 goroutine 之前先判 `ctx.Err()`。见 Q446。
+
+**真机验收（22.04 VM，第五轮）：`PASS 186 / FAIL 0 / NOT RUN 3`，退出码 0。** 前四次都没绿，
+原因逐条记在 `docs/evidence/P14/2026-10-26-p14.2/result.md` §1：一、二轮崩在"非回环监听必须
+TLS"（面板绑新地址时起不来，后续断言全是连锁假红）；第三轮 7.4 按轮询次数收工、deadline 还没到
+就采样（假红），同一轮抓到 DHCP 核验判据的真缺陷（Q456）；第四轮两条红是我问错了 systemd 249
+的 journal——它不记 `ExecStart`、也不写 `status=0/SUCCESS`。
+
+**"已验证"的部分**（每一条都有现场文件，见 `docs/evidence/P14/2026-10-26-p14.2/facts/`）：
+
+- **不可达地址 → 停 Web 与代理 → 自己回来**：15:01:12 落记录（`deadline=15:03:12Z`）→
+  15:01:16 timer 武装 → 15:01:39 停 Web/代理（此后**没有任何 upanel 进程**）→ 15:02:02 仍在
+  不可达地址 → 15:03:32 systemd 拉起 `upanel-netrollback@<token>.service` → 15:03:41 退回完成、
+  `Consumed 3.013s CPU time` → 地址在 `deadline+28s` 回到 `10.0.2.15/24 dynamic`。
+- **旧地址不能绕过新地址验证**：从回环地址确认被 `CONFIRM_WRONG_ADDRESS` 拒（理由里点名到达
+  地址与候选地址），被拒后 timer 仍在、记录仍 `pending`；从新地址确认 `outcome=verified`、
+  记录转 `confirmed`、timer 停掉且单元文件删除；再确认一次是 `NO_PENDING_ROLLBACK`。
+- **复杂 netplan 返回 `unsupported`**：加一份把 ens4 当成员的桥接配置 → `GET /network/config`
+  仍 200 但 `unsupported` 点名那个文件、预检 `UNSUPPORTED`、提交 409 `DEPENDENCY_BLOCKED`
+  且**没有落下任务**；删掉后恢复可改。
+- **写路径默认关闭**：不带 `-network-writes` 时 `GET /network/config` 与三个写动作都是 400，
+  带开关后才出现（Q452 的真机证明，阶段 2 共 12 条断言）。
+
+**NOT RUN（明确未验，不含糊）**——脚本自己报 3 条，我另补 4 条：
+
+1. 浏览器里的真实渲染与断连重连交互（VM 内无 Playwright，由 SSR 渲染测试与 `web-smoke`
+   覆盖，Q21）。
+2. 网卡被改名/拔掉（`NETWORK_TARGET_CHANGED` 的另一半）：改网卡名要重启，重启会把这次
+   timer 的语义一起冲掉。
+3. 回滚自己失败（`failed` 分支）：真机上造它等于把机器弄坏到看门狗之外，风险不对等；这条
+   永远只能是"设计上可读"，不是"验证过"。
+4. **`network.rollback` 的"立刻退回"真机路径**——只有单测。主动没做：阶段 7 已经把同一条恢复
+   链路（`netplan apply` / `verifyRestored` / `markRecord` / `disarmRollback`）走过一遍，
+   再加一轮只多一份重复证据。
+5. **`Reconcile`（开机对账）在真机上没验**：阶段 8 只验了"没有待确认记录时的行为"，不是
+   "有一条过期记录时它会退回去"。单测覆盖过期即回滚、未过期按剩余时间重新武装。
+6. **24.04 上没跑 P14.2**：本轮全在 22.04.5（systemd 249）；24.04 是 255，timer/journal 行为
+   有差异。双平台是 P16.2 的事。
+7. **真实物理网卡 / 真实 DHCP 服务器没验**：slirp 的 DHCP 恒发 `10.0.2.15`，"租约换了一个
+   地址"这条最常见的正常路径在真机上一次都没出现过，只有三条单测。
+
+**已知限制**（写进 DECISIONS 而不是藏着）：Q457 —— 回滚 timer 用 `OnActiveSec=120s`，会被并发
+的 `daemon-reload` 重新起算。第五轮就撞上了：deadline 15:03:12、timer 15:03:32 才触发。方向是
+单一的（只会晚，不会提前咬掉窗口），开机 `Reconcile` 兜底；改法是 `OnCalendar=<deadline>`，
+但 CONTRACTS §13.6 写死了 `OnActiveSec=120s`，第二轮再改契约。
+
+**结论：P14.2 passed。** 代码已实现、单测与宿主检查已过、真机验收通过（186/0/3，退出码 0）。
+写路径默认关闭，理由是 Q458 那条装机决策，不是"还没验"。
+
+### P14.3（2026-10-27）— 改规则之前，先证明"改完你还进得来"
+
+**范围**：三个写动作 `firewall.apply`（`{enabled, rules[]}`）、`firewall.confirm`（撤 timer、
+保留新规则集）、`firewall.rollback`（立刻退回），加上入口状态 `GET /firewall/config`、独立
+systemd 回滚 timer、开机对账，以及前端那张改写卡片。**写路径默认关闭**，只认
+`-firewall-writes`——与 `-network-writes` 是**两个开关**：能把机器从网络上摘掉和能改它的规则
+是两个不同量级的权力，绑在一起会让"只想让人改 ufw"的部署被迫也交出发改网卡的能力。
+
+**状态：passed（22.04 VM 第三轮，2026-10-27）。** 153 条断言 0 失败；两条硬性用例都在真机上
+成立：挡住管理通路被预检拦下、改完不确认时规则自己退回来（Web 与代理全程是停的）。
+
+**设计：只加缺的、删多的，不整体重建。** 定义是 `{enabled, rules[]}`，规则的身份不是位置而是
+comment ——每条面板规则都写成 `ufw allow 22/tcp comment 'upanel:ssh'`，`ufw show added` 打印的是
+规范命令行，于是"这条是我管的吗"变成一个可读的事实而不是一次猜测。apply 做的事是：读现状 →
+按 `upanel:` 前缀筛出自己管的那些 → 与定义比 → 加缺的、删多的 → 读回核对。**不整体重建**是
+因为 `ufw --force reset` 会连管理员手写的规则一起清掉，而"我只想加一条 5432"不该有那个副作用。
+阶段 6 专门验了这件事：先手写 `ufw allow 9000/tcp`（没有 comment），两次 apply 之后它还在，
+`show added` 逐字节相同。指纹 `firewallConfigHash` 只算"启用状态 + 带标记的规则"，所以手写规则
+不会让面板永远说"现场已被别人改过"。
+
+**执行顺序就是安全模型**（`internal/network/firewallapply.go` 的 `write`）：
+
+1. 按定义算出要加/要删的规则（纯计算，不动现场）；
+2. 落回滚记录（root 0600），**先武装** systemd timer，然后才动 ufw。timer 装不上就**不许改**；
+3. 逐条加/删，任何一步失败 → 立刻按记录回滚，不等 timer 到期；
+4. **不信退出码**，重读 `ufw show added` 与启用状态核验；不符 → 立刻回滚。
+
+outcome 闭集 `verified`/`rolled_back`/`unknown`，**没有 `failed`**——同 P14.2 的理由，与 §13.6 一致。
+
+**管理通路的判据不是"22 端口有没有开"，是"启用状态下每个对外可达的管理端口都要有 `from any`
+的 tcp 放行"。** 这条差别的现实意义：`ufw allow from 10.0.0.5 to any port 22` 看起来像放行了
+22，但它只对那一个来源成立，管理员换台机器就进不去——面板不该把这种配置当成"你还能登录"。
+判据实现里 SSH 优先按进程名 `sshd` 认（24.04 的 `ssh.socket` 让端口持有者是 systemd，见
+Q445），认不出来退回 22/tcp；连管理端口都认不全时是 `FIREWALL_MANAGEMENT_UNKNOWN` 并**停下**
+（不知道保护什么就不能声称保护了）。`FIREWALL_MANAGEMENT_PATH` 是**阻塞项**，不是提示。
+
+**回滚记录是文件，不是库**：`/var/lib/upanel-agent/firewall/rollback/<token>.json`（root 0600，
+`frb_` + 32 hex）。理由同 P14.2（CONTRACTS §14.2）：开机对账发生在数据库就绪之前，而且这份
+记录要在"面板进程自己被掐断"之后仍然存在。
+
+**交付**：
+
+- 代理侧：`internal/network/firewallapply.go`（`Assess`/`Current`/`ExecuteWrite`/`Reconcile`/
+  `ExecutePendingRollback`/`AssessConfirm`/`AssessRollback`、`armRollback`/`disarmRollback`）、
+  `firewalltypes.go`（`ManagedRule.spec()`、9 个阻塞码、`firewallConfigHash`、
+  `RollbackWindow=120s`、`frb_` token）、`internal/agent/firewallaction.go` 登记三个写动作
+  （只放 admin、`RequiresReauth` + `RECONFIGURE XXXXXXXX` 短语，`Decode` 里先跑
+  `ValidateFirewallDefinition`）、`cmd/upanel-agent/main.go` 的 `-firewall-writes` 开关、
+  `cmd/upanel-agent/fwrollback.go`（`fwrollback` 子命令，在解析配置之前处理）与
+  `upanel-fwrollback@.service` 模板。
+- Web 侧：`internal/api` 的 `GET /firewall/config` 与三个写动作转发、`api/openapi.yaml` 的
+  两个 schema 与新端点。
+- 前端：`web/src/api/firewall.ts` 的写路径纯函数（`buildDefinition`/`buildApplyParams`/
+  `describeFirewallChange`/`rollbackSecondsLeft`）、`FirewallApplyCard.vue`（倒计时只在
+  actionable 时起 ticker）。
+
+**检查（已执行）**：
+
+- `go build ./...`、`gofmt -l`（空）、`go vet ./...` 干净；`internal/network` **58** 个顶层用例
+  （`applyengine_test.go` 17 + `firewallapply_test.go` 19 + `network_test.go` 22），其中
+  `firewallapply_test.go` 本轮新增两条回归：`TestFirewallAssessRefusalsKeepNormalizedParams`
+  与 `TestFirewallTokenMismatchKeepsNormalizedParams`（Q464）；`internal/agent` 防火墙动作 9 个。
+- 前端：`npm --prefix web run test` **56 文件 1065 用例全过**（新增 34 条：`firewall.test.ts` 25 +
+  `firewall-write.test.ts` 9），`vue-tsc` 与 `web-lint` 通过。
+- 宿主 `scripts/check.sh` 在**最终工作树**上 **PASS 14 / FAIL 0 / NOT RUN 0**（node v22.23.3）：
+  go 47 包 ok + 3 个 no test files、gofmt 干净、Linux 交叉构建与 vet 过、web 56 文件 1065 用例、
+  `web-smoke` 10/0/0、`openapi-lint` valid + 6 warnings（与基线一致）。
+
+**真机验收（22.04 VM，第三轮）：`PASS 153 / FAIL 0 / NOT RUN 4`，退出码 0**，`19:06:48Z start`
+→ `19:13:56Z done`。逐节断言数 12/3/16/12/24/31/13/24/11/7 = 153（第 9 节含 4 条 NOT RUN）。
+前两轮都没绿，账见 `docs/evidence/P14/2026-10-27-p14.3/result.md` §4、§5：第一轮死在
+`grep -qi active` 匹配 `inactive`，第二轮把 Q464 那个 500 暴露出来。
+
+**"已验证"的部分**（现场文件在 `docs/evidence/P14/2026-10-27-p14.3/facts/`，50 个）：
+
+- **管理通路拦截**：启用 + 缺 22/tcp 的定义 → 预检 `allowed=false` +
+  `FIREWALL_MANAGEMENT_PATH`，理由里点名 SSH；期间 `ufw status` 仍 inactive、
+  `ufw show added` 仍 `(None)`；把 22 加回同一份提交通过。停用状态下同一份定义**不**拦
+  （关着就没有断连风险）。
+- **独立回滚**：apply → `outcome=verified`，`token=frb_695fe87aa232cb87fa6310eef902d7b9`、
+  `deadline=19:12:26Z` → `19:10:51Z` 停 Web 与代理（`curl` 返回 `000`）→ `19:11:47Z` 60 秒检查
+  新规则仍在、timer 仍武装 → `19:12:34Z` systemd 拉起
+  `upanel-fwrollback@frb_695f….service` → `19:12:45Z` `upanel-agent[162295]` 打完
+  `防火墙回滚 frb_… 已处理`、`Deactivated successfully` / `Finished` → 规则换回旧集
+  （`upanel:web` 消失、`upanel:db` 回来）、`ufw` 仍 active。
+- **只碰带标记的规则**：手写 `ufw allow 9000/tcp` 在阶段 4—8 全程原样；apply 前 `upanel:ssh` +
+  8443 出现、回滚后变成 `upanel:ssh` + 5432。
+- **两处反复确认的负向**：token 不符 → `FIREWALL_TOKEN_MISMATCH` 且不动现场；已有 pending 时
+  再 apply 被拒；schema 坏定义在**解码层**就是 400（比阻塞项更早返回）。
+- **撤干净**：`{enabled:false, rules:[]}` → `ufw status` 回 inactive、`show added` 回 `(None)`、
+  `/etc/default/ufw` 三行策略前后一致。
+- **两条救命看门狗都真醒过**：`19:10:15Z`（systemd timer）与 `19:10:37Z`（sleep 子壳）各写一条
+  `not-needed: 22/tcp 有放行`。这一条是刻意收紧的：脚本第一版从没调用 `write_watchdog`，
+  脚本不存在 → 看门狗不会开火 → "看门狗没有动手"成了**永远不会红**的断言（Q465）。
+
+**NOT RUN（明确未验，不含糊）**——脚本自己报 4 条：
+
+1. 浏览器里的真实渲染与交互（VM 内无 Playwright，Q21），由 SSR 渲染测试与 `web-smoke` 覆盖。
+2. 回滚自己失败（记录 `state=failed`）：真机上造它等于把机器弄坏到两条看门狗之外，风险不对等。
+3. ufw 根本没装的机器（`FIREWALL_UNSUPPORTED` + `editable=false`）：卸载 ufw 会连 VM 自己的
+   转发规则一起带走，不是一条能安全回头的用例。
+4. IPv6 规则、应用配置（`ufw allow 'Nginx Full'`）、端口区间、按接口限定：这一版**明确不支持**。
+
+**已知限制**（写进 DECISIONS 而不是藏着）：① `OnActiveSec=120s` 会被并发的 `daemon-reload`
+顶后（同 Q457，防火墙这一轮没撞上，60 秒那条断言就是在盯它）；② 回滚只恢复"面板管理的规则集 +
+启用状态"，管理员这一轮里手写的规则不会被退回（不属于这次改动的"之前"，Q459）；
+③ 非标端口 SSH 若既无 `sshd` 进程名又无面板监听，会被当成"管理端口认不全"而不是"22 就够"；
+④ 一次只允许一条未确认的改动（两条叠加会让"退回哪一份"没有答案）。
+
+**结论：P14.3 passed。** 代码已实现、单测与宿主检查已过、真机验收通过（153/0/4，退出码 0）。
+两个写开关仍默认关闭；`-firewall-writes` 打开后也只动带 `upanel:` 标记的规则。
+
+---
+
+### P14.4（2026-10-27）— NFS：网段是唯一的访问控制，`exportfs -ra` 的退出码不是证据
+
+STAGES 的原文是「NFS 受管理导出、网段/root_squash、卷依赖、真实客户端读写验收」。这一轮
+只做 NFS 那一半的 `share.apply` / `share.disable` / `share.delete`。
+
+**实现侧已经写完的（代码 + 单测）**：`internal/shares/nfs.go` 负责渲染与解析导出文件，
+`exports.go` 负责"写—读回—失败还原"，`assess.go` 的 `exportsAssessment` 负责预检；
+`internal/agent/sharewatch.go` 的撤销循环（30 秒一轮）负责卷掉了之后摘导出行。判据链与
+SMB 那一套同形：执行前重新判决 → 写完读回 → 失败说清在哪一步并只回滚自己造的东西。
+
+**真机验到的四件硬事**（都是在 22.04 VM 上跑出来的，不是推的）：
+
+1. **只维护一份文件，认领靠行尾标记。** 导出全部写进 `/etc/exports.d/upanel.exports`，
+   行的结尾是 `# upanel:<share_id>`；`/etc/exports`（管理员那份，VM 里放着
+   `/srv/upanel-nfs *(ro,async,…,fsid=0)`）整轮 sha256 前后逐字节相同。别人的 `.exports`
+   文件只读来做冲突检测，不改写、不导入成可编辑共享。停用/删除之后托管文件正文一条都不剩
+   （只有三行说明），目录与里面的文件一个不少、内容哈希不变。
+2. **网段是唯一的访问控制，而且它是真的在挡。** 把允许网段从 `127.0.0.0/8` 改成
+   `192.168.77.0/24` 之后，**同一台机器**挂不上（`mount` 非 0 退出、`findmnt` 空）；
+   改回来立刻又能挂上。中间没有账号、ACL、密码参与。
+3. **只读是两道锁：导出行 `ro` + 目录 `0755`。** 客户端把文件写进只读共享，被内核以
+   `Read-only file system` 拒绝，服务端目录里没有多出这个文件。这里有个坑必须记下来：
+   **NFSv3 客户端的 `findmnt` OPTIONS 永远报 `rw`**，只读表现为服务端回 EROFS——所以
+   "挂载选项里是 ro"这种断言根本不成立（Q466）。
+4. **卷依赖与运行时撤销只减不增。** 卷还在挂载树里时面板拒卸载（`VOLUME_IN_USE_BY_SHARE`）；
+   卷摘出挂载树之后，撤销循环摘掉导出行、重新 `exportfs -ra`、写
+   `runtime_revoked.volume_state=unmounted` 与 `config_applied=false`，实测 **13 秒**完成；
+   卷挂回来**不自动复活**，重新 `share.apply` 才恢复，客户端随后又能挂上并读到之前写进去的
+   文件。
+
+**判据一律读回 `exportfs -v` 的实际导出表**，按路径整行匹配再取它缩进的客户端行——
+`exportfs -ra` 的退出码不作为证据。理由是真机撞出来的：目录不存在时 `exportfs -ra` 报
+`Failed to stat` 并以 1 退出，但它仍然把导出注册上了；反过来同路径导出两次会让
+`exportfs` 报 `duplicated export entries` 并以 1 退出，**整份**导出表刷新失败，连别人的
+导出一起停摆（Q466）。
+
+**真机抓出来的 2 个产品缺陷（都是真机先红、修完再验）**：
+
+| # | 真机现象 | 根因 | 修法 |
+|---|---|---|---|
+| 1 | 导出写下去了、`exportfs` 也吃下去了，最后在 `SaveShare` 被 SQL 挡住：`shares.protocol CHECK (protocol IN ('smb'))` | 0005 迁移把协议钉死成 smb，新协议没有对应迁移 | 新增 `0013_shares_protocol_nfs.sql`：SQLite 不能就地改 CHECK，只能表重建（建新表→拷数据→删旧表→改名→重建两个索引）；并把"旧 schema 真的拒绝 nfs"写成断言 `TestMigration0013RebuildsSharesAndKeepsRows`。`fakeStore` 不跑 SQL，所以单测一直是绿的（Q471） |
+| 2 | 同一个目录的第二条共享，预检 `allowed=true` | `ExportConflicts` 只比"别人的导出文件"，面板自己的两条共享指向同一个目录没人拦 | 新增纯函数 `SameDirShares` + `sharesSharingDir`（预检），执行期 `applyExports` 里再拦一次；预检与执行用同一个函数，不靠"合并两行和稀泥"（两条共享的网段、只读标记可以不同）。`CONTRACTS.md` §7(5) 补上两个来源（Q473） |
+
+**另有一条同类未修，必须写明**：SMB 路径（`internal/shares/write.go:230`）在配置生效之后
+落库失败同样不回滚。修它需要把 `configState` 带出 `applyManagedConfig`，并在还原之后
+reload `smbd`——那是 P08 的代码路径，本轮不动。已登记在 DECISIONS（Q472），不是"忘了"。
+
+**验收方法自身的缺陷 7 类**（单独列表，因为它们全都伪装成产品故障）：最险的是脚本里写成
+`"$(PRE_ALLOWED)"`（少一个 `$`），把变量当命令执行，一条语法错把第 7—10 节六十几条断言
+全带红了；其次是 `grep -c '# upanel:'` 把文件头那句示例注释也数进去，导致"两条导出"数成
+3；再次是 `umount -l` 只摘命名空间、本机 `knfsd` 仍持有文件系统（`fuser -vm` 点名
+`kernel knfsd`），让"从外面卸卷"永远 `target is busy`——改成硬卸优先，并且"设备级掉线"
+明确登记为 NOT RUN 而不是拿 lazy umount 冒充。其余四类（`ro` 断言不成立、夹具没给
+`0644` 导致被 squash 的 `nobody` 读不到、"disable 顺手删记录"这种与契约相反的断言、
+前置失败后六十多条断言用垃圾值变红）逐条记在 Q474 与 `result.md` 第 5 节。
+
+**结论：P14.4 passed。** 22.04 VM 第七轮 `PASS 141 / FAIL 0 / NOT RUN 6`，退出码 0；
+证据目录 `docs/evidence/P14/2026-10-27-p14.4/`。6 条 NOT RUN 逐条写明为什么没验——
+跨机器挂载、Windows/macOS 客户端、NFSv4 直挂、两条导出并发写托管文件、kerberos、
+设备级掉线（这台 VM 是 `-monitor none` 起的，跑的时候拔不了盘）。
+
+### P14.5（2026-10-27）— 账号：禁用是换壳（不是 `-L`），sudo 的判据是 sudo 自己
+
+STAGES §16 对 P14.5 的要求是「受管理 Linux 账号、SSH 公钥、受限 sudo 模板；禁止修改
+root/系统账号和面板身份提权」。四条设计决定支撑它：
+
+- **两种账号、三处必须分开显示**：`regular`（人能登录）与 `share`（只给 Samba）。
+  页面上 `shell`（此刻的壳）、`shell_profile`（期望档）、`has_password`（设过没有）
+  是三个独立字段——把它们合成一个"状态"就会说出与磁盘不符的话。
+- **禁用靠换壳**：`disabled` 档把登录壳换成 `/usr/sbin/nologin`，`restricted` 档是
+  `/bin/rbash`。**不用 `usermod -L`**：`-L` 会动 shadow 的口令字段，等于替用户改了别的
+  事实，启用时还得记着原来的哈希；换壳只改一行、可逆、读回一眼就能看见。
+- **`authorized_keys` 托管区**：整块由面板重写，区外逐字节不动。标记是
+  `# >>> upanel 托管区（整块由面板重写，手改会被覆盖）>>>` / `# <<< upanel 托管区 <<<`，
+  文件 `0600`、目录 `0700`、上限 10 把。区外一旦被碰，"面板不会覆盖你的东西"这句话就没了。
+- **sudo 的五道门**：候选文件 `visudo -c -f` → rename → 整份 `visudo -c` → 解析读回 →
+  `sudo -l -U` 读回；**判据是 sudo 自己**，不是面板说"我写了"。模板是闭集
+  （`system_status` = `/usr/bin/systemctl status --no-pager`、`journal_recent` =
+  `/usr/bin/journalctl -n 200 --no-pager`），零通配符——sudoers 的 `*` 是按单个参数做
+  glob 的，`journalctl -u *` 实际允许 `--vacuum-size=1G`（Q476）。文件 `0440`、带认领标记
+  `# upanel:`，手改过的文件一律 `SUDO_FILE_DAMAGED` 拒绝、一个字不动。
+
+**真机三轮才绿：真正暴露产品缺陷的只有第一轮**。
+
+| 轮次 | 结果 | 红的根因 |
+|---|---|---|
+| 第一轮 | 63 PASS / 111 FAIL | ① 环境：`/etc/sudoers.d/upanel` 是 `0644`，整份 `visudo -c` rc=1；② 产品 Q477：`Definition` 无 json 标签 → `display_name` 400；③ 产品 Q478：`GET /accounts` 用 Samba 的能力当账号判据 |
+| 第二轮 | 162 / 3 | 全是脚本与口径：`password_changed` 只在改账号时出现；`ssh-keygen -lf` 一行一把被当单值比；§11 断言"没口令就登不上"与真机相反 |
+| 第三轮 | **168 / 0 / 6** | — |
+
+**真机抓出来的 2 个产品缺陷（都是 111 条红里挖出来的，单测全绿）**：
+
+| # | 真机现象 | 根因 | 修法 |
+|---|---|---|---|
+| 1 | 第 3 节起全线红：预检就回 `json: unknown field "display_name"` | `accounts.Definition` 一个 json 标签都没写；代理用 `DisallowUnknownFields`，而 encoding/json 的大小写不敏感只对整词有效（`name`→`Name` 行，`display_name` 不行）。所有单测只构造 Go 结构体，从不走**线格式** | 六个字段全补标签；新增 `internal/agent/accountaction_test.go`，用例一律从 JSON 字符串出发走真实 `Decode`；变异核验：去掉 `display_name` 标签，用例复现真机那句话（Q477） |
+| 2 | 账号页显示"这台机器不支持账号管理"、新建按钮是灰的 | 账号与 Samba 是**不相交**的两个工具集，`GET /accounts` 却直接返回 `shares.Capability`（判据是 `smbd`/`smbpasswd`/`pdbedit`/`setfacl`） | 照 P14.4 给 NFS 单开判定的成例：新增 `accounts.Capability` 与只读查询 `accounts.capability`；Web 侧 `AccountCapability` / `ShareCapability` 两个类型。回归含"有 smbd 没 useradd 必须 blocked"这条缺陷正身（Q478） |
+
+**另有一条不是产品缺陷、但比缺陷更该记的：文档说反了。** 四处文案（`api/accounts.ts`、
+`AccountsView.vue` 三处、`utils/jobresult.ts`、`CONTRACTS.md` §13）都写着"没有口令的账号
+即使配了公钥也登不上"，并且自认"未验证"。真机 §11 直接把它否了：publickey 认证不看
+shadow 的口令字段，**key-only 账号能登**。这不是缺陷——key-only 是服务器上很常见的用法。
+真正拦人的是**壳**。所以脚本 §11 改成四面（能登 / 禁用后被拒 / 启用后又能登 / 撤钥匙后
+被拒），把"登不上"归因到壳上而不是 sshd 配置；中文案全部改成"只能用已配的公钥登录 /
+要拦人就禁用"，并给 `accounts.test.ts`、`jobresult.test.ts` 加了钉住的用例（Q479）。
+
+**验收方法自身的两条缺陷**：`password_changed` 只在改账号时出现在结果里，建号读的是
+`password_state`/`has_password`；`ssh-keygen -lf` 对多把钥匙一行一把，原来拿它跟单值比，
+新增 `fp_listed()` 做包含判断。另外环境那条（`/etc/sudoers.d/` 里任何非 `0440` 的文件都
+让整份 `visudo -c` 失败）记进 `docs/TEST_ENVIRONMENT.md` §8.12，坏文件留档在
+`/var/tmp/p145-envfix/upanel.badmode`。
+
+**结论：P14.5 passed。** 22.04 VM 第三轮 `PASS 168 / FAIL 0 / NOT RUN 6`、退出码 0；
+证据目录 `docs/evidence/P14/2026-10-27-p14.5/`（全量 `run.log`、四条 ssh 读数、sudo 真跑
+输出、宿主检查）。6 条 NOT RUN 逐条写明为什么没验：共享账号与 Samba passdb 两半（这台 VM
+没装 `samba-common-bin`，不为一条验收去装包）、两条公钥动作并发写同一份 `authorized_keys`
+（锁由单测覆盖）、第 11 把公钥被拒（上限在判决层）、home 在别处/是符号链接（面板拒绝写，
+只在单测造过）、面板自己的 TOTP 与登录策略（P14.6）。
+
+### P14.6（2026-10-27）— TOTP：确认过的那个码不能再用第二次
+
+STAGES §16 的两条硬要求是「TOTP 未确认不启用」与「恢复码只能使用一次」。这一轮的现场读数
+与逐条断言写在 §1，证据在 `docs/evidence/P14/2026-10-27-p14.6/`；这里只记方法与结论。
+
+- **重放防护靠一条 SQL**：`AcceptTotpStep` 用 `UPDATE user_totp SET last_step=? WHERE user_id=?
+  AND last_step < ?` 同时完成“判断”与“写入”，零行即 `ErrTotpReplay`。判据在库里而不是在
+  进程内存里，因此重启、多会话、CLI 与 Web 并发都走同一条线。
+- **“只能用一次”必须造中间态**：关掉 TOTP 之后旧恢复码本来就不认，那证明不了“用过”。
+  现场的造法是：先带码认证把再认证窗口推到 5 分钟 → 停代理 → 用 RC1 关闭得到 503，带外
+  读到 `used_at` 已写而状态行还在 → 起回代理 → 同一枚 401，换 RC2 才成功。
+- **前端产物要爬分片**：`/auth/totp` 在 `totp-*.js`、`只显示这一次` 在 `SettingsView-*.js`，
+  只抓入口 bundle 的断言是假绿。第 8 节从 `index.html` 出发逐代爬 chunk（4 轮、55 个分片、
+  1,625,696 字节），并断言分片数 ≥ 2。
+- **真机抓到 1 个产品缺陷（Q480）**：`EnableTotp` 不搬确认时匹配到的 `Step`，`last_step`
+  写死 -1，于是**确认用的那个六位数在同一个 30 秒窗口里还能当登录码用一次**。单测当时把
+  缺陷写成了期望值（断言 `LastStep == -1`），变异核验才暴露出来。修法是签名加 `lastStep`、
+  `< 0` 拒绝启用、INSERT 写入该步；三处调用点与两条新用例钉住。
+- **验收脚本自身 10 条假红（Q481）**：偏移加到 ±1 窗口外面、空串当 needle（`grep -F ''`
+  匹配每一行）、`jget` 的失败标记被原样拼进 SQL。三条都改成“先证明取到了再拼”。
+
+**结论：P14.6 passed。** 22.04 VM 第二轮 `PASS 163 / FAIL 0 / NOT RUN 6`、退出码 0。
+6 条 NOT RUN：两枚恢复码在同一个时间步被并发消费（唯一的原子性证据是 `used_at` 的
+`UPDATE … WHERE used_at IS NULL`，未做真并发）、时钟回拨与 NTP 跳变、>`±1` 窗口的时间步、
+`otpauth://` 在真实手机 App 里扫码（无设备）、`upanelctl totp-reset` 在代理停止时的行为
+（P14.6 只验了 root 下 403 与 `upanel-web` 下成功）、24.04 机器上的同一套脚本（本轮只跑
+22.04，24.04 的差异在 P16.2 双平台端到端里一并覆盖）。
+
+### P15.1（2026-10-27）— 部署定义：先把“不能表达什么”定死，再谈怎么渲染
+
+STAGES §17 对 P15.1 的要求是「受限 `DeploymentDefinition`、镜像/端口/资源/目录校验、秘密
+环境变量、Compose 配置渲染」，验收那一侧要求「恶意挂载 / `docker.sock` / devices /
+privileged / host network **全部无法表达或被拒绝**」。这一轮只做**纯函数层**：
+`internal/deploy`（定义、校验、确定性渲染），没有接线（接口、库表、执行分别是 P15.2/P15.4）。
+
+- **已实现**：`Definition` 十个字段的闭集（JSON 严格解码，未知字段 400 `unknown_field` 并
+  点名）；`Normalize` 管形状（名字/镜像/端口/IP 字面量/环境变量/挂载/资源/健康检查/依赖卷，
+  八个稳定拒绝码，只报第一条）；`CheckHost` 管宿主事实（地址是不是本机此刻的、文件根在不
+  在、根所在的**受管理卷**在不在、那个卷有没有写进 `volume_dependencies`）；`Render` 产出
+  确定性 Compose 字节 + 配置摘要 + 挂载来源表 + 秘密引用表（不解秘密就渲染不出来）。
+  渲染在**代理侧**，因为秘密只在代理的密钥环里（`Resolver` 只收 `app_env` 用途）。
+  五处写法是功能不是风格：`restart` 恒为字符串 `"no"`、挂载用长语法且
+  `bind.create_host_path: false`、所有引号标量的 `$` 转义成 `$$`、健康检查**不**进容器、
+  不写顶层 `name`（项目名由执行时 `-p` 传）。依据见 DECISIONS Q482 与 CONTRACTS §8.6。
+- **已验证（宿主）**：`go build` / `go vet` / `gofmt` 干净；`go test ./internal/deploy/`
+  20 个顶层用例、100 条 PASS 记录全绿，其中 §17 点名的恶意输入逐条成表（`privileged`、
+  `devices`、`network_mode`、`cap_add`、`compose_yaml`、`..`、绝对宿主路径、`/proc`、
+  `/sys`、`/dev`、`docker.sock`、绑定通配地址、只读根读写挂载、健康检查探非容器端口）；
+  黄金用例逐字比对整份渲染结果（含 `$` 双重转义与缩进）。
+- **未验证**：**没有在任何真实 Ubuntu 虚拟机上跑过**，也没有被任何生产代码路径调用——
+  `upanel-agent`/`upanel-web` 都还没 import 这个包（P15.2 才接线）。因此「正常镜像可部署/
+  升级」「卷缺失时 VM 重启也不绕过」「健康失败显示失败」这三条 §17 验收**一条都还没有真机
+  读数**。渲染出的 YAML 也**没有**被真实的 `docker compose config` 解析过：字段名与键序是按
+  Compose spec 写的，没有一个 `docker compose` 的读回证明。
+- **未验证（范围外，按计划留给后面）**：定义与渲染结果的持久化、`POST /deployments` 一类写
+  接口、配置 0600 落盘、包装 systemd 单元、执行 compose、镜像 digest 回读、更新/回切与
+  页面（P15.2—P15.4）。`GET /deployments` 仍是只读观测（§8.3）。
+- **受阻**：无。下一个子任务 P15.2（systemd 包装、挂载依赖、容器 `restart=no`、部署/停止/
+  删除保留数据），入口就是这一层的 `Render` 结果与 `Rendered.MountedSources`。
+
+### P15.2 前半程（2026-10-28）— 包装单元与落地：先让“卷没挂上”真的能挡住启动
+
+STAGES §17 对 P15.2 的要求是「systemd 包装、挂载依赖、容器 `restart=no`、部署/停止/删除保留数据」。
+这一轮把 `internal/deploy` 从“能渲染一份配置”推进到“能在宿主上落地一个受管部署”，**只做创建与
+删除**：`deployment.update` 是 P15.3 的事，在 P15.2 里被明确拒绝而不是悄悄覆盖。
+
+- **已实现**：`unit.go`（包装单元 + mount unit 转义 + compose argv）、`applier.go`（写盘、读回、
+  删除）、`service.go`（两个动作的预检与执行两阶段）；`HostEnv.Volumes` 换成携带
+  `MountPoint`/`FilesystemUUID`/`Mounted`/`MountedUUID` 的 `VolumeFacts`，新增两条判据与
+  `CheckVolumesReady`（PLAN §11 规则 2/4 的启动前 UUID 核对）。
+- **为什么 `restart: no` 必须配一个包装单元**：`no` 只说明“没人再拉它起来”——包括开机。
+  没有单元时，机器重启后应用永远回不来而面板上一片绿；有单元时，开机由 systemd 起、运行中
+  由 systemd 守、停止由 systemd 收，容器因此永远只有一条生命周期路径，也就不存在“docker 在
+  卷挂载之前先把容器拉起来”这个洞（规则 4）。
+- **为什么单元要 `BindsTo` mount unit 而不是只写 `RequiresMountsFor`**：前者在**运行中**卷失联
+  时也会停掉单元（规则 5 的落点），后者只管启动顺序。两条一起写，开机与运行中两个窗口都盖住。
+- **为什么版本是配置的 sha256**：它与 §8.6 的 `ConfigDigest`、以及 Web 侧库表里的
+  `applied_digest` 是同一个值。用它做 `deployment.remove` 的乐观并发令牌，意味着“你删的是你看到
+  的那一份”，而这份判断只需要读一个文件就能复核。
+- **已验证（宿主）**：`go build`/`go vet`/`gofmt` 干净；`go test ./internal/deploy/` **51 个顶层
+  用例全绿**，其中钉住的有：单元黄金样本逐字比对、mount unit 名逐字符（`/srv/upanel/volumes/
+  my-app` → `srv-upanel-volumes-my-app.mount`）、`systemctl` 调用序列（`daemon-reload` →
+  `enable` → `start` → `is-enabled` → `is-active`）、幂等重放不重写文件（mtime 不变）、异内容被
+  `ErrDeploymentExists` 拒绝且磁盘不变、`compose up` 返回 0 但单元非 active 时失败并给出
+  `journalctl`（消息里带上它，测试断言这一点）、单元被手工改过则整篇重写、删除后业务目录与
+  其它部署的单元都还在、`disable --now` 之后仍 active 时**不删文件**、版本令牌不符时一个字节
+  都不动。`sh scripts/check.sh` **PASS 14 / FAIL 0 / NOT RUN 0**。
+- **未验证**：`deployment.apply` / `deployment.remove` **还没有登记进代理的动作表**——`Service`
+  需要的宿主事实（文件根 → 受管理卷的最长前缀映射、卷的 `Mounted`/`MountedUUID`）与密钥环
+  解析器在代理侧还没接起来；`cmd/upanel-agent` 也还没构造 `Applier`。**没有在真实 Ubuntu 上跑过
+  一次 `docker compose`**，`systemctl` 的调用全部来自 fake runner。因此 §17 的三条验收
+  （真实部署与升级、卷缺失重启不绕过、健康失败显示失败）仍然**未验证**。
+- **未验证（范围外）**：`deployment.update`、镜像 digest 记录、按选择备份、健康探测与回切
+  （P15.3）；`/deployments` 写接口与页面（P15.4）。
+- **受阻**：无。下一个动作是 P15.2 的接线：把这两条动作登记进 `NewProductionRegistry`，在代理侧
+  用文件根表与卷表构造 `HostEnv`（含最长前缀映射与 UUID 读回）、用密钥环实现 `Resolver`，
+  然后在 VM 上跑一次真实部署与一次“卷缺失后重启”。
+
+### P15.2 真机验收（2026-10-27）— 第一次真的把容器跑起来：四个产品缺陷，全在真机上
+
+STAGES §17 对 P15.2 的要求是「systemd 包装、挂载依赖、容器 `restart=no`、部署/停止/删除保留数据」。
+接线完成后在 VM-A（Ubuntu 22.04.5、docker 29.1.3 / compose 2.40.3、夹具盘 `/dev/sdd`）上跑
+`tests/integration/p15-2-acceptance.sh` 两段：`PHASE=main` **199 PASS / 0 FAIL / 2 NOT RUN**、
+`PHASE=boot` **51 PASS / 0 FAIL / 0 NOT RUN**。证据 `docs/evidence/P15/2026-10-27-p15.2/`
+（`RESULT`、`RESULT-boot`、两段控制台、`facts/`、`logs/`、`payloads/`）。
+
+- **已实现（本轮补的）**：`agent/deployaction.go` 的接线与两处判决修正；`Applier.Apply` 的启动
+  动词按现场选择；`systemctlAnswer`（退出码是答案）；`deploy.deploymentStateVersion`（四个非空
+  令牌）。宿主侧新增 `TestAssessApplyBindsStateVersionOnCreate`、
+  `TestAssessRemoveBindsVersionWhenConfigMissing`、`TestDeployApplyUpdateRefusalIsAPlanNotAnError`、
+  `TestDeployRemoveRefusalIsAPlanNotAnError`、`TestApplyRestartsWhenUnitAlreadyOnDisk`、
+  `TestApplyStartsFreshUnit`、`TestInspectToleratesDisabledAnswer`；假 runner 改成与真实 `syscmd`
+  同形（非零退出 → `*syscmd.ExitError`，`enable`/`disable` 真的翻状态）。
+- **已验证（真机）**：部署真的起来（`verified`、容器 1 个在跑、宿主端口 HTTP 200、应答里有
+  `Host` 头）；包装单元逐字符合契约（`facts/unit.service`）；幂等重放不重写、不重启、容器 ID 与
+  `StartedAt` 都没变；判决层（`update_not_implemented` / `deployment_exists`）在真机上给出 200 +
+  blocker，而不是 500；masked mount unit 让 `systemctl start` 失败（`Unit … is masked.`）、
+  卷没挂上、marker 没落到系统盘、预检给 `volume_not_ready`；重启后单元 `enabled` 但 `inactive`、
+  系统盘无数据、journal 无条目（masked 依赖让事务在启动前就被拒）；解除 mask + 挂回卷后单元与
+  容器都回来；删除后单元与配置消失、`systemd` 报 `not-found`，业务目录与 `marker.txt` 逐字节还在。
+- **四类产品缺陷（真机才暴露，全部已修）**：① 新建部署预检 100% 500（缺版本令牌，Q484）；
+  ② 带 `deployment_id` 的预检 500（`deployPlanFromError` 漏填 `NormalizedParams`）；
+  ③ apply 落在**已有的 active 单元**上时 `start` 是空操作，配置写了但容器一个没起（Q485）；
+  ④ `deployment.remove` 永远删不掉——`is-enabled` 对 `disabled` 退出 1，被当成执行失败（Q486）。
+  其中 ③④ 的共同根因是**假件与真机形状对不上**：假 runner 不会以非零退出返回错误，也不会在
+  `disable` 之后翻 `enabled` 状态，于是"真机上唯一会走的那条路"在宿主测试里根本不存在。
+- **五类验收脚本自身的错误（不是产品缺陷，已修）**：起点没清干净（上一轮的 active 单元、fstab
+  条目、残留容器都留在盘外）；`findmnt --mountpoint` 对子目录返回空；`runuser` 写不进 0700 的
+  root 目录导致 facts 缺文件；删除后仍用 `-f <已删掉的配置>` 数容器（compose 的报错行被数成
+  1 个容器）；以及一处**假绿**——容器 ID 与 `StartedAt` 两侧都为空也算"没变"。
+- **NOT RUN（两条，理由在 Q487）**：`容器里读到的 marker`（`traefik/whoami` 是 scratch 镜像，
+  容器内没有 `cat`/`sh`，挂载改由 `docker inspect` + `findmnt` 交叉核对）；
+  `运行中卷失联 → systemd 自动停单元`（容器把卷 bind 进自己的 mount namespace，`umount -l`
+  造的是假现场）。
+- **未验证（范围外）**：`deployment.update`、镜像 digest、按选择备份、健康探测与回切（P15.3）；
+  `/deployments` 写接口与页面（P15.4）；24.04 上的 systemd/docker 差异；bind mount 前的句柄级
+  路径核对。
+- **受阻**：无。下一个子任务 P15.3：`deployment.update`（拉镜像并记录实际 digest）、按选择备份、
+  启动后健康探测与失败可见、回切边界。
+
+### P15.3（2026-10-29）— 更新与健康检查：先让"回切"有据可依，再谈换镜像
+
+STAGES §17 对 P15.3 的要求是「`deployment.update`（拉镜像并记录实际 digest）、按选择备份、启动后
+健康探测与失败可见、回切边界」。库层（`internal/deploy`）与代理接线（`internal/agent`）先做完，
+随后在 VM-A 上跑通真机验收（见下一小节）。
+
+- **已实现（`internal/deploy`）**
+  - `record.go`：`<name>.deployment.json`（`0640`）记规范化定义与镜像记录，`<name>.compose.yaml.prev`
+    （`0600`）记上一版原样字节。`requireRecord` 把"盘上没有"与"有但不是合法 JSON"分开报
+    （`ErrRecordMissing`），两种情况都拒绝更新——没有记录就当场补一份是编造。为什么定义必须落盘见
+    Q488。
+  - `update.go`：`AssessUpdate`（只读：形状 → 记录 → 盘上摘要 → 宿主事实 → 卷依赖 → 渲染 → 备份
+    策略）与 `ExecuteUpdate`（停单元 → 备份 → 拉镜像 → digest 核对 → 写 `.prev` → 写新配置并
+    `restart` → 探测 → 失败回切）。`UpdateBudget` 一组常量把 10 分钟硬线切成段，每段动手前判断够
+    不够（Q491）。
+  - `probe.go`：面板侧探测探**宿主公开入口**（通配地址换 `127.0.0.1`），`http` 判 `200—399`、`tcp`
+    判能建连，不跟随重定向、禁 keep-alive，120 秒预算且 `Truncated` 不算通，启动宽限期内失败不算
+    失败。`Checked`/`Healthy` 是两个字段：**"没探成"不等于"探不通"**。
+  - 回切写回 `.prev` 的**原样字节**并 `restart`，再探一次；**数据不跟着回切**，这句话逐字进了错误
+    消息（Q489）。
+  - `applier.go`：新增 `ApplyRequest.ReplaceExisting`（"那份不同内容的配置就是要被换掉"，只有
+    update 传）、`ApplyRequest.MustRun`（"这个动词必须真的执行"）与 `Applier.RestartUnit`（只
+    restart、不碰文件）。两个字段分开不合并的理由见 Q492。
+  - `service.go`：`ApplyOutcome.Health`，`ExecuteApply` 在 `started` 之后探测（`probing` 步骤），
+    探测失败把原本 `verified` 的判决降成 `partial`；`AssessApply` 的 `health_probe_pending` 告警
+    删除——CONTRACTS §8.7 那条"这一版不探测 HTTP"随本轮作废。
+- **已实现（`internal/agent`）**
+  - `deployaction.go`：`deployment.update` 登记进动作表（`DeploySource` 增 `AssessUpdate` /
+    `ExecuteUpdate`），五种 impact、锁含 `backup-policy:`/`backup-repo:`，进度步骤
+    `stopping`/`backup`/`pulling`/`writing`/`probing`。**回切成功不是失败**：两个"已回切"的拒绝码翻成
+    `OutcomeRolledBack` 且 error 为 nil，读回值（回切后摘要、单元状态、`rollback_health_*`）因此进得
+    了审计；回切本身失败才是错误（Q490）。
+  - `deploybackup.go`：更新前备份的适配层，只收 `files_only`；`stop_managed_apps` 在预检与执行两处
+    都拒（预检与执行之间策略可能被改）。
+- **已验证（宿主）**：`go build ./...` 干净；`go test ./internal/agent/ ./internal/deploy/ ./cmd/...`
+  全绿（`update_test.go` 13 个用例、`record_test.go`、`probe_test.go`、`deploybackup_test.go`）；
+  `sh scripts/check.sh` **PASS 14 / FAIL 0 / NOT RUN 0**（含 `gofmt`——首轮 7 个文件未格式化，已修）。
+- **接线阶段抓到的三个产品缺陷（都是产品缺陷，不是测试问题，Q493）**：`ErrDeploymentExists` 把更新
+  挡在门外；`Apply` 只在 `!exists` 时写配置，于是更新"成功但版本没变"；`restartQuietly` 走 `Apply`
+  被判据挡住，而错误被吞掉——"备份失败后把单元起回来"这一步静默地没发生。
+- **已验证（真机）**：2026-10-27 VM-A（Ubuntu 22.04.5、docker 29.1.3 / compose 2.40.3、
+  restic 0.12.1）`PHASE=main` **229 PASS / 0 FAIL / 1 NOT RUN**、退出码 0
+  （`docs/evidence/P15/2026-10-27-p15.3/`）。读数与边界见下面「P15.3 真机验收」小节。
+- **受阻**：无。下一个动作是 P15.4（`/deployments` 写接口与更新 UI）。
+
+### P15.3 真机验收（2026-10-27）— 回切在真机上是一次能读回的事实，不是一句承诺
+
+脚本 `tests/integration/p15-3-acceptance.sh`（单段 `PHASE=main`，七分半钟）铺好卷、文件根、备份
+仓库与策略之后，把 §6—§12 七段走完：建站 → 正常更新 → 同镜像重放 → 探测失败回切 → 带备份的
+更新 → 只收 `files_only` → 四种拒绝。**229 PASS / 0 FAIL / 1 NOT RUN**。
+
+- **已验证（建站与记录）**：记录 `0640`；记录里的 `image.digest` 与
+  `docker image inspect -f '{{.Id}}'` 逐字相同（`sha256:43a68d10…`）；记录里除 `sec_` 引用外没有
+  秘密残留；第一次建站**没有 `.prev`**（这一条本身是断言，不是注释）。
+- **已验证（正常更新）**：`ab9215e4…` → `e406bf01…` 两个版本对得上；`previous_config_digest`
+  就是更新前那个；`config_changed=true` / `idempotent=false` / `unit_restarted=true`；新 digest
+  `sha256:65645c7b…`；盘上三个文件 0600 / 0600 / 0640，`.prev` 的 sha256 与字节数与更新前**逐字
+  相同**；容器运行时读回新镜像、项目标签 `webapp`、宿主端口 HTTP 200。
+- **已验证（同镜像重放）**：`config_changed=false` 但 **`unit_restarted=true`**——Q485 那条
+  “`start` 对 active 的 oneshot 是空操作”在更新路上同样成立；预检给的是 `config_unchanged`
+  告警（预检 `warnings[]`，不是执行期 `observed_state.warnings`）。
+- **已验证（回切）**：换成 `busybox:1.36.1` 之后 **104 秒**（`12:49:46Z` → `12:51:30Z`，4 次探测
+  尝试真等满超时）；终态仍 `succeeded`、`outcome=rolled_back`、**`error` 为空**；`health_ok=false`、
+  `rollback_verified=true`、`rollback_health_ok=true`；盘上配置 sha256 回到更新前那份、`.prev` 没被
+  回切改掉、容器回到上一版镜像、HTTP 又通；**记录没被改**（新版本从来没被认下来过）；恢复提示
+  把"数据没有回切"逐字写进了消息。
+- **已验证（按选择备份）**：`unit_stopped=true`（先停单元再备份）、`backup_verified=true`、
+  策略与仓库标识都进观测；快照 `d5458d51…` 在任务观测与**独立 `restic snapshots`** 两处都能读到，
+  标签含 `upanel:consistency:files_only`。
+- **已验证（拒绝与失败）**：`backup_policy_needs_apps`（并指路去单独跑 `backup.run`）、`stale`、
+  `record_mismatch`、`no_definition_record`、`update_not_implemented`、`deployment_exists`——每一次
+  之后盘上配置与容器一个字节没动；钉一个拉不到的 digest（`…@sha256:1111…1111`）预检仍允许，
+  执行期 `failed`（`failed to resolve reference … not found`），配置与 `.prev` 没动、容器还在跑、
+  单元仍 active、服务仍在应答——**失败没有把应用留在停掉的状态**。
+- **NOT RUN（一条）**：`初始化 GPT / 建分区 / 格式化`——夹具盘 `/dev/sdd` 上已有 GPT，按上一轮
+  夹具复用（要重跑请换一块空盘）。卷这一侧没有打折：独立工具读 UUID、导入、挂载、`findmnt`
+  按 UUID 核对、marker 落在卷上，全部真跑。
+- **本轮修掉的东西**：真机这一轮**没有暴露新的产品缺陷**（0 FAIL）。改掉的 13 条全在验收脚本里，
+  都是"按记忆写就会假绿或假红"的地方：`$WORK/logs` 还没建就让重定向失败看起来像拉不到镜像、
+  `update_params` 读了一个从未赋值的版本串于是 `stale` 分支永远不触发、`previous` 猜成
+  `image.previous`、把 `config_unchanged` 当执行期告警读、一条自比自的假绿断言、
+  `health_ok` 在"根本没探"时键不存在而 `jget` 抛 `KeyError`（新增 `expect_falsy`）、§12 拿"同名
+  同内容 apply"当创建语义的判据（那份定义渲染出的字节与盘上一模一样，会走幂等路径）、
+  `$TMPD` 0700 让 `web_curl` 全部拿到 000、`wait_job` 180s 上限短于 9 分钟更新预算、夹具卷里残留
+  上一轮的数据会混进快照、§11 拿旧时代的 sha 比对、restic 各版本 `snapshots --json` 的 `id` 长度
+  不一致、`RESULT` 0600 宿主读不到（取回时用 `sudo`）。逐条原因见证据目录 README 的表。
+- **仍然未验证**：`image_digest_mismatch`（注册表按 digest 寻址，钉错 digest 会让 `docker pull`
+  先失败，真机造不出那个现场，只有单测读数）；更新预算切段把时间耗到边界上逼出 `partial`；
+  连续两次失败的回切；24.04 差异。
+- **受阻**：无。下一个子任务 P15.4（`/deployments` 写接口与更新 UI）。
+
+### P15.4（2026-10-30）— 部署页：先把“管理面与观测面是两张表”写进页面，再谈按钮
+
+STAGES §17 这一条只有一句：“部署和更新 UI，明确禁止原始 Compose YAML、危险宿主挂载和特权选项。”
+后端管理面（`GET /deployments/managed`、`/deployments/managed/:name`、代理侧两条查询、`api` 层、
+openapi、CONTRACTS §8.9 的接口部分）上一轮已经接完，这一轮只做前端与文档：API 层、结果翻译、
+部署页、路由入口。
+
+- **没有新增写接口，这是设计不是欠账**：创建、更新、删除一律走既有的
+  `/operations/preflight` + `/jobs`（`deployment.apply` / `deployment.update` / `deployment.remove`），
+  页面上没有“直接部署”这个按钮。§17 说的“部署和更新 UI”在这里指**把受管部署管理起来的那一页**，
+  不是一套 `/deployments` 的 POST/PUT/DELETE。
+- **危险选项不是被拦住的，是写不出来的**：数据模型里没有 `compose_yaml`、`privileged`、`devices`、
+  `network_mode`、`cap_add` 的落点，代理侧 `DisallowUnknownFields` 让它们连请求都进不来（400
+  `unknown_field`）。所以页面连一个“高级 YAML”输入框都没有——留一个框再把内容拒掉，比不留更糟：
+  它暗示那件事可能做到。
+- **交付（API 层）**：`web/src/api/deployments.ts`——形状常量与正则（部署名 63 位、`dep_`/`vol_`/`sec_`
+  三种 id、文件根 id、CPU 小数、环境变量名）、`ManagedDeployment*` 类型、两条查询、只读纯函数
+  （`deploymentPhase` 只读 `unit_state`，**容器在跑不会把管理面说成 running**；`deploymentPhaseDetail`
+  在 `known=false` 时必须给出两条可能原因；`updateHint`/`removeHint` 只解释已知的拦路条件）、三份
+  预检参数（`applyParams`/`updateParams`/`removeParams`，版本令牌只来自服务端、没选备份时显式写
+  `backup_policy_id: null`）、草稿与校验（`validateDeploymentDraft` 返回 `{field, message}`，`field`
+  与 JSON 同形如 `environment[0].name`；**整行全空才是占位行，填了一半必须报错**——否则那一半会被
+  静默丢掉）。两条实现细节记在这里：内存上限用乘法不用位移（`64 << 30` 在 JS 里是 32 位运算，截成 0
+  会让校验报“最多 0 MiB”）；`BLOCKED_CONTAINER_PATHS` 十条把 `/proc`、`/sys`、`/dev`、`/boot`、
+  `/lib/modules` 与三个容器运行时 socket 列成常量，校验只做提醒，真正的判决在代理预检。
+- **交付（结果翻译）**：`web/src/utils/jobresult.ts` 追加 `summarizeDeploymentJob`——逐条读
+  `observed`（配置/单元、镜像与 digest 是否真有读数、备份快照与校验、健康探测的四件事、回切是否
+  复验、容器有无独立读数、删除后数据是否保留）。三条口径：`outcome=rolled_back` 是**这次更新没有
+  成功**（`succeeded` + 回切），话术不许说“已更新”；`containers_checked=false` 那行必须带“没有独立
+  读数”，不能把“没查”画成“没有”；`partial` 的话是“落地了但读回有一项不对”。
+- **交付（页面）**：`web/src/views/DeploymentsView.vue` 只做四件事——列出现场、展开详情看记录、
+  新建、换镜像、删除（后三件一律预检 → 任务 → 重新读现场）。任务轮询 2 秒 × 300 次 = 10 分钟，
+  对应代理的 `UpdateBudget=9min`。依赖数据（文件根、卷、备份策略）在 admin 下 best-effort 取，
+  取不到只让表单少选项、不阻塞列表；备份策略**只列 `files_only`**（`stop_managed_apps` 会被代理预检
+  拒），文件根只列 `writable` 的。预检 120 秒过期有 ticker 管，过期后确认按钮关掉。
+- **交付（入口）**：路由 `/apps/deployments`（`meta.moduleKey: 'apps'`）+ 应用页上的“受管部署”按钮。
+  **不去顶导航里“容器”那一格**：那一格是“容器与镜像”，这一页读的是受管部署，顶上去等于对外说
+  “容器页做好了”。`routes.test.ts` 断言 `containers.implementedIn` 仍是 `null`，防止被改回去（Q495）。
+- **交付（文档）**：CONTRACTS §8.9（两张表的对照、接口形状与错误映射、`version` ≠ `config_digest`、
+  `unit_state.known` 必须带 reason、读取上限 200 与 `skipped`/`truncated`、本轮已验证/未验证清单）、
+  DECISIONS Q495/Q496（管理面与观测面分两张表；代理侧读写分成 `DeploySource` 与 `DeployInspector`
+  两个字段，nil 时不登记查询——能力表不撒谎）。
+- **已验证（宿主）**：`web/src/api/deployments.test.ts` **19** 个用例（阶段只读 `unit_state`、非法部署名
+  抛 `RangeError` 且一个请求都没发、两条查询打到 `/api/v1/deployments/managed`、预检参数、定义闭集
+  断言 keys 里没有 `privileged`/`compose_yaml`/`network_mode`/`cap_add`/`devices`/`user`、MiB→字节、
+  秘密与公开值二选一、草稿校验逐条、定义⇄草稿往返）；`jobresult.test.ts` 新增 **5** 个（全文件 73）；
+  `routes.test.ts` 11 条（含新增那条“不去点亮容器格”）；`npx vitest run` 全量 **61 文件 / 1161 用例
+  通过**，`vue-tsc --noEmit` 干净，`vite build` 成功（`DeploymentsView` 单独 chunk 36.23 kB）。
+  `sh scripts/check.sh` 在本轮最终代码上重跑：**PASS 14 / FAIL 0 / NOT RUN 0**。
+- **未验证（NOT RUN）**：这一轮**没有任何真机读数**——上面每一条都是宿主单测与构建。页面链路
+  **没有被人点过**，也没有 Playwright 用例（`web-smoke` 只走“未登录落到登录页”一条）。三种现场只在
+  单测里造过：200 份以上（`truncated`）、`skipped` 非空、`config_drift` 为真。从这一页发起的
+  `deployment.apply` / `update` / `remove` 一次都没跑过（动作本身在 P15.2/P15.3 真机验过，走的是脚本）。
+  24.04 差异未验。
+- **本轮抓到的实现缺陷**：`64 << 30` 截成 0（内存上限变成“最多 0 MiB”）；空行过滤与校验冲突（定了
+  “整行全空才是占位行”这条产品规则）；`getManagedDeployment` 从同步抛错改成 `async`（非法名应当是
+  被拒绝的 Promise，调用方一处 `try/catch` 能接住两条路径）。都是宿主阶段自查出来的，不是真机发现的。
+- **受阻**：无。下一个子任务 P16.1（统一能力探测与安装/升级/卸载）。
+
+### P15.4 真机验收（2026-10-28，VM 时钟）— 跑之前先修掉“门”，跑的时候再抓两处页面缺陷
+
+CONTRACTS §8.9 当时留了一句“页面链路要等 P16 的统一验收轮（或单独一轮 VM 验收）才谈得上验收
+通过”。这一轮就是那次单独验收：在一台干净的 Ubuntu 22.04.5（2 vCPU / 单线程 TCG）上装 docker.io
+29.1.3 + compose 2.40.3，装 1.0 的 amd64 包，宿主上用 headless Chromium 经 SSH 隧道点这一页。
+
+**先修阻断项（Q511）：这一页原先在真机上根本点不通。** `deployment.apply` / `update` / `remove`
+三条都是 R=是，而**登录不开再认证窗口**——只有 `POST /auth/reauth` 把它推到 `now+5min`。页面原先把
+“这一步要求再认证”只写在确认卡上，于是按确认必然 403 `REAUTH_REQUIRED`，链路一次都走不完。
+P15.2/P15.3 验的是脚本直接打接口，所以这个洞一直活着。修法：预检说 `requires_reauth` 且
+`session.reauthExpiresAt` 不在有效期内时摆出再认证卡（面板密码 + 开了 TOTP 才有的验证码），
+`reauthPassword()` → `session.restore()` → 把被打断的那一步接着提交；口令只走 `/auth/reauth`，
+不进任务参数、不进日志。真机上 `POST /auth/reauth` 200（3082ms）→ `POST /jobs` 202，5 分钟窗口内
+后两次写入没有再要密码。
+
+**第一轮 31 PASS / 12 FAIL，12 条红的成因必须先分类再动手**：
+
+| 条数 | 定性 | 说明 |
+|---|---|---|
+| 1 | **产品缺陷** | `StatePanel` 的 empty 分支只把 `description` 交给 `NEmpty`，页面传的 `title` 被丢掉——空状态只剩“暂无数据”，部署页的“这台机器上还没有受管部署”看不见 |
+| 8 | 脚本时序 | 详情卡先渲染“正在读取…”，脚本对着这三个字做了六次断言；改成等面板真读出内容再断言 |
+| 1 | 同上两件事 | “删除后回到空状态”既撞空状态缺陷，也撞时序 |
+| 1 | **产品缺陷 + 观察项** | 删除成功后仍 `reloadDetail()`，读一个刚被删掉的部署注定 404（日志 WARN + 控制台错误）；另有两条 503 见下 |
+| 1 | 脚本的错 | 把登录前 `/api/v1/auth/session` 的 401 当成错误（那是预期探测） |
+
+**两处页面缺陷（Q513）**：空状态丢标题（改成标题与说明都落成 `<p>`，`panels.test.ts` 补回归用例）；
+删除分支不再明知故问去读已删的部署。**观察项（Q512）**：任务执行中两条 `GET /deployments/managed*`
+在 10008 / 10025 ms 被面板掐断（代理侧同一时刻 `status 200 duration_ms 10020 / 10037`——代理答了，
+只是答在 10 秒之后），报成 `AGENT_UNAVAILABLE` 是措辞不实；第二次跑（镜像已在本地）没有再出现。
+预算不改，记进 KNOWN_LIMITATIONS C12。
+
+**第二轮在最终字节上 43/43 全过**（`docs/evidence/P15/2026-10-28-p15.4/`）：登录 → 空状态 → 新建
+（`nginx:1.27-alpine`，`127.0.0.1:18089`→80，128 MiB / 0.5 核）→ 预检 → 再认证 → 任务 → 列表
+（`dep_…`、阶段读 `unit_state`）→ 详情（`sha256:…` 版本令牌、闭集、资源上限、上一版）→ 换镜像
+（`nginx:1.28-alpine`，带回切）→ 详情刷新出新镜像并留着上一版 → 删除 → 回空状态。三次任务
+`outcome: verified`（26 / 31 / 18 秒），面板侧 **57 条请求全是 200/202**，三次预检的请求体里没有
+`compose_yaml` / `privileged` / `network_mode` / `cap_add` / `devices`。
+
+**交付**：`web/scripts/deploy-smoke.mjs`（43 条断言；口令只从环境变量来；`UPANEL_SMOKE_TIMEOUT_SCALE`
+只放大等待、不放宽断言；“已知非 2xx”单列打印、不算通过）。
+
+**未验证**：200 份截断 / `skipped` / `config_drift` 三种现场仍只有单测；**“删除没动卷数据”这次只有
+文案证据**（那份部署没挂卷，没有实物可证）；24.04 未跑；掉电语义仍 NOT RUN。
+
+**收尾时又抓到一处日志误判（Q514）**：把读数固定在冻结字节上的过程中，面板日志里出现两条
+`ERROR 会话校验失败 error="auth: 读取会话失败: context canceled"`（对外 500 `INTERNAL_ERROR`）与两条
+`WARN …：代理不可用 error="… context canceled"`（对外 503 `AGENT_UNAVAILABLE`）。三个响应**没有人收到**——
+登录后 SPA 并发拉三个接口，随即导航到部署页，浏览器把它们 abort 了；可日志写的是“服务端坏了”“代理不可用”。
+排除过进程崩溃（`NRestarts=0`，同期无 panic）、代理预热（重启代理后 t+1s/t+2s 的 503 走的是另一条分支，
+t+3s 起 45 次探测全 200）、稳定故障（同一会话 12 次全 200）。修了会话校验那一层
+（`clientGone()` 只看取消、不看 `DeadlineExceeded`；取消时记 `WARN 客户端已断开，会话校验中止` 并写 499），
+读查询那一层的“取消 vs 不可用”没动（判定散在 `agentclient` 与十个领域包里），记进 KNOWN_LIMITATIONS C13。
+**修了代码就得重打字节，重打就得重跑**：七相位与页面链路都在重打后的最终字节 `3f3b40c1…` 上重取读数，
+`b1d913e7…` 上那一轮的 155/0/3 与 43/43 留作可重复性旁证（Q510 的口径）。
+
+- **受阻**：无。下一个子任务 P16.1（统一能力探测与安装/升级/卸载），已在下一节。
+
+### P16.1（2026-10-30）— 能力探测只说它真读到的事；备份必须在动库之前
+
+这一子任务有两半，STAGES §18 把它们写成一句话（"统一能力探测、安装/升级/卸载、两数据库和密钥
+备份、失败可重入；兼容已有软件"），但两半的共同点才是重点：**面板说"这台机器能做什么"和面板
+说"我备份好了"是同一种话——只能转述事实，不能替事实表态**。
+
+**交付（一份实现、三种问法）**：`internal/hostcaps` 是唯一探测实现，三个出口读的是同一份事实——
+`upanelctl host-caps`（安装器与"面板起不来"时的排障，`--json` / `--line` / `--timeout`）、代理
+`GET /internal/v1/capabilities` 的 `host_caps`、面板 `GET /api/v1/system/capabilities`（admin，
+只读快照）。探测**不在请求里跑**：代理启动探一次、每 10 分钟重探（`hostcaps.DefaultInterval`），
+端点只读快照——一次 HTTP 请求不该去 fork 二十个 `--version`。
+
+**交付（四条诚实性规则）**：
+1. 只在这四个目录里找：`/usr/sbin`、`/sbin`、`/usr/bin`、`/bin`。**不走 `PATH`**——`PATH` 里可能是
+   用户自己的 `apt` 包装、可能是 `~/bin/nginx`，那不是"这台机器装了 nginx"。
+2. 每条只有 `present`/`absent`/`unknown` 三态，`unknown` **必须**带 `reason`（没权限、超时、退出码
+   非零、读到的东西看不懂）。找不到不算 `absent`，除非真的确认四个目录都没有。
+3. 版本只在**真读到**才填。`nginx -v` 把版本打在 stderr、`docker --version` 带前后缀——解析不出来
+   就留空，不猜。
+4. `host_caps: null` 是"还没探完"，**不等于空表**。前端 `hostcaps.ts` 里没有任何把 `null` 补成 `[]`
+   的代码，也没有任何"可以/不可以"的判断函数——这一层只转述，不判决。
+顺带删掉了 `capabilities.dependencies` 那个永远为空的字段：一个从来不会有内容的字段比没有更坏，
+它会让人以为"没显示就是没装"。
+
+**交付（规格表）**：21 条——systemd、journalctl、systemd-analyze、docker、docker.compose、nginx、
+restic、ssh、ufw、ip、nfs、samba、apt、certbot、smartctl、sgdisk、mkfs.ext4、mkfs.xfs、findmnt、
+shadow、sudo。每条都带 `feature`（它能支撑面板的哪个功能）与 `hint`（`apt` 提示）。登记标准是
+"面板真的有代码路径依赖它"，不是"这台机器上可能有"。
+
+**交付（`--line` 六列契约）**：`id <TAB> state <TAB> version <TAB> path <TAB> feature <TAB> hint`，
+无表头、空字段表示"没有"、**禁用 `-`/`n/a` 占位符**，与 `--json` 互斥（同时给就 `exitUsage`）。
+用途很具体：安装脚本跑在 POSIX sh 里，**没有 jq**。`install.sh` 第 3 步就是拿它当唯一依赖事实源
+（`dep_field` 用 `awk` 按 tab 切，五个分支：present / absent / unknown / 空 / 意外值），
+`installer_need` 只剩 `openssl`、`curl` 这两个安装器自用工具——它们不在 host-caps 表里，因为面板
+本身不依赖它们。退出码只表示"探测有没有跑完"，**不表示"缺东西"**——缺席不是失败。
+
+**交付（B 面：备份与可重入）**：`deploy/scripts/backup-state.sh`。三个技术必然决定了它的形状：
+- SQLite 的 `-wal`/`-shm` 是活的，**必须停服务再拷**，否则拷到的是一份"看起来完整"的旧状态。
+  脚本只停它在跑的服务，结束时（含中途失败，`trap ... EXIT INT TERM` → `restore_services`）起回去。
+- `agent.key` 与两个库**必须同一份备份**：单个库拿出来是不可解的密文，分开存等于两份都不完整。
+- 库位置从 `check-config --json` 读，**不写死路径**——为此新增了 `agent_database_path` 字段。配置里
+  挪过库，备份就得跟着挪。
+七步：前置检查 → 读生效路径 → 停服务 → `cp -a` 配置/证书/密钥（再 `chmod -R go-rwx`）→ 拷两库
+（主库 + `-wal` + `-shm`）→ 起回服务 → `MANIFEST.sha256`（有 `sqlite3` 才顺手 `PRAGMA
+integrity_check`）。可重入语义：默认 `/var/backups/upanel/<UTC>`（带时间戳，本来就不会撞上）、
+目标非空即拒绝、**上次跑一半的目录（有 `.incomplete`、没有 `MANIFEST.sha256`）明确拒绝**并告诉人
+`rm -rf` 或换目录——`die()` 的文案也会点名"换一个新目录重跑"。`.incomplete` 走到最后一步才删，
+中途失败时留着，让下一个人一眼看出"这份不完整"。它**不进 MANIFEST**，否则清单里会有一个随后被
+删掉的文件、`sha256sum -c` 会报缺失。
+
+**交付（接线）**：`install.sh` 12 → 13 步（第 9 步在动库之前自动备份，失败即停；`--backup-dir`、
+`--no-backup`）；`uninstall.sh` 在 `--purge-config` / `--purge-data` 之前**默认先备份**，缺
+`backup-state.sh` 就中止（`exit 2`），没有任何可备份状态时明说"不备份"继续；`release.sh` 打包带上
+它并自检执行位；`check.sh` 新增 `sh-syntax` 一关（对 `git ls-files` 里 `scripts/*.sh`、
+`deploy/scripts/*.sh`、`tests/integration/*.sh` 逐个 `sh -n`）。卸载器不再说"删了就没了"，改成
+"安装器与卸载器都会在动数据库之前备份"。
+
+**交付（文档与页面）**：`api/openapi.yaml`（`GET /system/capabilities` 路径 + `SystemCapabilities` /
+`HostCapsReport` / `HostCapsItem` 三个 schema，redocly lint 通过、6 个既有 warning）、CONTRACTS §3.1
+（三出口表格、四条规则、缓存理由、21 条登记标准、`--line` 六列契约、退出码语义）、INSTALL（13 步表
++ "第 3 步为什么改成问 host-caps" + 升级/卸载重写）、RECOVERY §4.3/§7（恢复路径与新备份方式）、
+DECISIONS Q497/Q498。页面：`web/src/views/HostCapabilitiesView.vue`（路由 `/settings/host`）+ 设置页
+入口。页面上**没有任何安装/卸载按钮**——这一轮只交"探测"，不交"装东西"；刷新按钮写的是"只重读
+代理已经探好的快照，不会触发新的探测"。
+
+**已验证（宿主）**：`sh scripts/check.sh` 在最终工作树上 **PASS 15 / FAIL 0 / NOT RUN 0**（新增的
+`sh-syntax` 一关 PASS，解析器 `/usr/bin/sh`）；因为 `.incomplete` 那几处是在全量 check 启动之后改的，
+收尾又在最终工作树上把 `sh-syntax` 单跑了一遍：**77 个脚本、0 失败**（`git ls-files` 的同一份名单）。
+`go test ./cmd/upanelctl/ ./internal/hostcaps/ ./internal/api/` 全绿（`api` 单包 159.97s），go 全包
+test 全绿；`npx vitest run` 全量 **62 文件 / 1175 用例通过**，`vue-tsc --noEmit` 干净，`vite build`
+成功，`web-smoke` 10/10。**构建与打包是真跑的**：`sh scripts/build.sh` → `VERSION=0.1.0-dev.1
+ARCHES=amd64 sh scripts/release.sh` 产出 `dist/upanel-0.1.0-dev.1-linux-amd64.tar.gz`（sha256
+`17ff6518…`、44135630 字节），`tar tzvf` 里 `install.sh` 34404 B、`uninstall.sh` 10943 B、
+**`backup-state.sh` 12345 B 且三者都是 `0755`**——这条读数覆盖"打包真的带上了备份脚本、执行位在包内
+没丢"，不覆盖"脚本在 Ubuntu 上跑得通"。宿主读数全部留档在
+`docs/evidence/P16/2026-10-30-p16.1/HOST-READINGS.md`（含第 4 节 8 条 NOT RUN）。CLI 侧 6 个用例（`--json` 用 `DisallowUnknownFields` 验字段、`--line` 六列
+无重复、三态与"禁占位符"、“无表头”用"第一行第一列等于 `hostcaps.ItemIDs()[0]`"断言而不是扫字符串、
+`--json --line` 互斥、`--timeout 0` 拒绝）；前端 13 个用例（三态词表、`countHostCaps` 不把 `unknown`
+并进"未安装"、空清单四个 0、`describeHostCapsItem` 四种情形、`hostCapsHeadline` 四种情形、
+`host_caps: null` 不被补成 `[]`）。
+
+**未验证（NOT RUN）**：这一轮**没有任何 Ubuntu 读数**。
+- **三个部署脚本在这台 Windows 宿主上一次都跑不起来**，只有 `sh -n` 这一个读数。而且这里的 `sh`
+  是 bash，**抓不到 bashism**——真机上如果某个脚本用了 `[[ ]]`、数组、`local -n`，`sh -n` 也会过。
+  `check.sh` 的输出里已经注明了这句，不靠人记。
+- `backup-state.sh` 的备份、恢复、可重入三条路径**一次都没真跑过**：停服务/起回服务、`-wal` 是否
+  真的跟着走、`MANIFEST.sha256` 能不能 `-c` 过、`.incomplete` 在真实中断下留没留下。
+- `install.sh` 第 9 步（升级前自动备份）与 `uninstall.sh` 的默认备份**没跑过**；`install.sh` 第 3 步
+  改成读 `host-caps --line` 之后，在**装了东西的旧机器**上是否仍然放行（`unknown` 分支会不会误伤）未验
+  ——这正是"兼容已有软件"那半句要求的东西。
+- 能力探测页**没有真机读数、没有被人点过**，也没有 Playwright 用例（`web-smoke` 只走"未登录落到
+  登录页"）。
+- 24.04 / 22.04 的差异未验：`mkfs.xfs` 在 24.04 默认不装、`ufw` 在两台的包名相同、`samba` 的二进制
+  名（`smbd` vs `samba`）——这些都只在单测里用假文件系统走过。
+
+**本轮抓到的实现缺陷**（全是宿主自查，不是真机发现的）：`cmd/upanelctl/hostcaps.go` 里 `"os"` 导入
+写了却没用到（`_ = os.Stdout` 那行删掉才编过）；`TestHostCapsLine` 最初用"输出里不含'状态'"断言
+无表头，结果命中了 `feature` 列里的"防火墙只读状态与规则写入口"——改成断言第一行第一列；前端两处
+`exactOptionalPropertyTypes` 违规（`version: undefined` 不能显式传、`new ApiError` 的 `code` 必须属
+枚举）；`gofmt -l` 抓到 `internal/hostcaps/hostcaps.go` 未格式化（check.sh 的 gofmt 关抓到的）。
+另外 `backup-state.sh` 的 MANIFEST 一开始没排除 `.incomplete`，会在成功瞬间生成一份"少一个文件"的
+清单——这条是自己回头看出来的，没有留到 `sha256sum -c` 才炸。
+
+- **受阻**：无。下一个子任务 P16.2（双平台端到端验收与资源/延迟测量）——注意 P16.1 的"未验证"里
+  有一半（三个部署脚本、备份/恢复）必须在 P16.2 的真机上补，不能靠 `sh -n` 折算。
+
+### P16.2（2026-10-27）— 七个相位在真机上走通；两个伪成功/版本差异缺陷是这一轮唯一的收获
+
+**已实现**：这一轮没有新功能，只有两个**产品缺陷的修复**与一个**验收脚本/驱动**（都是被真机逼出来的）：
+
+* **Q499**：`internal/journal/query.go` 的 `queryArgs` 用 `time.RFC3339Nano` 拼 `journalctl --since/--until`。
+  systemd **249**（Ubuntu 22.04）不认 ISO 8601 的 `T` 分隔符（251 才认），于是 22.04 上**每一条**
+  `/logs` 查询都 400——被拒的是服务端自算的默认窗口，日志页一条都读不出来；24.04（systemd 255）上一切正常。
+  新增 `journalTimestamp()`：`2006-01-02 15:04:05.000000 UTC`（空格分隔、微秒精度、显式 UTC，避免客户机
+  非 UTC 时区把窗口整体挪位），回归测试 `TestQueryArgsTimeIsJournalctlCompatible` 钉住字串形状。
+* **Q500**：`deploy/scripts/install.sh` 第 13 步原来只 `warn` "代理 socket 不存在"，而代理单元是 `Type=simple`
+  ——`systemctl restart` 在 fork 后就返回 0，一个立刻 `exit 1` 的二进制照样让第 12 步打印"已 enable 并启动"，
+  于是坏包升级**打出 `==== 安装完成 ====`、退出码 0**。改法：第 13 步等 `agent.sock` + 单元 active 最多 30 秒，
+  等不到就贴代理 journal 并 `die`（退出码 2）。`docs/INSTALL.md` 第 13 步同步说明。
+* **验收驱动**：`tests/integration/p16-2-run-on-2204.sh`（宿主侧）——把包与脚本送进 VM、VM 内
+  `sha256sum -c` 核对、按相位跑、`boot` 之前真重启、最后把 `facts/`/`logs/`/`RESULT-ALL` 取回；
+  Q501 记的三个驱动缺陷（重启竞态、相位前不等 ssh、`run.log` 被截断）在这一轮修掉。
+* **验收脚本**：`tests/integration/p16-2-acceptance.sh` 七相位（install / measure / boot / upgrade /
+  failup / uninstall / purge），每相位写 `RESULT-<phase>` 并追加 `RESULT-ALL`；`measure` 顺带落一份
+  `growth-files.txt`（60 秒空闲前后各一次文件清单），因为 22.04 那轮只留了目录总大小、答不出"是哪个文件在长"。
+
+**已验证（真机，Ubuntu 22.04.5 / kernel 5.15.0-198 / systemd 249 / 2 vCPU / 3911 MB / 39 G，`-accel tcg`）**：
+
+| 相位 | PASS | FAIL | NOT RUN |
+|---|---|---|---|
+| install | 40 | 0 | 0 |
+| measure | 14 | 0 | 3 |
+| boot（真重启之后） | 14 | 0 | 0 |
+| upgrade | 22 | 0 | 0 |
+| failup | 21 | 0 | 0 |
+| uninstall | 23 | 0 | 0 |
+| purge | 14 | 0 | 0 |
+| **合计** | **148** | **0** | **3** |
+
+真实读数（不是 mock）：安装 **30.0 s**；重启 → Web active **60 s**；同包重装（=升级）**49 s**；
+RSS **web 288 MB / agent 25 MB**；`health` p50 **46 ms** / p95 53 ms，`system/summary` p50 **52 ms** / p95 63 ms（单线程 TCG，属保守读数）；
+请求体 >1 MiB → **413**；`limit=5000` → **400**、`limit=1000` → **200**（单页 76 条 / 21039 字节）；
+第 5 条并发 SSE → **429**，断开后名额释放；60 秒空闲里 journal **155 → 155** 行、代理库目录不增长。
+`failup` 七条断言把 Q500 的修法钉死：坏包退出码非 0、打出`安装没有完成`、失败点在第 13 步
+（`代理 30 秒内没有起来`）、点名 `AGENT_UNAVAILABLE` 且贴出 `journalctl -u upanel-agent`、
+**没有**打出 `==== 安装完成 ====`；失败前备份已完成且 `MANIFEST.sha256` 可校验，重跑好包救回、
+数据与密钥不变。
+
+**浏览器那条 NOT RUN 已补测（两台）**：干净 cloud image 里没有浏览器，所以 `measure` 里记为 NOT RUN
+（理由写在相位日志）。宿主机经 `ssh -L 9443:127.0.0.1:9443` 对着**同一台 VM、同一份包**跑 Playwright，
+22.04 **PASS 35 / FAIL 0 / SKIP 0**、24.04 **同样 35 / 0 / 0**（登录闸门、登录后回到被拦截地址、
+导航与 `implementedIn` 一致、概览真实快照、存储页设备卡片与详情深链接、无未捕获异常、
+除 401/404/503 外无失败请求）。证据 `docs/evidence/P16/2026-10-27-p16.2-browser/`，
+边界写在那个目录的 README，包括 24.04 上四次失败的成因：一次是我把隧道开在 9444 导致跨源 **403**
+（产品行为正确），两次是登录超过前端 `timeoutMs: 15_000` —— 单线程 TCG 下 `argon2id m=128MiB`
+一次登录烧 **9.5s CPU**（宿主 M3 上 128ms），于是卡在"产品给 15 秒、模拟器要 17 秒"的缝里。
+这条**不进 P16.2 的通过项**：24.04 的登录时延要在硬件虚拟化/裸机上重跑才算验过（进 P16.4 已知限制）。
+
+**已验证（真机，Ubuntu 24.04.5 / kernel 6.8.0-147 / **systemd 255** / 2 vCPU / 3914 MB / 38 G，`-accel 'tcg,thread=single' -cpu max`）**：
+同一份发布包（sha256 `5216cb31…`）、同一份脚本、同一套断言，只换客户机。
+
+| 相位 | PASS | FAIL | NOT RUN |
+|---|---|---|---|
+| install | 40 | 0 | 0 |
+| measure | 14 | 0 | 3 |
+| boot | 13 | **1** | 0 |
+| upgrade | 22 | 0 | 0 |
+| failup | 21 | 0 | 0 |
+| uninstall | 23 | 0 | 0 |
+| purge | 14 | 0 | 0 |
+| **合计** | **147** | **1** | **3** |
+
+两台的对照：安装 30.0 s → **56.3 s**、升级 49 s → **67 s**、`health` p50 46 ms → **81 ms**、
+RSS web 288 MB → **290 MB**、日志单页 76 条 → **79 条**（`limit=1000` 都 200）、第 5 条 SSE 两台都 **429**、
+60 秒空闲 journal 两台都不长（155→155 / 161→161）。**Q499 的修法在 systemd 255 上同样成立**——
+那次修不是"给 249 打补丁"，而是写成了两个版本都认的形式；**Q500 的七条 failup 断言在 24.04 上也全绿**。
+
+**那一条红（`boot`: `开机到 Web 可用不超过 120s: 152s`）的归因**：额外做了一次探针重启，
+`btime → Web active` = **97 s**，其中 `upanel-web` 自身 `blame` = **6.255 s**、`upanel-agent` 9.0 s；
+整机 kernel 17.3 s + userspace 131 s，头号慢项是 `snapd.seeded` 42.8 s、`snapd` 39.5 s、`cloud-init` 16.3 s。
+即 152 s 里 96% 是**单线程 TCG 下的客户机引导**，`After=network-online.target` 只等了 2.1 s。
+**判据不改、这条红照留**（120 s 对裸机是合理上限），定性为"判据在这种加速后端上不成立"，
+裸机的"开机到可用"记为**未验证**并进 P16.4 的支持矩阵与已知限制。§18 要的"重启"本身是过的：
+自启 + `enabled`、socket 回来、健康 200、证书/配置/密钥未被改写、管理员仍能登录、代理链路通——13 条全绿。
+收尾给 `phase_boot` 加了一条 `NOTE`（打印两个单元各自的 `blame` 耗时，**只加读数**），
+但上述读数不是它产出的，是探针单独测的。
+
+**宿主检查（在改完五个文件之后的最终工作树上跑，2026-10-28 00:12）**：`sh scripts/check.sh` →
+**PASS 15 / FAIL 0 / NOT RUN 0**。明细：`line-endings` / `sh-syntax` / `go-build` / `go-vet` / `go-test` /
+`go-build-linux` / `go-vet-linux` / `gofmt` / `node-version` / `web-typecheck` / `web-lint` / `web-test` /
+`web-build` / `web-smoke`（production 10 项）/ `openapi-lint`。`openapi-lint` 的 6 条 warning 与 P15
+同一批，本轮未新增。**这不等于真机验收**：上面两个平台的读数各自有独立的证据目录。
+
+**未验证（NOT RUN，逐条说明而不是折算）**：
+
+- `measure` 里的**上传 2 GiB** 与**文本编辑 1 MiB**——属 P06 范围，本相位不造 2 GiB 文件，保留 NOT RUN 并指向 P06；
+- **裸机的"开机到可用"**——单线程 TCG 下这个判据不成立（上面那条红的归因），真实硬件上的读数未取得；
+- **空闲写放大**：22.04 那轮只留下"整目录 60 秒多出 313 KB、未查明"；24.04 这轮加了
+  `facts/growth-files.txt`（空闲前后各一份目录清单）后才看清——**是 `upanel.db-wal` 在长**
+  （490312 → 877592 B，主库文件 364544 B 一页没变、`-shm` 没变、代理库目录没变、journal 161→161）。
+  也就是有周期写入者每 30 秒一轮（当时最像 `internal/operations` 的对账循环），本轮**没有抓到是谁写的**。
+  不是泄漏（WAL 到 1000 页会检查点），但"空闲还在写"值得较真，列进 **P16.3**：空闲 5 分钟看 WAL 是否
+  停在 1000 页内、`PRAGMA wal_checkpoint` 后是否回落、以及这些写有没有必要。
+  **P16.3 已查明**：写的是 `upanel-web` 的 `metric_samples`（P13.1 的原始样本，5 秒一个点、每点 10 个指标），
+  不是对账循环；WAL 停在 1002 帧（4.1 MB）不再长，`PRAGMA wal_checkpoint(TRUNCATE)` 能归零。
+  见 `docs/evidence/P16/2026-10-27-p16.3/README.md` 第 2 节；`upanel-agent` 那份库在空闲时**一帧都没写**；
+- 破坏性/大体积项（分区、格式化、网络断连、上传 2 GiB）不在这一轮，各有自己的阶段。
+
+**未决**：`docs/TEST_ENVIRONMENT.md` §8.13 新增三条重启类约束 + 一条 seed server 约束（漏起 seed 会让
+客户机带 `DataSourceNone` 白跑一整轮开机，24.04 第一次起机就这么废了 987 秒）；证据目录里三轮的分层
+（`attempt1-scriptbug` / `attempt2-contaminated` / 正式那一轮）各自写了作废理由，不算"通过"。
+
+- **受阻**：无。
+
+### P16.2 补记（2026-10-28）— 最终字节上的双平台读数（各 155/0/3），以及一条假红的来路
+
+字节这一环先交代清楚（Q510）：这一天包被换了四次，每次改动都重新取读数。最后一版是 `3f3b40c1…daf0`
+（Q514 修了会话层的错误分类），**22.04 与 24.04 两台机器跑的都是这一个包**，两台都从校验过的 cloud image
+重建系统盘、从零开始走七个相位。两份读数逐相位完全相同：install 47、measure 14、boot 14、upgrade 22、
+failup 21、uninstall 23、purge 14 —— **155 PASS / 0 FAIL / 3 NOT RUN**（3 条 NOT RUN 按设计：上传 2 GiB、
+文本编辑 1 MiB、浏览器主流程）。22.04 那一份在 `P16/2026-10-28-p16.2-final/`，24.04 在
+`P16/2026-10-28-p16.2-2404-final/`。
+
+**已实现**：产品代码在这一轮**一行未动**；动的是验收脚本里的一条断言（Q515）。24.04 首轮 `failup` 红了
+`坏包让代理服务起不来（这正是失败现场）: 不该等于 'active'`，而同相位另外六条（退出码非 0、第 13 步 die、
+点名 AGENT_UNAVAILABLE、贴出 journal、没有完成横幅、不是校验和失败）全 PASS —— 说明安装器判得没错。
+从客机 journal 按微秒取那段窗口才看清：坏包是 `#!/bin/sh` + `exit 1`，进程活不过几毫秒，但单元是 `Type=simple`，
+`Started` 一打就进 active，而"主进程 exit 1"要 **0.234~0.400 秒**之后才被记账（11 轮实测）；`Restart=on-failure` +
+`RestartSec=3s` 又让单元每约 3.4 秒重来一轮 → **active 占空比约一成**，单次 `systemctl is-active` 有约 10% 概率正好
+落在里面。改法不是放宽标准，而是换成两件不吃竞态的事：① `/run/upanel/agent.sock` 不存在（"面板用不了代理"的
+直接判据，坏包永远造不出它）；② 隔 1.2 秒采两次，只有**连续两次**都是 active 才算真活着。断言条数不变（failup
+仍 21），跨平台的逐相位数字才对得上。收紧后在同一份字节上重跑 `install,failup`：47/0/0 + **21/0/0**，那条输出
+`socket 不在，is-active 采样 'activating'/'activating'`（两次都采在自动重启的间隙里，正是这个单元该有的样子）。
+首轮读数没删，留在证据目录的 `run1-pre-tighten/`。
+
+**已验证**：两台机器、同一份字节、七相位各 155/0/3；`boot` 相位的真重启在 24.04 上是 `boot_to_web_seconds=75`、
+`upanel-agent` 6.160s / `upanel-web` 5.021s（`facts/boot.txt`）；安装耗时 22.04 为 29065ms、24.04 为 29764ms（后者是收紧断言后那次 `install` 相位的读数）。
+
+**未验证**：
+
+- **arm64 端到端仍 NOT RUN**：只打包，没有第二台 arm 机器。
+- **掉电语义仍 NOT RUN**：`boot` 验的是"重启后单元能起来"，不是断电一致性；P16 的整条掉电演练没做。
+- **裸机的"开机到可用"仍无读数**，并且 2026-10-27 那轮 24.04 的"152s > 120s"这一轮**没有复现**——两轮的 QEMU
+  参数不同（那轮 `-accel 'tcg,thread=single' -cpu max`，这轮 `-accel tcg,thread=multi -smp 2 -m 4096`）。
+  **因此不能说那条红已经修好**，只能说这套参数下没出现；判据不改，裸机读数继续记为未验证。
+- **页面链路已在 24.04 上补齐**（2026-10-28 同日补跑，`P16/2026-10-28-p16.2-2404-browser/`）：在这台干净盘上
+  装了同一份最终字节，`smoke.mjs` **35/0/0**、`deploy-smoke.mjs` **43/0/0**（首轮卡在预检，是"装面板之后才补
+  docker、代理没重启"的启动时门，Q516；重启代理后同一份字节上全绿）。此前 43/43 的浏览器读数只取自 22.04。
+
+- **受阻**：无。
+
+### P16.2 补记之二（2026-10-28）— 24.04 的页面链路补到最终字节上（47/0/0 + 35/0/0 + 43/0/0），顺带抓到一个"装了 docker 却不生效"
+
+补的是上一节末尾那条"未验证"：**从浏览器完成主要用户流程**（STAGES §18）在 24.04 上没有跑在最终字节上
+（43/43 只在 22.04 有；35/35 那两份是 2026-10-27 的字节）。这一轮把两个平台这一格对齐，**没有重打包**——
+包还是 `3f3b40c1…daf0`，逐字节相同，读数只属于它（Q510）。
+
+**已实现**：产品代码本轮**一行未动**；`tests/integration/*.sh` 与 `web/scripts/*.mjs` 也一行未动。
+
+**已验证（真机，24.04.5 / systemd 255 / 单线程 TCG，盘从基底镜像重建）**：
+
+- 安装相位 47/0/0（`RESULT-install`）；
+- 页面冒烟 `smoke.mjs` **35/0/0**（`smoke.log`）；`UPANEL_SMOKE_TIMEOUT_SCALE=4` 只放大等待，断言不放宽；
+- 部署写链路 `deploy-smoke.mjs` **43/0/0**、`exit=0`（`deploy-smoke.log`）：新建 → 预检 → 再认证 → 任务 →
+  详情 → 换镜像（1.27 → 1.28，`上一版镜像` 留着）→ 删除，跑完 `docker ps -a` 0 个容器、`docker compose ls`
+  0 个项目、`/etc/upanel/deploy` 0 个文件、`upanel-deploy*` 0 个单元；
+- 旁证：整轮跑完 `会话校验失败` 0 次、`panic` 0 次，`upanel-agent`/`upanel-web` 仍 active。
+
+**抓到的问题（已登记，本轮不修）**：写链路第一次跑**红了**，红在 10 项之后的"获取预检"——客机 journal 是
+`WARN 拒绝未登记动作的预检 action=deployment.apply` + `preflight status=400`。成因不是脚本：三条部署写动作
+在代理**启动时**按 `firstExistingFile(deploy.DockerBinary)` 决定登记与否（`cmd/upanel-agent/main.go` 911—975），
+而这台机器先装面板（`docker：absent`）后装 docker。**有意的启动时门**，装依赖正确顺序不踩；但同一处代码里
+`hostCaps` 每 10 分钟重探、注释写着"装完一个包不必重启代理"，写动作的登记**不跟着重探**，于是能力页先说
+docker 有了、预检才撞 400，日志 hint 也没写"装完重启代理"。修它要重打字节 → 按 Q510 两台 VM 全部重跑，
+所以本轮只登记（Q516），现场处理是 `systemctl restart upanel-agent` 后在同一份字节上重跑 → 43/0/0。
+首轮日志留档 `deploy-smoke-run1-docker-after-install.log`。
+
+**未验证**：arm64 端到端、掉电语义、裸机"开机到可用"、`go test -race`——四条与上一节一样，本轮没有变化。
+另外这一轮**没有**证明"面板装好之后再补 docker 能不经重启就可用"，恰恰证明它不能。
+
+**受阻**：无。
+
+### P16.3（2026-10-27）— 七个维度专项复核：一条"原子写"漏了 fsync（掉电后可能是全零文件），补上；另加一道整张路由表的权限守卫
+
+**已实现**：
+
+* **路由守卫用例**（新文件 `internal/api/router_guard_test.go`，127 条路由）。原先每个域都有"这条路由权限对"
+  的用例，但**没有任何东西**保证"下一条新加的路由也带了中间件"——这类回归的后果是 200 而不是 403。
+  三条表级断言：① 除 3 条公开入口（`GET|HEAD /api/v1/health/live`、`POST /api/v1/auth/login`）外，
+  124 条路由匿名一律 **401 `UNAUTHENTICATED`**；② 所有非 GET/HEAD/OPTIONS 路由带会话但缺 `X-CSRF-Token`
+  一律 **403 `CSRF_FAILED`**（并要求至少核到 20 条写路由）；③ 路由名不得出现 `exec/shell/command/sudo/raw/eval/sql`。
+  公开入口写成显式白名单：加一条就要在评审里说清理由。
+* **Q505：`internal/network` 两份 `writeFileAtomic` 补 `SyncDir` 与文件 fsync**。原来只有"临时文件 + rename"，
+  内容与父目录都没刷盘。全仓其余写盘点（`accounts`/`schedules`/`scripts`/`shares`/`proxies`/`certificates`/
+  `deploy`/`files`）全都 fsync，network 这一份是漏的而不是另一种风格。ext4 `data=ordered` 下 rename 进日志
+  而内容还在页缓存时掉电，重启后可能看到**长度正确、内容全零**的 netplan 文件——远程管理的服务器掉电后
+  起不来网，而回滚 timer 挂在"起网之后"那一侧，救不了这种。**八个调用点里还有回滚记录、unit 模板与 timer
+  文件**，也就是安全网自己也走这条路：零长度的记录/Timer 正好是 P14.2 声称不存在的那种"改坏了没人管"。
+  改法：`WriteFileSystem` 增 `SyncDir(dir)`、
+  `osWriteFS.WriteFile` 改为 open/write/**Sync**/close、两份 `writeFileAtomic` rename 后刷父目录且**失败即报错**。
+* **验收探针** `tests/integration/p16-3-wal-probe.sh`（客户机侧，只读）：从 `/proc/*/fd` 找持有库文件的进程、
+  按表点行数、30 秒一个样本记四个文件体积，最后 `PRAGMA wal_checkpoint(TRUNCATE)` 与两个 pragma 读数。
+
+**已验证**：
+
+* **Q504 空闲写放大结案**（P16.2 移交）。22.04 真机、空闲 90 分钟的稳态上取样 11 次（5.5 分钟）：
+  持有者是 `upanel-web` pid 769；`metric_samples` 913 → 1687（**+774**），其余表一行没变；`-wal` 长到
+  **4,128,272 B 后停住**（= 32 + 1002×4120，`wal_autocheckpoint=1000` 的稳态上限），`TRUNCATE` 检查点
+  返回 `(0, 1002, 1002)` 归零；`upanel-agent` 的库空闲时一帧没写。**P16.2 那句"最像对账循环"的猜测被推翻**，
+  已在上一小节就地更正。容量折算留给 P16.4：约 140 行/分钟、约 30 MB/天原始样本，被 24h 保留窗口截住。
+* **路由守卫会红**：两次变异（摘掉 `st.Use(s.requireSession())` / 改公开白名单）都让对应用例失败，恢复后转绿；
+  `go test ./internal/api/` 全包 167.9 s 通过。
+* **fsync 修复的路径验证**：`TestWriteFileAtomicSyncsDirectoryAfterRename`——正常时断言 rename 后刷过一次父目录；
+  注入 `syncDirErr` 时必须在错误里带上目录名。变异验证：把 `SyncDir` 调用摘掉 → `FAIL … 实际刷了 []`，恢复转绿；
+  `go test ./internal/network/` ok 0.770s，`go build ./...` 通过。
+* **真机读数**（22.04.5，不是 httptest）：CSP/HSTS/XFO/nosniff/Referrer-Policy/COOP 六个头、单元 `User=upanel-web`
+  与七条 hardening 指令、`agent.sock` 权限边界（普通账号直连 EACCES、`upanel-web` 连上）、匿名 401、
+  未知 `/api` 路径 404、错方法 405、带外站 `Origin` 的 POST 403、缺 `X-UPanel-Request` 的登录 400。
+* **七个维度逐条过完，除 Q505 外无阻断项**。四条**有意**的残余风险写进证据 README 第 7 节：
+  登录限速是进程内计数（PLAN.md 第 5 节取舍）、SSRF 不做内网地址黑名单（管理员配的就是内网）、
+  `metric_samples` ~30 MB/天、老内核无 `openat2` 时**不降级**（宁可功能不可用）。
+
+* **宿主检查（改完 `internal/network` 与两份文档之后的最终工作树）**：`sh scripts/check.sh` →
+  **PASS 15 / FAIL 0 / NOT RUN 0**；明细 `line-endings sh-syntax go-build go-vet go-test go-build-linux
+  go-vet-linux gofmt node-version web-typecheck web-lint web-test web-build web-smoke openapi-lint` 全 PASS。
+  其中 `go-test` 的 `internal/api` **152.875 s**（含新的 127 条路由守卫）、`internal/network` 通过；
+  前端 62 文件 / 1175 用例；`openapi-lint` 那 6 条 warning 与 P15 同源，不是本轮引入。
+  **这不是真机验收**——它只证明这台 Windows 宿主上的构建、静态检查与单测成立。
+
+**未验证**：
+
+* **掉电语义 NOT RUN**：fsync 修复只验证了"代码路径被走到、失败会被报出来"，没做真机断电演练（要拔电源）。
+* 回滚 timer（`upanel-netrollback@`/`upanel-fwrollback`）的到期行为**本轮未重做**，读数用 P14.2/P14.3 的真机演练。
+* SSRF 五处外连的"响应体上限"只做了静态阅读（`io.LimitReader` 三处）与超时/不跟随重定向的代码核对，
+  **没有搭恶意对端做实测**。
+
+**受阻**：无。
+
+### P16.4（2026-10-28）— 1.0 的文档集与发布包：十份文档必须随包落地；顺手把 P16.3 的 fsync 修复在真机 ext4 上走了一遍
+
+**已实现**：
+
+* **六份交付文档**：`docs/USER_GUIDE.md`（新写：两种角色、四个阶段、每个模块怎么点、常见任务、
+  出问题先看哪里）、`docs/RECOVERY.md`（改掉回滚的触发方式——**`start` 那个 `.service`，不是 `.timer`**——
+  与记录字段名 `panel_file_content`）、`docs/SUPPORT_MATRIX.md`（六档证据分级、21 条 `host-caps`、
+  btrfs 行点名 `FILESYSTEM_UNSUPPORTED` 的代码位置）、`docs/KNOWN_LIMITATIONS.md`（新增"0.1 → 1.0 升级
+  未验证"一行；"面板没有用户管理页"补上"也**没有改密码入口**"）、`docs/RELEASE_NOTES.md`（§5 增一段
+  证据状态：升级相位升的是 1.0 → 1.0）、`docs/EVIDENCE_INDEX.md`（P16 各行补齐）。
+  P16.3 留下的"指标增长容量折算"落进 `KNOWN_LIMITATIONS`：5 秒一个原始点、24 小时保留 → **约 30 MB/天**。
+* **README 交回"入口文档"的位置**：原来 255 行里有 190 行是 P00→P10 的阶段叙述加一整节"0.1 尚未实现的功能"，
+  而 `release.sh` 会把它拷进每一个发布包。正文**按原样**（含当时的判断）迁到 `docs/DEVLOG.md`，前面加一段
+  "这是历史，不是能力清单"；README 重写成 1.0 的入口（三条边界、装机器四步、十份文档索引、验收状态、
+  开发命令）。同时修掉随包文档里指向**包外文件**的死链（`EVIDENCE_INDEX`/`PLAN`/`CONTRACTS`/`STAGES`/
+  `DECISIONS`），明文标成"在仓库里，不随包发出"。
+* **发布链严格化（Q507）**：`scripts/release.sh` 的文档列表 6 → **10 份**，缺任何一份 `exit 2`
+  （原来是"有就拷，没有就算了"）；工作树有未提交改动时 `COMMIT` 追加 `-dirty`
+  （包里的代码不等于那个 commit，按 commit 对源码会对不上）；`deploy/scripts/install.sh` 装机文档
+  13 个文件（README + VERSION + 配置样例 + 10 份 `docs/`）、拒绝消息不再自称 0.1；
+  三个部署脚本的头部注释同步。
+* **验收断言**：`tests/integration/p16-2-acceptance.sh` 的 install 相位新增 7 条——六份关键文档必须在
+  `/usr/local/share/doc/upanel` 里、且份数 = **13**。缺文档的包在这一步就红。
+* **真机探针** `internal/network/fsync_real_test.go`（`//go:build linux`，默认 `t.Skip`，只在给了
+  `UPANEL_REAL_FS_DIR` 时跑）：用生产的 `osWriteFS` 与 `ApplyEngine.writeFileAtomic`，在真机文件系统上
+  验"rename 之后 `fsync` 目录 fd"这一步（Q505 加的正是它）。
+
+**已验证**：
+
+* **端到端七相位，跑在冻结的发布字节上**（amd64 包 sha256 `751a274d…95fba`、VERSION `1.0.0` /
+  `commit: 8e52b36-dirty` / `build_date: 2026-10-28T03:59:13Z`；Ubuntu 22.04.5 / kernel 5.15.0-198 /
+  QEMU TCG）：install **47/0/0**、measure **14/0/3**、boot **14/0/0**（`boot_to_web_seconds=56`，判据 120 s）、
+  upgrade **22/0/0**、failup **21/0/0**、uninstall **23/0/0**、purge **14/0/0**，合计
+  **155 PASS / 0 FAIL / 3 NOT RUN**，驱动退出码 0。证据 `docs/evidence/P16/2026-10-28-p16.4/`。
+* **文档集真的落到机器上**：新增的 7 条断言全 PASS（六份点名 + 份数 13），这条链是"包里带文档 → 装到
+  `/usr/local/share/doc/upanel` → README 说去看它"三处同时成立才算数。
+* **发布包事实**：amd64 `751a274d…95fba`（44,149,944 B）、arm64 `c94ed4d5…352c6db`（40,945,025 B）；
+  包内 `sha256sum -c SHA256SUMS` **21/21 OK**；
+  tar 自己记录的权限是 `bin/*` 与 `deploy/scripts/*` **0755**、其余 0644（宿主是 Windows，解出来的
+  `stat` 看不到执行位，这一栏必须以 `tar tzvf` 为准——本轮就差点被它骗过去）。
+* **fsync 真机读数（补 P16.3 的缺口）**：`strace` 里看得到完整序列
+  `openat(tmp,0600) → fsync(tmp) = 0 → renameat = 0 → openat(dir,O_RDONLY) → fsync(dirfd) = 0`，
+  覆盖写再走一遍同样的四条，无残留 `.upanel-tmp`，内容逐字节一致、权限 `0600`，测试 `PASS`（0.13 s）。
+  文件系统 `/dev/sda1 ext4`。**这证明写路径在真机 ext4 上走得通、目录 fsync 不返回 EINVAL/EBADF，不证明掉电语义。**
+* **宿主检查（所有改动落定后的工作树）**：`sh scripts/check.sh` → **PASS 15 / FAIL 0 / NOT RUN 0**。
+  `go-test` 里 `internal/network` 显示 `(cached)` 是正常的——新加的探针带 `//go:build linux`，在 Windows
+  宿主上被构建约束排除，包的输入没变；这也意味着**它在宿主上永远不会被算成"通过"**。
+* **第一轮（包 `fbad9fc9…`）也是 155/0/3 全绿**，但那之后文档复核抓出五处事实错误（Q509），字节重打，
+  所以第一轮归档成 `prelim-docdelta/`，**只当可重复性旁证，不当最终读数**；两轮的差异只有 5 份文档的正文
+  （三个二进制的字节数逐个相同）。
+
+**未验证**：
+
+* **掉电语义 NOT RUN**：目录 fsync 生效只等于"内核收到了这条命令"，不等于"掉电后一定是新内容"。拔电源演练仍没做。
+* **0.1 → 1.0 升级未验证**：upgrade 相位升的是 **1.0 → 1.0**（同版本重装，覆盖备份/停服务/换二进制/迁移/
+  起回/数据还在整条链）；从 0.1 的库升上来只有迁移脚本的单测。
+* **arm64 只有打包与校验和**，端到端全在 amd64 上。
+* measure 的三条 NOT RUN 未变（2 GiB 上传、1 MiB 文本编辑、VM 内的浏览器主流程）；**裸机读数仍然没有**。
+
+**受阻**：无。P16.4 是 P16 的最后一个子任务，**P00—P16 到此全部完成**。
+
+### P16 收尾补强（2026-10-28 → 10-29）— `-race` 全量第一次在 24.04 上跑完：产品代码零竞态，问题全在测试侧
+
+**为什么补这件事**：从 P03 到 P16，账本里每一条"未验证"都写着同一句——**宿主没有 `go test -race`**
+（Windows、`CGO_ENABLED=0`、没有 gcc）。P04.3 曾在另一台 KVM 机器上跑过整模块 `-race`
+（19 包 ok），但那是 P04.3 的一小部分代码，之后又长了两百多轮。**1.0 定版之前必须有这一份读数。**
+
+**已实现**：五个只动 `_test.go` 的修正，产品字节零变化。
+
+* **Q517** `cmd/upanelctl/main_test.go`：删掉一条**产品从不满足**的断言（它断言人类可读输出里有
+  "允许源"这一行，而产品只在 `--json` 的 `allowed_origins` 里给；这条用例带 Windows Skip，
+  于是"唯一有人跑测试的平台上永远跳过、唯一能跑到它的平台上永远红"，从 P10.4 `5f29b0b` 起就红）。
+  同义的 JSON 断言原样保留，而且它从此**第一次**在 Linux 上被执行。
+* **Q518** `internal/backup/retention_test.go`：`/proc/self/fd/8` 硬编码 → `restoreTarget(t)` 真开一个目录取 fd。
+  非 Unix 上 `dupRestoreFD` 是桩，所以这条用例在 Windows 上永远绿、在 Linux 上必然 EBADF。
+* **Q519** 两处**测试侧**数据竞争：`scriptaction_test.go` 轮询 `src.ran`、`journal_test.go` 轮询
+  `streamer.stream`，而被轮询的字段在另一个协程里写。各加锁 + 快照访问器，断言一条没动。
+* **Q520** `internal/agent/operations_test.go`：预检过期夹具的余量 1 秒 → 60 秒。**断言一个字没改**
+  （仍是 409 `PREFLIGHT_EXPIRED`）；依据是确定性判据实验（见下）。
+
+**已验证**：
+
+* **全量那一轮**（`-race -count=1 -timeout=90m ./...`，root，24.04 / 2 vCPU / TCG，墙钟 **3 小时 57 分**）：
+  54 个包（51 个带测试）**44 `ok` / 7 `FAIL` / 3 撞超时**，**1 条 `WARNING: DATA RACE`**，
+  撞超时的三个包是 `internal/agent`（5403s）/ `internal/api`（5407s）/ `internal/auth`（5405s）——
+  panic 栈显示三处都在正常推进，**不是死锁**。
+* **补跑**（`-timeout=0`，三包并行，墙钟 **9 小时 03 分**）：
+  `internal/api` **`ok` 28929.178s（8 小时 02 分）、0 竞态、0 失败**；`internal/auth` 红 1 条、`internal/agent` 红 2 条；
+  修过的那四个包 `cmd/upanelctl` / `internal/journal` / `internal/backup` / `internal/storage`
+  **全部 `ok`**（310.760s / 27.336s / 11.673s / 17.025s）。
+* **结论：产品代码零条数据竞争。** 全量那一轮唯一的 `DATA RACE`、以及补跑里爆出的每一条红，
+  全部落在测试侧或被机器速度放大——**没有一条需要改产品**。
+* **五个判据实验，全部写在证据目录里，上界一个没改**：
+  ① `storage` 的 5 毫秒墙钟上界（全量轮量到 9.207787 ms）→ 带/不带 `-race` 各连跑 5 次，**10 次全过**，不复现；
+  ② `backup` 的 600 毫秒握手预算 → 带 `-race` 1.25s、不带 0.98s，**都过**；
+  ③ `TestDefaultPasswordParamsTiming` → **不带 `-race` 也红**（这台 TCG 机 3.061838022s，上界 1 秒；
+   KVM 22.04 不带检测器是 0.6 秒），**判据量的是机器速度，不是参数变重**；
+  ④ `TestWebhookSelfSignedCertIsRejected` → 隔离 3/3 过；人为加 4 个忙循环打满 2 条 vCPU 时 **1/3 复现**
+  握手超时（服务端日志 `handshake error …: EOF`），机制坐实为"本机 TLS 握手被挤过 5 秒预算"；
+  ⑤ Q520 的机理 → 在 `mutatingPlanStore.Get` 里人为插 1.5 秒延迟，**1 秒余量必红成 201、60 秒余量必绿**，
+  预期先写死在脚本里再跑，与预期一致。改正后 root `-race -count=3` **3/3 全过**。
+* **宿主检查**：`sh scripts/check.sh` **PASS 15 / FAIL 0 / NOT RUN 0**（见 §7 `P16-RACE-HOST`）。
+  这一句写进账本时实际只跑出 **13 / 2**（系统 `node` v24 在 PATH 首位），把钉住的 `node 22.23.3`
+  前置后重跑才是 15/0；两份原文都在 `docs/evidence/P16/2026-10-28-race/facts-host-check.txt`，
+  先错后对的过程在证据 README §6.11 里没有删。
+
+**未验证**：
+
+* **arm64 上没有任何 `-race` 读数**（同 §8 那条：包能打能起，没有真机端到端）。
+* **`-race` 只覆盖测试进程内的并发**。面板真跑起来之后（gin 路由 + 采集协程 + 对账协程）的并发形态
+  模拟不到；这一条本轮反而抓到一个具体的旁证：空闲的 `upanel-web` 在这台模拟机上吃 **0.86 个核**，
+  SIGQUIT 抓栈定位到历史监控的聚合回合（每 2 秒一次 `Pass`，含一次 `PendingMetricBuckets` 查询）。
+  **真机上一个回合占多少 CPU，本轮没有读数**——不能把 0.86 个核说成产品常态，也不能反过来说
+  "真机上肯定是毫秒级"。
+* **`internal/api` 的 8 小时只有一次读数**，没有第二次独立复现。
+* 这一轮的读数跨了两棵树（全量的 44 个 `ok` 用工作树原样，补跑的 7 个包用改了五处 `_test.go` 的那份）；
+  两棵树的产品 `.go` 逐个相同（`find -newermt '2026-10-28 13:23:36'`：命中 5 个 `_test.go`、
+  **非 `_test.go` 改动 = 0 个**），但"合计 0 竞态"这句话要带上这个前提。
+
+**受阻**：无。
+
+**这一条同时把账本里连续十几轮的那句"`go test -race` 仍未执行（NOT RUN）"关掉了**——见 §8 末条。
+
+### P16 收尾补强（2026-10-29）— 核心验收矩阵逐项对照建立：31 条，已验 30 / 部分 1 / 未验 0
+
+**为什么补这件事**：`docs/PROGRESS.md` §7 末尾挂着「矩阵编号与已有断言的对应关系仍未建立（这是账本的
+一个缺口，不是产品的缺口）」。STAGES §19 有 31 条验收编号，§7 是一张按**子任务**编号的索引——
+两套编号之间没有桥。后果很具体：说"1.0 完整交付"时，**没有任何一页能回答"§19 这 31 条分别靠什么撑着"**，
+只能靠人翻 77 个证据目录。§1.6（PROGRESS 必须记录命令、环境、结果、证据路径）与 P16.4 的
+"完整证据索引"都要求有这座桥。**缺的从来不是产品能力，是索引。**
+
+**已实现**：新增 `docs/ACCEPTANCE_MATRIX.md`（产品代码零改动、零新读数、零新断言）。
+
+* 31 行，一行一条 STAGES §19 编号，字段是「场景（照抄 STAGES）/ 状态 / 证据等级 / 证据位置（**目录 + 节**）
+  / 关键读数」。**证据必须指到节**，写"见 P07"不算。
+* 状态只有三档，写死：**已验**（该行全部子句都有真机读数）/ **部分**（至少一个子句只有单测或代码属性，
+  或现场没造出来）/ **未验**。**按最弱子句定档**，不允许"验了两件、把第三件放进括号"。
+* 总表之后是三条"部分"的展开：缺哪个子句、账本哪一行自己已经承认、要造什么现场才能补；
+  外加 §2.4 一条**更正**（PROXY-02 起初被判成部分，复核是引错证据）。
+* RELEASE-01 单独展开一节，把 P16 七相位逐个对到 STAGES §18 的五个验收动作
+  （install 47 / boot 14 / upgrade 22 / **failup 21** / uninstall 23 / purge 14 / measure 14，
+  合计 **155 / 0 / 3**）。
+* 末节写清"证明了什么、没证明什么"：不证明 31 条就是全部风险；三条"部分"不能加总成已验；
+  **跨阶段的读数不是同一份二进制**（P02—P15 各自当时的字节，只有 P16 那批是冻结的 `3f3b40c1…`）。
+
+**已验证**：
+
+* **45 条证据指针逐个用脚本核过存在性，0 缺失**（建表时的条数；`gaps/` 那一轮补了两条指针，重跑是 47 条、仍 0 缺失）（含 `{2204,2404}` 花括号展开、`RESULT-*` 通配、
+  `:93` 行号后缀与 `…/` 省略写法的解析）。
+* 每个引用到的 `§N` 都是从对应文件的 `== N. 标题 ==` 里读出来的，不是凭记忆写的节号。
+* 关键读数逐个回原文件核过：P02.1 `PASS=58`、P02.2 `PASS=99`、P02.3 `PASS 84/0`、
+  P03.2 `通过 101/0`、P04.2 `108/0/0`、P04.3 `77/0/1`、P06.1 `115/0/0`、P06.2 `228/0/0`、
+  P06.3 `282/0/0`、P07.1 `189/0/1`、P07.2 `177/0/1`、P07.3 `204/0/1`、P07.4 `267/0/0`、
+  P07.5 `205/0/3`、P08.1 `382/0/4`、P08.2 `237/0/0`、P08.3 `207/0/5`、P08.4 `190/0/4`、
+  P09.2 `120/0/1`、P09.3 `217/0/1`、P09.4 `165/0/0`、P10.1 `100/0/0`、P10.2 `153/0/7`、
+  P10.3 `176/0/7`、P11.2 两台各 `169/0/4`、P12.2 `170/0/3`、P12.3 `117/0/0`、
+  P12.4 两台各 `246/0/0`、P12.5 两台各 `214/0/0`、P13.2 `148/0`、P14.2 `186/0/3`、
+  P14.4 `141/0/6`、P15.2 `199/0/2`+`51/0/0`、P15.3 `229/0/1`、P16 七相位 `155/0/3`。
+
+**这一轮抓出来的五件事（四件是账本以前写宽了，第五件是账本自己写坏了）**：
+
+1. **DISK-02 不是已验，是部分**。"根盘在 LVM/RAID 下"的现场**从来没有造出来过**：
+   `P04/2026-10-20-p04.2/result.md:93` 写着"两台 VM 只有 SCSI 盘与 loop，`dmsetup`/`mdadm` 未构造"，
+   `P07/2026-10-21-p07.1/result.md:190` 写着"md 只在单测夹具里覆盖"。已验的是**系统盘及其分区一律拒绝**
+   与**dm holders 能说清占用**——这两件事都成立，但都不等于"LVM 根盘上的递归保护"。根因是 `P00-VM-C`
+   （LVM 根）从 P00 起就是 NOT RUN，STAGES 说"最晚 P04"，到 P16 结束仍未建。
+2. **FILE-02 缺 ENOSPC**。`P06/2026-10-21-p06.2/result.md:233-234` 原话承认"没有真机证据"，
+   理由是 VM 的 root 是 overlay、塞满会挂住宿主。超大上传那半也只是**按声明拒 413**，
+   真推 2 GiB 在 `RESULT-measure` 里也是 NOT RUN。
+3. **APP-02 没有真机 302**。metadata 地址拒过（`非 target 形状被拒（169.254.169.254）`），
+   "候选只来自本机"是结构性的；但**重定向那一半只有"客户端不跟随"这条代码属性**，
+   在 P09.2 的日志里搜不到 `302` 也搜不到 `Location:`。
+4. **PROXY-02 起初被判成"部分"，是引错了证据（2026-10-30 更正为已验）**。当时依据是
+   `P10/2026-10-23-p10.2/run.log` 的 NOT RUN 段原话「测试上游（python http.server）不支持 Upgrade」。
+   那句话是**关于 P10.2 那个脚本**的，而 **P10.4 换了上游，在两台机器上都跑完了真握手**：
+   `P10/2026-10-23-p10.4/logs/{2204,2404}-core-scenario.log` §4 各有
+   `PASS WS 握手返回 101（Upgrade 穿过了 nginx）`，§6 wss 也是 101 + 12 条推流 + echo +
+   TLS ≥ 1.2 + 对端指纹与账本一致，§8 重启之后 wss 仍 12 条。私钥那半仍是 P10.3 §10。
+   **教训**：NOT RUN 是一张待办，不是一条定论——只查"有没有 NOT RUN 段"就会漏掉后来补上的读数。
+
+5. **顺带发现账本自己的一处坏格式（已登记 Q521，未修）**。`docs/DECISIONS.md` 第 8 节的
+   Q 表：表头（第 132 行）是 5 列，把 Q521 自身写进去之后共 **521 条** Q 行，按 GFM 规则
+   （反斜杠转义的竖线算字面字符）逐行重算，渲染后 **5 格 458 条、4 格 1 条、6 格 54 条、
+   7 格 4 条、8 格 1 条、9 格 1 条、10 格 2 条**——即 **458 条对得上、63 条对不上**。63 条分三类：
+   ①**行内代码里的竖线没转义**的 16 条、共 33 处（`Q40`、`Q44`、`Q113`、`Q136`、`Q137`、
+   `Q138`、`Q140`、`Q155`、`Q159`、`Q233`、`Q298`、`Q300`、`Q315`、`Q364`、`Q378`、`Q420`，
+   写的是位或、枚举与管道命令）；②**有意写成 6 字段**的 46 条（`Q446`—`Q483`、`Q511`—`Q520`，
+   P14.5 起把「内容」拆成 现象 / 判定 / 处理），表头一直没跟着改；③`Q14`（第 148 行）只有 4 格。
+   GFM 按表头列数截断 → 那 46 条的**最后一格（处理 / 已修）在预览里被静默丢掉**，被劈开的
+   16 条整段错位；原始 markdown 里字一个没少。**不修的理由**：先把列型定死再逐行转义，等于把
+   521 行重排一遍，属于文档标准化任务，不在本轮子任务里；**修之前引用任何 Q 号都得读原文，
+   别只信渲染结果**。本轮新写的 Q521 按表头的 5 列写。读数与脚本：
+   `docs/evidence/P16/2026-10-29-matrix/check-decisions-table.py` → `facts-decisions-table.txt`。
+
+**未验证**：这一轮**没有产生任何新的真机读数**——它是索引与定档工作，不是验收工作。
+上面三条"部分"的缺口原样保留，一条都没有因为写进表就变成已验。（PROXY-02 不在这三条里：它是 10-30 复核出的**引错证据**，改的是判定，不是读数。）
+
+**受阻**：无。（四条缺口各有明确的补法：建 VM-C 造 LVM 根、拿独立 tmpfs/loop 塞满试 ENOSPC、
+起一个 302 上游、换一个支持 Upgrade 的上游。它们都不需要新代码能力，只需要现场。）
+
+**这一条把账本里挂了十几轮的"矩阵未逐项对照"关掉了**——§7 那句"仍未建立"改成已建立并保留历史原话。
+
+### P16 收尾补强（二）（2026-10-29）— 把"部分"逐条去补：两条补成已验，一条仍是部分
+
+**为什么补这件事**：上一节把矩阵建起来了，账本因此第一次指明了三条"部分"各自的缺口是什么、要造什么现场。
+缺口既然能一句话说清，就不该再挂着——**去造现场，不写新的解释。**
+
+**已实现**：新增验收脚本 `tests/integration/p16-4-matrix-gaps.sh`（可重跑）。
+**产品代码与 `_test.go` 零变化**——这一轮只加了一个验收脚本。
+
+**已验证（真机，`P16/2026-10-29-matrix/gaps/2404-matrix-gaps.log`，`PASS 80 / FAIL 0 / NOT RUN 0`）**：
+
+* **APP-02｜302 不跟随**。三个真上游：19491 回 `302 → 127.0.0.1:19493/stolen`、19492 回
+  `302 → 169.254.169.254/latest/meta-data/…`、19493 是金丝雀（每次命中写一行）。
+  读数：`http_state=ok`、`status_code=302`、`address=127.0.0.1`；**金丝雀命中 0 次**；
+  两个上游各被探 17 次（30 秒一拍，探了整场）。指向 metadata 的那条记录里连 `169.254` 都搜不到。
+* **FILE-02｜ENOSPC 真的撞上了**。128 MiB tmpfs 当可写根 → 声明 8 MiB（当时可用 131064 KiB）→
+  填到只剩 512 KiB → PUT → **413 `VALIDATION_ERROR`「files: 空间不足: 磁盘空间不足，暂存已删除」**；
+  `.part` 被删、记录留 `failed`、`received_bytes` 归零、**已有文件 sha256 未变**、代理日志有 WARN。
+* **FILE-02｜断流**。`curl --limit-rate 1M --max-time 3` 掐在 3 秒：上传进 `failed`、暂存清掉、
+  目标不存在；代理记「传输中断（已写入 3145728 字节）：unexpected EOF」——**喂了多少字节是读数，不是估的**。
+* **FILE-02｜2 GiB 真推一遍**。`max_upload_bytes` 设 3 GiB，推 2 GiB：`200`、
+  `received_bytes=2147483648`、**峰值 RSS 28740 KiB**（0.5 秒采样取峰值，判据 < 2 GiB 的 1/4）、
+  落位 `outcome=verified`、落盘 sha256 与载荷一致、记录随落位消失、再查是 404；
+  `max_upload_bytes+1` 仍是 413。
+
+**这一轮抓出来的四件事**：
+
+1. **`uploadReserveMargin = 64 MiB`**（`internal/files/staging.go:52`）。容量预检是
+   `available < already + want + 64MiB`，所以**小于 64 MiB 的文件根永远声明不了上传**。
+   第一版脚本用 16 MiB 的 tmpfs，在声明阶段就被 413 掉，根本走不到写入——**测不到 ENOSPC**。
+   这不是 bug，是"预检说够不代表刚好够"的取舍；但它决定了 ENOSPC 现场的最小尺寸，记下来省下一个人的时间。
+2. **2 GiB 不能用 `curl --data-binary @file`**：curl 会先把它读进内存，直接 `out of memory`。
+   `-T file` 才是流式。更要紧的是——用 `--data-binary` 的测试**根本测不出服务端是不是流式**，
+   因为它自己先不流式了。
+3. **判据"值非空"会让断言变绿而不是变红**。第一版健康轮询写成"`checked_at` 非空且不是 None"，
+   而取值函数在缺键时返回的是 `ERR:KeyError:'data'` —— 一个非空字符串，于是 404 被当成"探到了"。
+   现在的判据显式排除 `ERR:` 前缀。**这类缺陷的危险方向是反的：它不制造红，它制造假绿。**
+4. **302 记成 `ok` 不是漏判**。`302` 在默认成功集合里，含义是"这站点能连上、用 302 回答"；
+   面板如实记状态码，不替人判断跳转目标好不好。APP-02 期望的"拒绝"拒绝的是
+   **向 `Location` 里的地址发出请求**，不是"拒绝承认 302 存在"。两件事混起来就会把正确行为读成缺陷。
+
+**未验证 / NOT RUN（与本轮通过项分开记，别混着读）**：
+
+* **DISK-02 的 LVM/RAID 根盘：脚本明确不覆盖，矩阵里仍是"部分"。** 它是唯一还欠着的一条。
+* **真并发竞态**：FILE-02 的"并发编辑"是用强制交错复现的（外部改 → 提交 → `PREFLIGHT_STALE`），
+  不是真竞态。STAGES 的期望里没有这一条，但它仍在 `docs/KNOWN_LIMITATIONS.md`。
+* **根文件系统上的 ENOSPC**：只在专用 tmpfs 上压过。`P06.2` 当初不压根盘的理由（"塞满会把宿主一起挂住"）
+  仍然成立，没有被这一轮推翻。
+* **性能**：292 秒传 2 GiB 是单线程 TCG 的数字，不作任何性能结论。
+
+**受阻**：无（本轮）。DISK-02 的下一步有明确的阻碍点：`H:\Code\vms\images\` 只有 cloud image、
+**没有 Ubuntu server installer ISO**，`layout: lvm` 那条 subiquity 安装路径走不通；
+要造 VM-C 就得在客机里把根迁到 LVM（第二块盘 → `pvcreate`/`vgcreate`/`lvcreate` → mkfs → rsync →
+chroot `grub-install` → 改 fstab → 用 LV 盘当系统盘重启），再跑 P07 式的回避/递归保护验收。
+这条路没有走过，**不预判它一定成**。
+
+**这一轮之后**：矩阵 31 条 = **已验 30 / 部分 1 / 未验 0**。（这是建表当时的样子；同一天的下一节
+把最后那一条也关掉了，现在的合计是 **31 / 0 / 0**。）
+
+### P16 收尾补强（三）（2026-10-29）— 把最后一条"部分"关掉：两台根在叠层设备上的客机
+
+**为什么补这件事**：上一节的结尾只剩 DISK-02 一条"部分"，缺的不是代码，是**现场**——"根盘在
+LVM/RAID 下"这件事从 P00 起就没造出来过。缺口既然一句话能说清，就去造现场。
+
+**已实现**：新增验收脚本 `tests/integration/p16-5-root-disk-recursion.sh`（可重跑，**同一份脚本认两种
+拓扑**：读 `dm/uuid` 前缀判 LVM、读 `/sys/block/<id>/md/` 判 RAID，期望的锁从拓扑算出来）。
+**产品代码与 `_test.go` 零变化。**
+
+**现场是在客机里迁出来的，不是装出来的。** `H:\Code\vms\images\` 只有 Ubuntu cloud image、没有
+server installer ISO，subiquity 的 `layout: lvm|raid` 走不通。两台的造法都是：第二/三块虚盘 →
+`pvcreate`/`vgcreate`/`lvcreate` 或 `mdadm --create` → `mkfs.ext4` → `rsync` 整个根 → chroot
+写 fstab / `update-initramfs` / `update-grub` / `grub-install` → **摘掉系统盘重启**。
+
+| 场 | 客机 | 根设备 | 成员 | 物理盘 | 读数 |
+|---|---|---|---|---|---|
+| LVM | `upanel-lvm` | `/dev/mapper/upanel--vg-root`（`dm-0`） | `sda2` | 1 块 | **91 PASS / 0 FAIL / 3 NOT RUN** |
+| RAID1 | `upanel-md` | `/dev/md0` | `sda2`+`sdb2` | 2 块 | **113 PASS / 0 FAIL / 3 NOT RUN** |
+
+**已验证（真机，`P16/2026-10-29-matrix/disk02/`）**——这一条到底证明了什么，拆成四个能读的子句：
+
+* **递归真的发生了。** 每块物理盘 `protection.sources` **只有**根设备的 id，而它自己 `filesystem`
+  是 `null`（不是挂载点、不是交换区、不承载文件系统）：LVM 是 `sda → ["dm-0"]`，RAID 是
+  `sda`/`sdb → ["md0"]`。**那个 `system_disk=true` 不可能是"它挂了 /"得来的。**
+* **反证把"沿链递归"和"按盘染红"分开了。** `sda1`（LVM 场）与 `sda1`/`sdb1`（RAID 场）都是同一块盘上的
+  bios_grub 分区、同样没有文件系统，但**不在根链路上，所以 `false`**。
+* **叠层各层都被拒。** 整盘 / 成员分区 / 根设备本身四条写动作预检全 `allowed=false` +
+  `SYSTEM_DISK_PROTECTED`，理由里说得出"系统数据"。
+* **一个字节都没写，而且不是因为缺工具。** 整盘首末 1 MiB 哈希前后一致、`LVM2_member` /
+  `linux_raid_member` 签名还在、sysfs 身份没变、零存储写任务；代理启动日志里有「磁盘写原语已接线」
+  （`sfdisk`/`udevadm`/`mkfs.ext4`/`mkfs.xfs`），且没有「动作执行失败」「执行前复核被拒」
+  「动作缺少执行实现」。
+* **递归没有过宽。** 4 GiB 空白备用盘（LVM 是 `sdb`，RAID 是 `sdc`）：不受保护、`initialize` 能力
+  `available`、预检 `allowed=true`、锁只有它自己。
+
+**这一轮抓出来的四件事**：
+
+1. **一台单盘机验证不出"锁该锁谁"。** 第一版脚本把锁断言写成"每一块底层盘"。LVM 场只有一根 PV，
+   「锁目标自己那块盘」与「锁住整台机所有物理盘」**在每一条断言上恰好同值**，所以 `91/0/3` 一路绿。
+   RAID1 两块成员盘上一跑立刻红 5 条：期望 `disk:sda,disk:sdb`、实际 `disk:sda`。查代码不是产品错——
+   `internal/storage/assess.go:761` 的 `chain()` 从**目标**出发沿 `parents` 往上追，CONTRACTS:279 写的
+   也是"沿 `depends_on`/`partition_of` 递归追踪"，CONTRACTS:424 对单动作写的就是「整盘
+   （`disk:<disk_id>`）」。**锁是互斥用的，保护看 `SYSTEM_DISK_PROTECTED`；混成一件事就会把正确行为
+   读成缺陷。**（Q522）
+2. **改法是换断言，不是删断言。** 5 条改成按目标自己的链算（新增 `lock_for()`，走 sysfs 判分区还是
+   整盘），另**加一条更严的**：物理盘多于一块时，单盘目标的锁**不许**含别的盘——太窄和太宽都夹住。
+   第一场那份红读数留在 `disk02/raid/runs1-pre-fix/`，不删。
+3. **`/boot` 必须留在叠层设备里面。** 如果 `/boot` 单独占一个分区，物理盘受保护就可能来自"它挂着
+   `/boot`"，递归就没被证明、只被绕过去了。两台都让 `/boot` 跟着根走，物理盘上唯一不属于 LVM/RAID
+   的东西是那 1 MiB bios_grub。
+4. **RAID1 的 MBR 不是冗余的。** 阵列的引导扇区不在阵列里，在两块盘各自的 MBR 上——`grub-install`
+   必须对**每一块**成员盘各跑一次，只装一块的话那块盘坏了就开不了机，而 RAID1 的全部意义就是
+   "那块盘坏了还能开"。
+
+**宿主检查（改完脚本后重跑，不是建表那次）**：`sh scripts/check.sh` → **PASS 15 / FAIL 0 / NOT RUN 0**
+（`docs/evidence/P16/2026-10-29-matrix/facts-check.txt` 已换成这一份）。与建表那次比只有两个**计数**变了：
+`line-endings` 157 → 162（扫全仓 `*.sh`/`*.sql`/`*.service` 且含未跟踪文件，`disk02/` 归档的 4 个探针
+脚本算进去了）、`sh-syntax` 81 → 82（现在 7 + 3 + 72 = 82 个全过 `sh -n`）。前端仍 62 文件 / 1176 用例。
+**建表那次 check 跑在改脚本之前，按 Q510 那份读数绑的是旧字节，所以整跑一遍覆盖掉，不拿旧读数配新字节。**
+
+**未验证 / NOT RUN（与通过项分开记）**：
+
+* **降级 / 重建中的 RAID**（成员 `faulted`、`rebuild` 进行中）：现场没造。递归不看阵列健康，
+  但没有真机读数就不算验过。
+* **根在叠层设备上写满（ENOSPC）**：把根写满会伤到这台机的系统盘，不做。P16.4 的 ENOSPC 现场是
+  独立 tmpfs。
+* **执行期复核**（`PREFLIGHT_STALE` / `DEVICE_IDENTITY_CHANGED`）：预检就拒了，提交门到不了；
+  那两条由 P07.2 在一次性盘上验过，与根在不在叠层设备上无关。
+
+**受阻**：无。
+
+**这一轮之后**：矩阵 31 条 = **已验 31 / 部分 0 / 未验 0**。P00—P16 全部完成。
+
+### 补强（四）（2026-10-30）— 清单里一行旧话被后来的证据推翻，改对
+
+**起因**：回答"能不能用了"时逐条核 `KNOWN_LIMITATIONS.md`，发现一行自相矛盾——A 节写着
+「24.04 的 systemd 事务与 compose 措辞差异 | **未验证** | 部署相关的真机读数全部来自 22.04」，
+而 `docs/EVIDENCE_INDEX.md` 里 24.04 那两轮明明有部署读数。
+
+**成因不是笔误，是时间错位**：那句话是 P15.2 当轮写的（当时确实只有 22.04.5 一台机器的
+部署读数，见 §5 P15.2 小节的第 ④ 条）。后来的 P16.2 24.04 轮把七相位和浏览器写链路都补上了，
+没有任何人去回头改这句。
+
+**已修**：
+
+* `docs/KNOWN_LIMITATIONS.md` 那一行改成 **已补（真机，2026-10-28）**，并把读数写全：七相位
+  `155 / 0 / 3`（install 47 / measure 14 / boot 14 / upgrade 22 / failup 21 / uninstall 23 / purge 14，
+  `P16/2026-10-28-p16.2-2404-final/`）、部署写链路 `43 / 0 / 0`（`…-2404-browser/`），客机 systemd
+  `255.4-1ubuntu8.18`、docker 29.1.3、docker-compose-v2 2.40.3。**docker 与 compose 两平台同版本**，
+  所以"compose 版本差异"这个担心没有对象。24.04 上仍没做的写清楚：部署的故障注入（`systemctl mask`
+  造"卷不可用 → 起不来"、钉错 digest、容器刚起就崩），那些在 22.04 上也是单开一轮做的。
+* §5 P15.2 小节第 ④ 条**原文不改**，末尾加一句前向指针，说明它说的是当轮口径、后来的 24.04 轮
+  补上了什么。历史段不重写，只加路标。
+* `docs/DECISIONS.md` 记 **Q523**（文档缺陷：清单条目与证据集合不一致；改法与"不动历史段"的取舍）。
+
+**验证**：`python docs/evidence/P16/2026-10-29-matrix/verify-pointers.py` → `检查 51 条路径；缺失 0`；
+改过的四份文档（本账本、`DECISIONS.md`、`KNOWN_LIMITATIONS.md`、矩阵 README）都是纯 LF；
+`check-decisions-table.py` 重跑：**523 条 Q 行、5 格 460 / 不是 5 格 63**，新加的 `Q522`、`Q523`
+都是 5 格（脚本里写死的"521 条"也修了，见 Q521 末段）。**没有重打字节**——这一轮一个字没碰
+`cmd/`、`internal/`、`web/src/` 与 `deploy/`，所以 `3f3b40c1…daf0` 那份交付物与两台 VM 上的读数
+仍然成立（Q510）。
+
+**未验证 / NOT RUN**：部署故障注入在 24.04 上（同上，那类现场连 22.04 都只做过一轮，
+登记在 `KNOWN_LIMITATIONS.md` A 节「部分真机造不出的现场」）。**受阻**：无。
+
+### 界面重做（2026-10-30）— 桌面式外壳 + 设计系统（纯前端重写，后端与契约零改动）
+
+**起因**：负责人三句话——「UI不行，太简单了」、「能不能设计成像群晕或飞牛等 NAS 系统那种桌面版，这样
+操作对新手来说更简单」、「那你开始设计这个 UI 系统吧」。**这一轮不是 STAGES 的子任务**（P00—P16 已
+全部完成），是负责人直接下的前端工作，所以不计入矩阵、不改验收状态。
+
+**边界先说清**：`cmd/`、`internal/`、`api/openapi.yaml`、路由表、DTO、状态机、动作注册表**一行没动**；
+16 个模块的可实现口径按 PLAN §7 不变（`containers` 仍然不出现在 dock 与启动台里，因为 `implementedIn`
+是 `null`）。改的全部在 `web/src/`。
+
+**已实现**：
+
+| 文件 | 作用 |
+|---|---|
+| `web/src/shell/icons.ts` | 16 个模块的 24×24 描边路径表 + 兜底图标；`moduleIconPath()` 未知键走兜底 |
+| `web/src/shell/nav.ts` | 从旧 AppShell 里抽出来的高亮判定：`meta.moduleKey` 优先，回落到路径前缀匹配 |
+| `web/src/shell/DesktopBar.vue` | 顶栏：品牌按钮（开启动台）、当前模块面包屑、时钟、主题三态、账号与退出 |
+| `web/src/shell/AppDock.vue` | 底部固定程序坞：全部 + `visibleModules()`，选中态是 2px 主轴色线 |
+| `web/src/shell/AppLauncher.vue` | 启动台：`role="dialog"` 遮罩层，卡片网格带模块摘要与「当前」标记，Esc / 点遮罩关闭 |
+| `web/src/shell/AppShell.vue` | 组合根：桌布（点阵 + `background-attachment: fixed`）→ 顶栏 → 单个内容窗口 → 程序坞 → 启动台 |
+| `web/src/ui/ModuleIcon.vue` | 图标组件，`aria-hidden`、`focusable="false"` |
+| `web/src/components/StatTile.vue` | 换成 token 化的纸面样式，数字用 `tabular-nums`（**不用 mono**，否则 CJK 值会掉字体） |
+| `web/src/components/SystemOverviewPanel.vue` | `NCard`/`NTag` 换成 `UPanel`/`UTag` + 细线分段；`data-testid` 与全部错误分支文案逐字保留 |
+| `web/src/components/StatePanel.vue` | 新增 `compact`（**纯样式开关**，文案一字不改；与标题重复的「状态：…」行在其下隐藏） |
+| `web/src/components/ApiErrorPanel.vue` | `NAlert` 换成本地红框（左边框 3px）；`role="alert"`、`data-testid="api-error"`、code/request_id 全保留 |
+| `web/src/views/OverviewView.vue` | 4 张 KPI（CPU / 内存 / 整盘容量 / 需要处理）+ 1.75fr:1fr 双栏；数据逻辑**逐字未改** |
+| `web/src/App.vue` | 一行：`import AppShell from '@/shell/AppShell.vue'` |
+| `web/scripts/preview-shell.mjs` | 只给宿主看图的预览脚本：拦 `**/api/v1/**`，回放 P04.4 真机抓下来的 `summary`/`devices` 夹具 |
+
+**这一轮做的三个判断，都记进了 `docs/DECISIONS.md`**：
+
+* **Q524 不做假窗口。**「像 NAS 桌面版」最容易走偏的一条是画一堆带最小化/关闭的窗框。仓库里 23 个视图
+  全都依赖 `useRoute()`/`useRouter()`，而 `<RouterView>` 只能挂一个；真要并排多个窗口，就得给每个窗口造
+  一份伪路由上下文——那是**改视图契约**。所以选**单内容窗口 + 启动台 + 程序坞**：新手要的是「点得到、
+  看得懂在哪」，不是能拖动的框。这轮没有一个装饰性的最小化/关闭按钮。
+* **Q525 颜色存在两份，靠测试夹住。** `tokens.css` 与 `PALETTE` 各有一份色值，`src/ui/tokens.test.ts`
+  断言「暗色值必须恰好出现两次」当防漂移闸；同时记下已知脆弱点：外部强写 `<html data-theme>` 会绕过控制器。
+* **Q526 `StatePanel compact` 是开关不是新组件**，避免出现两套会各自漂移的文案。**Q527 预览脚本回放夹具，
+  明确不算验收**，`scripts/` 不进 `dist`。
+
+**已验证（宿主，不是 Ubuntu 验收）**：`.toolchains/node-v22.23.3`（系统 node 是 v24，会出假红，仓外那份
+才是钉住的），`docs/evidence/UI/2026-10-30-shell/`：
+
+* `npx vitest run` → **66 文件 / 1219 用例全过**（含新加的 `nav.test.ts` 10 条、`icons.test.ts` 4 条、
+  `panels.test.ts` 里新增的紧凑版 2 条）。
+* `npx vue-tsc --noEmit` → `exit=0`；`npx eslint .` → `exit=0`（**注意**：本仓 ESLint 只配了 `.ts`/`.mjs`，
+  `.vue` 是 `File ignored because no matching configuration was supplied`，模板里的错误类型检查抓不到）。
+* `npm run build` → 成功，`dist/` 只有 `index.html` + `assets`（`design.html` 与预览脚本都没进产物）。
+* 五张图：`shell-overview` / `shell-launcher` / `shell-dark` / `shell-storage` / `shell-mobile`，
+  1440×900 与 400×820、明暗两套，`pageerror` 零、`scrollW == clientW`（无横向溢出）。
+* `sh scripts/check.sh` 整跑 → **PASS 15 / FAIL 0 / NOT RUN 0**（`facts-check.txt`，两次独立跑同值）。
+  **别把它读大**：其中的 `web-smoke` 走的是**未登录**路径、断言落在登录页，**没有覆盖**新的顶栏 /
+  程序坞 / 启动台 / 概览页——那部分只有夹具截图。"冒烟过了"不等于"外壳验过了"。
+
+**未验证 / NOT RUN（与上面那串分开记）**：
+
+* **没有一个字节跑在 Ubuntu 真机上。** 这轮的图全是**宿主 Chromium 回放抓下来的夹具**，不是活着的面板。
+  按老规矩：**夹具截图不算界面验收**。要算，得在验收 VM 上装好、真登录、真点一遍。
+* **只看了 Chromium（Playwright 1.64.1）**。Firefox / Safari / Edge 一次没开；`backdrop-filter`、
+  `100dvh`、`background-attachment: fixed` 三处最可能在别家浏览器上不一样，没有读数。
+* **无障碍只做了两处手工动作**：启动台焦点移入 + Esc 关闭、图标 `aria-hidden`。**没跑 axe**，
+  没有屏幕阅读器实测，对比度没量（暗色模式下 `--ink-3` 在 `--surface` 上的比值是多少，这轮没有算）。
+* **没碰过触摸屏 / 平板**。400px 只是把窗口缩窄，和真手指是两件事；程序坞 `overflow-x: auto` 在触屏上
+  的惯性滚动没试。
+* **其余约 20 个视图还是 naive-ui 原件**，只是跟着 token 换了配色，没有逐个改成 `U*` 组件。这一轮只把
+  概览页一条链路（含它用到的 5 个组件）走完，剩下的是**外观不完全统一**，不是坏。
+
+**API / 数据库变化**：无。没有新接口、没有新字段、没有迁移。
+
+**已知问题·阻塞**：无阻塞。已知问题全部在上面的「未验证」里，性质是「覆盖面不够」，不是「做错了」。
+
+**下一步**：按同一套组件把其余视图逐页替换（建议顺序：存储 → 备份 → 服务，这三页信息密度最高、
+最容易暴露排版问题）；真机 UI 验收要等下一版重打字节后一起做（Q510）。
+
+### 界面重做（续）（2026-10-30）— 25 页逐页收口（纯前端，后端与契约仍然零改动）
+
+**起因**：上一轮只走完概览页一条链路，其余约 20 个视图只是跟着 token 换了配色。负责人一句
+「继续，不要停下来，直接全部完成能交付给我测试」——把剩下的页全部截一遍、逐张看、改到能看。
+**仍然不是 STAGES 的子任务**，不计入矩阵、不改任何验收状态。
+
+**边界**：`cmd/`、`internal/`、`api/openapi.yaml`、路由表、DTO、状态机、动作注册表**一行没动**；
+PLAN §7 的模块可见性口径不变。改的全部在 `web/src/` 与 `web/scripts/`。
+
+**已实现**：
+
+| 文件 | 作用 |
+|---|---|
+| `web/src/styles/naive-skin.css` | 整份重写。**只用直接属性**（`border-radius`/`padding`/`font-size`/`letter-spacing`），一条 `!important` 的 `--n-*` 覆盖都不留；按钮那一格**故意空着**并注明原因 |
+| `web/src/ui/theme.ts` | 按钮几何（26/28px 身高、`0 12px` 内边距、2px 方角）从 CSS 移进来；新增 `Input` 的圆角/边框/聚焦环；`Progress.railColor` 换成 `--rule` |
+| `web/src/styles/views.css` | 页面骨架选择器收窄成 `.win > section, .win > main`（原 `.win section` 连 `UPanel` 的 `<section>` 根一起套上了）；新增页头操作按钮右对齐规则 |
+| `web/src/ui/UKpi.vue` | 新增 `extra` 插槽，独占一行；`foot` 与 `extra` 不再互相挤 |
+| `web/src/components/ServiceUnitCard.vue` | 头部改列布局：名称一行、标签一行、描述一行（`--fs-sm`/`--ink-3`） |
+| `web/src/components/ServiceUnitPanel.vue` | 描述与名称之间的间距；muted 规格；修 `ssh.serviceOpenBSD Secure Shell server` 连成一行 |
+| `web/src/views/ServiceUnitView.vue` | 去掉死的 `max-width: 1000px` |
+| `web/src/views/StorageDeviceView.vue` / `web/src/components/DeviceDetailPanel.vue` | 去掉死的 `max-width: 1100px`；详情项的首列与值之间加 6px |
+| `web/src/components/CapacityBar.vue` | 说明文字降到 `--fs-sm` / `--ink-3` |
+| `web/src/views/SettingsView.vue` | 换真页头（`h1` + 说明），两栏自适应网格；`.settings__lead` 包一层才换得成行 |
+| `web/src/views/JobsView.vue` | 换真页头，删掉与卡片标题重复的写法；`.jobs__lead` 同上 |
+| `web/src/views/AlertsView.vue` | 根改 `<section>`（留在 `.win > section` 覆盖内），去死的内边距，页头重排 |
+| `web/src/views/NotFoundView.vue` | 去掉 `NResult` 的彩色 emoji，换 `<span class="nf__code u-num">404</span>`；按钮改主色实心 |
+| `web/src/views/UpdatesView.vue` | 删掉与卡片标题重复的 `powerLine` 一行；`.updates__tiles` 交回全局网格 |
+| `web/src/components/PowerControlCard.vue` | 重启标志的说明重写（**测试断言的子串逐字保留**） |
+| `web/src/views/BackupView.vue` / `web/src/views/SchedulesView.vue` | 页头第二个主按钮降为 `secondary` |
+| `web/src/views/OverviewView.vue` | 仪表从 84px 定宽改 `display: block` |
+| `web/scripts/preview-pages.mjs` | 删掉死路由 `/host/capabilities`；补 `/health/live`（**注释注明是照 handler 抄的，不是抓的**）；把没夹具的 9 页写进文件头 |
+
+**这一轮做的五个判断，都记进了 `docs/DECISIONS.md`**（Q528—Q532）：
+
+* **Q528 naive 把颜色与几何存在元素的内联 `style` 上。** 外部 CSS 碰 `--n-*` 只有
+  `!important` 生效，而 `!important` 会同时打死所有变体。所以**这些变量一律不在外部 CSS 里碰**，
+  入口只有 `themeOverrides`；提高特异性用双类选择器（0-2-1）。
+* **Q529 `themeOverrides` 是几何的唯一来源。** 身高、内边距、方角写在那儿，CSS 那边**一个字节都
+  不写**——文字按钮正是靠把 `--n-height` 设成 `initial` 才贴着行内文字走。
+* **Q530 `.win > section, .win > main` 只套页面根。** 原来那条选到所有后代，把 `UPanel` 自己的
+  `<section>` 也变成了 16px 的 gap 盒子。
+* **Q531 `flex: 1 0 100%` 换不了行。** flexbox 会先用 `max-width` 夹住 hypothetical main size；
+  要换行就得加一层容器。
+* **Q532 夹具覆盖有洞，且这个洞不能用"编一个成功响应"来补。** 9 个页面没有夹具，预览里就该显示
+  「读不到」；它们正常的样子只能在 Ubuntu 真机上看。
+
+**已验证（宿主，不是 Ubuntu 验收）**：仓外 `node-v22.23.3`，Chromium **156.0.8078.4**（Playwright
+1.64.1），`docs/evidence/UI/2026-10-30-pages/`：
+
+* **25 张图**（1440×900 明 / 暗、400×820 窄屏），`pageerror` **0**、横向溢出 **0**，逐页读数在
+  `facts-preview.json` 与 `result.md` 的表里。
+* `npx vue-tsc --noEmit` → exit 0；`npx vitest run` → **66 文件 / 1219 用例全过**；
+  `npx eslint .` → exit 0（**只覆盖 `.ts`/`.mjs`，`.vue` 被忽略**）；`npm run build` → ✓ 9.11 s。
+* `sh scripts/check.sh` 整跑 → **PASS 15 / FAIL 0 / NOT RUN 0**，跑在最终字节上。
+  **别把它读大**：`web-smoke` 走的是未登录路径、断言落在登录页，**没覆盖这一轮改的任何一页**；
+  15 条里没有一条能把"这一页看着对不对"变成红绿。**版面是看图看的。**
+
+**未验证 / NOT RUN（与上面那串分开记）**：
+
+* **零个字节跑在 Ubuntu 真机上。** 25 张全是宿主 Chromium 回放夹具。
+* **只看了 Chromium。** Firefox / Safari / Edge 一次没开；`backdrop-filter`、`100dvh`、
+  `background-attachment: fixed` 三处最可能在别家不一样。
+* **无障碍没有读数**：没跑 axe、没做屏幕阅读器实测、对比度没量（暗色下 `--ink-3` 在 `--surface`
+  上的比值依然未知）。
+* **没碰过触摸屏。** 400px 只是把窗口缩窄。
+* **9 个页面的正常状态完全没看过**：`/jobs`、`/backup`、`/alerts`、`/schedules`、`/network`、
+  `/settings/host`、`/terminal`、`/apps/deployments`、`/accounts`。预览里它们只显示"读不到"。
+* **内容窗口内部的横向溢出没有断言**，这一轮只在 `documentElement` 上量。
+
+**API / 数据库变化**：无。
+
+**已知问题·阻塞**：无阻塞。已知问题全是"覆盖面不够"，不是"做错了"。
+
+**下一步**：本地能做的前端工作到此为止。剩下的每一条都要求真机：在验收 VM 上装好、真登录、
+把那 9 个页面点一遍。按 Q510 要等下一版重打字节（改文档措辞不重打）。
+
+### 界面重做（三）（2026-10-30）— 从"带图标的仪表盘"改成真正的桌面（纯前端 + 一次重打包真机自看）
+
+**起因**：负责人第三次纠正一句「我说了是那种桌面版，你能理解什么是桌面版吗」。把上一版外壳当桌面读：
+**没有桌面**（`/overview` 就是首页，一进来已经在某个功能页里，图标阵列只是快捷入口）、**没有窗口**
+（内容区与屏幕同宽同学，滚动的是整页而不是一个窗格）、**关掉没处可回**（没有"桌面"这个落地页）。
+三件事是同一个问题：外壳只包了一层皮，没承起"桌面 → 开窗 → 关窗回桌面"这条动线。**仍然不是
+STAGES 的子任务**，不计入矩阵、不改任何验收状态。
+
+**边界**：`cmd/`、`internal/`、`api/openapi.yaml`、DTO、状态机、动作注册表、`modules/registry.ts` 的
+16 项顺序与 `implementedIn` 规则**一行没动**。改的全部在 `web/src/`（加一次 `scripts/build.sh`/
+`release.sh` 重打包，因为要看真机）。
+
+**已实现**：
+
+| 文件 | 作用 |
+|---|---|
+| `web/src/shell/DeskWindow.vue` | 新。窗口壳：标题栏（两个真 `<button>`：关闭 / 铺满）、拖动、右下角缩角、双击铺满；`MIN_W 620 / MIN_H 420`，默认占视口 **82%×78%**；`@media (max-width:820px)` 直接铺满、隐藏把手 |
+| `web/src/shell/DeskIcons.vue` | 新。桌面图标阵列，`grid-auto-flow: column` 列流、每格 96px、`<button role="listitem">`，激活态反色 |
+| `web/src/views/DeskView.vue` | 新，**空组件**（`display:none`）。桌面装修挂在 AppShell 上；这条路由存在的唯一理由是**让 URL 与屏幕一致**（刷新、后退、关窗都诚实）。理由写在文件头 |
+| `web/src/router/routes.ts` | 加 `/desk`（`meta.moduleKey: null`），放在 `/overview` 前 |
+| `web/src/router/redirect.ts` | `HOME_PATH` 改 `/desk`；白名单逻辑不变（拒绝 `//`、`/\`、`/login`） |
+| `web/src/router/redirect.test.ts` | 断言跟着改成 `/desk`，每个兜底用例都用它 |
+| `web/src/shell/AppShell.vue` | 重写：`.desk__wall`（点阵壁纸）+ `DesktopBar` + `DeskIcons` + `DeskWindow(v-if="!onDesk")` 里包 `<RouterView />` + `AppDock` + `AppLauncher`；`closeWindow()` → 回 `/desk` |
+| `web/src/shell/DesktopBar.vue` | 加 `onDesk` prop；在桌面上时面包屑写「桌面」而不是某个模块名 |
+| `web/src/App.vue` | 删掉 `AppShell` 插槽里那段死的 `<RouterView />`（历史上它和 shell 内部的重复） |
+| `web/src/views/LoginView.vue` | 登录页挪到同一张壁纸上，垂直居中，`box-shadow: var(--shadow-win)` |
+| `web/src/styles/views.css` | Q530 那条 `.win > section, .win > main` **改成 `.win__body > section/main/div`**——页面根节点被塞进 `.win__body` 了，旧选择器一条都匹配不上；意图不变（只认直接子元素，管不到面板内部） |
+| `web/scripts/preview-pages.mjs` | 加 `page-desk` |
+| `web/scripts/shoot-live.mjs` | 新（工具，不进 `dist`）：真机登录 → 7 页截图；登录改成 `waitForURL(60s)`（TCG 下固定等 2.5 秒会误判"没跳转"） |
+
+**这一轮的判断，记进了 `docs/DECISIONS.md` Q533**：关闭与铺满这次要给——单窗格模型里"关闭"唯一诚实的
+语义是**回到桌面**，是真导航；**最小化仍然不给**（没有窗口栈，最小化只能变成"藏起来"，假语义）。
+Q524 那句"不做最小化/关闭/还原这类按钮"原文不改，记为被 Q533 **部分修订**。
+
+**已验证（宿主）**：仓外 `node-v22.23.3`、Chromium 156.0.8078.4 / Playwright 1.64.1。
+`npx vue-tsc --noEmit` → 0；`npx vitest run` → **66 文件 / 1219 用例全过**；`npx eslint .` → 0；
+`npm run build` → ✓ 1.84 s；`sh scripts/check.sh` 整跑 → **PASS 15 / FAIL 0 / NOT RUN 0**。
+**别读大**：`web-smoke` 仍走未登录路径落在登录页，这 15 条里没有一条能判"这一页看着像不像桌面"。
+截图 5 张（`/desk`、`/`、`/services` 1440×900 + `/desk`、`/` 400×820）：**`pageerror` 0、未覆盖接口 0、
+横向溢出 0**，窄屏两张 `scrollH` 恰为 820（窗口铺满、没把整页撑长），逐张读数在
+`docs/evidence/UI/2026-10-30-desk/result.md` 第一节。
+
+**已验证（真机，但只是截图不是验收）**：Ubuntu 24.04.5（`6.8.0-147-generic`，4 vCPU `tcg,thread=multi`）。
+重打包 amd64 `upanel-0.0.0-8e52b36-linux-amd64.tar.gz`（44176855 字节，
+`sha256 72997c0f82f0dbecaae064611c82347302ed42151ecacda7a4fe0fb51d46634a`），客机内 `sha256sum -c` 先核字节
+→ OK → 解包 → `install.sh --source …`（**没加** `--write-config`：沿用已有配置与代理密钥，安装器自报
+「管理员账号: (已存在的账号)」）。装完 `upanelctl 0.0.0-8e52b36 (commit 8e52b36-dirty, built
+2026-10-29T16:22:54Z, go1.27.3)`、两服务 `active`、Web uid=999。经 `ssh -N -L 8443:127.0.0.1:9443`
+在宿主浏览器打开：**登录后落在 `/desk`**，7 次导航 **`pageerror` 0**。图上看到的是真数据——概览
+CPU 53.8% / 4 逻辑核（`QEMU TCG CPU`）、内存 645.71 MiB / 3.82 GiB、运行 25 分钟；服务与进程 **229 个单元**
+（运行 59 / 未运行 168 / 失败 0 / 受保护 90 / 不在本机 22）；存储真块设备 `sda` 40 GiB（系统盘受保护）/
+`sdb` 8 GiB / `sdc` 4 GiB / `sdd` 4 GiB，健康一律「未知」或「不支持检测」并写原因；共享页给的是
+**能力缺失的诚实态**（`Samba 不可用`、`NFS 不可用`，逐条列缺什么、为什么因此不许写配置）；
+应用页 `0 个应用 / 待确认候选 4`（`containerd.service` 在跑、监听 `127.0.0.1:40215`）。读数与复现命令见
+`docs/evidence/UI/2026-10-30-desk/result.md`（含宿主 3 张与真机 7 张的分档说明）。
+
+**未验证 / NOT RUN**：
+
+* **窄屏只在宿主夹具上补了两张**（`/desk` 与 `/`，400×820，横向溢出 0、`scrollH` 恰 820——铺满分支与
+  「隐藏标题栏 / 隐藏把手」都按预期走）。**真实数据下的窄屏、窄屏上的那 9 页，一次都没看过。**
+* **只开过一个浏览器**（Chromium 156）：Firefox / Safari / Edge 没开。
+* **窗口拖动 / 缩放 / 双击铺满没有自动化**：靠手点，没有断言，也没有键盘可达性读数（焦点环、Tab 顺序）。
+* **窗口内横向溢出没量**：只量了 `documentElement`。
+* **无障碍零读数**：没跑 axe、没量对比度、没做屏幕阅读器实测。
+* **真机那 9 个页面只看到空态**：这台机器没装 samba/nfs/certbot、没有任务、没有备份仓库、没改过网络。
+  **空态对，非空态未知**——要按 `install.sh --install-deps nginx,certbot,samba,smartmontools` 补（TCG 下
+  十分钟以上）之后才能看。
+* **这不是界面验收**：31 条矩阵一条没动；真机图是截图，无断言。
+
+**API / 数据库变化**：无。
+
+**已知问题·阻塞**：无阻塞。已知问题全是"覆盖面不够"。
+
+**下一步**：界面侧本地已经没事可做。要看非空态得先在验收 VM 上补齐依赖包，再点那 9 个页面。
+
 ## 6. 未决问题与范围变更
 
-未批准任何范围变更。DECISIONS.md 第 8 节记录 Q1—Q80；P03.3 新增六条：Q67（阶段与事件必须同事务，
+
+未批准任何范围变更。DECISIONS.md 第 8 节记录 Q1—Q479（P14.5 收尾时为 479 条）；P03.3 新增六条：Q67（阶段与事件必须同事务，
 缺陷修复）、Q68（日志环保留 vs 只追加）、Q69（SSE 用轮询+对账，不做进程内广播中心）、
 Q70（viewer 任务可见性 = per-user 隔离，别人的任务 404）、Q71（验收脚本的运行身份必须由调度器
 强制）、Q72（最小登录页与路由守卫，范围补充，待确认）。P03.4 新增八条：Q73（对账用
@@ -5174,11 +7994,123 @@ Q103（`cmd/upanel-web` 的用例会读机器上的 `/etc/upanel/upanel.json`，
 | P12.1-VM | P12 | **已执行并通过（22.04.5 与 24.04.5 各 PASS=133 / FAIL=0 / NOT RUN=5，`EXIT=0`）**；逐节断言数两台完全相同（§0 2、§1 4、§2 3、§3 25、§4 7、§5 19、§6 11、§7 13、§8 5、§9 5、§10 6、§10b 6、§11 13、§12 7、§13 6、证据卫生 1）；仓库 id 两台独立核对（`5b2ac62d…` / `6044228b…`，`independent-cat-config.stderr` 为空且两边都非空才比）；一台一跑、不并发 | docs/evidence/P12/2026-10-23-p12.1/logs/{2204,2404}-{run.log,results.txt,agent.log}、payloads/{2204,2404}/*.json |
 | P12.1-FIX | P12 | 已执行（产品缺陷 A：主机密钥按算法逐个重握手（`d99998c`）；B：网络层失败整轮重试一次（`de3cef8`）；C：`ErrBudgetExhausted` + 信号名 + 只读查询预算 30→45 秒（`659ba02`）。回归：`TestDialAcceptsRegisteredKeyRegardlessOfNegotiatedPreference`、`TestDialHandshakeTimeoutIsNotAuthFailure`、`TestDialRetriesOnceWhenHandshakeStalls`、`TestRunOutcomeClassifiesWhoEndedTheCall`、`TestResticFailureSaysTimeInsteadOfWrongPassword`。另修观测缺口：`90a669b`（503 文案点名模块）、`1ae4e39`（执行前复核被拒不写明原因）） | internal/backup/{ssh.go,ssh_test.go,exec.go,exec_test.go,restic.go}、internal/agent/{backupquery.go,operations.go}、internal/api/packages.go |
 | P12.1-HOST | P12 | 已执行（`scripts/check.sh` PASS 13 / FAIL 0 / NOT RUN 0；web **45 文件 820 用例**；node v22.23.3 —— 默认 v24.15.0 会被版本闸门拦下，不是跳过） | docs/evidence/P12/2026-10-23-p12.1/logs/host-check.txt |
-| P00-VM-C（LVM 根） | P00/P04 | **NOT RUN**（未创建） | 需在 P04 前补齐 |
+| P12.2-VM | P12 | **已执行并通过（22.04/restic 0.12.1 与 24.04/restic 0.16.4 各 PASS=170 / FAIL=0 / NOT RUN=3，exit=0）**；同一脚本与二进制，跨机 results.txt 逐字一致；SFTP 成功、断网、独立 tmpfs 写满、取消均验证终态与独立事实，三条 NOT RUN 均属 P12.3/P12.5 | docs/evidence/P12/2026-10-24-p12.2/logs/{2204,2404}-run.log、logs/{2204,2404}/results.txt、payloads/{2204,2404}/ |
+| P12.2-FIX | P12 | 已修复并复验 4 个真机产品缺陷（Q343/Q344/Q345/Q347）；最终客户端 100 秒晚于代理 90 秒，修复前 10 秒取消现场与修复后 11.313/19.728 秒成功查询均保留。脚本/方法修正见 Q346/Q348 | docs/evidence/P12/2026-10-24-p12.2/{result.md,logs/2404-client-timeout-run.log,logs/2404-before-fix/}、internal/agentclient/{backup.go,client_test.go}、internal/backup/{exec.go,run.go} |
+| P12.2-HOST | P12 | 已执行（最终 `scripts/check.sh` PASS 13 / FAIL 0 / NOT RUN 0，web 45 文件 820 用例；修复前与 gofmt 失败日志均保留，不以局部测试替代最终全量结果） | docs/evidence/P12/2026-10-24-p12.2/logs/{host-check.txt,host-check-before-client-timeout.txt} |
+| P12.2-RESULT | P12 | 已产出（范围、最终脚本与二进制指纹、两台 170/0/3、四个产品缺陷、脚本修正、四个任务 id、三条后续阶段 NOT RUN、历史失败证据、秘密扫描）；跨机结果/任务/指纹与宿主秘密扫描已复核 | docs/evidence/P12/2026-10-24-p12.2/result.md |
+| P12.3-VM | P12 | **已执行并通过（24.04/restic 0.16.4 与 22.04/restic 0.12.1 各 PASS=117 / FAIL=0 / NOT RUN=0，exit=0）**；同一脚本同一组二进制、一台一跑不并发；逐节断言数（§0 11、§1 14、§2 24、§3 13、§4 15、§5 10、§6 30）与 `results.txt` 断言名单跨机逐字一致；恢复/覆盖/验证/清理/写满/SFTP 断连都有真机证据，失败场景同时核对旧目标哈希、暂存残留与应用存活 | docs/evidence/P12/2026-10-24-p12.3/logs/{2404-run.log,2204-run.log}、logs/{2404,2204}/results.txt、payloads/{2404,2204}/ |
+| P12.3-FIX | P12 | 已修复并复验 4 个产品缺陷（Q356 借用 fd 被 GC 关掉、Q357 会话滑动但 Cookie 不续发、Q359 失效锁、Q360+Q363 失败消息与真实错误行形状）；每一条都有真机现场与回归用例。历史轮次（116/1/0、被中断轮、并发作废轮）日志全部保留 | internal/backup/{restic.go,restic_retry_test.go,restic_linux_test.go}、internal/auth/{session.go,session_test.go}、internal/api/{auth.go,auth_test.go}、docs/evidence/P12/2026-10-24-p12.3/logs/{2404-run-round-enospc-message.log,2404-run-aborted-rebuild.log,2404-single-thread-attempt/} |
+| P12.3-HOST | P12 | 已执行（最终 `scripts/check.sh` PASS 13 / FAIL 0 / NOT RUN 0，web 45 文件 820 用例，web-smoke 10/0/0；第一次 12/1/0 红在 `node-version`（默认 v24.15.0），改用 nvm 的 v22.23.3 后重跑全量，两份日志都保留。**`//go:build linux` 的三条用例另在两台 VM 上实跑**：`TestSlowProgressCallbackDoesNotFailTheCommand`、`TestResticRestoreThroughInheritedDirectoryFD`（Q356 回归）、`TestRecoveryCoreOnRealRestic`，两台各全 PASS） | docs/evidence/P12/2026-10-24-p12.3/logs/{host-check.txt,host-check-wrong-node.txt,2404-linux-tests.txt,2204-linux-tests.txt} |
+| P12.3-RESULT | P12 | 已产出（范围、三版二进制指纹与作废原因、两台 117/0/0、逐节断言数、4 个产品缺陷、5 条方法修正、任务 id、STAGES 条目对应表、明确区分已实现/已验证/未验证、秘密扫描零命中） | docs/evidence/P12/2026-10-24-p12.3/result.md |
+| P12.4-VM | P12 | **已执行并通过（24.04/systemd 255 与 22.04/systemd 249 各 PASS=246 / FAIL=0 / NOT RUN=0，退出码 0；断言名单跨机逐字一致）** | docs/evidence/P12/2026-10-24-p12.4/{logs/2404,logs/2204,payloads/2404,payloads/2204,migration/2404,migration/2204} |
+| P12.4-FIX | P12 | 已修复并复验 9 个产品缺陷（Q371 不重叠未实现、Q374 解释器基名、Q375 calendar 输出形状、Q376 脚本目录不可穿、Q377 库约束不在预检、Q380 root 的 `--wait` 空转、Q381 `needs_sync` 永不为 0、Q382 `database is locked`、Q385 列表 10144ms 压过 10 秒上限）；每一条都有真机现场与回归用例。22.04 首轮 5 条红（Q386/Q387）的日志保留但**不作为产品证据** | internal/schedules/{module.go,views_parallel_test.go}、internal/agentclient/schedule.go、cmd/upanel-web/main.go、internal/operations/jobs.go、internal/schedules/units.go |
+| P12.4-HOST | P12 | 已执行（最终 `scripts/check.sh` PASS 13 / FAIL 0 / NOT RUN 0，web 45 文件 820 用例，`production` 冒烟 10/0/0，openapi 6 条既有警告；`go test -race` **NOT RUN**：宿主无 gcc） | docs/evidence/P12/2026-10-24-p12.4/logs/host-check.txt |
+| P12.4-RESULT | P12 | 已产出（范围、二进制与脚本指纹、两台 246/0/0、逐节断言数、9 个产品缺陷与 9 条方法修正、"不重叠"判据的诚实边界、任务 id、STAGES 条目对应表、明确区分已实现/已验证/未验证、秘密扫描零命中） | docs/evidence/P12/2026-10-24-p12.4/result.md |
+| P12.5-VM | P12 | **已执行并通过（24.04/certbot 2.9.0 第 12 轮、22.04/certbot 1.21.0 第 2 轮，各 PASS=214 / FAIL=0 / NOT RUN=0，退出码 0；逐节断言数 25/20/44/24/30/15/20/10/19/7，归一化后断言名单跨机 diff 无输出；同一脚本 md5 `9fd078cb…` 与同一组二进制）**。覆盖：面板建续期计划 → 代理写单元 → systemd 唤醒 → 代理提交 `certificate.renew` → 真实 Pebble 的 HTTP-01 校验 → 盘上与账本两处事实一致；`--keep-until-expiring` 在"还没到期"时不重签、在"三天后到期"时真的换证；失败场景下任务 `error.message` 与账本 `last_error` 是同一个字符串且含 certbot 自己的话，盘上证书不动 | docs/evidence/P12/2026-10-25-p12.5/{logs/2404/,logs/2204/,payloads/2404/,payloads/2204/} |
+| P12.5-FIX | P12 | 已修复并复验 4 个产品缺陷（Q390 定时续期预检绑不上目标身份 → 500 `INTERNAL_ERROR`；Q391 失败原因到不了任务与账本；Q392 P12.4 的"证书续期尚未接线"闸没拆；Q393 `normalized_params` 里空的 `certificate_id`/`email`）与 5 条验收方法修正（Q394—Q398：Pebble 缓存已通过的授权一小时、§0 不断言 80/5002 空闲、§9 用整轮开始时的会话、prune 数总条数与水位取在触发之后、采样器 `ps -e -C` 自己压垮 2 vCPU 客户机）。每条都有"现象 → 根因 → 判据怎么改"，第 10 轮与 22.04 首轮两份红现场留在证据里 | docs/evidence/P12/2026-10-25-p12.5/{result.md,logs/2404/earlier-round10-section7-fixture-defect.log,logs/2204/first-round-nginx-blocked.log} |
+| P12.5-HOST | P12 | 已执行（`scripts/check.sh` PASS 13 / FAIL 0 / NOT RUN 0，按 `.nvmrc` 用 `node-v22.23.3-win-x64`；`go test ./...` 43 包 ok，web **49 文件 939 用例**，`web-smoke` 10/0/0，`openapi-lint` valid + 6 warnings）。同一 commit 用系统 node v24.15.0 跑过一次是 11/2（`node-version` 与 `openapi-lint` 的 libuv 收尾断言），两次输出都留档 | docs/evidence/P12/2026-10-25-p12.5/{logs/host-check.txt,logs/host-check-system-node.txt} |
+| P12.5-RESULT | P12 | 已产出（范围、二进制与脚本指纹、两台 214/0/0、逐节断言数、4 个产品缺陷与 5 条方法修正、两台机器的差异、"夹具闸不是护栏"的诚实边界、NOT RUN 清单、文件清单） | docs/evidence/P12/2026-10-25-p12.5/result.md |
+| P13.1-VM | P13 | **已执行并通过（24.04 与 22.04 各 PASS=88 / FAIL=0 / NOT RUN=0，退出码 0）**；同一份脚本（md5 `d08964c5385a5156308386001c2190bf`）、同一组二进制（web `c99f56c3…`、agent `b469732d…`、ctl `5d4a1bbf…`），归一化后的 88 条断言名单跨机 `diff` 无输出；逐节断言数 6/5/22/9/10/23/8/5 | docs/evidence/P13/2026-10-26-p13.1/{logs/2404/,logs/2204/} |
+| P13.1-FIX | P13 | 已修复并复验 1 个产品缺陷（Q404：一整桶样本值全等于 1.9 时 `SUM(1.9*12)/SUM(12)` 算出 `1.8999999999999997`，撞 `CHECK (min_value <= value AND value <= max_value)`，整个小时桶写不进去且每轮重试都失败——那一小时所有指标的 hour 行永久缺失。修法是聚合与查询两处都把加权平均夹回 `[MIN(min_value), MAX(max_value)]`，`CHECK` 原样保留）与 4 条验收方法修正（Q405 缺口判据窗口右端也要让一个桶宽、停机时长 15→25 秒；Q406 `check.sh` 加 `line-endings` 第 14 关、scp 的二进制要 `chmod 0755`；Q407 恒真的 socket 断言、按粒度而非按 scope 读 series、`BEFORE_MAX` 取样点在 `stop_web` 之前）。去掉夹取时回归测试报出与真机一字不差的 `CHECK constraint failed ... (275)` | docs/evidence/P13/2026-10-26-p13.1/logs/regression-before-fix.txt |
+| P13.1-HOST | P13 | 已执行（`scripts/check.sh` PASS 14 / FAIL 0 / NOT RUN 0，按 `.nvmrc` 用 `H:\Code\.toolchains\node-v22.23.3-win-x64`；用系统 node v24.15.0 跑过一次是 13/1，红在工具链层 `node-version`，换回锁定版本后同一份代码全绿）。新增第 14 关 `line-endings` 干跑 `checked=122 bad=0` | docs/evidence/P13/2026-10-26-p13.1/logs/host-check.txt |
+| P13.1-RESULT | P13 | 已产出（范围、二进制与脚本指纹、两台 88/0/0、逐节断言数、1 个产品缺陷与 4 条方法修正、NOT RUN 三项） | docs/evidence/P13/2026-10-26-p13.1/result.md |
+| P13.2-VM | P13 | **已执行并通过（24.04 第 6 轮与 22.04 第 2 轮，各 PASS=148 / FAIL=0 / NOT RUN=0，退出码 0）**；同一份脚本（md5 `c74dd469e47a7c17aad05e94b628d930`）、同一组二进制（web `082752b3…`、agent `1610950d…`、ctl `e5e4ea6d…`），归一化后的 148 条断言名单跨机 `diff` 无输出；逐节断言数 7/9/48/63/9/8/4。覆盖：`duration_seconds` 低于两条采集周期 400；`pending` 不立刻触发且 `last_reason` 说清在计持续；事件从 `state_since` 起实打实等满 30 秒才开、只开一条、再评估两轮不涨；同一份真实容量数据上 `any` 触发而 `all` 不触发；维护静默里事件 `silenced=1` 但照记照判；受控序列停写 40 秒与真代理停 40 秒都不被判成恢复；回落后恢复持续够了才 `resolved` 并带出实际时长与复查的 `peak_value`；冷却期内不重起算；删除正在 firing 的规则把事件收口成 `resolved` 且 `rule_id` 置空 | docs/evidence/P13/2026-10-26-p13.2/{logs/2404/,logs/2204/} |
+| P13.2-FIX | P13 | 已修复并复验 3 个产品缺陷（Q414 覆盖率容差与 `duration_seconds` 地板按写死的 5 秒判，而容量序列 30 秒才落一行，空间规则的表象是"配好了永远不响"、`last_reason` 却写"窗口内没有任何样本"——修法是 `metrics.WriteCadence` 成为唯一答案，新鲜度 `max(3×节奏,20s)`、窗口前段余量 `max(2×节奏,10s)`、`duration_seconds ≥ 2×节奏`；Q417 `last_reason` 只在进入 pending 那一轮写、后几轮被覆盖成空串，改成每一轮都写进度；Q418 `resolved_at`/`acked_at`/静默起止回空串而不是 null，4 处 `*string` + openapi 3.1 写法 + 3 个按原始 JSON 判 null 的回归测试）与 6 条验收方法修正（Q415 整机 fd 超 4000 直接退 2——24.04 上 `systemd-logind` 泄漏 7477 个 fd 让 `storage.topology` 从 0.027 秒变成 25—41 秒；Q416 `sqlq` 不许吞 SQL 错误、列名是 `redacted_details`；Q419 三处判据修正并加一条不受取样时刻影响的 `EV_DELAY ≥ duration_seconds` 强判据；Q420 `state_since` 是 Unix 秒整数、`$(( ))` 里塞命令替换会让整轮崩溃）。24.04 六轮履历 117/25 → 139/3 → 142/0 → 145/2 → 崩溃 → 148/0，第 1 轮完整日志被覆盖只留失败名单原文，已在 result.md 注明 | docs/evidence/P13/2026-10-26-p13.2/{result.md,logs/regression-before-fix.txt,logs/2404/acceptance.round5-crash.log} |
+| P13.2-HOST | P13 | 已执行（`scripts/check.sh` PASS 14 / FAIL 0 / NOT RUN 0，按 `.nvmrc` 用 `H:\Code\.toolchains\node-v22.23.3-win-x64`；`go test ./...` 43 包 ok，其中 `internal/api` **193.1 秒**（338 个用例，含 Argon2id），web **49 文件 939 用例**，`web-smoke` 10/0/0，`openapi-lint` **valid + 6 warnings**）。同一份代码在修 Q418 **之前**跑过一次是 **13/1**，红在 `openapi-lint` 7 条 `error struct: 7`（`nullable` 是 3.0 关键字、本文件是 3.1），两次输出都留档 | docs/evidence/P13/2026-10-26-p13.2/{logs/host-check.txt,logs/host-check-before-fix.txt} |
+| P13.2-RESULT | P13 | 已产出（范围、二进制与脚本指纹、两台 148/0/0、逐节断言数、24.04 六轮履历、3 个产品缺陷与 6 条方法修正、通知/前端/race/破坏性场景四类 NOT RUN、第 1 轮日志丢失的诚实边界） | docs/evidence/P13/2026-10-26-p13.2/result.md |
+| P13.3-VM | P13 | **已执行并通过（24.04 第 6 轮与 22.04 第 1 轮，各 PASS=211 / FAIL=0 / NOT RUN=0，退出码 0）**；同一份脚本（md5 `f8f6984d0f5e302970b161899a90ff28`）、同一组二进制（agent `f7acfd27…`、web `8c8b258d…`、ctl `45fb01be…`，从当前工作树交叉编译），归一化后的 211 条断言名单跨机 `diff` 只有两行不同（`投递在 8 秒上限上结束` 实测 9/8 秒、`退避时间是 30 秒` 实测 35/31 秒），两行都是 PASS。逐节断言数 13/11/48/12/44/34/35/14。覆盖：viewer/未登录读不到带收件邮箱与回调地址的通道列表、写要 admin+CSRF；in_app 只有一条且不可删；smtp 没有明文模式、用户名与口令同进同出；webhook 只 https、拒 userinfo 与 `#片段`；`POST /secrets` 要再认证且响应无明文；**保存配置一个请求都不发、投递账 0 行**；SMTP 显式/隐式 TLS 各收一封信且正文 sha256 与契约逐字一致、535 时回 200 + 对端原话 + 只连一次；webhook 200/500/302/超时四种回执各按契约判、302 不跟随、令牌只以 sha256 出现在日志里；用途不对的 `secret_ref` 由**代理**拒绝且连接根本没建起来；告警链路上静默不入队、去重、30 秒退避（`next_attempt_at - created_at` ∈ [30,35]）、先坏后好第二次成功、用尽上限判死、**停用判死且 attempts 一次都不加**、停用后不再入队 | docs/evidence/P13/2026-10-26-p13.3/{logs/2404/,logs/2204/} |
+| P13.3-FIX | P13 | 真机验收抓到 **0 个产品缺陷**、3 个验收侧问题（Q424 接收器的 `start_tls` 在 Python 3.12 上把握手后的应用数据丢掉，表现为"Go 的 net/smtp 一句都过不去而 `openssl s_client` 畅通"，加 `TLSBridge` 缓冲重放并显式 `server_side=True`、接管新 transport；Q425 退避不能用"我们到达时还剩多少秒"量，改成 `next_attempt_at - created_at` 且区间宽度 = 5 秒调度节拍，附带 `strftime` 不认 ISO 尾巴 `Z`、`next_attempt_at` 在终局是 0 两个取值坑；Q426 `chan_version` 多传一个参数导致版本号空串、请求体拼成非法 JSON、产品合法的 400 被读成"停用没生效"，改成这一步自己四断言、非数字版本号直接不发）。另修 6 条脚本缺陷（`phase` 写 0600 种入读不到、断言读错响应文件、超时措辞过窄、`$(( ))` 撞非数字整轮崩、`sqlq` 把"没有这一行"打成错误、`MAIL FROM` 没切 ESMTP 参数） | docs/evidence/P13/2026-10-26-p13.3/logs/2404/round3-disable-400.txt |
+| P13.3-HOST | P13 | 已执行（`scripts/check.sh` PASS 14 / FAIL 0 / NOT RUN 0，按 `.nvmrc` 用 `H:\Code\.toolchains\node-v22.23.3-win-x64`；`go test ./...` 46 包 ok + 3 个 no test files，多数命中缓存、`internal/api` 这轮显示 `(cached)`；web 49 文件 939 用例；`web-smoke` 10/0/0；`openapi-lint` valid + 6 warnings） | docs/evidence/P13/2026-10-26-p13.3/logs/host-check.txt |
+| P13.3-RESULT | P13 | 已产出（范围、二进制与脚本指纹、两台 211/0/0、逐节断言数、24.04 六轮履历与"第 6 轮为何重新构建"、3 个验收侧问题逐条现场、7 类 NOT RUN、第 1—2 轮日志丢失的诚实边界） | docs/evidence/P13/2026-10-26-p13.3/result.md |
+| P13.4-VM | P13 | **已执行并通过（24.04 第 2 轮与 22.04 第 2 轮，各 PASS=128 / FAIL=0 / NOT RUN=0，退出码 0）**；同一份脚本（sha256 `f86fb06fe8e06d1cdecf4899b5dec2c64355a87439343dd9b456028dac34862c`）、同一组二进制（agent `0d128952…`、web `cef620a7…`、ctl `c66d2c53…`，从当前工作树交叉编译），归一化后的 128 条断言名单跨机 `diff` **无输出**，两台的差别只有 NOTE 里量到的新鲜度秒数（6 秒 / 1 秒，都是 PASS）。逐节断言数 7/9/14/14/20/31/12/8/10/3。覆盖：未登录 401 / viewer 403 / admin 缺 CSRF 403 / `id` 非正整数 400 / 未知 id 404 且原文"告警事件不存在"、每次被拒都落审计且带错误码；确认人取自会话而不是请求体、确认后 `state` 仍是 `firing` 且 `resolved_at` 不被写、第二个管理员再确认保留第一个人的时间与人、两边各落一条审计、已恢复的事件也能确认；投递账未登录 401 / viewer 403 / admin 200、行带投递当时的通道快照、`state`/`kind` 闭集过滤、越界枚举 400、`limit` 非正整数 400 且 >200 截断不报错、`kind=test` 无人测试时为空；真停采集 45 秒造缺口，缺口里**一行原始样本都没有**（不是写了 0）、`missing_points` 数得出缺的桶、相邻两点真的断开、缺口里没有 `value=0` 的假点、恢复采集后缺口不被回填；关掉采集后 `enabled` 仍 true 而 `collecting=false`、`reason` 指向 `web.metrics.enabled`、旧数据照样查得到、10 秒内没有新样本落库、`last_sample_at` 为 null；日志无 panic、本脚本没有产生任何 `operation` | docs/evidence/P13/2026-10-26-p13.4/{logs/2404/,logs/2204/} |
+| P13.4-FIX | P13 | 真机验收抓到 **0 个产品缺陷**、3 组验收侧问题（Q429 20 秒新鲜度判据拿宿主 `datetime.now()` 去量，24.04 走 TCG 单线程时从取回状态到算出结果过了十几秒，把新鲜样本量成陈旧——库里 host 序列每 5 秒一条无缺口、那份响应自报只差 7 秒，改成同响应内 `generated_at - last_sample_at`；Q430 把 `enabled` 与 `collecting` 当成一个意思，第 8 节一次红 4 条，改断言与 CONTRACTS §13.4，产品一行没动；Q431 另五处：`$WORK` 0700 把 `upanel-web` 挡在门外、请求体塞了契约之外的 `scope`、`COUNT(*) ... IS NULL` 期望写反、缺口窗口右端取未来时刻被自己的种入填上、SQL 漏 `metric`/`resolution='raw'` 把聚合行读成回填）。另加一次判据拆分：缺口"缺几桶"用定型窗口、"图上连不连"用延伸到缺口后 30 秒的窗口 | docs/evidence/P13/2026-10-26-p13.4/logs/2404/acceptance.log |
+| P13.4-HOST | P13 | 已执行（`scripts/check.sh` 在**最终工作树**上 PASS 14 / FAIL 0 / NOT RUN 0，按 `.nvmrc` 用 `H:\Code\.toolchains\node-v22.23.3-win-x64`；`go test ./...` 46 包 ok、web 52 文件 985 用例、`web-smoke` 10/0/0、`openapi-lint` valid + 6 warnings。第一次跑漏了 Node 工具链所以 `node-version` 判红，重跑前先把 PATH 补上——那一遍的输出没有留作证据） | docs/evidence/P13/2026-10-26-p13.4/logs/host-check.txt |
+| P13.4-RESULT | P13 | 已产出（范围、二进制与脚本指纹（含被 Q429 取代的上一版脚本哈希）、两台 128/0/0、逐节断言数、24.04 两轮 / 22.04 两轮的履历与"换脚本必须两台重跑"、3 组验收侧问题逐条现场、5 类 NOT RUN） | docs/evidence/P13/2026-10-26-p13.4/result.md |
+| P14.1-VM | P14 | **已执行并通过（22.04 PASS=112 / FAIL=0 / NOT RUN=0；24.04 PASS=116 / FAIL=0 / NOT RUN=0，退出码均 0）**；同一份脚本（sha256 `147b7a93d248bd1d622b6c91f2717daf5246c9cd4d580945baeac1fe30f2c16a`）、同一组二进制（agent `92795acb…`、web `252a7ed6…`、ctl `6841cb3c…`）。逐节断言数 2204 = 7/7/5/14/20/7/10/13/9/16/4，2404 = 7/7/5/14/25/6/10/13/9/16/4，差 4 条已核实为 24.04 多一张 `docker0`（§3 每卡 5 条、§4 少 1 条 target 对照）。覆盖：未登录 401 / viewer 403 / admin 200、**POST 四条同路径与 `/network/apply` 全部 404/405**、逐卡 sysfs 三态对照、`capability` 现场独立重算、路由家族闭集与 `destination` 含 `/`、监听与 `/proc/net` 双向比对（含本面板端口 pid==Web 子进程且 comm==`upanel-web`）、防火墙与 `ufw status verbose|numbered` 对照、`issues` 闭集、三目录前后哈希不变（只读证明）、审计 failure ≥ 4 且 success == 0 | docs/evidence/P14/2026-10-26-p14.1/logs/{2204,2404}/{run.log,env.txt,facts.txt} |
+| P14.1-FIX | P14 | 真机验收抓到 **2 个产品缺陷**（Q438 主机路由 `destination` 无前缀 → 同一字段两种写法，补齐 `/32`/`/128`；Q439 `/etc/nftables.conf` 每台 Ubuntu 都有 → 被误判 nftables 同存 → `editable=false` → P14.3 在标准机器上永远打不开，判据改为"有 conf 且 `*.wants/nftables.service` 被 enable"），**6 条验收方法修正**（Q440—Q445：runuser 壳与子进程、127.0.0.0/8、`json.dumps` 比结构、截断找键、`ufw` 超时后的 `0 == 0` 假绿、24.04 `ssh.socket`） | docs/DECISIONS.md Q438—Q445；`docs/evidence/P14/2026-10-26-p14.1/result.md` §4 |
+| P14.1-UNIT | P14 | 已执行（`internal/network/network_test.go` 22 个顶层用例全绿，其中 Q438/Q439 各一条回归；`go vet ./...` 干净；`go test ./...` 全量输出留档） | docs/evidence/P14/2026-10-26-p14.1/logs/{host-gotest.txt,host-network-tests.txt} |
+| P14.1-HOST | P14 | 已执行（`scripts/check.sh` 在**最终工作树**上 PASS 14 / FAIL 0 / NOT RUN 0，按 `.nvmrc` 用 `H:\Code\.toolchains\node-v22.23.3-win-x64`：go 47 包 ok + 3 个 no test files、gofmt 干净、Linux 交叉构建过、web 53 文件 999 用例、`web-smoke` 10/0/0、`openapi-lint` valid + 6 warnings） | docs/evidence/P14/2026-10-26-p14.1/logs/host-check.txt |
+| P14.1-RESULT | P14 | 已产出（范围与"为什么不靠 mock"、两台 112/116、逐节断言数、两台分别落在 `editable=true`/`false` 两个分支的现场事实、2 个产品缺陷 + 6 条验收方法修正逐条现场、只读的证明方式、7 类 NOT RUN、复现命令与交付指纹） | docs/evidence/P14/2026-10-26-p14.1/result.md |
+| P14.2-UNIT | P14 | 已执行（`internal/network` **39** 个顶层用例，其中 `applyengine_test.go` **17** 个：先武装 timer 再 apply、generate 失败不动现场、核验不符立刻回滚、timer 装不上就不改、待确认记录挡住第二次写、`confirm` 要候选地址与窗口、对账过期即回滚/未过期重新武装、DHCP 保留归属并丢掉旧地址；**Q456 修完补的两条**：`TestApplyDHCPVerifiedWhenServerReissuesSameAddress`（DHCP 发回同名地址 → `verified`，且 `netplan apply` 只调一次）与 `TestApplyDHCPRollsBackWhenAnotherFileAlsoConfigures`（两个全局地址 → `rolled_back`，`observed["verify_error"]` 含“2 个全局 IPv4”，apply 调两次），另有 `useAddrs(…)` fixture 造多地址的 `ip -j addr show` 回复。`internal/agent` 网络动作 **13** 个（判决原样过桥、兜底 blocker、三个 outcome、未知 outcome 报错）；`internal/api` 的 `networkexpand_test.go` **6** 个（含 `::ffff:` 与 zone 归一化、“取不到连接地址就不转发”）+ 网络 handler **7** 个。`go test` 全量输出留档） | docs/evidence/P14/2026-10-26-p14.2/logs/host-check.txt |
+| P14.2-WEB | P14 | 已执行（`npm --prefix web run test` **54 文件 1031 用例全过**——新增 32 条：写路径纯逻辑 12、`network.` 超时分档 2、`summarizeNetworkJob` 8、`NetworkApplyCard` 的 SSR 渲染 9、`/network/config` 请求路径 1；`npm run typecheck`（vue-tsc）与 `web-lint` 通过。**浏览器里的真实渲染与断线重连交互仍未验**（VM 无 Playwright，Q21），这一行不等于那一条） | docs/evidence/P14/2026-10-26-p14.2/logs/host-check.txt |
+| P14.2-HOST | P14 | 已执行（`scripts/check.sh` 在**最终工作树**上 **PASS 14 / FAIL 0 / NOT RUN 0**、退出码 0，按 `.nvmrc` 用 `H:/Code/.toolchains/node-v22.23.3-win-x64`：go **47 包 ok + 3 个 no test files**、gofmt 干净、Linux 交叉构建与 vet 过、web **54 文件 1031 用例**、`web-smoke` 过、`openapi-lint` valid + 6 warnings 与基线一致。**跑了两次**：一次在 Q458 改完开关说明文字之前（同样 14/0/0），一次在最终树上；文件里留的是最终树那一份。更早一轮曾 **FAIL 1**（`internal/storage` 的 `TestDeviceSuperblockProberCancelledContext`，与本轮无关的真实偶发缺陷，Q446 修掉） | docs/evidence/P14/2026-10-26-p14.2/logs/host-check.txt |
+| P14.2-VM | P14 | **已执行，passed**（Ubuntu 22.04.5 / kernel 5.15.0-198 / systemd 249.11，QEMU slirp；第五轮 `PASS 186 / FAIL 0 / NOT RUN 3`，退出码 0，`STAMP 2026-10-26T14:58:14Z start` → `15:05:11Z done`。脚本 sha256 `6a3a4ed8…95b95`；二进制 `upanel-agent e19852f8…caf8`、`upanel-web 6be39c17…0325`、`upanelctl a0ca7219…f580`。核心现场：改成不可达 `10.99.99.99/24` → 停 Web 与代理 → `deadline+28s` 由 `upanel-netrollback@<token>.service` 退回；旧地址确认被 `CONFIRM_WRONG_ADDRESS` 拒；复杂 netplan 返回 `NETWORK_UNSUPPORTED`；两条救命看门狗均 `not-needed`。前四轮为何没绿见 result.md §1） | docs/evidence/P14/2026-10-26-p14.2/logs/p142-2204-run5.log 与 facts/ |
+| P14.2-RESULT | P14 | 已产出（§1 结论与四条 §16 硬条件的现场对照 + 五轮为什么没绿的账；§2 为什么全程 HTTPS；§3 断连重连的逐秒时间线与 journal 原文；§4 DHCP 核验判据缺陷的现场、根因两层、改法与已知抓不到；§5 两条已知限制 Q457/Q456；§6 3 条脚本 NOT RUN + 我补的 4 条；§7 复现命令与“二进制与最终工作树的差异”声明） | docs/evidence/P14/2026-10-26-p14.2/result.md |
+| P14.3-UNIT | P14 | 已执行（`internal/network` **58** 个顶层用例：`applyengine_test.go` 17 + `firewallapply_test.go` **19** + `network_test.go` 22；`firewallapply_test.go` 里本轮新增两条回归——`TestFirewallAssessRefusalsKeepNormalizedParams`（无 pending × confirm/rollback + 定义不合法 × apply 三条拒绝分支都断言 `Normalized != nil`，Q464）与 `TestFirewallTokenMismatchKeepsNormalizedParams`（有记录但 token 不符）。另有 `internal/agent/firewallaction_test.go` **9** 个（判决原样过桥、兜底 blocker、`RECONFIGURE` 短语、解码层校验、outcome 闭集、未知 outcome 报错）。`go build ./...`、`gofmt -l`（空）、`go vet ./...` 干净；`go test ./internal/network/` 0.901s、`./internal/agent/` 32.587s 全绿） | docs/evidence/P14/2026-10-27-p14.3/logs/host-check.txt |
+| P14.3-WEB | P14 | 已执行（`npm --prefix web run test` **56 文件 1065 用例全过**——新增 34 条：`web/src/api/firewall.test.ts` **25**（`buildDefinition`/`buildApplyParams`/`describeFirewallChange`/`rollbackSecondsLeft`/`firewall.` 超时分档）+ `web/src/components/firewall-write.test.ts` **9**（`FirewallApplyCard` 的 SSR 渲染：倒计时只在 actionable 时起、`rules` 缺字段不崩、变化摘要文案）。`npm run typecheck`（vue-tsc）与 `web-lint` 通过。**浏览器里的真实渲染与交互仍未验**（VM 无 Playwright，Q21），这一行不等于那一条） | docs/evidence/P14/2026-10-27-p14.3/logs/host-check.txt |
+| P14.3-HOST | P14 | 已执行（`scripts/check.sh` 在**最终工作树**上 **PASS 14 / FAIL 0 / NOT RUN 0**、退出码 0，node v22.23.3：go **47 包 ok + 3 个 no test files**、gofmt 干净、Linux 交叉构建与 vet 过、web **56 文件 1065 用例**、`web-smoke` **10/0/0**、`openapi-lint` valid + **6 warnings**（与基线一致）；跑在本轮所有产品与脚本改动之后，工作树此后未再改动） | docs/evidence/P14/2026-10-27-p14.3/logs/host-check.txt |
+| P14.3-VM | P14 | **已执行，passed**（Ubuntu 22.04.5 / kernel 5.15.0-198 / systemd 249.11 / **ufw 0.36.1**，QEMU slirp；**第三轮** `PASS 153 / FAIL 0 / NOT RUN 4`，退出码 0，`STAMP 19:06:48Z start` → `19:13:56Z done`；逐节断言数 12/3/16/12/24/31/13/24/11/7。脚本 sha256 `ce8c0a05…b59aab6`；二进制 `upanel-agent 5a321eaa…f889db`、`upanel-web 96e571a1…9ce6e1c`、`upanelctl 190bc152…297fc46`。核心现场：缺 22/tcp → `FIREWALL_MANAGEMENT_PATH` 且 `show added` 仍 `(None)`；apply `frb_695fe8…`（deadline `19:12:26Z`）→ 停 Web 与代理 → 60 秒时新规则仍在 → `19:12:34Z` systemd 起 `upanel-fwrollback@…`、`19:12:45Z` `upanel-agent[162295]` 打完“已处理” → 规则换回旧集且 `ufw` 仍 active；手写 `ufw allow 9000/tcp` 跨两次 apply 原样保留；两条救命看门狗 `19:10:15Z`/`19:10:37Z` 各留 `not-needed`。前两轮为何没绿见 result.md §4、§5） | docs/evidence/P14/2026-10-27-p14.3/logs/p143-2204-run3.log 与 facts/（50 个） |
+| P14.3-RESULT | P14 | 已产出（§1 结论与两条硬性用例的现场；§2 十个阶段各验了什么与断言数；§3 断连那一段的逐秒时间线、journal 原文与规则集前后对照；§4 Q464 的现场（`132/13`、`ERR:KeyError:'data'`、web.log 的 `预检结果不合法`）、根因、为什么每段单独看都对、修法与两条回归；§5 五条验收方法缺陷逐条（`grep -qi active` 匹配 `inactive`、inactive 时 `status verbose` 无 `Default:` 行导致永真、`write_watchdog` 从未调用、timer 是每 token 一个不是模板、坏定义在解码层就 400）+ `rules` 为 `null` 的契约违反；§6 四条已知限制；§7 4 条 NOT RUN 及覆盖方式；§8 复现命令与三次轮次的账） | docs/evidence/P14/2026-10-27-p14.3/result.md |
+| P14.4-UNIT | P14 | 已执行（`internal/shares` **122** 个顶层用例、`internal/agentstore` **87** 个，全部 ok——`go test ./internal/shares/ ./internal/agentstore/` 通过、`go vet ./...` 干净、`gofmt -l` 空。本轮新增三条回归：`TestSameDirShares`（`internal/shares/nfs_test.go`，含"子目录不算同目录"与"同一条共享多行不算冲突"）、`TestApplyExportsRefusesDuplicateDirs`（直接喂两份同目录 `ManagedExport` 进 `applyExports`，断言错误带 `EXPORT_PATH_CONFLICT` 且托管文件已还原）、`TestAssessShareApplyNFSBlocksSameDirAsAnotherShare`（先应用一条 `RelativePath:""` 的共享，再预检同目录的新共享 → `allowed=false` 且消息点名两条共享）；`internal/agentstore/migrations_test.go` 的 `TestMigration0013RebuildsSharesAndKeepsRows` 把"旧 schema 真的拒绝 nfs"写成断言（Q471） | docs/evidence/P14/2026-10-27-p14.4/logs/host-gotest.txt |
+| P14.4-WEB | P14 | 已执行（`npm --prefix web run test` **56 文件 1091 用例全过**，P14.3 是 56/1065，本轮净增 **26** 条：NFS 共享记录与导出表客户端的渲染、`firstList` 的空列表语义、`ClientKind` 三种 NFS 来源、多协议共享列表的请求路径；`npm run typecheck`（vue-tsc）与 `web-lint` 通过。修的是 Q470 两处"把 NFS 当不存在"：`firstList(...)` 用 `??` 串联时**空数组不是 falsy**，第一个空列表就把 `startup_paths`/`exported_paths`/`volume_offline_shares` 短路成空——页面不报错、只是那一块永远是空的；`ClientKind` 只写了 SMB 那套，导出表读回来的客户端被显示成"未知"。**浏览器里的真实渲染与交互仍未验**（VM 无 Playwright，Q21），这一行不等于那一条） | docs/evidence/P14/2026-10-27-p14.4/logs/host-check.txt |
+| P14.4-HOST | P14 | 已执行（`scripts/check.sh` 在**最终工作树**上 **PASS 14 / FAIL 0 / NOT RUN 0**、退出码 0，node v22.23.3 / go1.27.3：line-endings 过、go **47 包 ok + 3 个 no test files**、gofmt 干净、Linux 交叉构建与 vet 过、web **56 文件 1091 用例**、`web-smoke` **10/0/0**、`openapi-lint` valid + **6 warnings**（与基线一致）。跑在 P14.4 全部产品与脚本改动之后（此后只改了 `docs/` 与证据文件；P14.5 的新代码是在这份日志之后才开始写的，它有自己的 HOST 行） | docs/evidence/P14/2026-10-27-p14.4/logs/host-check.txt |
+| P14.4-VM | P14 | **已执行，passed**（Ubuntu 22.04.5 / kernel 5.15.0-198-generic / nfs-kernel-server 与 nfs-common `1:2.6.1-1ubuntu1.2`，QEMU slirp、`-monitor none`；**第七轮** `PASS 141 / FAIL 0 / NOT RUN 6`，退出码 0，VM 内 `20:40:27Z` → `20:44:24Z`；逐节断言数 24/6/8/8/21/12/9/14/3/21/13/6。脚本 sha256 `8c732998bd0b1e68730f136cc821dd1c69bbfbec3bc152dd560a7b86b26aa1af`；二进制 `upanel-agent 3a0caa42…cfc56de9`、`upanel-web e269a391…4102e159`、`upanelctl fb39b0c1…089ff6b0a5`，VM 内 `sha256sum` 与宿主交叉构建的同一组核对一致。核心现场：托管导出文件只有 `/etc/exports.d/upanel.exports` 一份、`/etc/exports` 整轮 sha256 不变；`exportfs -v` 实际导出表里路径在且带 `root_squash`、没有 `no_root_squash`/`async`/`insecure`/`*`；允许网段换成 `192.168.77.0/24` 后同一台机器挂不上（`mount` 非 0、`findmnt` 空）、改回 `127.0.0.0/8` 立刻又能挂上；只读共享客户端写入被内核以 `Read-only file system` 拒绝、服务端目录没多出文件；卷摘出挂载树后 **13 秒**内撤销循环摘导出行 + `exportfs -ra`，`runtime_revoked.volume_state=unmounted`、`config_applied=false`，卷挂回来五项一样不变、重新应用才恢复；停用 + 删除后导出表与托管文件都清空、目录与文件还在、内容哈希不变、只剩一条已停用的记录。前六轮为何没绿见 result.md §4、§5） | docs/evidence/P14/2026-10-27-p14.4/logs/run.log（177 行）与 facts/（8 份） |
+| P14.4-FIX | P14 | 真机抓出并修掉 **2 个产品缺陷**（Q471：`shares.protocol` 的 `CHECK (protocol IN ('smb'))` 让 NFS 导出写下去了却在 `SaveShare` 被挡——`fakeStore` 不跑 SQL，单测一直是绿的；修法是 `0013_shares_protocol_nfs.sql` 表重建 + 一条把"旧 schema 真的拒绝 nfs"写成断言的回归。Q473：同一个目录的第二条共享在预检被放行——`ExportConflicts` 只比"别人的导出文件"这一半；修法是纯函数 `SameDirShares` + `sharesSharingDir`，预检与执行同一条判据，执行期再兜一次，`CONTRACTS.md` §7(5) 补上两个来源），web 侧 **2 处同类**（Q470），**7 类验收方法缺陷**（Q474：`"$(PRE_ALLOWED)"` 少一个 `$` 把变量当命令执行、`grep -c '# upanel:'` 数进文件头示例注释、`umount -l` 让 `knfsd` 持有文件系统、"客户端 OPTIONS 是 ro"这条断言本身不成立、夹具 `0600` 被 root_squash 成 `nobody` 读不到、断言"delete 顺手删记录"与契约相反、前置失败后六十多条断言用垃圾值变红），**1 条同类未修**（SMB 路径 `internal/shares/write.go:230` 在配置生效后落库失败不回滚，属于 P08 代码路径） | docs/DECISIONS.md Q470—Q474；docs/evidence/P14/2026-10-27-p14.4/result.md §4、§5 |
+| P14.4-RESULT | P14 | 已产出（§1 结论与四个验收点的现场；§2 十二个阶段各验了什么与断言数；§3 真机验到的四件硬事——认领标记是唯一判据 / `exportfs -ra` 的退出码不是证据、判决一律读回 `exportfs -v` / `root_squash` 是行为不是配置项 / 撤销只减不增；§4 两个产品缺陷的真机现场、根因、修法与一条同类未修；§5 七类验收方法缺陷逐条；§6 六条 NOT RUN 及为什么没验；§7 文件清单） | docs/evidence/P14/2026-10-27-p14.4/result.md |
+| P14.5-UNIT | P14 | 已执行（`internal/accounts` **37** 个顶层用例：`capability_test.go` 8、`definition_test.go` 7、`engine_test.go` 7、`sshkey_test.go` 7、`sudo_test.go` 8；`internal/agent` 侧新增 `accountaction_test.go` 5（一律从**线格式**出发，Q477 的回归）与 `accountquery_test.go` 6；`go test -count=1 ./internal/accounts/ ./internal/agent/ ./internal/agentstore/ ./internal/api/ ./internal/shares/` 五个包全 `ok`） | docs/evidence/P14/2026-10-27-p14.5/logs/host-check.txt |
+| P14.5-WEB | P14 | 已执行（`npm --prefix web run test` **57 文件 1116 用例全过**；`typecheck` 与 `lint` 干净。P14.4 是 56/1091，本轮净增 **3** 条：`accounts.test.ts` 的"缺 visudo 只关掉 sudo 那一半"（23 个）、`jobresult.test.ts` 新增 2 条账号结果翻译。改写的两条断言都对着 Q479：`expect(detail).not.toContain('配了公钥也登不上')`） | docs/evidence/P14/2026-10-27-p14.5/logs/host-check.txt |
+| P14.5-HOST | P14 | 已执行（`scripts/check.sh` 在**最终工作树**上 **PASS 14 / FAIL 0 / NOT RUN 0**、退出码 0，go1.27.3 / node v22.23.3：line-endings **134** 个脚本/迁移文件全 LF、go **48 包 ok + 3 个 no test files**、gofmt 干净、Linux 交叉构建与 vet 过、web **57 文件 1116 用例**、`web-smoke` **10/0/0**、`openapi-lint` valid + **6 warnings**（与基线一致）） | docs/evidence/P14/2026-10-27-p14.5/logs/check-run.txt |
+| P14.5-VM | P14 | **已执行，passed**（Ubuntu 22.04.5 LTS / kernel 5.15.0-198-generic / sshd active，QEMU，宿主 SSH 转发 `127.0.0.1:2223`；**第三轮** `PASS 168 / FAIL 0 / NOT RUN 6`、退出码 0；脚本 sha256 `c2a5236a32c7b6672b140768685fcec65105a2bb3ab374f1be26798a6a45e6ab`，二进制 `upanel-agent 402564380d…7bbc5f9b9a` / `upanel-web 5edd2bbb04…227a7f24ff` / `upanelctl ef69fa7362…258245df3f44`，VM 内 `sha256sum` 核对一致） | docs/evidence/P14/2026-10-27-p14.5/{RESULT,logs/run.log,facts/} |
+| P14.5-FIX | P14 | 真机抓出并修掉 **2 个产品缺陷**（Q477：`accounts.Definition` 一个 json 标签都没写 → `display_name` 400，单测只构造 Go 结构体所以全绿；Q478：`GET /accounts` 把 Samba 的能力当账号判据 → 没装 Samba 的机器上账号功能整个不可用）、**1 条与真机相反的文档断言**（Q479："没口令就登不上"——publickey 认证不看 shadow 的口令字段，key-only 账号能登；四处文案 + CONTRACTS §13 已改，脚本 §11 改成"钥匙 / 口令 / 壳"四面）、**2 条脚本缺陷**（`password_changed` 只在改账号时出现；`ssh-keygen -lf` 多把钥匙一行一把被当单值比）；环境那条（`/etc/sudoers.d/` 里非 `0440` 的文件让整份 `visudo -c` 失败）记进 `docs/TEST_ENVIRONMENT.md` §8.12，坏文件留档 `/var/tmp/p145-envfix/upanel.badmode` | docs/evidence/P14/2026-10-27-p14.5/result.md §4、docs/DECISIONS.md Q477/Q478/Q479 |
+| P14.5-RESULT | P14 | 已产出（§1 结论对 STAGES §16 的四条验收点逐条给现场读数；§2 十三节 168 条断言的分布；§3 三轮 63/111 → 162/3 → 168/0 的红账；§4 逐条根因（环境 / 产品 / 脚本 / 口径）；§5 六条 NOT RUN 与为什么；§6 证据文件清单） | docs/evidence/P14/2026-10-27-p14.5/result.md |
+| P15.2-HOST | P15 | 已执行（`sh scripts/check.sh` 在**最终工作树**上 **PASS 14 / FAIL 0 / NOT RUN 0**、退出码 0；`go test ./internal/deploy/ ./internal/agent/` 全绿，本轮新增 7 个回归用例） | 无独立文件（真机证据见下两行） |
+| P15.2-VM | P15 | **已执行，passed**（VM-A Ubuntu 22.04.5 / kernel 5.15.0-198 / docker 29.1.3 / compose 2.40.3，夹具盘 `/dev/sdd` 4 GiB；`PHASE=main` **199 PASS / 0 FAIL / 2 NOT RUN**，`PHASE=boot` **51 PASS / 0 FAIL / 0 NOT RUN**） | `docs/evidence/P15/2026-10-27-p15.2/{RESULT,RESULT-boot,p152-main.log,p152-boot.log,state.env,facts/,logs/,payloads/,README.md}` |
+| P15.3-HOST | P15 | 已执行（`go build ./...` 干净；`go test ./internal/agent/ ./internal/deploy/ ./cmd/...` 全绿，`update_test.go` 13 个用例 + `record_test.go` + `probe_test.go` + `deploybackup_test.go`；`sh scripts/check.sh` **PASS 14 / FAIL 0 / NOT RUN 0**、退出码 0） | 无独立文件（本子任务没有可跑的现场；真机读数见下一行 P15.3-VM） |
+| P15.3-VM | P15 | **已执行，passed**（VM-A Ubuntu 22.04.5 / kernel 5.15.0-198 / docker 29.1.3 / compose 2.40.3 / restic 0.12.1，夹具盘 `/dev/sdd` 沿用上一轮 GPT；`PHASE=main` **229 PASS / 0 FAIL / 1 NOT RUN**、退出码 0。NOT RUN 只有 `初始化 GPT / 建分区 / 格式化`——盘上已有 GPT 按上一轮复用；产物三份二进制的 sha256 与宿主 `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath` 重编结果逐字相同） | `docs/evidence/P15/2026-10-27-p15.3/{RESULT,p153-main.log,state.env,facts/,logs/,payloads/,README.md}` |
+| P15.3-FIX | P15 | 真机这一轮**没有产品缺陷**；改掉的是验收脚本自身的 **13 条**会把读数读错的写法：`$WORK/logs` 未建导致重定向失败被当成拉不到镜像、`update_params` 读未赋值变量让 `stale` 分支永不触发、`previous` 猜成 `image.previous`、把 `config_unchanged` 当执行期告警、一条自比自的假绿断言、`health_ok` 在未探测时键不存在而 `jget` 抛 `KeyError`、§12 拿“同名同内容 apply”当创建语义判据、`$TMPD` 0700 让 `web_curl` 全部 000、`wait_job` 180s 短于 9 分钟预算、夹具卷残留上一轮数据、§11 拿旧时代的 sha 比对、restic 各版本 `snapshots --json` 的 `id` 长度不一致、`RESULT` 0600 宿主读不到 | 同上（逐条原因见 `docs/evidence/P15/2026-10-27-p15.3/README.md` 的表；口径见 DECISIONS Q494） |
+| P15.4-HOST | P15 | 已执行（`npx vitest run` **62 文件 / 1176 用例全过**；`npx vue-tsc --noEmit` 干净；`npx eslint .` 干净；`sh scripts/check.sh` 在本轮最终工作树上重跑，见 §7 的 P15.4-CHECK 行） | 无独立文件（真机读数见下一行） |
+| P15.4-VM | P15 | **已执行，passed**（VM Ubuntu 22.04.5 / kernel 5.15.0-198 / 2 vCPU / 单线程 TCG / docker 29.1.3 / compose 2.40.3；跑在发布字节 `af6d9102…14c1` 上：`web/scripts/deploy-smoke.mjs` **43 PASS / 0 FAIL**，登录 → 空状态 → 新建 → 预检 → 再认证 → 任务 → 详情 → 换镜像 → 删除全部经页面完成；三次任务 `outcome: verified`（26/31/18 秒），面板侧 **57 条请求全 200/202**，预检请求体无 `compose_yaml`/`privileged`/`network_mode`/`cap_add`/`devices`；第一轮 31/12 的成因分类见 §5） | `docs/evidence/P15/2026-10-28-p15.4/{README.md,smoke-run2-final.log,smoke-run1-superseded.log,jobs-timeline.txt,web-requests.txt,facts-package.txt,facts-vm.txt}` |
+| P15.4-FIX | P15 | 真机前修掉 **1 个阻断项**（三条部署动作 R=是、登录不开再认证窗口、页面没有那扇门 → 真机上按确认必然 403 `REAUTH_REQUIRED`，Q511），真机上又抓出 **2 个页面缺陷**（`StatePanel` 空状态丢标题；删除成功后仍读已删部署 → 注定 404，Q513）与 **1 个观察项**（任务执行中只读查询顶到 10 秒预算却报 `AGENT_UNAVAILABLE`，Q512，不改预算） | 同上；代理侧 10020/10037ms 与面板侧 10008/10025ms 的对照在 README §5 |
+| P15.4-RUN4 | P15 | 已执行（**最终字节 `3f3b40c1…daf0`** 上的第四次跑：页面链路 **43 PASS / 0 FAIL**，`会话校验失败` 计数 **0**，会话层两条改成 `WARN 客户端已断开，会话校验中止` + 499；同窗口仍剩一条 `GET /api/v1/apps` 500——那是库读层，Q514 明确未修，见 §8） | `docs/evidence/P15/2026-10-28-p15.4/`（`smoke-run4-final-bytes.log`、`web-requests-run4.txt`、`jobs-timeline-run4.txt`、`client-canceled-misclassified.txt`） |
+| P15.2-FIX | P15 | 真机抓出并修掉 **4 个产品缺陷**（Q484 新建部署预检缺版本令牌 → 100% 500；`deployPlanFromError` 漏填 `NormalizedParams` → 带 `deployment_id` 的预检 500；Q485 `start` 对 active 的 oneshot 是空操作 → 配置写了、容器一个都没起；Q486 `is-enabled` 的退出码 1 被当成执行失败 → `deployment.remove` 永远删不掉）与 **5 类验收脚本自身的错误**（起点未清干净、`findmnt --mountpoint`、`runuser` 写不进 0700 目录、删除后用已删的配置数容器、容器 ID 与 `StartedAt` 空对空的假绿） | 同上；原始报错在 `docs/evidence/P15/2026-10-27-p15.2/logs/agent.log` 与 `p152-main.log`/`p152-boot.log` |
+| P16.1-HOST | P16 | 已执行（**最终工作树**上 `sh scripts/check.sh` **PASS 15 / FAIL 0 / NOT RUN 0**、退出码 0；因 `.incomplete` 改动在 check 启动之后落地，收尾又单跑了 `sh-syntax`：77 个脚本 `sh -n` 全部通过、解析器 `/usr/bin/sh`；`go test ./cmd/upanelctl/ ./internal/hostcaps/ ./internal/api/` 全绿，go 全包 test 全绿；前端 62 文件 / 1175 用例、`vue-tsc` 干净、`vite build` 成功、`web-smoke` 10/10、`openapi-lint` 通过；**构建与打包是真跑的**：`sh scripts/build.sh` → `sh scripts/release.sh` 产出 `upanel-0.1.0-dev.1-linux-amd64.tar.gz`（sha256 `17ff6518…`、44135630 字节），包内 `install.sh` 34404 B / `uninstall.sh` 10943 B / `backup-state.sh` 12345 B 且三个都是 `0755`）| `docs/evidence/P16/2026-10-30-p16.1/HOST-READINGS.md`（**三个部署脚本在这台 Windows 宿主上一次都没跑起来，只有 `sh -n` 这一个读数，且宿主 `sh` 是 bash、抓不到 bashism**；备份/恢复/升级与能力探测页的真机读数留给 P16.2，8 条 NOT RUN 逐条列在该文件第 4 节） |
+| P16.2-VM-2204 | P16 | 已执行（Ubuntu **22.04.5** / kernel 5.15.0-198 / **systemd 249** / 2 vCPU / 3911 MB / `-accel tcg`：七相位 install 40/0/0、measure 14/0/3、boot 14/0/0、upgrade 22/0/0、failup 21/0/0、uninstall 23/0/0、purge 14/0/0，**合计 148 PASS / 0 FAIL / 3 NOT RUN**、驱动退出码 0；真机抓出并修掉 **Q499**（22.04 上 `/logs` 全 400）与 **Q500**（坏包升级伪成功），两条都在本机复验） | `docs/evidence/P16/2026-10-27-p16.2/`（另有 `…-attempt1-scriptbug/`、`…-attempt2-contaminated/` 两轮作废，各自写了理由） |
+| P16.2-FINAL | P16 | 已执行（**最终字节 `3f3b40c1…daf0`**（Q514 修复后重打），22.04.5 / kernel 5.15.0-198 / systemd 249 / QEMU TCG，干净盘从零开始：install 47/0/0、measure 14/0/3、boot 14/0/0（含一次真重启）、upgrade 22/0/0、failup 21/0/0、uninstall 23/0/0、purge 14/0/0，**合计 155 PASS / 0 FAIL / 3 NOT RUN**、驱动退出码 0；同一份字节的页面链路 43/43。Q510 口径：读数只属于这四个字节，之前三轮（`fbad9fc9…`/`af6d9102…`/`b1d913e7…`）各自作废或留作旁证） | `docs/evidence/P16/2026-10-28-p16.2-final/` |
+| P16.2-2404-FINAL | P16 | 已执行（**同一份最终字节 `3f3b40c1…daf0`** 上的 Ubuntu **24.04.5** / kernel 6.8.0-147 / **systemd 255** / `-accel tcg,thread=multi -smp 2 -m 4096`，干净盘从零开始：install 47/0/0、measure 14/0/3、boot 14/0/0（含一次真重启，`boot_to_web_seconds=75`）、upgrade 22/0/0、failup **首轮 20/1**、uninstall 23/0/0、purge 14/0/0；唯一那条红查清为**断言采样竞态**——`Type=simple` 单元 `Started` 即 active，主进程 exit 1 要 0.23~0.40 秒后才记账，active 占空比约一成（11 轮 journal 微秒实测，Q515）。断言换成「socket 不存在 + 隔 1.2 秒采两次」后在同一份字节上重跑 `install,failup` → 47/0/0 + **21/0/0**，故七相位合计 **155 PASS / 0 FAIL / 3 NOT RUN**，与 22.04 逐相位相同；首轮读数留在 `run1-pre-tighten/`） | `docs/evidence/P16/2026-10-28-p16.2-2404-final/`（`journal-restart-cycle.txt`、`active-window-analysis.txt`、`run1-pre-tighten/`） |
+| P16.2-VM-2404 | P16 | 已执行（Ubuntu **24.04.5** / kernel 6.8.0-147 / **systemd 255** / `-accel 'tcg,thread=single' -cpu max`：**147 PASS / 1 FAIL / 3 NOT RUN**；唯一红是 `boot` 相位 `开机到 Web active 152s > 120s`，探针实测面板自身 6.3s、96% 为单线程 TCG 下的客户机引导，判据不改、红保留、裸机读数记未验证） | `docs/evidence/P16/2026-10-27-p16.2-2404/`（含 `facts/boot-attribute.txt` 与 `console.noDatasource-run.log`） |
+| P16.2-BROWSER | P16 | 已执行（同机同包，宿主机 Playwright 经 `ssh -L 9443:127.0.0.1:9443` 打真面板：**35 PASS / 0 FAIL / 0 SKIP**；补上 `measure` 里"浏览器完成主要用户流程"那条 NOT RUN） | `docs/evidence/P16/2026-10-27-p16.2-browser/` |
+| P16.3-WAL | P16 | 已执行（22.04 真机、空闲 90 分钟稳态，客户机侧**只读**探针 11 个样本 / 5.5 分钟：持有者是 `upanel-web` pid 769；`metric_samples` 913→1687（+774），其余表 0 变化；`-wal` 停在 4,128,272 B 不再长；`PRAGMA wal_checkpoint(TRUNCATE)` → `(0, 1002, 1002)` 归零；代理库空闲一帧未写） | `docs/evidence/P16/2026-10-27-p16.3/`（`facts/sizes.txt`、`facts/tables-before.txt`、`facts/tables-after.txt`、`facts/report.txt`、`facts/wal-probe.tgz`） |
+| P16.3-REVIEW | P16 | 已执行（七维度专项复核 + 真机抽样：六个安全响应头、单元 `User=upanel-web` 与七条 hardening、`agent.sock` EACCES 边界、匿名 401 / 未知路径 404 / 错方法 405 / 带外站 Origin 403 / 缺 `X-UPanel-Request` 400；**除 Q505（fsync 缺失，已修并有变异验证）外无阻断项**；表级守护用例 127 条路由，`go test ./internal/api/` 167.9 s 通过） | `docs/evidence/P16/2026-10-27-p16.3/README.md` §3—§7、`facts/http-and-unit.txt`、`facts/socket-boundary.txt`、`facts/live-routes.txt` |
+| P16.4-VM-2204 | P16 | 已执行（Ubuntu **22.04.5** / kernel 5.15.0-198 / QEMU TCG，**跑在冻结的发布字节上**：amd64 包 sha256 `751a274d…95fba`、VERSION `1.0.0` / `8e52b36-dirty` / `2026-10-28T03:59:13Z`；七相位 install 47/0/0、measure 14/0/3、boot 14/0/0（`boot_to_web_seconds=56`）、upgrade 22/0/0、failup 21/0/0、uninstall 23/0/0、purge 14/0/0 = **155 PASS / 0 FAIL / 3 NOT RUN**、驱动退出码 0；install 相位新增的 7 条文档断言全 PASS〔六份关键文档 + 份数 13〕） | `docs/evidence/P16/2026-10-28-p16.4/`（`RESULT-ALL`、`phase-*.log`、`facts/packages.txt`；另有 `prelim-docdelta/` 存第一轮 `fbad9fc9…` 的同套文件，作废理由见 README §4） |
+| P16.4-FSYNC | P16 | 已执行（真机 ext4 `/dev/sda1`：生产 `osWriteFS` + `writeFileAtomic`，交叉编译成测试二进制由 root 跑、外套 `strace`——`openat(tmp,0600)` → `fsync(tmp)=0` → `renameat=0` → `openat(dir,O_RDONLY)` → `fsync(dirfd)=0`，覆盖写同路径、无残留 `.upanel-tmp`、内容与权限 `0600` 对、`PASS` 0.13 s。**证明写路径在真机 ext4 上走得通，不证明掉电语义**） | `docs/evidence/P16/2026-10-28-p16.4/facts/fsync-probe.txt`（含二进制/源码 sha256 与完整 strace 序列） |
+| P16.4-HOST | P16 | 已执行（所有改动落定后的工作树 `sh scripts/check.sh` → **PASS 15 / FAIL 0 / NOT RUN 0**，十五项全 PASS；`go-test` 中 `internal/network` 显示 `(cached)` 属正常：新探针带 `//go:build linux`，宿主被构建约束排除，**宿主永远不算它通过**） | 见 `docs/evidence/P16/2026-10-28-p16.4/README.md` §6 |
+| CLOSE-HOST | P16 | 已执行（Q514/Q515 与文档更正落定后的工作树，工具链钉在 `node 22.23.3` + `go1.27.3` 并前置到 PATH：`sh scripts/check.sh` → **PASS 15 / FAIL 0 / NOT RUN 0**，十五项全绿；同日先跑过一次没前置的，`node-version` 红在系统 `node v24.15.0`，那是环境不是代码，见 §8 末条） | `docs/evidence/P16/2026-10-28-close/`（`check-sh.log` + 环境说明） |
+| P16.2-2404-BROWSER | P16 | 已执行（**最终字节 `3f3b40c1…daf0`** 上的 Ubuntu 24.04.5 / systemd 255 / 单线程 TCG，系统盘从基底镜像重建、包里一个字节没改：安装相位 **47/0/0**、`smoke.mjs` **35/0/0**、`deploy-smoke.mjs` **43/0/0**（exit 0）；`UPANEL_SMOKE_TIMEOUT_SCALE=4` 只放大等待、断言不放宽；跑完 0 容器 / 0 compose 项目 / 0 部署单元，`会话校验失败` 0、panic 0） | `docs/evidence/P16/2026-10-28-p16.2-2404-browser/`（`smoke.log`、`deploy-smoke.log`、`facts-vm.txt`） |
+| P16.2-2404-DOCKER-GATE | P16 | 已执行（**同一份字节**上写链路首轮就红：`deploy-smoke.mjs` 10 项后卡 8 分钟，客机 journal 是 `拒绝未登记动作的预检 action=deployment.apply` + `preflight status=400`。查清为启动时门——写动作按`firstExistingFile(deploy.DockerBinary)` 在代理启动时登记，而这台机器先装面板后装 docker。重启机器也能好（代理会重起），但不必：`systemctl restart upanel-agent` 之后在**同一份字节同一台机器**上重跑就是 43/0/0。同一处代码里 `hostCaps` 每 10 分钟重探、写动作登记不跟着重探，且 hint 没写"装完重启代理"——**已登记 Q516，本轮不修**（修它要重打字节 → Q510 两台全重跑） | `docs/evidence/P16/2026-10-28-p16.2-2404-browser/deploy-smoke-run1-docker-after-install.log` |
+| P16-RACE-FULL | P16 | 已执行（**产品代码零竞态**。24.04.5 / kernel 6.8.0-147 / 2 vCPU / `-accel tcg,thread=multi` / root：全量 `-race -count=1 -timeout=90m ./...` 墙钟 **3h57m**，54 包（51 带测试）**44 ok / 7 FAIL / 3 撞超时 / 1 条 `DATA RACE`**；补跑改 `-timeout=0` 再 **9h03m** 把三个大包跑完——`internal/api` **28929.178s（8h02m）0 竞态 0 失败**，`cmd/upanelctl`/`journal`/`backup`/`storage` 全 `ok`。唯一那条 `DATA RACE` 与后面爆出的红**全部落在测试侧**，五个只动 `_test.go` 的修正 Q517/Q518/Q519①②/Q520 之后复跑全绿；判据实验五条，上界一个没改） | `docs/evidence/P16/2026-10-28-race/`（`README.md` §5 全量逐包 54 行、§6 补跑与五个判据实验、§7 没证明什么；`rerun.log`、`race-re-*.body.log`、`verify3.log`—`verify6.log`、`facts-env.txt`、`facts-rerun.txt`、`panic-dump.txt`、`idle-panel-cpu.txt`） |
+| P16-MATRIX | P16 | 已产出（STAGES §19 的 **31 条**逐项对照：建表当时 **已验 30 / 部分 1 / 未验 0**，每条给"目录 + 节"级指针与关键读数；当时唯一剩下的"部分"是 DISK-02 的 LVM/RAID 根盘从未造过（`P00-VM-C` 仍 NOT RUN）——**同一天 `disk02/` 那一轮把它补成已验，现在合计 31 / 0 / 0**；**FILE-02 的 ENOSPC 与 APP-02 的 302 于同日用 `gaps/` 补上真机现场后改成已验**（`PASS 80 / FAIL 0 / NOT RUN 0`）；**PROXY-02 经复核是引错证据，已改成已验**，见矩阵 §2.4）。文中证据指针用脚本逐个核过存在性（建表时 45 条，`gaps/` 补两条后 47 条，`disk02/` 再补四条后 **51 条**），0 缺失；另把 RELEASE-01 按 P16 七相位展开对到 STAGES §18 的五个验收动作）| `docs/ACCEPTANCE_MATRIX.md`；本轮读数 `docs/evidence/P16/2026-10-29-matrix/`（`verify-pointers.py`、`facts-pointers.txt`、`facts-check.txt`；另 `check-decisions-table.py` 与 `facts-decisions-table.txt` 量 Q 表列数，见 Q521） |
+| P16-RACE-HOST | P16 | 已执行（五个 `_test.go` 修正落定后的工作树：`sh scripts/check.sh` → **PASS 15 / FAIL 0 / NOT RUN 0**；**先在系统 node 24 上跑出 13/2，两项红都是工具链不在 PATH（固定版 node 22.23.3 在这台机器的 `C:\Users\huxi\tools\` 下、不在仓库里）**，换对工具链后 15/0（`~/tools` 与 `/h/Code/.toolchains` 各跑一次），三份读数都归档；`find … -newermt '2026-10-28 13:23:36'` 命中 5 个 `_test.go`、**非 `_test.go` 改动 = 0 个**，即产品字节与交付包 `3f3b40c1…daf0` 仍相同） | `docs/evidence/P16/2026-10-28-race/README.md` §6.11 + `facts-host-check.txt` |
+| P16-MATRIX-GAPS | P16 | 已执行（把矩阵三条"部分"逐条去补：**APP-02 与 FILE-02 补成已验**，`PASS 80 / FAIL 0 / NOT RUN 0`；DISK-02 的 LVM 根盘脚本不覆盖、仍是部分。真机读数：302 金丝雀命中 0 次；ENOSPC 写入时撞满 → 413「空间不足」+ `.part` 清 + 记录留 failed + 目标未改；2 GiB 真推 200、峰值 RSS 28740 KiB、落位 sha256 一致。三次运行，前两次是脚本自身缺陷，缺陷与修法写在 `gaps/README.md` §5）| `docs/evidence/P16/2026-10-29-matrix/gaps/`（`2404-matrix-gaps.log`、`binaries.txt`、`payloads/`）；脚本 `tests/integration/p16-4-matrix-gaps.sh` |
+| P16-DISK02 | P16 | 已执行（把矩阵最后一条"部分"关掉：在客机里迁出两台**根在叠层设备上的** Ubuntu 24.04——LVM 根 `91/0/3`、RAID1 根 `113/0/3`，产品代码与 `_test.go` 零变化）。递归的证明是「物理盘自己没有挂载点、没有文件系统，却 `system_disk=true` 且 `protection.sources` 只有根设备」（`sda`/`sdb` 的 `filesystem` 都是 `null`），同盘 bios_grub 分区仍是 `false`——沿链而非按盘染红。四条写动作全 `SYSTEM_DISK_PROTECTED`、整盘首末 1 MiB 哈希前后一致、写原语已接线。**RAID 第一轮红 5 条锁断言，查明是脚本期望写错（Q522，产品零改动）**，改后重跑全绿；pre-fix 读数留在 `runs1-pre-fix/` | `docs/evidence/P16/2026-10-29-matrix/disk02/`（`README.md`、`binaries.txt`、`lvm/`、`raid/`，两份读数 + 原始 `payloads/` + 迁移脚本）；脚本 `tests/integration/p16-5-root-disk-recursion.sh` |
+| P00-VM-C（LVM 根） | P00/P04 | **已建并已验**（2026-10-29）——`upanel-lvm`：根在 `/dev/mapper/upanel--vg-root`（`dm-0`，PV 是 `sda2`）。读数 `91 PASS / 0 FAIL / 3 NOT RUN`，见 `docs/evidence/P16/2026-10-29-matrix/disk02/lvm/2404-lvm-root-guard.log`。**它是 STAGES 说"最晚 P04"、实际一直缺到 P16 的那个现场**；补上之后 DISK-02 才从"部分"变成"已验" | 已补齐（P04 时缺，P16 收尾补上）|
 | P00-VM-D（SMB 客户端） | P00/P08 | **NOT RUN**（未创建；P08.2 用同机真实 `smbclient` + netns 客户端替代，跨机器网络路径仍缺） | 需在 P08 前补齐 |
 
 核心验收矩阵（SEC/JOB/DISK/FILE/TERM/SHARE/APP/PROXY/PKG/BACKUP/TIMER/ALERT/NET/NFS/DEPLOY/RELEASE）
-**没有按编号逐项勾选**——下面这句原话保留：“全部尚未开始。其中 JOB-02（预检到期/换参数/目标变化 →
+**已按编号逐项建成对照表 → `docs/ACCEPTANCE_MATRIX.md`（2026-10-29）**：31 条逐行给状态与
+"目录 + 节"级证据指针，**建表当时 已验 30 / 部分 1 / 未验 0**；同一天补完，现在合计
+**已验 31 / 部分 0 / 未验 0**。四条曾经判"部分"的：三条补上了现场、一条是引错了证据：
+
+* **PROXY-02**（10-30 更正）：P10.4 在两台机器上都跑出 WS/wss 的 101，初版只引了 P10.2 的 NOT RUN。
+* **FILE-02**（10-29 补）：ENOSPC 真撞（413 `VALIDATION_ERROR`「空间不足」、`.part` 清、记录留 failed、
+  目标未改）、断流（代理记「传输中断（已写入 3145728 字节）」）、**2 GiB 真推一遍**（`200`、
+  `received_bytes=2147483648`、峰值 RSS 28740 KiB、落位 sha256 一致）。`P16/2026-10-29-matrix/gaps/`。
+* **APP-02**（10-29 补）：两个真 302 上游（→回环金丝雀、→`169.254.169.254`），
+  **金丝雀命中 0 次**证明没有跟随重定向，记录里 `address` 仍是 `127.0.0.1`。同一目录。
+
+* **DISK-02**（10-29 补）：在客机里迁出两台根在叠层设备上的 Ubuntu 24.04——LVM `91/0/3`、
+  RAID1 `113/0/3`。证明靠的是"物理盘自己没有挂载点、没有文件系统，却 `system_disk=true` 且
+  `protection.sources` 只有根设备"，同盘 bios_grub 分区仍是 `false`（沿链而非按盘染红）。
+  `P16/2026-10-29-matrix/disk02/`。这一轮还抓出一条写错的锁断言（Q522，脚本错、产品零改动）。
+
+**所以现在 31 条里一条"部分"都不剩。** 但"一条不剩"不等于"什么都验过了"：子句之外的 NOT RUN
+（臂 64 端到端、掉电演练、裸机开机到可用、0.1→1.0 升级、降级/重建中的阵列、根在叠层设备上写满……）
+仍逐条登记在 `docs/KNOWN_LIMITATIONS.md`。
+表里每个数字都来自它指的那个文件，指针逐个用脚本核过存在性（建表 45 条，补 `gaps/` 两条后 47 条，
+补 `disk02/` 四条后 51 条，均 0 缺失）。
+
+下面这段历史原话保留（它记的是缺口建立之前的实况，不再代表现在）：
+
+“全部尚未开始。其中 JOB-02（预检到期/换参数/目标变化 →
 拒绝且不执行）在 P03.2 的提交路径上 **已有宿主测试 + 两台 VM 的真实系统证据**（`p03-2-jobs-acceptance.sh`
 的 `== 4`/`== 5` 段：过期、换参数、他人预检、被阻塞、再认证超窗各自拒绝且不落 job）。”
 **但这句到今天已经不准了**：JOB 组现在有 `service.control`/`process.signal`/七个文件动作/
@@ -5187,15 +8119,76 @@ DISK 与 FILE、TERM 的实质内容分别在 P07 与 P06.1/P06.2、P06.3 有真
 在 P08/P09/P10 有真机证据，**PKG 的只读与写动作**在 P11.1/P11.2 有真机证据，**电源
 （重启/关机的闸门、倒计时取消、`boot_id` 确认与“不伪称已验证”）**在 P11.3 有真机证据。
 真正连只读都还没有的矩阵条目是
-ALERT/NET/NFS/DEPLOY/RELEASE。**BACKUP 已经有"仓库"这一层的真机证据**（P12.1：本地/SFTP
-两种后端的建库、主机密钥自验、秘密用途、容量与现状三态），但 **BACKUP-01 的"备份后恢复"
-仍然没有对象**——写快照与还原是 P12.2/P12.3，在这之前不要把它读成"BACKUP 已验"；
-TIMER 同理，P12.1 不涉及任何定时器（P12.4 才接 timer，证书续期 timer 在 P12.5）。
-**矩阵编号与已有断言的对应关系仍未建立**
-（这是账本的一个缺口，不是产品的缺口）。
+ALERT/NET/NFS/DEPLOY/RELEASE。**BACKUP 现在有仓库、运行、恢复与清理的真机证据**
+（P12.1/P12.2/P12.3：本地/SFTP 仓库、策略、快照、stats 回读、停应用、面板库在线副本、
+断网/写满/取消，以及产品侧恢复到新目录、覆盖恢复、两态验证、保留清理）。**BACKUP-01
+（备份后恢复、错误密码、网络断开 → 校验一致、失败不假成功）的三条现在都有产品侧证据**：
+恢复后哈希一致（P12.3 §2/§3）、错误口令由 P12.1 的 `state-wrongpass-says-password-wrong`
+覆盖、网络断开标失败且不动原数据（P12.2 运行断网 + P12.3 §5 恢复断网）。仍然缺的是
+**timer 触发**（P12.4：不重叠、错过执行、时区）**现在也有真机证据**（两台各 246/0/0，
+`docs/evidence/P12/2026-10-24-p12.4/`）；仍然缺的是**浏览器 UI**（P12.5），不涉及 timer 的
+部分不能提前记为整条矩阵通过。TIMER 同理，P12.1/P12.2/P12.3 都不涉及定时器
+（P12.4 才接 timer，证书续期 timer 的真实执行在 P12.5）。
+**矩阵编号与已有断言的对应关系未建立过**这件事，曾经在这行挂了很多轮（"这是账本的一个缺口，
+不是产品的缺口"）。**2026-10-29 补完，缺口关闭**——对照表在 `docs/ACCEPTANCE_MATRIX.md`，
+状态口径写死成三档（已验 / 部分 / 未验），"部分"的四条逐条写了缺哪个子句、要什么现场才能补。
 
 ## 8. 已知限制
 
+- **P15.2 的六条限制（真机刚刚开始有读数，限制比读数多）**：
+  ① **`unit_restarted` 说的是"我怎么交的班"，不是"容器真的重起了"**：它为 `true` 只表示这一轮
+  用的是 `restart` 而不是 `start`（单元本来就在盘上、这次又写了新内容）。容器是否真换了一个，
+  只能靠 `docker inspect` 的 ID 与 `StartedAt` 另证——重放那一轮 `written=false`，
+  所以 `unit_restarted=false`，单元却一直是 active。把这两件事混成一件会得出"重放重启了单元"的
+  错结论（Q485）。
+  ② **"退出码是答案"这条依赖 `syscmd.ExitError` 这个类型**：`systemctlAnswer` 只把
+  `*syscmd.ExitError` 当答案，其它错误仍算失败。假 runner 已改成同形（非零退出返回
+  `*syscmd.ExitError`、`enable`/`disable` 真翻状态，`Q486`），但"假件比真机宽松"这类风险不会
+  因为补了一次就消失：以后任何新动词的假件都要按真机形状写，否则回归测试挡不住真机。
+  ③ **两条 NOT RUN 是真机造不出的现场，不是没跑**：`容器里读到的 marker`——镜像是
+  `traefik/whoami`（scratch），容器里没有 `cat`/`sh`，挂载只能由 `docker inspect` 的 `Source`
+  与 `findmnt` 交叉核对；`运行中卷失联 → systemd 自动停单元`——容器已把卷 bind 进自己的 mount
+  namespace，只能靠 `umount -l` 造假现场，那样的读数不当证据。"卷不可用 → 起不来"这一半用
+  `systemctl mask <mount unit>` 的故障注入验了，两件事不互相顶替。
+  ④ **只有 22.04.5 一台机器的读数**：kernel 5.15.0-198、docker 29.1.3、compose 2.40.3。
+  24.04 的 systemd 事务行为、compose 版本差异（尤其 `up -d --no-build` 的措辞与 `down`
+  的 `--remove-orphans`）都没有读数，不外推。
+  （**这一条后来补上了，原文不改**：P16.2 的 24.04 轮给出了七相位 `155 / 0 / 3` 与部署写链路
+  `43 / 0 / 0`，见 `docs/evidence/P16/2026-10-28-p16.2-2404-final/` 与 `…-2404-browser/`。
+  它说的是 **P15.2 当轮**的口径，不是今天的状态。）
+  ⑤ **更新这条路在 P15.2 时是空的（P15.3 已补上实现并跑通真机）**：P15.2 那轮的预检回
+  `update_not_implemented` 并指向 P15.3。P15.3 已经把 `deployment.update`、镜像 digest 记录、
+  按选择备份、启动后健康探测与失败可见、回切边界都实现并真机验收了（229 PASS / 0 FAIL / 1 NOT RUN，
+  见 §5 的「P15.3 真机验收」小节）。
+  ⑥ **句柄级路径核对仍缺（P15.2 前半程那条限制继续生效）**：容器看见的目录是靠
+  `Source` 与 `findmnt` 交叉核对，没有从容器进程的 `/proc/<pid>/root` 逐级 `stat` 比对；
+  另外"单元 active 但项目里 0 个容器 → 任务降级成 `partial` + 给恢复提示"这条有单测
+  （`TestDeployApplyExecutePartialWhenProjectEmpty`），真机上也**偶然**触发过一次——就是 Q485
+  那个 `start` 空操作的现场；但**没有安排一个会立刻退出的镜像**去做专门验收，所以
+  "容器刚起就崩溃"这条路只有单测读数。
+- **P15.3 的七条限制（实现齐了，真机七段已跑通）**：
+  ① **真机读数已有，但不是全覆盖**：正常更新、健康失败回切、按选择备份、digest 记录与六种拒绝
+  都在 VM-A 上跑通了（229 PASS / 0 FAIL / 1 NOT RUN，`docs/evidence/P15/2026-10-27-p15.3/`）。
+  仍然只有单测读数的是：`image_digest_mismatch`（注册表按 digest 寻址，钉错 digest 会让
+  `docker pull` 先失败，真机造不出那个现场）、时间预算切段把时间耗到边界上逼出 `partial`、
+  连续两次失败的回切。单测里的 docker/systemctl/备份/探测仍是假件——它们证明调用顺序与判据，
+  真机读数证明"按我们写的字节真的起来了"，两者不互相顶替。
+  ② **健康探测证明的是"宿主端口能应答"，不是"应用正确"**：`http` 只判状态码落在 `200—399`，
+  一个返回 200 的错误页算通，一个返回 500 的可用首页算不通。这是健康检查的固有边界，不是缺陷，
+  但页面上写"健康"时要知道它说的是哪一件事。
+  ③ **只支持 `http` / `tcp` 两种 kind**：`exec` 类容器内健康检查不在契约里（面板不知道镜像里
+  有什么命令，塞一条 `CMD-SHELL` 进去既是注入面又会误报）。
+  ④ **回切只回切配置与镜像，不回切数据**：有数据库迁移的应用，新版本动过的数据旧版本读不了。
+  这条写进了错误消息，但**没有任何检测手段**能提前发现"这次更新会动数据"——这一版明确不做，
+  也不假装做。
+  ⑤ **更新前备份只收 `files_only`**：`stop_managed_apps` 需要 Web 侧展开的"应用运行对象"，
+  `deployment.update` 的参数里没有。要停多个应用的备份策略在预检就被拒
+  （`backup_policy_needs_apps`）。
+  ⑥ **备份预算 360 秒是刻意的窄口**：数据量大的应用几乎一定超预算，那就得先单独 `backup.run`
+  再更新。这一条会被人当成"限制"抱怨，但反过来（让更新安静地跑四十分钟、最后把应用留在停止
+  状态）更糟。
+  ⑦ **`.prev` 只有一份**：连续两次更新之后回切目标只有"上一版"，回不到上上版；`.prev` 也被
+  `deployment.remove` 一并删掉。要留多版得另做快照，不在这一版的范围里。
 - **P11.1 的五条限制**：
   ① **`rc`（仅剩配置）与 `security` 筛选的边界只在单测里覆盖过**：两台验收机上没有
   `rc` 包，`packages-default-excludes-rc` / `packages-installed-false-includes-rc` 是
@@ -5722,3 +8715,280 @@ TIMER 同理，P12.1 不涉及任何定时器（P12.4 才接 timer，证书续�
   ⑨ **45 秒预算是按最慢现场定的**：它不能更短，是因为 24.04 在单线程 TCG 下整条只读查询
   实测 30 秒上下（ssh 握手 3—9 秒、每次 `stat` 一个往返、`restic cat config` 5—12 秒）。
   代价写在明面上：真出问题时用户最多等 45 秒才看到“这次没有结论”（Q335）。
+- **P12.2 的限制**：
+  ① **`stop_managed_apps` 只覆盖两种对象**：systemd 单元与 docker 容器。`compose` 部署
+  与“只登记入口”的链接型应用解析不出**一个**可启停对象，因此回 422 `DEPENDENCY_BLOCKED`
+  并点名——不降级成“不用停”（那样快照标签会撒谎）。要支持 compose 得先给代理一条
+  “停整组”的受控通道，不在本阶段。
+  ② **保留策略只存不做**：`retention` 里的 `keep_last/keep_daily/keep_weekly` 记在策略上，
+  本阶段**不执行任何删除**；清理是 P12.3 的 `backup.prune`，必须由管理员显式发起。
+  现在看到“保留 7 份”只代表这条策略登记了这个意图。
+  ③ **`restore_verified_at` 恒为 `null`**：恢复演练不在本阶段，字段存在但没有值——
+  “没验证过”与“验证过但时间是空的”是两件事，界面上要分开。
+  ④ **快照列表不带大小**：每条要单独跑一次 `restic stats`，列表回 `size_included:false`、
+  `size_bytes` 字段缺省（不是 0）。看大小要点进详情；列表一次最多 500 条。
+  ⑤ **面板库副本只覆盖面板的 SQLite**：代理自己的库（`agent.db`，含加密后的秘密与镜像）
+  不在任何 `source` 里，秘密库的密钥 `agent.key` 更不在——那是灾难恢复文档要求单独保管的东西。
+  备份面板库不等于备份了“面板能解开秘密”这件事。
+  ⑥ **仓库定义没有 DELETE**：契约里没有这条，面板也不提供。建错的仓库只能改（改位置、改
+  口令引用），不能从镜像里退役；要退役得等契约给出语义（删定义时那些快照怎么算）。
+  ⑦ **一次运行的上限是硬的**：`restic backup` 6 小时；代理快照查询预算 90 秒，备份专用
+  Web 客户端 100 秒，Web 写超时 120 秒（Q347）。超时不会“接着跑”，下一次是一轮新的。
+  慢盘上几十 GB 的首次全量如果超 6 小时，该改的是源的范围，不是把上限加大。
+  ⑧ **SFTP 与故障注入只覆盖冻结现场**：两台已真验 SFTP 写快照、只断本次 ssh、独立 tmpfs
+  写满与运行中取消；不声称覆盖所有网络故障、所有存储后端或任意容量耗尽形态。存储满没有
+  填系统盘，旧快照只读核对在任务终态后用 `--no-lock`，不能据此推断并发写时也可无锁操作。
+  ⑨ **独立恢复不等于产品恢复**（P12.2 时的状态，**已由 P12.3 解除**，原文保留以便追溯）：
+  当时用 restic 独立恢复核对源哈希、面板库完整性和旧快照可读性；`backup.restore` /
+  `backup.verify` / `backup.prune` 那时均未实现，留 P12.3。**P12.3 已实现并两面真机验证**
+  （两台各 117/0/0，见 §5 的 P12.3 小节）。浏览器 UI 仍未执行，留 P12.5。
+  ⑩ **认证散列在慢机器上要几十秒**：24.04 上一次 Argon2id 校验实测 22—30 秒（Q344）。
+  这不是 bug，是硬件慢；但它逼着 Web 的写超时必须大于最坏认证耗时（已从 30 秒提到 2 分钟），
+  否则慢机器上的正常登录会表现为“连接被断开”。**没有**因此调低 Argon2id 参数——那是单独的
+  安全取舍。
+- **P12.4 的限制**：
+  ① **同一对象只能挂一条计划**：库里的 `UNIQUE(kind, target_id)` 意味着一个备份策略、一个
+  脚本或一张证书只能有一条计划。想"每天 2 点全量、每小时增量"这种多时间表，现在表达不了；
+  预检会如实拒绝（`schedule-target-taken-blocked`），不是静默覆盖。要不要放开、怎么放开
+  （复合键还是计划里放多条日历）得先定语义，留给 P12.5 之后。
+  ② **触发记录只追加、没有清理策略**：`schedule_triggers` 设计成不可删（迁移 0010 用
+  `BEFORE DELETE … RAISE(ABORT)` 挡住），所以删掉计划也不清历史。好处是"昨晚到底跑没跑"
+  删不掉；代价是每分钟触发的计划一年会攒五十万行量级。轮转策略没做，也别在业务代码里
+  私自删——这张表的语义就是不许删。
+  ③ **面板上没有读触发历史的接口**：审计只能查代理库或 journal。契约没给这条路由，本轮
+  也没造一个"看起来像"的列表。
+  ④ **"不重叠"的证据边界**：本轮两台各自只捕到一次运行（77 秒，序列 `SF`），能证明"唤醒
+  撞上运行中的单元时没有并行"，**不能**证明"排队补跑也会各跑各的"——后者的形状取自 Q387
+  定判据时对两台真 journal 的解析（`sequential 79 SFSF` / `sequential 82 SFSF`）。
+  ⑤ **余量窗口没有覆盖**：`--wait` 的截止时间早于单元 `TimeoutStartSec`，而操作本身的
+  上限又是另一个数；这三个数之间的窗口里会不会叠一次，本轮没有真机样本。不写成"绝不会"。
+  ⑥ **时区只验了两个**：`Asia/Shanghai` 与 UTC（差 8 小时整）。DST 切换、半小时时区
+  （如 `Asia/Kolkata`）没有真机样本。
+  ⑦ **`go test -race` 未执行（NOT RUN）**：宿主 Windows 无 gcc、`-race requires cgo`。
+  `schedules.Views` 的并发用例只证明顺序回填与取消传播，不等于竞态检测结论。
+  ⑧ **读列表的预算按条数估算**：计划/脚本镜像单独 30 秒（`ScheduleQueryTimeout`），按现场
+  0.25 秒/条估约 130 条上限，超过就该分页；本轮真机观察到慢机器上**单条**详情在长任务
+  跑着时能读 8.8—9.1 秒，所以并发只压掉"逐条相加"，不保证"一定快"。
+  ⑨ **证书续期只做了接线**：§9 只验"接线前就 `blocked` 且原因指向 P12.5"，真实的续期执行、
+  失败重试与通知都在 P12.5。
+  ⑩ **浏览器 UI 完全没验**：P12.4 没有 UI，留给 P12.5。
+- **P12.5 的九条限制**：
+  ① **浏览器里对备份页与计划任务页的真实点击没验**：§8 只证明前端产物真的打进了二进制、
+  里面带着这些动作名与字段名（`backup.run`、`certificate_renewal`、`requires_reauth`、
+  `size_included` 等），§9 只证明页面依赖的读接口活着。渲染、滚动、对话框焦点、提交后的
+  界面反馈一律空白。宿主 `check.sh` 的 `web-smoke`（Playwright/Chromium）走的是首页、
+  `/storage`、`/storage/devices/sda` 与 404 路由，**不覆盖这两个页面**。
+  ② **"certbot 超时但证书已经写下来"那条分支只有单测**：`internal/certificates/certbot.go`
+  超时之后先看盘上有没有证书、有就按成功处理，这一轮一次真的超时都没有，所以没有真机样本。
+  ③ **生产 Let's Encrypt 一次都没碰**：全程 Pebble + `staging:true`。速率限额、真实 ACME
+  账号、真实 DNS 解析都不在证据范围内。
+  ④ **续期失败只验到"原因落账"**：这一阶段没有重试与退避策略（每次触发跑一次，失败就等
+  下一次触发），也**没有任何通知渠道**（P13.3 才做）。账本上有 `last_error` 不等于有人会
+  知道——这一条要等到 P13 才谈得上。
+  ⑤ **`wait_quiet` 不是护栏**：24.04 是 TCG 模拟的 2 vCPU，验收脚本跑着的时候 1 分钟负载
+  就在 3.3—3.8，四次都没等到 1.5；22.04 是硬件虚拟化，四次都落到 1.43—1.48。阈值是
+  "这台机器能回落到多少"的函数，真正的护栏是**宿主在 VM 验收期间不跑重活**（Q398）。
+  ⑥ **两台机器的 certbot 差一个大版本（2.9.0 / 1.21.0），但只交叉验了
+  `certonly --webroot` 这一条用法**：`--keep-until-expiring`、`--webroot`、`--server`
+  三个参数在两个版本上行为一致（含失败原文的形状），别的参数组合没有交叉验。
+  ⑦ **`go test -race` 仍未执行（NOT RUN）**：宿主 Windows 无 gcc、`-race requires cgo`，
+  与 P12.3/P12.4 同。
+  ⑧ **22.04 上的 nginx 是被停掉的**：没有验证"nginx 占着 80 时面板会怎么表现"——那属于
+  P10 的范围，本轮把它当成 HTTP-01 夹具的前置条件排除了（Q395 的 `NOT RUN` 退 2 就是为此）。
+  ⑨ **同一域名只能有一条续期计划**：建计划时按域名去重（Q388），理由是两条计划会在同一个
+  凌晨抢同一把锁。"每天 2 点全量 + 每小时增量"这种多时间表仍然表达不了，与 P12.4 ①同源。
+
+- **P13.1 的七条限制**：
+  ① **前端历史图表没验（属 P13.4）**：本子任务只交付 `GET /system/metrics` 与
+  `/system/metrics/status` 两条后端端点与三层存储，页面上的曲线渲染、缩放、跨度切换
+  一律还没做，因此"跨机断言逐字一致"证明的是接口与库，不是图形。
+  ② **"365 天真实老化"没有等真实时间**：验收把三层保留窗口压到 raw 3 分钟 / minute 2 小时 /
+  hour 4 小时，验的是**行为等价**（过期就裁、先聚合后裁、聚合窗口=源保留窗口），不是
+  一年的数据量。默认配置（24h / 30d / 365d）下三层的实际耗时与磁盘占用没有真机样本。
+  ③ **行数上限裁剪（`MaxRows`）真机没跑到**：验收把上限设成 50 万行，一轮验收写不到那个
+  量级，所以"超限就丢最老整桶、先 raw 再 minute 再 hour"这条路径只有单测
+  （`TestDeleteOldestMetricBuckets`）与代码阅读，没有真机样本。正常部署下它会先撞哪一层，
+  现在只能按行数估算。
+  ④ **长时间停机的补算没在真机观察过**：验收的缺口是 26 秒，跨小时的补算
+  （`PendingMetricBuckets` 200 一批 / 每轮 4000 桶）只有单测。代理停两小时后重启，
+  页面上那两小时是空的还是要等补算填上，真机没有样本。
+  ⑤ **代理采集慢于轮询时的行为没测**：轮询 2 秒、代理 5 秒采集，"踩点丢快照"是靠去重而不是
+  靠错开时间解决的；代理在重负载下采集间隔被拉长时，历史会稀疏而不是错位——这一条推理成立
+  但只有单测支撑，没有在把代理压到很慢的真机上验过。
+  ⑥ **时区与夏令时不在证据范围**：两台 VM 都是 UTC，时间戳一律 UTC Unix 秒并对齐到桶边界；
+  本地时区的展示与"跨夏令时那一小时"的读法属前端（P13.4），未验。
+  ⑦ **`go test -race` 仍未执行（NOT RUN）**：宿主 Windows 无 gcc、`-race requires cgo`，
+  与 P12.3/P12.4/P12.5 同。
+
+- **P13.2 的六条限制**：
+  ① **通知还没有发送方（属 P13.3）**：`alert_events.silenced` 已经落库，但没有任何东西会
+  把它发出去。"维护静默只压通知"目前在实现上是"只标记、不发送"，因为发送方还不存在。
+  P13.3 接线之前，"告警会通知到人"这句话一句也不成立。
+  ② **告警桌面与确认动作没做（属 P13.4）**：规则列表、事件列表、静默设置都只有 HTTP 端点；
+  前端页面、历史图表与 `POST /alerts/events/:id/ack` 都在 P13.4，`acked_at`/`acked_by`
+  两列已备好但没有任何代码写它们。
+  ③ **没有"真把磁盘写满"这类破坏性验收**：超限由受控种入（对不存在的网卡 `accept0` 每 5 秒
+  写一个 `rx_bytes_per_sec`）与真实容量阈值驱动，没有做会让共享验收机不可用的破坏性场景。
+  因此"空间真的耗尽时面板表现如何"没有真机样本——只有阈值比较这一层的证据。
+  ④ **告警的时间尺度被压缩过**：`duration_seconds` 用 30 秒、评估 15 秒、冷却按秒计，验的是
+  行为等价（持续够了才响、恢复够了才收、冷却期内不重起算），不是在真机上等一小时。
+  默认配置（比如 5 分钟持续、300 秒冷却）下的实际时序没有真机样本。
+  ⑤ **多规则并发只到"互不干扰"这一层**：四条规则同时在场（一条主机、两条空间双口径、一条
+  静默中的）已经验过，但没有做几十条规则同轮次的压力样本；评估器的顺序与开销只在真机上
+  看到过四条的量级。
+  ⑥ **`go test -race` 仍未执行（NOT RUN）**：理由同上，与 P12.3—P12.5、P13.1 同。
+
+- **P13.3 的七条限制**：
+  ① **没有向任何真实第三方发过信**：收件方与 webhook 都是脚本自带的本地接收器，这是
+  STAGES P13.3 划的边界。真实服务商的限速、SPF/DKIM/DMARC 反馈、退信（bounce/DSN）解析都
+  没有样本——产品也没有实现退信解析，"信发出去了"只等于"对端 SMTP 回了 250"。
+  ② **真实公网回调不在证据范围**：只有本地 HTTPS 接收器与本地 CA。公网 webhook、真实 429/5xx
+  的节奏、代理链、对端证书轮换都没有样本。
+  ③ **长周期退避只验到第二次尝试**：真机上 `max_attempts=2`/`3`，看到的是 30 秒 → 60 秒；
+  `30s × 2^(n-1)` 一路涨到 `maxRetryDelay = 10m` 封顶那条只有单测
+  （`TestRetryBackoffAndGiveUp`），没有在真机上等到十分钟量级。
+  ④ **投递账的读接口属 P13.4**：CONTRACTS §13.3 明确读路径在 P13.4，本轮断言一律按事实
+  直读 `webdata/upanel.db`（只读连接 + `busy_timeout=15s`），**不是**在验接口。
+  ⑤ **`retryable`/`accepted`/`detail` 的字段形状只有单测**：它们是代理回给面板的内部回执，
+  公开的测试发送接口回的是投递行。"可重试 vs 判死"的效果由真机间接证明（退避重试成功、
+  302 与 500 一次判死），字段本身没有真机断言。
+  ⑥ **多收件人、大正文、附件没有样本**：SMTP 通道的 `to` 只有一个地址、正文是纯文本，
+  `BODY=8BITMIME` 交给 `net/smtp` 自己加；字符集边界（中文以外）与大正文未验。
+  ⑦ **`go test -race` 仍未执行（NOT RUN）**：宿主 Windows 无 gcc、`-race requires cgo`，
+  与 P12.3—P12.5、P13.1、P13.2 同。
+- **P13.4 的五条限制**：
+  ① **浏览器里的真实交互未验**：VM 上跑的是二进制，没有 Playwright。历史曲线怎么缩放、悬停
+  提示怎么排、告警列表翻页、确认按钮点下去之后的脏状态与回滚，全部由宿主侧
+  `vue/server-renderer` 渲染测试与 `web-smoke` 覆盖（DECISIONS Q21），**像素与手感没有证据**。
+  ② **"确认之后要不要通知"没有定义**：本轮确认不触发任何投递，`POST .../ack` 只写审计
+  （`alert.event.ack`）。契约里没有这条语义，产品也没实现——它到底是"确认后通知值班群"还是
+  "确认即静音后续投递"，要等需求明确，现在不做假设。
+  ③ **陈旧判据没有在真实业务负载下逼近边界**：本轮用固定 2 秒采集节奏 + 人为停采集 45 秒造
+  缺口，`max(3×interval, 20s)` 这条线是**跨过去的**，不是**擦着过**的。采样在负载下抖动到
+  判据附近时三态会怎样翻转，没有样本。
+  ④ **长时间运行的聚合与裁剪沿用 P13.1 的缩短窗口**：把 raw/minute/hour 的保留窗口压到小时
+  量级来跑，真实 24h/30d/365d 的裁剪路径与磁盘占用没有在本轮重验。
+  ⑤ **`go test -race` 仍未执行（NOT RUN）**：宿主 Windows 无 gcc，与前面各子任务同。
+- **P14.1 的六条限制**：
+  ① **`editable=false` 的多数原因分支只在单测里走过**：真机上只走到"存在网桥 `docker0`"这一条
+  （24.04）。Wi-Fi、bond、VLAN、多物理网卡、`/run/NetworkManager` 存在这五条要么需要一张无线
+  卡，要么需要写 `/etc/netplan`——后者属于 P14.2 的预检场景，P14.1 只读，不许造现场。
+  ② **三种非 `netplan-networkd` 的 backend 未在真机出现**（`netplan-networkmanager`、
+  `networkmanager`、`other`/`unknown`）：两台 VM 都是 `netplan-networkd`。换渲染器要写
+  netplan 配置。
+  ③ **`manager=firewalld` / `nftables`(enable) / `iptables-persistent` / `none` 未在真机验证**：
+  装第二套防火墙会改变验收机的规则集并影响后续阶段，卸 ufw 会破坏现场。`none` 与
+  `unknown` 的区分（Q435）只有单测。
+  ④ **`issues.code` 里只有 `timeout` 在真机上自然出现过一次**（24.04 首轮的 `ufw/timeout`，
+  见 Q444）。`permission_denied`、`unparsable`、`failed` 要伪造得靠改文件权限或往 sysfs 放
+  畸形内容，属于造现场，全部只有单测。
+  ⑤ **`ip` 缺失与 `ufw` 未安装时的降级路径只有单测**：真机是标准安装。降级行为本身是"不退化成
+  空表、另记一条 issue"，但"页面在只有 sysfs 事实时怎么显示"没有肉眼证据。
+  ⑥ **`go test -race` 仍未执行（NOT RUN）**：宿主 Windows 无 gcc，与 P12.3—P13.4 同。
+  另：页面（四张卡、能不能改的横幅、`issues` 提示）在 VM 内不可执行——无 Playwright，由宿主侧
+  `vue/server-renderer` 渲染测试与 `web-smoke` 覆盖（Q21），**像素与手感没有证据**。
+- **P15.1 的六条限制**：
+  ① **没有任何真机读数（NOT RUN）**：STAGES §17 的三条验收——「正常镜像可部署/升级」「卷缺失时
+  VM 重启也不绕过保护」「健康失败显示失败、业务目录保留」——一条都还没验，因为这一轮只交付
+  纯函数层：不执行 `docker compose`、不写单元文件、不落盘。
+  ② **渲染出的 YAML 没被真实的 `docker compose config` 读回**：字段名、键序、`mem_limit`/
+  `cpus` 的写法是按 Compose spec 写的，`bind.create_host_path` 与长语法 `ports` 也是；正确性
+  目前只有“我们写出来的字节长这样”这一条证据，没有“compose 解释成了这个”的证据。P15.2 接线
+  时必须先跑一次 `docker compose config` 并把它当作门禁——如果某个键在目标版本上不被接受，
+  应该在那里红，而不是在容器起不来时才发现。
+  ③ **没有调用方（死代码）**：`upanel-agent` 与 `upanel-web` 都还没 import 这个包，唯一的执行
+  路径是 `go test`。按账本口径这是“已实现、未验证”，不是“已交付能力”。P15.2 的预检必须先
+  把它接上，否则这一段代码会一直只活在单测里。
+  ④ **`source_root_id` 与部署数据根的口径是推出来的，不是现场读出来的**：本包要求挂载来源
+  落在 `HostEnv.DataBase` 之内（默认应为受管理卷根 `/srv/upanel/volumes`），并要求根所在的卷
+  同时登记在 `volume_dependencies` 里。但**代理侧还没有把“文件根 → 卷”这条映射算出来**——
+  `RootFacts.VolumeID` 现在由调用方填，P15.2 要按最长前缀在卷挂载点表上算，这一步没写过。
+  ⑤ **路径只做到字符串层**：`..`、绝对路径、`.` 段与格式都在形状层拒了，但**软链接逃逸**
+  （根内某个目录指到根外）只有 `openat2` 或同等的句柄级核对能挡。P15.2 在真正 bind mount 之前
+  必须核一次文件身份，否则这一条就是纸面上的。
+  ⑥ **`go test -race` 仍未执行（NOT RUN）**：宿主 Windows 无 gcc，与 P12.3—P14.6 同。
+- **P15.2 前半程的五条限制**：
+  ① **两条动作还没登记进代理**：`Service` 与 `Applier` 都只在 `go test` 里被调用过。
+  `deployment.apply` / `deployment.remove` 在 CONTRACTS §5 里仍是契约行，不是已登记动作；
+  `capabilities` 也不会报告它们。这不是“顺手接一下”的活：需要的宿主事实来源（根 → 卷的最长
+  前缀映射、卷的 `Mounted`/`MountedUUID`）与密钥环 `Resolver` 都得先在代理侧构造出来。
+  ② **`systemctl` 与 `docker compose` 一次都没真跑过**：`Applier` 的全部行为由 fake runner
+  验证（调用序列、退出码、`is-active` 的回答），这证明的是“我们按这个顺序调了、按这个读数判了”，
+  不是“systemd 与 compose 真的这么动”。真机上最可能打脸的两处：mount unit 名转义与
+  `RequiresMountsFor` 的解析、`Type=oneshot` + `RemainAfterExit` 下 `disable --now` 是否真的
+  跑完 `ExecStop`。
+  ③ **`compose up` 的内容仍未被 `docker compose config` 读回**（P15.1 的 ② 未消）：单元里
+  写的是 `-f <配置>`，配置本身从没被真实 compose 解析过。接线后的第一次真机部署必须先把
+  `docker compose config` 当门禁跑一遍。
+  ④ **句柄级路径核对仍然没有**（P15.1 的 ⑤ 未消）：`Applier` 写盘前用的是字符串判据；
+  bind source 的软链接替换发生在 compose 那一侧，本包看不到。
+  ⑤ **`go test -race` 仍未执行（NOT RUN）**，同 ⑥。
+- **浏览器放弃请求时的日志分级（Q514）：修了一层，还有一层，且 C13 的文字少写了一层**。1.0 修的是
+  会话校验层（`internal/api/auth.go` 的 `clientGone`，取消 → `WARN 客户端已断开，会话校验中止` + 499）。
+  未修的是读层，而读层实际是**两个**：代理读（`agentclient` → 503 `AGENT_UNAVAILABLE`，存储/系统信息/
+  容器那几条）与库读（`mapAppError` 落到 `internal` → 500 `INTERNAL_ERROR`，`GET /api/v1/apps` 那一条）。
+  包内 `KNOWN_LIMITATIONS.md` C13 只写了代理读那一层，最终字节 `3f3b40c1…` 上仍能读到一条 `/api/v1/apps`
+  的 500（`docs/evidence/P15/2026-10-28-p15.4/web-requests-run4.txt`，05:40:47.643）。
+  **不为这处措辞重打字节**：`BuildDate` 每次构建都变，改一行包内文档就等于换交付字节，按 Q510 得把两台 VM 的
+  七相位与页面链路全部重跑；功能与数据不受影响，代价与收益不成比例。更正记在 DECISIONS Q514 与本条，
+  下一版重打字节时一并改 C13 的文字。
+- **宿主检查要跑在钉住的工具链上（`node 22.23.3` / `go1.27.3`），否则会得到一条"看起来是代码问题"的红**。
+  2026-10-28 收尾那次 `sh scripts/check.sh` 只把系统 `node`（v24.15.0）放在 PATH 前面，`node-version`
+  就 FAIL（期望 `v22.23.3`），其余 14 项全 PASS；把 `.toolchains/node-v22.23.3-win-x64` 与
+  `.toolchains/go/bin` 前置后重跑才全绿（**PASS 15 / FAIL 0 / NOT RUN 0**，读数在 `docs/evidence/P16/2026-10-28-close/`）。工具链不在 PATH 里**不能当通过**，也不该被读成产品缺陷——
+  如实记：这一项是环境，不是代码。
+  2026-10-29 又在同一台机器上撞了一次，并读全了代价：系统 `node` v24 那一跑是 **13 PASS / 2 FAIL**
+  （`node-version` 与 `openapi-lint` 一起红），而 `openapi-lint` 在 node 24 上是**进程退出时**撞
+  `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)` 掉成 exit 127——redocly 本体已经把 spec 判成
+  valid，所以这条红跟 `api/openapi.yaml` 无关。**`.toolchains` 在仓库的上一级**（`/h/Code/.toolchains/`），
+  不在仓库里，所以 `git status` 不会提示它缺了；换机器 clone 下来要自己按 `.nvmrc` 装。三份读数：
+  `docs/evidence/P16/2026-10-28-race/facts-host-check.txt`（13/2 一份，15/0 两份）。
+- **装了 docker 不等于部署能用（Q516）**：三条部署写动作在代理**启动时**按 `firstExistingFile(deploy.DockerBinary)`
+  决定登记与否，`hostCaps` 却每 10 分钟重探一次（注释还写着"装完一个包不必重启代理"）。于是"面板装好之后才补
+  docker"的机器上，能力页会说 docker 有了、部署页照样给新建表单，点"获取预检"才撞 400 `未登记的动作`。
+  现场判据：`journalctl -u upanel-agent` 里 `拒绝未登记动作的预检 action=deployment.apply`；处理：`systemctl restart
+  upanel-agent`，之后 `已启用 Compose 部署` 出现即正常。这一条本轮**只登记不修**——修它要动二进制、重打包，按 Q510
+  得把两台 VM 的七相位与页面链路全部重跑；下一版重打字节时一起改（写动作随重探、hint 补"装完重启代理"、
+  `KNOWN_LIMITATIONS.md` 加一条）。证据：`docs/evidence/P16/2026-10-28-p16.2-2404-browser/`。
+- **随包文档在仓库里改了、包里的副本没跟着改（同 Q510 的口径，下一版一起发）**：这一轮把
+  `docs/SUPPORT_MATRIX.md` 的 24.04 行与部署页那一行换成了最终字节上的读数（155/0/3、35/35、43/43）。
+  交付包 `3f3b40c1…` 里那份仍是 2026-10-27 的字（24.04 写成 147/1/3、部署页标"43 条，22.04"）——
+  那是**低估**，不是错报，但也确实和仓库不一致。**不为这一处重打字节**：理由与 Q514 的更正相同
+  （`BuildDate` 每次注入 → 重打包就得把两台 VM 的七相位与页面链路全部重跑）。下一版打包时一并带上。
+- **`go test -race` 不再是"未执行"（本条关掉从 P03 一路记到 P16 的那句 NOT RUN）**。宿主仍然跑不了
+  （Windows、`CGO_ENABLED=0`、没有 gcc），但 **24.04 验收 VM 上已经有一份完整的读数**：
+  amd64 全模块 `-race`，产品代码**零条数据竞争**。代价和口径一并记在这里——
+  ① **它是"一夜"，不是"几分钟"**：全量 3 小时 57 分撞了三个 90 分钟上限，补跑再 9 小时 03 分，
+    其中 `internal/api` 一个包就 **8 小时 02 分**；② **不能用 mock 测试的口径去读它**，它证明的是
+    "测试进程内实际跑到的那些路径没触发检测器"，不证明"产品没有竞态"；
+  ③ 爆出来的问题**全在测试侧**（Q517 ctl 一条永不成立的断言、Q518 硬编码 fd 8、Q519 两处轮询竞争、
+    Q520 一处夹具余量），产品**一个字节没改**——这也是为什么这一轮不需要重打交付包；
+  ④ 两条红**保留不改**：`TestDefaultPasswordParamsTiming`（判据量的是机器速度——这台模拟机不带
+    检测器也要 3.06 秒，上界 1 秒；KVM 上 0.6 秒）与 `TestWebhookSelfSignedCertRejected`
+    （本机 TLS 握手被挤爆时才会红，隔离 3/3 过）。**为了让模拟机变绿去放宽上界，就是把验收标准改小。**
+  ⑤ 顺带抓到一条**不是缺陷但值得记**的事：空闲的 `upanel-web` 在这台模拟机上吃 **0.86 个核**，
+    SIGQUIT 抓栈定位到历史监控的聚合回合（每 2 秒一次 `Pass`；`time.NewTicker` 会把没跑完那轮
+    的 tick 丢掉，所以不堆积、不刷日志）。**真机上一个回合占多少 CPU 本轮没有读数**，
+    既不能说"产品常态就这么贵"，也不能反过来说"真机上肯定是毫秒级"。
+- **界面那条线只在宿主 Chromium 上看过，覆盖面比它看起来窄（Q524—Q533）**。把话说全：
+  ① **宿主那 25 张一张都不是真机**——截图是宿主 Playwright 拦截 `**/api/v1/**`、回放真机抓下来的夹具
+  画出来的，不是活着的面板；按老规矩**夹具截图不算界面验收**。
+  ② **只开了 Chromium**——Firefox / Safari / Edge 一次没开，`backdrop-filter`、`100dvh`、
+  `background-attachment: fixed` 这三处最可能在别家不一样。
+  ③ **无障碍只有两处手工动作**（启动台焦点移入 + Esc 关闭、图标 `aria-hidden`）：没跑 axe、没有屏幕
+  阅读器实测、暗色模式 `--ink-3` 对 `--surface` 的对比度没量。**窗口拖动、缩角、双击铺满全靠手点，
+  没有断言，也没有键盘可达性读数。**
+  ④ **没碰触摸屏**：400px 只是把窗口缩窄，程序坞 `overflow-x: auto` 的触屏惯性滚动没试；
+  **桌面化之后窄屏补截了 2 张**（`/desk`、`/`，400×820，横向溢出 0、`scrollH` 恰 820），
+  但**真实数据下的窄屏仍然没看过**。
+  ⑤ **25 页看过，但其中 9 页只看到"读不到"**：`/jobs`、`/backup`、`/alerts`、`/schedules`、`/network`、
+  `/settings/host`、`/terminal`、`/apps/deployments`、`/accounts` 没有夹具，预览里一律回 404。
+  **2026-10-30 补**：这 9 页在真机上点进去了，但这台客机**没装 samba/nfs/certbot、没有任务、没有备份
+  仓库、没改过网络**，看到的仍多是空态——**空态对，非空态仍然没人看过**。
+  ⑥ **`scrollH` 只量 `documentElement`**：内容窗口是内部滚动容器，页面没有把桌布撑长，
+  但窗口**内部**的横向溢出这一轮没有断言。
+  ⑦ **"冒烟过了"不等于"界面验过了"**：`check.sh` 的 `web-smoke` 走未登录路径、断言落在登录页，
+  15 条里没有一条能对版面变红或变绿；版面是靠人看图看的。
+  ⑧ **2026-10-30 起有 7 张真机截图**（真 `/proc`、229 个 systemd 单元、真块设备、真能力缺失态，
+  `pageerror` 0），**但它们仍是截图、没有断言**，31 条矩阵一条没动。而且它们只对**重新打的那份字节**
+  （amd64 `72997c0f…634a`）有效——`3f3b40c1…daf0` 那份交付物的读数不能被它们继承（Q510）。

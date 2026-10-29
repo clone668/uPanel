@@ -1,0 +1,4 @@
+PHASE=failup
+PASS=20 FAIL=1 NOT RUN=0
+FAILED_NAMES= | 坏包让代理服务起不来（这正是失败现场）
+NOTRUN_NAMES= (none)

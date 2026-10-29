@@ -1,0 +1,267 @@
+== 0. 环境与起点 ==
+PASS  二进制存在：/var/tmp/upanel-bin/upanel-agent
+PASS  二进制存在：/var/tmp/upanel-bin/upanel-web
+PASS  二进制存在：/var/tmp/upanel-bin/upanelctl
+PASS  夹具：有 python3
+PASS  夹具：有 curl
+PASS  夹具：有 ss
+PASS  夹具：有 runuser
+PASS  夹具：有 systemctl
+PASS  夹具：有 docker
+PASS  夹具：有 findmnt
+PASS  夹具：有 blkid
+PASS  夹具：有 sgdisk
+PASS  夹具：有 restic
+PASS  夹具：有 openssl
+NOTE  restic restic 0.12.1 compiled with go1.18.1 on linux/amd64
+PASS  夹具：docker compose 可用（2.40.3+ds1-0ubuntu1~22.04.1）
+PASS  夹具：docker 守护进程 active
+PASS  夹具：镜像 traefik/whoami:v1.10.3 已在本地
+PASS  夹具：镜像 nginx:1.27-alpine 已在本地
+PASS  夹具：镜像 busybox:1.36.1 已在本地
+PASS  夹具盘 /dev/sdd（4 GiB，不是系统盘）
+STAMP 2026-10-27T12:45:39Z 起点
+
+== 1. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19492 启动
+PASS  监听 19492 的 Web 进程不是 root（pid=3331 uid=997）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+
+== 2. 能力登记：deployment.update 真的在代理的登记表里 ==
+PASS  capabilities 可读
+PASS  登记表里有 deployment.apply
+PASS  登记表里有 deployment.update
+PASS  登记表里有 deployment.remove
+
+== 3. 卷夹具：一次性空盘 → GPT → 分区 → ext4 → 导入 → 挂载 ==
+NOT RUN  初始化 GPT / 建分区 / 格式化: /dev/sdd 上已有 gpt，按上一轮夹具复用（要重跑请换一块空盘）
+PASS  夹具分区 /dev/sdd1 存在
+PASS  独立工具读到文件系统 UUID
+PASS  导入卷（sdd1 → slug=p15data）任务终态
+PASS  导入卷（sdd1 → slug=p15data）结果是 verified
+PASS  导入卷（sdd1 → slug=p15data）带 verified_at
+PASS  卷标识是 vol_ 形状
+PASS  卷的挂载点由 slug 派生
+PASS  挂载卷任务终态
+PASS  挂载卷结果是 verified
+PASS  挂载卷带 verified_at
+PASS  挂载点真的挂着
+PASS  挂的是这块盘（findmnt 的 UUID）
+PASS  marker 落在卷上（不是系统盘）
+
+== 4. 文件根登记 + 重启代理 ==
+PASS  配置权限仍是 0644
+PASS  代理带着两个文件根重启
+PASS  文件根查询返回 200
+PASS  文件根 deploydata 可用
+PASS  文件根 deploydata 所在挂载点就是卷
+PASS  文件根 backupstore 可用
+PASS  文件根 backupstore 所在挂载点就是卷
+PASS  部署数据根指向卷里的 appdata
+PASS  仓库根与部署数据根不重叠
+
+== 5. 备份夹具：秘密 → 仓库 → restic init → files_only 策略 ==
+PASS  秘密入库（仓库口令）
+PASS  秘密引用是 sec_ 形状
+PASS  秘密响应里没有明文口令
+PASS  建仓库要再认证（没再认证是 403）
+PASS  再认证
+PASS  建仓库
+PASS  仓库标识是 rep_ 形状
+PASS  初始化仓库任务终态
+PASS  restic 仓库标识是 64 位十六进制
+PASS  独立读到的仓库标识与任务报的一致
+PASS  建 files_only 策略
+PASS  策略标识是 pol_ 形状
+PASS  建 stop_managed_apps 策略（只用于验拒绝）
+
+== 6. 建站：apply（带健康检查）→ 记录落盘 ==
+STAMP 2026-10-27T12:46:58Z §6 建站开始
+PASS  建站前线上没有这个单元在跑
+PASS  建站前配置目录不存在
+PASS  建站任务终态
+PASS  建站结果是 verified
+PASS  建站带 verified_at
+PASS  部署标识由名字派生
+PASS  配置摘要是 sha256: 形状
+PASS  回读：单元 active
+PASS  apply 做了健康探测
+PASS  apply 的探测探通了
+PASS  apply 的探测打在宿主公开入口
+PASS  apply 的探测读到 200
+PASS  预检里不再有 health_probe_pending
+PASS  宿主端口 18088 真的在应答 HTTP 200（独立读数）
+PASS  部署记录存在：/etc/upanel/deploy/webapp.deployment.json
+PASS  记录权限（0640）
+PASS  记录属主
+PASS  记录的格式版本
+PASS  记录里的部署名
+PASS  记录里的部署标识
+PASS  记录里的定义名与部署名一致
+PASS  记录里的定义钉的是这次写的镜像
+PASS  记录里的镜像引用就是定义里写的那个
+PASS  记录里的配置摘要就是任务报的版本
+PASS  记录顶层的配置摘要与镜像那一条一致
+PASS  记录里有镜像 digest（sha256:）
+PASS  记录里的 digest 与 docker image inspect 的 .Id 逐字相同
+PASS  记录里没有明文口令
+PASS  记录里没有 secret_ref 以外的秘密残留
+PASS  还没有更新过，所以没有 .prev
+
+== 7. 正常更新：traefik/whoami:v1.10.3 → nginx:1.27-alpine ==
+STAMP 2026-10-27T12:47:44Z §7 更新开始
+PASS  预检 deployment.update 状态码
+PASS  预检允许
+PASS  预检没有阻塞项
+PASS  目标显示名带上了换镜像
+PASS  影响里要拉镜像
+PASS  影响里要重启单元
+PASS  影响里写了健康探测失败会回切
+PASS  影响里要写部署记录
+PASS  这次没有选备份，所以没有 backup_before_update
+PASS  锁住 compose 项目
+PASS  锁住宿主端口
+PASS  锁住依赖卷
+PASS  更新需要再认证
+PASS  回切的影响说明里写明数据不回切
+PASS  再认证
+PASS  提交被受理
+PASS  更新任务终态
+PASS  更新结果是 verified
+PASS  更新带 verified_at
+PASS  换镜像之后版本变了
+PASS  观测里的上一版摘要就是更新前的版本
+PASS  观测里的新摘要就是任务报的版本
+PASS  这次真的改了配置
+PASS  这次不是幂等重放
+PASS  更新走的是 restart
+PASS  回读：单元 active
+PASS  观测里的镜像是新的
+PASS  镜像 digest 读到了
+PASS  镜像 digest 是 sha256: 形状
+PASS  更新之后做了健康探测
+PASS  更新之后探测通了
+PASS  没有回切
+PASS  上一版配置存在：/etc/upanel/deploy/webapp.compose.yaml.prev
+PASS  上一版权限（0600，里面有秘密）
+PASS  上一版就是更新前那份字节（sha256 逐字相同）
+PASS  上一版的字节数也没变
+PASS  盘上的配置已经是新镜像
+PASS  盘上的配置里没有旧镜像了
+PASS  配置文件仍是 0600
+PASS  is-active 仍是 active
+PASS  compose 项目里有容器
+PASS  容器在跑
+PASS  容器真的换了镜像（运行时读回）
+PASS  compose 项目名就是部署名
+PASS  新版本在宿主端口上应答 HTTP 200（独立读数）
+PASS  记录里的镜像换成新的
+PASS  记录里的配置摘要是新版本
+PASS  记录里的 digest 与 docker 的读数一致
+PASS  记录里的 digest 与上一版不同
+PASS  记录记着上一版的镜像引用
+
+== 8. 同镜像重放：配置没变，仍然要 restart ==
+PASS  同镜像重放任务终态
+PASS  同镜像重放结果是 verified
+PASS  同镜像重放带 verified_at
+PASS  配置没变
+PASS  这一次是幂等的
+PASS  版本没有变
+PASS  上一次的摘要与这次相同
+PASS  仍然 restart 了单元
+PASS  预检里给了 config_unchanged 告警
+PASS  盘上配置没有被改写（sha256 与更新后一致）
+
+== 9. 健康探测失败 → 回切（换成一个起来就退出的镜像） ==
+STAMP 2026-10-27T12:49:46Z §9 回切开始
+PASS  回切之后任务终态仍是 succeeded
+PASS  结果是 rolled_back（不是 failed、不是 verified）
+PASS  回切不是错误（error 为空）
+PASS  恢复提示说清已经回切过
+PASS  观测里 rolled_back=true
+PASS  回切之后复核通过
+PASS  回切之后探测通了
+PASS  新版本没通过（探不通，或压根起不来）
+PASS  盘上配置回到更新前那份字节（sha256 逐字相同）
+PASS  上一版文件没有被回切改掉
+PASS  盘上配置是回到的那一版镜像
+PASS  is-active 仍是 active
+PASS  容器回到旧镜像并在跑
+PASS  容器状态是 running
+PASS  回切之后宿主端口又能应答 HTTP 200（独立读数）
+PASS  部署记录里的镜像仍是旧的那个（回切不改记录）
+PASS  部署记录里的配置版本仍是旧版本
+
+== 10. 按选择备份：先停单元、按策略备份、读回核对，再换镜像 ==
+STAMP 2026-10-27T12:51:30Z §10 备份更新开始
+PASS  预检（带备份策略）状态码
+PASS  预检允许（带备份策略）
+PASS  预检没有阻塞项（带备份策略）
+PASS  影响里要停单元再备份
+PASS  锁住备份策略
+PASS  锁住备份仓库
+PASS  告警里说清会先停再备
+PASS  再认证
+PASS  提交被受理（带备份）
+PASS  带备份的更新任务终态
+PASS  带备份的更新结果是 verified
+PASS  带备份的更新带 verified_at
+PASS  观测里有快照标识
+PASS  快照被读回核对过
+PASS  观测里记着用的是哪条策略
+PASS  观测里记着用的是哪个仓库
+PASS  备份之前停过单元
+PASS  换完镜像是新镜像
+PASS  探测通了
+PASS  独立 restic 也看得见这个快照
+PASS  容器跑的是备份后换上的镜像
+PASS  带备份的更新之后宿主端口应答 HTTP 200
+
+== 11. 拒绝：只收 files_only 备份策略 ==
+PASS  预检（stop_managed_apps 策略）状态码
+PASS  预检不允许
+PASS  阻塞码是 backup_policy_needs_apps
+PASS  阻塞说明里指了出路（单独跑 backup.run）
+PASS  盘上配置没被动过
+PASS  容器也没被动过（还在跑 §10 换上的那个镜像）
+
+== 12. 拒绝：版本不符、记录不符、拉不到的镜像、apply 仍是创建语义 ==
+PASS  版本不符的预检不允许
+PASS  阻塞码是 stale
+PASS  盘上配置确实被改过（sha256 变了）
+PASS  记录不符的预检不允许
+PASS  阻塞码是 record_mismatch
+PASS  阻塞说明里写明
+PASS  没有记录的预检不允许
+PASS  阻塞码是 no_definition_record
+PASS  阻塞说明里说清是缺记录
+PASS  改回之后盘上配置与原来逐字相同
+PASS  钉了一个拉不到的 digest，预检仍然允许（拉镜像是执行阶段的事）
+PASS  再认证
+PASS  提交被受理（拉不到的镜像）
+PASS  拉不到镜像的任务终态是 failed
+PASS  失败原因说到了镜像
+PASS  盘上配置一个字节都没变（pull 在写盘之前）
+PASS  上一版文件也没被动过
+PASS  容器还在跑原来那个镜像
+PASS  单元仍是 active
+PASS  失败之后服务仍在应答（没有把应用留在停掉的状态）
+PASS  带 deployment_id 的 apply 不允许（apply 只创建）
+PASS  阻塞码是 update_not_implemented
+PASS  阻塞说明里指路到 deployment.update
+PASS  同名不同内容的 apply 不允许
+PASS  阻塞码是 deployment_exists
+PASS  盘上配置仍然一个字节没变
+
+== 13. 留状态与证据 ==
+PASS  业务目录的 marker 逐字节还在（更新与回切都不动数据）
+NOTE  证据目录：/var/tmp/upanel-accept-p15-3（RESULT、facts/、payloads/、logs/）
+STAMP 2026-10-27T12:53:01Z 收尾
+
+PASS=229 FAIL=0 NOT RUN=1

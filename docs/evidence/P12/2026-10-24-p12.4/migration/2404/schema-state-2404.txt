@@ -1,0 +1,8 @@
+vm: 24.04
+db: /var/tmp/upanel-accept-p12-2/agent/agent.db
+user_version: 0
+applied: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+tables: ['backup_policies', 'backup_repositories', 'backup_restore_verifications', 'managed_accounts', 'managed_resources', 'operation_events', 'operations', 'preflight_plans', 'schedule_triggers', 'schedules', 'schema_migrations', 'scripts', 'secrets', 'shares']
+scripts: 11 rows
+schedules: 0 rows
+scripts cols: ['id', 'name', 'content', 'content_hash', 'agent_script_ref', 'interpreter', 'version', 'created_at', 'updated_at']

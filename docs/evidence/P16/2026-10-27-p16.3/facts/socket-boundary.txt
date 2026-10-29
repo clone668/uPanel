@@ -1,0 +1,12 @@
+## socket 权限
+srw-rw---- 1 root upanel-web 0 Oct 27 16:22 /run/upanel/agent.sock
+
+## 账号与组
+uid=1000(upanel) gid=1000(upanel) groups=1000(upanel)
+upanel-web:x:997:
+
+## 普通账号直连 socket（应当 EACCES）
+被拒: [Errno 13] Permission denied
+
+## upanel-web 账号能否连（它在组里）
+upanel-web 连上了

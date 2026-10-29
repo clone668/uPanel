@@ -1,0 +1,256 @@
+== 0. 环境
+PASS  验收脚本以 root 运行
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  python3 可用（接收器、种入、解析响应）
+PASS  runuser 可用（以 Web 身份写库）
+PASS  openssl 可用
+PASS  update-ca-certificates 可用
+PASS  端口 19463 空闲
+PASS  端口 19471 空闲
+PASS  端口 19472 空闲
+PASS  端口 19470 空闲
+PASS  Web 账号 upanel-web 存在
+
+== 1. 装配：本地 CA + 本地接收器 + 代理 + 管理员 + Web ==
+PASS  生成验收用本地 CA
+PASS  本地 CA 装进系统信任库
+PASS  系统信任库能验通过接收器的证书（代理侧 TLS 校验的前提）
+PASS  本地接收器启动（SMTP 19471 显式 TLS / 19472 隐式 TLS / HTTPS 19470）
+PASS  代理密钥文件已存在（沿用上一轮）
+PASS  代理启动并创建 socket
+PASS  init-admin 退出码
+PASS  Web 启动
+PASS  管理员登录 200
+PASS  创建 viewer 201
+PASS  viewer 登录 200
+
+== 2. A：通道校验与权限 ==
+PASS  viewer 读通道列表 403（通道列表就是“告警会发给谁”）
+PASS  viewer 被拒的错误码
+PASS  未登录读通道 401
+PASS  未登录的错误码
+PASS  管理员读通道列表 200
+PASS  迁移种下的面板内通道只有一条
+PASS  面板内通道的 type
+PASS  面板内通道默认启用
+PASS  面板内通道没有秘密
+PASS  面板内通道不需要重试（max_attempts=1）
+PASS  管理员不带 CSRF 建通道 403
+PASS  再建一条 in_app → 400（收件箱只有一条）
+PASS  重复 in_app 的错误码
+PASS  报错说清面板内通知只有一条
+PASS  type 取闭集外的值 → 400
+PASS  报错列出允许的三种类型
+PASS  name 为空 → 400
+PASS  报错点出 name
+PASS  smtp 缺 host → 400
+PASS  报错点出 settings.host
+PASS  smtp 缺 port → 400
+PASS  报错点出 settings.port
+PASS  smtp 要明文模式 → 400（没有这个选项）
+PASS  报错点出 settings.tls
+PASS  报错说明只接受 starttls/implicit
+PASS  smtp 发件人不是地址 → 400
+PASS  报错点出 settings.from
+PASS  smtp 没有收件人 → 400
+PASS  报错点出 settings.to
+PASS  smtp 给用户名但没 secret_ref → 400
+PASS  报错说清要先保存口令
+PASS  smtp 给 secret_ref 但没用户名 → 400
+PASS  报错点出 settings.username
+PASS  webhook 用 http → 400（告警正文不走明文）
+PASS  报错点出 settings.url
+PASS  报错说明只接受 https
+PASS  webhook 地址带 userinfo → 400
+PASS  报错说清令牌该用 secret_ref
+PASS  webhook 地址带 #片段 → 400
+PASS  报错点出片段不会被发出去
+PASS  max_attempts 超过上限 → 400
+PASS  报错点出 max_attempts
+PASS  失败的创建一条都没落库（列表里仍只有面板内通道）
+PASS  改不存在的通道 → 404
+PASS  不存在的错误码
+PASS  删不存在的通道 → 404
+PASS  删面板内通道 → 400（改用停用）
+PASS  报错说清改用 enabled=false
+
+== 3. B：秘密引用（口令与令牌只在代理库里） ==
+PASS  未再认证就上传秘密 → 403
+PASS  再认证要求的错误码
+PASS  错误口令再认证 → 403
+PASS  正确口令再认证 → 200
+PASS  上传 SMTP 口令（用途 notification_password）201
+PASS  上传返回的是引用不是明文
+PASS  响应里没有口令本身
+PASS  上传 webhook 令牌 201
+PASS  响应里没有令牌本身
+PASS  上传用途不同的诱饵秘密 201
+PASS  用途取闭集外的值 → 400
+PASS  空秘密 → 400
+NOTE  三份秘密引用都拿到了（值不打印：引用是“去解哪份密文”的线索，按秘密对待）
+
+== 4. C/D：保存不发送 + SMTP 测试发送 ==
+PASS  建 STARTTLS 邮件通道 201
+PASS  max_attempts 不给就用默认 3
+PASS  target 是收件人列表（人读形式，不含秘密）
+PASS  创建通道的响应里没有口令
+PASS  建隐式 TLS 邮件通道 201（无 AUTH）
+PASS  建 webhook 通道 201
+PASS  webhook 的 target 是 URL
+PASS  保存通道没有触发任何 SMTP 连接
+PASS  保存通道没有触发任何 HTTP 请求
+PASS  保存通道没有写投递账
+PASS  PATCH 不给 version → 400
+PASS  报错说明 version 的用途
+PASS  PATCH 带正确 version 200
+PASS  改名生效
+PASS  version 递增
+PASS  没提的字段沿用原值（PATCH 是叠加不是覆盖）
+PASS  旧 version PATCH → 409
+PASS  冲突的错误码
+PASS  改名之后投递账仍然是 0 行（PATCH 也不发送）
+PASS  显式测试发送（STARTTLS + AUTH）200
+PASS  测试投递 kind=test
+PASS  测试投递 state=sent
+PASS  测试投递 attempts=1（只发一次）
+PASS  测试投递 last_status 是 SMTP 的 250
+PASS  测试投递有 sent_at
+PASS  接收器收到一封信
+PASS  信封标题是 [测试] 通道名
+PASS  信封发件人
+PASS  信封收件人
+PASS  AUTH 用的是那个用户名
+PASS  AUTH 用口令认证成功（口令经 secret_ref 由代理解出）
+PASS  正文与契约里的测试通知逐字一致（base64 解码后 sha256 相同）
+PASS  显式测试发送（隐式 TLS）200
+PASS  隐式 TLS 投递 sent
+PASS  隐式 TLS 收到的那封信走的是 implicit
+PASS  隐式通道没有配用户名，就没有 AUTH
+PASS  对端 535 时接口仍回 200（投递失败不是接口失败）
+PASS  535 的投递 state=failed
+PASS  535 的 last_status 是 535
+PASS  last_error 里是对端原话
+PASS  last_error 说清是哪一步失败
+PASS  last_error 里没有口令
+PASS  测试发送不重试：只多连了一次
+PASS  AUTH 被拒的信没被收下（显式 TLS 那一路仍然只有一封成功的）
+
+== 5. D：webhook 测试发送（回执语义、令牌、不跟随重定向、8 秒上限） ==
+PASS  webhook 测试发送 200
+PASS  webhook 投递 sent
+PASS  webhook last_status 是 200
+PASS  接收器收到一个请求
+PASS  请求打到配置的那条路径
+PASS  令牌以 Authorization 头到达（比对 sha256，日志里没有明文）
+PASS  请求体带 source=upanel
+PASS  请求体带测试标题
+PASS  建（停用的）必失败通道 201
+PASS  对端 500 时接口仍回 200
+PASS  500 的 state=failed
+PASS  500 的 last_status 是 500
+PASS  last_error 里是对端原话
+PASS  测试发送不重试：/always500 只被打了一次
+PASS  建重定向通道 201
+PASS  302 → 投递 failed
+PASS  302 的 last_status 是 302
+PASS  last_error 说明不接受重定向
+PASS  没有跟随重定向：只打了一次 /redirect
+PASS  建慢通道 201
+PASS  对端 12 秒不回 → 投递 failed
+PASS  last_error 说明是超时（请求失败：Post "https://127.0.0.1:19470/slow": context deadline exceeded）
+PASS  投递在 8 秒上限上结束（实测 9 秒，面板的调用上限是 10 秒）
+PASS  面板侧不看秘密用途（它只存引用）→ 建通道 201
+PASS  用途不对时投递 failed
+PASS  投递账里说明原因就是用途
+PASS  用途不对的连接根本没建起来（代理在核用途时就拒了）
+PASS  in_app 测试发送 → 400（没有外部动作可做）
+PASS  in_app 的错误码
+PASS  报错说清它的投递就是收件箱里的一行
+PASS  删除测试通道（重定向）200
+PASS  删除测试通道（慢）200
+PASS  删除测试通道（用途不对）200
+PASS  删掉的通道在投递账里留下历史（channel_id 置空但行还在）
+
+== 6. E：告警驱动、退避重试、上限、停用判死（受控种入） ==
+PASS  受控序列就位（accept0/rx_bytes_per_sec 已写入 8 个样本）
+PASS  开启维护静默 200
+PASS  建静默期间的规则 201
+PASS  静默期间规则照常触发（静默只压通知，不压判定）
+PASS  这条事件被标成 silenced
+PASS  静默事件一条投递都没入队
+PASS  清除静默 200
+PASS  删掉静默期间的规则 200
+PASS  收口静默事件也不补发投递
+PASS  启用必失败通道 200
+PASS  建先坏后好的通道 201
+PASS  建 R1 201
+PASS  R1 持续够 30 秒后触发
+NOTE  事件 E1=2，通道：in_app=1 smtp=2 fail=5 flaky=9
+PASS  必失败通道做了第一次尝试
+PASS  第一次失败后状态是 pending（还在等重试）
+FAIL  退避时间是 30 秒: next_attempt_at - created_at = '35'（此刻还剩 18 秒）
+PASS  失败原因是对端原话（500）
+PASS  先坏后好的通道第二次尝试送达（退避到点真的会重试）
+PASS  先坏后好的 attempts=2（一次失败 + 一次成功）
+PASS  必失败通道在 max_attempts 用尽后判 failed
+PASS  判死时 attempts 正好等于 max_attempts
+PASS  触发事件：邮件通道已送达
+PASS  触发事件：面板内通知写入即 sent
+PASS  面板内通知不重试（attempts=0, max_attempts=1）
+PASS  同事件同通道同 kind 只有一行（去重）
+PASS  回落到恢复线内并持续够 30 秒后收口
+NOTE  停用前：必失败通道的恢复投递是 pending|1|1793006918（等到退避窗口：yes）
+PASS  停用前重新读通道列表（拿到现场版本号）
+PASS  从现场列表里取到必失败通道的版本号（2）
+PASS  停用必失败通道的 PATCH 成功
+PASS  停用生效（enabled=false）
+PASS  停用后 pending 判 failed，attempts 仍是 1（一次都没多算）
+PASS  判死原因说是通道停用
+PASS  恢复事件也发出去（它对应的通道已送达）
+PASS  恢复事件的正文说清是恢复
+PASS  停用通道上没有更多的行（停用之后不再入队）
+
+== 7. F：审计、日志卫生与“秘密没有落进任何不该落的地方” ==
+PASS  审计里有 notification.channel.create（22 条）
+PASS  审计里有 notification.channel.update（7 条）
+PASS  审计里有 notification.channel.delete（5 条）
+PASS  审计里有 notification.channel.test（9 条）
+PASS  审计里有 notification.channel.manage（2 条）
+PASS  审计记了通道类型
+PASS  审计里 secret_ref 被红字化（Q423 已知限制）
+PASS  审计里没有 SMTP 口令
+PASS  审计里没有 webhook 令牌
+PASS  口令与令牌没有出现在面板库/代理库/任何日志里（扫了整个 /var/tmp/upanel-accept-p13-3）
+PASS  接收器读的口令文件是 0600
+PASS  web 日志没有 panic
+PASS  代理日志没有 panic
+PASS  web 日志没有“代理返回 500”
+
+== 8. 结论 ==
+NOTE  投递账（全部行，最后 20 条）：
+      验收-邮件-显式 | test | sent | 1 | 1 | 250 | 0 | 2026-10-26T09:21:39Z | 
+      验收-邮件-隐式 | test | sent | 1 | 1 | 250 | 0 | 2026-10-26T09:21:59Z | 
+      验收-邮件-显式 | test | failed | 1 | 1 | 535 | 0 |  | 认证失败：535 "5.7.8 Authentication credentials invalid"
+      验收-回调-正常 | test | sent | 1 | 1 | 200 | 0 | 2026-10-26T09:22:46Z | 
+      验收-回调-必失败 | test | failed | 1 | 1 | 500 | 0 |  | boom: acceptance always fails here
+      验收-回调-重定向 | test | failed | 1 | 1 | 302 | 0 |  | 对端要求重定向（不接受）：https://example.invalid/should-not-be-followed
+      验收-回调-慢 | test | failed | 1 | 1 | 0 | 0 |  | 请求失败：Post "https://127.0.0.1:19470/slow": context deadline exceeded
+      验收-用途不对 | test | failed | 1 | 1 | 0 | 0 |  | agentclient: 代理返回 400 VALIDATION_ERROR: secret_ref 只能指向用途为 notification_password 的秘密
+      面板内通知 | fired | sent | 0 | 1 | 0 | 0 | 2026-10-26T09:26:03Z | 
+      验收-邮件-显式 | fired | sent | 1 | 3 | 250 | 0 | 2026-10-26T09:26:08Z | 
+      验收-邮件-隐式 | fired | sent | 1 | 3 | 250 | 0 | 2026-10-26T09:26:08Z | 
+      验收-回调-正常 | fired | sent | 1 | 3 | 200 | 0 | 2026-10-26T09:26:08Z | 
+      验收-回调-必失败 | fired | failed | 2 | 2 | 500 | 0 |  | boom: acceptance always fails here
+      验收-回调-先坏后好 | fired | sent | 2 | 3 | 200 | 0 | 2026-10-26T09:26:38Z | 
+      面板内通知 | resolved | sent | 0 | 1 | 0 | 0 | 2026-10-26T09:28:03Z | 
+      验收-邮件-显式 | resolved | sent | 1 | 3 | 250 | 0 | 2026-10-26T09:28:08Z | 
+      验收-邮件-隐式 | resolved | sent | 1 | 3 | 250 | 0 | 2026-10-26T09:28:08Z | 
+      验收-回调-正常 | resolved | sent | 1 | 3 | 200 | 0 | 2026-10-26T09:28:08Z | 
+      验收-回调-必失败 | resolved | failed | 1 | 2 | 500 | 0 |  | 通道已停用，未发送
+      验收-回调-先坏后好 | resolved | sent | 1 | 3 | 200 | 0 | 2026-10-26T09:28:08Z | 
+
+通过 210 项，失败 1 项
+失败项： | 退避时间是 30 秒
+日志：/var/tmp/upanel-accept-p13-3/logs/web.log（web）/var/tmp/upanel-accept-p13-3/logs/agent.log（代理）/var/tmp/upanel-accept-p13-3/logs/receiver.log（接收器）

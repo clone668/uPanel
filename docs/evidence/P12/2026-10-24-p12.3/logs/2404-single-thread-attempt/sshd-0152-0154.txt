@@ -1,0 +1,22 @@
+2026-10-25T01:52:04+00:00 upanel-2404 sshd[403315]: Accepted publickey for upanel from 10.0.2.2 port 1260 ssh2: ED25519 SHA256:34smbxWVOmxCh3wR501x1VfKslzYdPxJl2vdCYR+jdU
+2026-10-25T01:52:07+00:00 upanel-2404 sshd[403321]: Connection closed by 10.0.2.2 port 13882
+2026-10-25T01:52:16+00:00 upanel-2404 sshd[403323]: Connection closed by authenticating user root 10.0.2.2 port 13884 [preauth]
+2026-10-25T01:52:32+00:00 upanel-2404 sshd[403335]: Connection closed by 127.0.0.1 port 56384 [preauth]
+2026-10-25T01:52:39+00:00 upanel-2404 sshd[403315]: pam_unix(sshd:session): session opened for user upanel(uid=1000) by upanel(uid=0)
+2026-10-25T01:53:01+00:00 upanel-2404 sshd[403338]: Connection closed by authenticating user p12sftp 127.0.0.1 port 46208 [preauth]
+2026-10-25T01:53:03+00:00 upanel-2404 sshd[403320]: Received disconnect from 10.0.2.2 port 6496:11: disconnected by user
+2026-10-25T01:53:03+00:00 upanel-2404 sshd[403320]: Disconnected from user upanel 10.0.2.2 port 6496
+2026-10-25T01:53:03+00:00 upanel-2404 sshd[402895]: pam_unix(sshd:session): session closed for user upanel
+2026-10-25T01:53:04+00:00 upanel-2404 sshd[403350]: Received disconnect from 10.0.2.2 port 8295:11: disconnected by user
+2026-10-25T01:53:04+00:00 upanel-2404 sshd[403350]: Disconnected from user upanel 10.0.2.2 port 8295
+2026-10-25T01:53:04+00:00 upanel-2404 sshd[403034]: pam_unix(sshd:session): session closed for user upanel
+2026-10-25T01:53:04+00:00 upanel-2404 sshd[403342]: Accepted publickey for p12sftp from 127.0.0.1 port 55798 ssh2: ED25519 SHA256:YfLR81BS00HVISXwyHRt+vWlt2LAiQ+STaEcI6xKm74
+2026-10-25T01:53:04+00:00 upanel-2404 sshd[403342]: pam_unix(sshd:session): session opened for user p12sftp(uid=1002) by p12sftp(uid=0)
+2026-10-25T01:53:42+00:00 upanel-2404 sshd[403531]: Accepted publickey for upanel from 10.0.2.2 port 4265 ssh2: ED25519 SHA256:34smbxWVOmxCh3wR501x1VfKslzYdPxJl2vdCYR+jdU
+2026-10-25T01:53:43+00:00 upanel-2404 sshd[403531]: pam_unix(sshd:session): session opened for user upanel(uid=1000) by upanel(uid=0)
+2026-10-25T01:53:53+00:00 upanel-2404 sshd[403595]: Connection reset by authenticating user upanel 10.0.2.2 port 4278 [preauth]
+2026-10-25T01:54:07+00:00 upanel-2404 sshd[403636]: Connection reset by authenticating user upanel 10.0.2.2 port 9742 [preauth]
+2026-10-25T01:54:15+00:00 upanel-2404 sshd[403668]: Accepted publickey for upanel from 10.0.2.2 port 9743 ssh2: ED25519 SHA256:34smbxWVOmxCh3wR501x1VfKslzYdPxJl2vdCYR+jdU
+2026-10-25T01:54:15+00:00 upanel-2404 sshd[403668]: pam_unix(sshd:session): session opened for user upanel(uid=1000) by upanel(uid=0)
+2026-10-25T01:54:22+00:00 upanel-2404 sshd[403721]: Accepted publickey for upanel from 10.0.2.2 port 9745 ssh2: ED25519 SHA256:34smbxWVOmxCh3wR501x1VfKslzYdPxJl2vdCYR+jdU
+2026-10-25T01:54:22+00:00 upanel-2404 sshd[403721]: pam_unix(sshd:session): session opened for user upanel(uid=1000) by upanel(uid=0)

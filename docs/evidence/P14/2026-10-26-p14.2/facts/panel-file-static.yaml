@@ -1,0 +1,12 @@
+# 由 uPanel 生成（P14.2）。下一次 apply 会整体覆盖本文件。
+# 手工修改不会保留；要交回自管，请删除本文件后自行 netplan apply。
+network:
+  version: 2
+  ethernets:
+    ens4:
+      dhcp4: false
+      addresses:
+        - 10.0.2.15/24
+      routes:
+        - to: default
+          via: 10.0.2.2

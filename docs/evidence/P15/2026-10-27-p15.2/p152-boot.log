@@ -1,0 +1,60 @@
+== B0. 重启后的起点（还没有任何产品进程） ==
+PASS  夹具：有 python3
+PASS  夹具：有 curl
+PASS  夹具：有 systemctl
+PASS  夹具：有 docker
+PASS  夹具：有 findmnt
+PASS  这台机器刚起来（uptime 64s）
+PASS  代理没有在跑（这一段的判据不来自产品）
+PASS  marker 不在系统盘上（卷没挂）
+PASS  系统盘上的同名目录里没有文件
+
+== B1. 开机：单元 enabled 但没有自己起来（STAGES APP-03） ==
+PASS  单元仍然 enabled
+PASS  单元没有自己起来
+PASS  journal/status 指向那个 mount unit 或依赖失败（masked 依赖让这次开机在事务阶段就被拒，journal 无条目）
+PASS  开机后没有这个项目的运行中容器
+PASS  开机后系统盘上没有多出数据文件
+
+== B2. 解除故障注入：卷挂回来，单元就能起来 ==
+PASS  mount unit 解除 mask
+PASS  挂载单元起来
+PASS  卷挂回挂载点
+PASS  卷上还是那份数据
+PASS  依赖恢复之后单元起来了
+PASS  单元 active
+PASS  容器被拉起来了
+PASS  HTTP 200
+PASS  容器 restart 策略仍是 no
+NOTE  部署现场已落盘：facts/diag/（docker ps -a、compose ps、单元状态、journal、events）
+
+== B3. 删除部署：单元、配置、容器都没了，数据一个字节不动 ==
+PASS  代理起来了
+PASS  Web 起来了
+PASS  管理员登录（重启后重新登录）
+PASS  拿到 CSRF 令牌
+PASS  删除预检状态码
+PASS  删除预检允许
+PASS  删除的告警里写明数据保留
+PASS  删除只锁 compose 项目
+PASS  删除也需要再认证（R=是）
+PASS  再认证
+PASS  删除提交被受理
+PASS  删除任务终态
+PASS  删除结果是 verified
+PASS  删除带 verified_at
+PASS  报告里单元被移除
+PASS  报告里配置被移除
+PASS  单元文件不存在了
+PASS  渲染配置不存在了
+PASS  systemd 不再认得这个单元
+PASS  单元不是 active
+PASS  项目里没有运行中的容器
+PASS  项目里连停止的容器都没有
+PASS  数据目录还在
+PASS  marker 逐字节还在（删除只动单元与配置）
+PASS  卷还挂在原地
+PASS  卷上的文件数没变
+PASS  重复删除的预检不允许
+PASS  重复删除的阻塞码
+STAMP 2026-10-27T11:47:31Z boot 段结束

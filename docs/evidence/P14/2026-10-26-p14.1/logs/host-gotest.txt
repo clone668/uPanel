@@ -1,0 +1,52 @@
+# host: go vet ./... (no output = clean)
+# host: go test ./...   2026-10-26T12:59:54Z
+ok  	upanel/cmd/upanel-agent	2.129s
+ok  	upanel/cmd/upanel-web	6.523s
+ok  	upanel/cmd/upanelctl	11.564s
+ok  	upanel/internal/agent	53.650s
+ok  	upanel/internal/agentclient	1.928s
+ok  	upanel/internal/agentstore	16.896s
+ok  	upanel/internal/alerts	3.008s
+ok  	upanel/internal/api	199.404s
+ok  	upanel/internal/apphealth	2.575s
+ok  	upanel/internal/appruntime	1.143s
+ok  	upanel/internal/apps	5.826s
+ok  	upanel/internal/apt	(cached)
+ok  	upanel/internal/audit	(cached)
+ok  	upanel/internal/auth	(cached)
+ok  	upanel/internal/backup	(cached)
+ok  	upanel/internal/certificates	3.358s
+ok  	upanel/internal/config	(cached)
+ok  	upanel/internal/containers	1.262s
+ok  	upanel/internal/debversion	(cached)
+ok  	upanel/internal/discovery	1.702s
+ok  	upanel/internal/files	1.177s
+ok  	upanel/internal/httpx	(cached)
+ok  	upanel/internal/journal	(cached)
+ok  	upanel/internal/logging	(cached)
+ok  	upanel/internal/logs	1.926s
+ok  	upanel/internal/metrics	2.877s
+ok  	upanel/internal/monitoring	1.293s
+ok  	upanel/internal/network	(cached)
+ok  	upanel/internal/nginx	(cached)
+ok  	upanel/internal/notifications	3.459s
+ok  	upanel/internal/operations	12.464s
+ok  	upanel/internal/packages	1.118s
+ok  	upanel/internal/platform	(cached)
+ok  	upanel/internal/power	(cached)
+ok  	upanel/internal/processes	1.199s
+ok  	upanel/internal/proxies	7.629s
+ok  	upanel/internal/schedules	(cached)
+ok  	upanel/internal/scripts	(cached)
+ok  	upanel/internal/services	1.838s
+ok  	upanel/internal/shares	5.537s
+ok  	upanel/internal/storage	13.692s
+ok  	upanel/internal/store	(cached)
+ok  	upanel/internal/syscmd	(cached)
+ok  	upanel/internal/terminal	1.044s
+?   	upanel/internal/testsupport	[no test files]
+ok  	upanel/internal/tlscert	(cached)
+ok  	upanel/internal/version	(cached)
+ok  	upanel/internal/webui	(cached)
+?   	upanel/migrations	[no test files]
+?   	upanel/migrations/agentdb	[no test files]

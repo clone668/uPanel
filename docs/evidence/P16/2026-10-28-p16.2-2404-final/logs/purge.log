@@ -1,0 +1,102 @@
+==== 将要执行 ====
+1) 停止并禁用 upanel-web.service、upanel-agent.service
+0) 先把两个数据库与 /etc/upanel 备份到 /var/backups/upanel/uninstall-<UTC 时间>
+2) 删除下面这些路径：
+     /etc/systemd/system/upanel-web.service
+     /etc/systemd/system/upanel-agent.service
+     /usr/local/lib/upanel
+     /usr/local/bin/upanel-web
+     /usr/local/bin/upanelctl
+     /usr/local/share/doc/upanel
+     /etc/upanel
+     /var/lib/upanel
+     /var/lib/upanel-agent
+     /etc/ssl/upanel
+3) systemctl daemon-reload
+
+==== 默认保留（需要显式参数才删）====
+     警告: --purge-config 会删 /etc/upanel/agent.key —— 已保存的秘密永久不可恢复
+     /srv/upanel（站点与应用数据 —— 永远不会自动删除）
+     系统账号 upanel-web、upanel-shell
+     /var/www/upanel-acme（ACME 校验目录，留着无影响）
+
+确认删除代理密钥 /etc/upanel/agent.key？（它会同时删掉所有已保存秘密的可解性）输入 yes 继续: 
+==== 执行 ====
+      先备份到 /var/backups/upanel/uninstall-20261028T055557Z
+      
+      [1/7] 前置检查
+            OK   已创建 /var/backups/upanel/uninstall-20261028T055557Z（0700）
+            OK   备份目录 /var/backups/upanel/uninstall-20261028T055557Z
+      
+      [2/7] 读生效路径（配置是唯一裁判）
+            OK   面板数据库 /var/lib/upanel/upanel.db
+            OK   代理数据库 /var/lib/upanel-agent/agent.db
+      
+      [3/7] 停服务（WAL 与主库必须一起静止）
+            OK   已停 upanel-agent.service（备份结束后会起回来）
+            OK   已停 upanel-web.service（备份结束后会起回来）
+      
+      [4/7] 拷配置、证书与代理密钥
+            OK   已拷 /etc/upanel（含 agent.key，已收紧为仅 root 可读）
+      
+      [5/7] 拷面板库与代理库（主库 + -wal + -shm）
+            OK   面板数据库：1 个文件 → /var/backups/upanel/uninstall-20261028T055557Z/panel-db
+            OK   代理数据库：1 个文件 → /var/backups/upanel/uninstall-20261028T055557Z/agent-db
+      
+      [6/7] 起回原本在跑的服务
+            OK   upanel-agent.service 已恢复运行
+            OK   upanel-web.service 已恢复运行
+      
+      [7/7] 校验备份
+            OK   已写 MANIFEST.sha256（6 个文件）
+            注意 机器上没有 sqlite3：数据库副本的完整性未校验（只有 sha256 一致的证明）
+      
+      ==== 备份完成 ====
+      备份目录:   /var/backups/upanel/uninstall-20261028T055557Z
+      面板数据库: /var/lib/upanel/upanel.db
+      代理数据库: /var/lib/upanel-agent/agent.db
+      清单:       /var/backups/upanel/uninstall-20261028T055557Z/MANIFEST.sha256（6 个文件）
+      
+      这份备份里有两个东西不能分开用：
+        1) etc-upanel/agent.key  丢了，库里保存的秘密（共享口令、证书私钥引用）永久解不开；
+        2) 两个数据库           少了任何一个，恢复出来的面板与代理会对不上。
+      
+      整份拷走再删原件：
+        tar -C /var/backups/upanel -czf /root/upanel-backup-uninstall-20261028T055557Z.tar.gz uninstall-20261028T055557Z
+      
+      恢复（在服务停止的前提下）：
+        systemctl stop upanel-web upanel-agent
+        install -d -m 0755 -o root -g root /etc/upanel
+        cp -a /var/backups/upanel/uninstall-20261028T055557Z/etc-upanel/. /etc/upanel/
+        systemctl start upanel-agent upanel-web      # 让代理先建 socket
+        # 面板库要按原属主放回（root 建出来的文件 Web 进程写不进去）：
+        #   install -o upanel-web -g upanel-web -m 0640 <副本> /var/lib/upanel/upanel.db
+        # 代理库：install -o root -g root -m 0600 <副本> /var/lib/upanel-agent/agent.db
+        # 详细步骤与判断依据见 docs/RECOVERY.md
+      备份完成：/var/backups/upanel/uninstall-20261028T055557Z
+      删除 /etc/systemd/system/upanel-web.service
+      删除 /etc/systemd/system/upanel-agent.service
+      删除 /usr/local/lib/upanel
+      删除 /usr/local/bin/upanel-web
+      删除 /usr/local/bin/upanelctl
+      删除 /usr/local/share/doc/upanel
+      删除 /etc/upanel
+      删除 /var/lib/upanel
+      删除 /var/lib/upanel-agent
+      删除 /etc/ssl/upanel
+
+==== 卸载完成 ====
+上面列出的路径已删除。仍然保留的：
+  /srv/upanel         站点与应用数据（除非用了 --yes-delete-srv）
+  /var/www/upanel-acme     ACME 校验目录
+  系统账号 upanel-web、upanel-shell
+
+本次删除前的备份: /var/backups/upanel/uninstall-20261028T055557Z
+整份拷走再清理；恢复步骤见 docs/RECOVERY.md。
+如果要重新安装：把发布包解开，再次执行
+  sudo sh deploy/scripts/install.sh --source .
+安装器是幂等的：已存在的账号、目录、证书、配置、密钥都会沿用。
+
+如果这次把面板删得干净到想恢复数据，只能从删除前的备份里恢复
+（安装器与卸载器都会在动数据库之前备份；手工备份用 deploy/scripts/backup-state.sh，
+见 docs/RECOVERY.md 与 docs/LOCAL_START.md）。

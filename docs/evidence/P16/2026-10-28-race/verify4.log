@@ -1,0 +1,30 @@
+2
+== 造负载：4 个忙循环打满 2 条 vCPU 2026-10-28T23:59:18Z ==
+ 23:59:24 up 15:18,  1 user,  load average: 1.24, 1.67, 1.92
+==================== 带负载：两条测试各跑一次（-race，-count=3）=========================
+== [loaded-webhook] 开始 2026-10-28T23:59:24Z ==
+=== RUN   TestWebhookSelfSignedCertIsRejected
+2026/10/29 00:00:17 http: TLS handshake error from 127.0.0.1:49458: EOF
+    notify_test.go:407: 证书问题不该重试，实际 {Accepted:false Status:0 Detail:请求失败：Post "https://127.0.0.1:42321": net/http: TLS handshake timeout Retryable:true}
+--- FAIL: TestWebhookSelfSignedCertIsRejected (6.75s)
+=== RUN   TestWebhookSelfSignedCertIsRejected
+2026/10/29 00:00:21 http: TLS handshake error from 127.0.0.1:60144: remote error: tls: bad certificate
+--- PASS: TestWebhookSelfSignedCertIsRejected (0.45s)
+=== RUN   TestWebhookSelfSignedCertIsRejected
+2026/10/29 00:00:21 http: TLS handshake error from 127.0.0.1:47458: remote error: tls: bad certificate
+--- PASS: TestWebhookSelfSignedCertIsRejected (0.44s)
+FAIL
+FAIL	upanel/internal/agent	10.333s
+FAIL
+== [loaded-expired] 开始 2026-10-29T00:00:22Z ==
+=== RUN   TestOperationExpiredPreflightRejected
+--- PASS: TestOperationExpiredPreflightRejected (68.53s)
+=== RUN   TestOperationExpiredPreflightRejected
+--- PASS: TestOperationExpiredPreflightRejected (59.26s)
+=== RUN   TestOperationExpiredPreflightRejected
+--- PASS: TestOperationExpiredPreflightRejected (59.06s)
+PASS
+ok  	upanel/internal/agent	190.582s
+== 撤负载 2026-10-29T00:04:20Z ==
+ 00:04:24 up 15:23,  1 user,  load average: 5.05, 4.03, 2.90
+== 第五轮完成 2026-10-29T00:04:24Z ==

@@ -1,0 +1,4 @@
+# 由 uPanel 生成（P14.5），整份重写，手改会被覆盖。
+# upanel:sru_b5a697cc031ce7c0328725a2e53741db
+# 模板：journal_recent（查看最近日志）——只读：journalctl 最近 200 行，不落盘、不过滤单元
+alice ALL = (root) NOPASSWD: /usr/bin/journalctl -n 200 --no-pager

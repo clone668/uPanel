@@ -1,0 +1,40 @@
+== 补跑这一轮（race-rerun.sh）的事实 ==
+窗口          : 2026-10-28T14:44:46Z → 2026-10-28T23:47:55Z（墙钟 9 小时 03 分 09 秒）
+源码树        : /tmp/upanel-src-fix（= 交付字节那一份 + 四处 _test.go 修正；tarball d1eb81d2…5e6d）
+源码树内容    : 产品 .go 一个字节没动（见上一节"全量之后改动过的 .go 文件"）
+运行身份      : root（代理数据目录要 root 属主，非 root 会得到 307 条假红，见 §4 甲轮）
+工具链        : go1.27.3 linux/amd64、gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0、CGO_ENABLED=1
+机器          : Ubuntu 24.04.5 / kernel 6.8.0-147 / 2 vCPU / QEMU -accel tcg,thread=multi -smp 2 -m 4096
+超时          : -timeout=0（关掉 go test 的 10 分钟/包默认值；全量那一轮用的 90 分钟会掐断三个大包）
+负载          : 起步时 3 个大包并行（agent/api/auth）占 2 条 vCPU；
+                15:23:35Z 停掉常驻的 upanel-web / upanel-agent（它们空闲也在吃 CPU，见 idle-panel-cpu.txt），
+                之后 load average 从 12.59 掉到 6.09，最后只剩一个包时 2.00
+
+-- 逐包读数（全量那一轮 + 补跑合并后的最终判定）--
+internal/api          ok      28929.178s  FAIL 0  DATA RACE 0   ← 补跑（-timeout=0，独占）
+internal/auth         FAIL    11767.531s  FAIL 1  DATA RACE 0   ← 补跑；红的是 TestDefaultPasswordParamsTiming
+internal/agent        FAIL    16579.372s  FAIL 2  DATA RACE 0   ← 补跑；红的是 webhook 与 expired-preflight
+cmd/upanelctl         ok        310.760s  FAIL 0  DATA RACE 0   ← 补跑（Q517 修好之后）
+internal/journal      ok         27.336s  FAIL 0  DATA RACE 0   ← 补跑（Q519② 修好之后）
+internal/backup       ok         11.673s  FAIL 0  DATA RACE 0   ← 补跑（Q518 修好之后）
+internal/storage      ok         17.025s  FAIL 0  DATA RACE 0   ← 补跑
+
+-- 判据实验 --
+cap5race    -race -count=5 TestOSCapacityReaderNetworkTimeoutQuarantines
+            5/5 PASS，单次 0.03/0.02/0.02/0.02/0.02s，包 1.689s
+cap5norace  -count=5 同一条
+            5/5 PASS，单次 0.03/0.02/0.02/0.02/0.02s，包 0.352s
+            → 全量那一轮"隔离期内还等了 9.207787ms > 5ms"在 10 次隔离重跑里一次都没复现。
+              结论：那是三包并行时的抖动，不是产品行为，5 毫秒上界不改。
+sshrace     -race TestDialRetriesOnceWhenHandshakeStalls → PASS 1.25s（包 2.750s）
+sshnorace   -count=1 同一条                             → PASS 0.98s（包 1.196s）
+            → 600 毫秒握手预算 + 一次重试，带不带检测器都过。
+timing      -count=1 TestDefaultPasswordParamsTiming（**不带 -race**）
+            FAIL：单次 Argon2id 校验 3.061838022s，用例上界 1s
+            → 关键读数：**不带检测器也红**。所以这条红不是 "-race 把 Argon2id 放大"，
+              是"这台 TCG 模拟机比真机慢一个数量级"：
+                KVM 22.04（P04.3）  不带 -race 0.6s        → 过
+                KVM 22.04（P04.3）  带 -race  1.79—2.03s  → 红
+                这台 TCG 24.04      不带 -race 3.06s        → 红
+                这台 TCG 24.04      带 -race  54.26s       → 红（全量那一轮 90.98s）
+              产品侧的 Argon2id 参数没动，契约区间仍是 100—300ms（真机口径）。

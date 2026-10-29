@@ -1,0 +1,114 @@
+# 单元
+; uPanel 受管理部署：webapp（dep_ed8e30bcbbf594e511e8c5a08eb65d9c）
+;
+; 这个文件由 uPanel 生成，每次 deployment.apply 整篇重写。不要手工修改：
+; 手工改动会在下一次部署时被覆盖，而覆盖后的行为以面板上的定义为准。
+;
+; 四条纪律，改单元的人一眼要能看见：
+;   生命周期  容器自己的 restart 是 no。开机、启动、停止都只有本单元一条路径。
+;             让 docker 在开机时拉容器会绕过下面的卷依赖（PLAN §11 规则 4）。
+;   卷依赖    BindsTo + After 逐卷绑定 mount unit：卷没挂上，本单元起不来；
+;             运行中卷失联，systemd 停掉本单元，ExecStop 把项目收下来（规则 3/5）。
+;   不建目录  本单元不创建任何目录，配置里 create_host_path 为 false。
+;             绑定源不存在时 compose 直接失败——挂载坏了必须看起来像坏了（规则 6）。
+;   无 shell   ExecStart/ExecStop 只有固定的 docker compose 调用，没有变量拼接、
+;             没有命令替换。单元里能改的东西越少，越不可能被改成别的动作。
+
+[Unit]
+Description=uPanel 受管理部署：webapp
+Documentation=file:/usr/local/share/doc/upanel/DEPLOY.md
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+RequiresMountsFor=/srv/upanel/volumes/p15data
+BindsTo=srv-upanel-volumes-p15data.mount
+After=srv-upanel-volumes-p15data.mount
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/docker compose -p webapp -f /etc/upanel/deploy/webapp.compose.yaml up -d --remove-orphans --no-build
+ExecStop=/usr/bin/docker compose -p webapp -f /etc/upanel/deploy/webapp.compose.yaml down --remove-orphans
+TimeoutStartSec=600
+TimeoutStopSec=300
+;
+; up -d --remove-orphans：项目里多出来的容器（改了定义、名字对不上）随这次启动清掉，
+; 否则旧容器会继续占着端口，而面板上看到的是“新版本已部署”。
+; --no-build：镜像只来自 registry，永远不在本机构建——没有 Dockerfile，也没有构建上下文。
+
+[Install]
+WantedBy=multi-user.target
+
+# 记录
+{
+  "schema": 1,
+  "deployment_id": "dep_ed8e30bcbbf594e511e8c5a08eb65d9c",
+  "name": "webapp",
+  "definition": {
+    "name": "webapp",
+    "image_reference": "traefik/whoami:v1.10.3",
+    "container_port": 80,
+    "host_bind_address": "127.0.0.1",
+    "host_port": 18088,
+    "environment": [
+      {
+        "name": "APP_MODE",
+        "value": "p15-3"
+      }
+    ],
+    "mounts": [
+      {
+        "source_root_id": "deploydata",
+        "relative_path": ".",
+        "container_path": "/data",
+        "read_only": false
+      }
+    ],
+    "resource_limits": {
+      "memory_limit_bytes": 134217728,
+      "cpu_limit": "0.5"
+    },
+    "health_check": {
+      "enabled": true,
+      "kind": "http",
+      "port": 80,
+      "path": "/",
+      "interval_seconds": 5,
+      "timeout_seconds": 2,
+      "retries": 3
+    },
+    "volume_dependencies": [
+      "vol_2d67da1e349c9de68f668bed209ee466"
+    ]
+  },
+  "config_digest": "sha256:ab9215e4ce0d9431509a7144f55f3809a2d768446d81183cfe0c27aa93a2c551",
+  "image": {
+    "requested": "traefik/whoami:v1.10.3",
+    "digest": "sha256:43a68d10b9dfcfc3ffbfe4dd42100dc9aeaf29b3a5636c856337a5940f1b4f1c",
+    "repo_digests": [
+      "traefik/whoami@sha256:43a68d10b9dfcfc3ffbfe4dd42100dc9aeaf29b3a5636c856337a5940f1b4f1c"
+    ],
+    "config_digest": "sha256:ab9215e4ce0d9431509a7144f55f3809a2d768446d81183cfe0c27aa93a2c551",
+    "resolved_at": "2026-10-27T12:51:58Z"
+  },
+  "previous": {
+    "requested": "nginx:1.27-alpine",
+    "digest": "sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10",
+    "config_digest": "sha256:e406bf01077426a220be5d61da6fb5b0525204a032484e6366ba60d5ae225147",
+    "resolved_at": "2026-10-27T12:52:26Z"
+  },
+  "updated_at": "2026-10-27T12:52:26Z"
+}
+
+# restic snapshots
+ID        Time                 Host         Tags                                                                                     Paths
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+d5458d51  2026-10-27 12:51:50  upanel-2204  upanel,upanel:policy:pol_3a18a5c7b33940257f246a812e9e13ff,upanel:consistency:files_only  /srv/upanel/volumes/p15data/appdata
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+1 snapshots
+
+# docker ps -a
+webapp-webapp-1 traefik/whoami:v1.10.3 Up 45 seconds
+
+# 容器镜像
+traefik/whoami:v1.10.3

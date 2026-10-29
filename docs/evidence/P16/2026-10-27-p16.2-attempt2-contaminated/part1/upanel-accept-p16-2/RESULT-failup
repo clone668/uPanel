@@ -1,0 +1,4 @@
+PHASE=failup
+PASS=13 FAIL=5 NOT RUN=0
+FAILED_NAMES= | 坏包升级没有成功（退出码非 0） | 坏包升级打出了失败横幅 | 失败发生在第 12 步（单元起不来） | 重跑好包后退出码 0（失败可重入） | 恢复后代理服务 active
+NOTRUN_NAMES= (none)

@@ -1,0 +1,6 @@
+PASS=153
+FAIL=0
+NOTRUN=4
+FAILED_NAMES=
+NOTRUN_NAMES= | 浏览器里的渲染与交互 | 回滚自己失败（记录 state=failed） | ufw 根本没装的机器（FIREWALL_UNSUPPORTED） | IPv6 规则、应用配置、端口区间、按接口限定
+FINISHED=2026-10-26T19:14:12Z

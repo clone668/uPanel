@@ -1,0 +1,76 @@
+== 0. 前置、版本与独立故障卷 ==
+PASS  full-target-is-tmpfs
+PASS  p12-2-prerequisite-loaded
+PASS  agent-started
+PASS  web-started
+PASS  web-not-root
+PASS  login-admin
+PASS  capabilities-200
+PASS  capabilities-restore
+PASS  capabilities-verify
+PASS  capabilities-prune
+
+== 1. 96 MiB 真实快照：本地与 SFTP ==
+PASS  policy-recovery-create
+PASS  policy-network-create
+PASS  recovery-baseline-reauth
+PASS  recovery-baseline-preflight-200
+PASS  recovery-baseline-preflight-allowed
+PASS  recovery-baseline-submit-202
+PASS  recovery-baseline-succeeded
+PASS  recovery-snapshot-64hex
+PASS  network-baseline-reauth
+PASS  network-baseline-preflight-200
+PASS  network-baseline-preflight-allowed
+PASS  network-baseline-submit-202
+PASS  network-baseline-succeeded
+PASS  network-snapshot-64hex
+
+== 2. 恢复到新目录、默认覆盖保护与结构/抽样验证 ==
+PASS  restore-new-reauth
+PASS  restore-new-preflight-200
+PASS  restore-new-preflight-allowed
+PASS  restore-new-submit-202
+FAIL  restore-new-succeeded: 期望 'succeeded'，实际 'failed'
+FAIL  restore-new-hash: 期望 '535981b773ff8dbd562ec4ffea854d8830ad9110f81602572c09df43cf40df34'，实际 ''
+PASS  restore-new-outside-unchanged
+FAIL  restore-new-published: 期望 'True'，实际 'ERR:KeyError:'observed_state''
+FAIL  restore-new-verified: 期望 'True'，实际 'ERR:KeyError:'observed_state''
+PASS  restore-nonempty-preflight-200
+FAIL  restore-nonempty-blocked: 期望 'False'，实际 'True'
+FAIL  restore-nonempty-blocker: 期望包含 'BACKUP_RESTORE_TARGET_BLOCKED'，实际 '[]'
+PASS  restore-caller-apps-400
+PASS  verify-structure-preflight
+PASS  verify-structure-submit
+FAIL  verify-structure-succeeded: 期望 'succeeded'，实际 'failed'
+FAIL  verify-structure-not-restore-proof: 期望 'False'，实际 'ERR:KeyError:'observed_state''
+PASS  structure-check-no-verification-time
+PASS  verify-sample-preflight
+PASS  verify-sample-submit
+PASS  verify-sample-succeeded
+PASS  verify-sample-files
+PASS  sample-restore-persisted
+
+== 3. 覆盖恢复：真停/拉起应用、整目录替换 ==
+PASS  overwrite-app-started
+PASS  restore-overwrite-reauth
+PASS  restore-overwrite-preflight-200
+PASS  restore-overwrite-preflight-allowed
+PASS  restore-overwrite-submit-202
+PASS  overwrite-apps-expanded
+PASS  overwrite-confirmation
+FAIL  restore-overwrite-succeeded: 期望 'succeeded'，实际 'failed'
+FAIL  overwrite-stale-removed: 期望 '1'，实际 '0'
+FAIL  overwrite-restored-hash: 期望 '535981b773ff8dbd562ec4ffea854d8830ad9110f81602572c09df43cf40df34'，实际 ''
+PASS  overwrite-app-active
+PASS  overwrite-app-really-restarted
+FAIL  overwrite-apps-restored: 期望 'True'，实际 'ERR:KeyError:'observed_state''
+
+== 4. 恢复写满独立 tmpfs：失败且不发布 ==
+PASS  restore-enospc-reauth
+PASS  restore-enospc-preflight-200
+PASS  restore-enospc-preflight-allowed
+PASS  restore-enospc-submit-202
+PASS  enospc-restic-restore-observed
+PASS  enospc-filler-really-hit-limit
+Connection to 127.0.0.1 closed by remote host.

@@ -1,0 +1,3 @@
+PASS=141 FAIL=0 NOT RUN=6
+FAILED_NAMES= (none)
+NOTRUN_NAMES= | 从另一台机器挂进来 | Windows / macOS 的 NFS 客户端 | NFSv4 直挂 | 两条导出并发写托管文件 | kerberos（sec=krb5*） | 设备级掉线（拔盘 / I\O 错误之后 statfs 报错）

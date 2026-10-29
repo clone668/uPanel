@@ -1,0 +1,14 @@
+<== PASS  根路径返回 200（HTTP 200）
+<== PASS  页面语言为 zh-CN
+<== PASS  页面有标题（uPanel）
+<== PASS  前端挂载成功（#app 有内容）
+<== PASS  显示面板品牌与副标题
+<== PASS  production 构建不显示演示模式横幅
+<== PASS  未登录访问 / 落到登录页
+<== PASS  未登录访问 /storage 同样落到登录页
+<== FAIL  冒烟脚本执行完成（TimeoutError: page.waitForURL: Timeout 80000ms exceeded.
+=========================== logs ===========================
+waiting for navigation until "load"
+============================================================）
+
+PASS 8 / FAIL 1 / SKIP 0（共 9 项，production，目标 https://127.0.0.1:9443，已登录）

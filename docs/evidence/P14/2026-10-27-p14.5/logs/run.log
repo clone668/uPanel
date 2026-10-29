@@ -1,0 +1,204 @@
+== 0. 环境与起点 ==
+PASS  二进制存在：/var/tmp/upanel-bin/upanel-agent
+PASS  二进制存在：/var/tmp/upanel-bin/upanel-web
+PASS  二进制存在：/var/tmp/upanel-bin/upanelctl
+PASS  夹具：有 useradd
+PASS  夹具：有 usermod
+PASS  夹具：有 userdel
+PASS  夹具：有 getent
+PASS  夹具：有 passwd
+PASS  夹具：有 chpasswd
+PASS  夹具：有 visudo
+PASS  夹具：有 sudo
+PASS  夹具：有 ssh-keygen
+PASS  夹具：有 stat
+PASS  夹具：有 python3
+PASS  夹具：有 /bin/rbash
+PASS  夹具：有 /usr/sbin/nologin
+PASS  起点：alice / bob 都不存在
+NOTE  sudoers.d 留档：/var/tmp/upanel-accept-p14-5/logs/sudoers.d-initial
+PASS  起点：sudoers.d 里没有 upanel 文件
+PASS  起点：整份 sudo 配置通过 visudo -c
+PASS  夹具：三把 ed25519 公钥生成好了
+PASS  钥匙 A 有指纹
+
+== 1. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19481 启动
+PASS  监听 19481 的 Web 进程不是 root（pid=189233 uid=997）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+PASS  页面在 /accounts 上有入口（SPA 返回 index.html）
+PASS  页面在 /shares 上仍然有入口
+
+== 2. 能力报告与起点（账号列表读的是同一张 managed_accounts） ==
+PASS  账号列表可读
+PASS  capability.status 是 available
+PASS  能力报告问的是账号的工具（不是 Samba 的）
+PASS  能力报告没混进 Samba 的工具
+PASS  两档壳都可用
+PASS  visudo 在，sudo 规则可写
+PASS  起点：一个受管理账号都没有
+PASS  起点：列表里没有 alice
+
+== 3. 建普通账号：口令经秘密通道，uid 由系统分配 ==
+PASS  秘密通道的再认证
+PASS  口令交给秘密通道
+PASS  口令拿到了 sec_ 引用
+PASS  响应里只有引用，没有明文
+PASS  建账号任务终态
+PASS  建账号结果 verified
+PASS  结果里带 sac_ 标识
+PASS  独立证据：getent 读出的 uid=1002 落在 1000–59999
+PASS  独立证据：登录壳是 /bin/rbash（restricted 档）
+PASS  独立证据：home 在 /home 之下
+PASS  独立证据：home 目录真的建出来了
+PASS  独立证据：passwd -S 读到 P（口令已设）
+PASS  执行器读回 password_state=P
+PASS  执行器读回 has_password=true
+PASS  执行器读回 uid 与 getent 一致
+PASS  面板登记了 alice
+PASS  登记的形状是 regular
+PASS  登记的 shell_profile 是 restricted
+PASS  登记说 has_password=true
+PASS  登记里没有密码字段
+PASS  拿到了 alice 的版本号
+PASS  root 是保留名，判决层拒绝
+PASS  拒绝码是 ACCOUNT_RESERVED
+PASS  保留名被拒之后账号列表没变（只多了 alice 那一行）
+PASS  下划线开头的名字被拒
+PASS  拒绝码是 ACCOUNT_NAME_INVALID
+
+== 4. authorized_keys 托管区：只碰自己那几行 ==
+PASS  夹具：先放一条人手写的外来钥匙（SHA256:JHDb9iQ5n+56nefmFuGUH7mhXVaeFHiVfzxxV+K84Uc）
+PASS  加第一把公钥任务终态
+PASS  加第一把公钥结果 verified
+PASS  执行器读回的指纹是钥匙 A
+PASS  执行器读回托管区里有 1 把
+PASS  结果里带 ssk_ 标识
+PASS  独立证据：托管区标记存在
+PASS  独立证据：托管区里有 1 行
+PASS  独立证据：托管区里就是钥匙 A
+PASS  独立证据：人手写的那条外来钥匙逐字节还在
+PASS  独立证据：文件权限 0600
+PASS  独立证据：.ssh 目录权限 0700
+PASS  独立证据：ssh-keygen 从文件里读到的指纹包含钥匙 A
+PASS  独立证据：整份文件确实变了（不是没写）
+PASS  加第二把公钥任务终态
+PASS  执行器读回托管区里有 2 把
+PASS  独立证据：托管区里有 2 行
+PASS  独立证据：两把钥匙都在
+PASS  独立证据：外来钥匙仍然逐字节还在
+PASS  重复的公钥被拒
+PASS  拒绝码是 SSH_KEY_DUPLICATE
+PASS  重复被拒之后托管区还是 2 行
+PASS  公钥列表可读
+PASS  列表里有 2 条登记
+PASS  列表里的指纹是 SSH 的 SHA256 形状
+PASS  列表响应里没有密钥体
+PASS  删第一把公钥任务终态
+PASS  执行器读回托管区只剩 1 把
+PASS  独立证据：托管区里只剩钥匙 B
+PASS  独立证据：外来钥匙仍然逐字节还在
+PASS  独立证据：删一把之后权限仍是 0600
+
+== 5. 受限 sudo：写文件 → visudo → sudo -l 读回 → 真跑一次 ==
+PASS  下发 system_status 任务终态
+PASS  下发结果 verified
+PASS  执行器读回写入了 1 条授权
+PASS  执行器读回 sudo -l -U 有 1 条
+PASS  独立证据：规则文件就在 sudoers.d 里
+PASS  独立证据：文件权限 0440
+PASS  独立证据：文件里有认领标记
+PASS  独立证据：文件里只有模板那一条命令、没有通配符
+PASS  独立证据：整份 sudo 配置通过 visudo -c
+PASS  独立证据：sudo -l -U 里出现模板命令
+PASS  核心：真跑一次模板里的命令（runuser 换到 alice，sudo -n）
+PASS  模板外的命令被拒（退出码非 0）
+PASS  被拒的理由来自 sudo 自己
+PASS  核心：sudo -l -U 里恰好只有模板那 1 条授权
+
+== 6. 真机制造一次 visudo 失败：旧规则必须逐字节保留 ==
+PASS  独立证据：整份 visudo -c 现在过不去
+NOTE  坏文件：/etc/sudoers.d/zz-p145-broken（内容是 'this is not a sudoers line'）
+PASS  坏配置下的下发任务失败（不是成功）
+PASS  失败原因带 SUDO_VISUDO_FAILED
+PASS  核心：旧规则文件哈希与失败前一致
+PASS  核心：旧规则内容逐字节没变
+PASS  核心：没有留下候选临时文件
+PASS  独立证据：移走坏文件之后 visudo -c 又通过了
+PASS  核心：sudo -l -U 读回仍然是旧模板那一条
+PASS  移走坏文件之后同样的下发成功
+PASS  这次的 verdict 是 verified
+PASS  独立证据：sudo -l -U 读回新模板那一条
+PASS  独立证据：旧模板那一条已经不在
+PASS  核心：真跑一次新模板里的命令
+
+== 7. 面板不覆盖别人的文件：手改过的规则文件 ==
+PASS  手改后的文件本身是合法的 sudoers（所以拒绝只能来自认领标记）
+PASS  手改过的文件：判决层拒绝
+PASS  拒绝码是 SUDO_FILE_DAMAGED
+PASS  核心：手改的文件被逐字节保留
+PASS  手改过的文件：删除也被拒
+PASS  删除的拒绝码同样是 SUDO_FILE_DAMAGED
+PASS  复原之后 sudo -l -U 又读到面板那条规则
+
+== 8. 禁用 / 启用：换壳，不用 -L ==
+PASS  禁用任务终态
+PASS  独立证据：登录壳变成 nologin
+PASS  执行器读回 shell_changed=true
+PASS  独立证据：口令状态仍然是 P（没用 -L）
+PASS  独立证据：公钥文件没被禁用动作带走
+PASS  登记的 disabled=true
+PASS  登记的 shell 是 nologin、shell_profile 仍记着 restricted
+PASS  启用任务终态
+PASS  独立证据：登录壳回到 rbash
+
+== 9. 第二个账号：没有口令的那一个（公钥那一面留着第 11 节验） ==
+PASS  建 bob 任务终态
+PASS  bob 的 sac_ 标识
+PASS  独立证据：passwd -S 不是 P（没有口令）
+PASS  登记说 bob 没有口令
+PASS  给 bob 加公钥任务终态
+PASS  独立证据：bob 的托管区里有 1 把
+NOT RUN  共享账号不能拿 sudo: 没有 pdbedit/smbpasswd（samba-common-bin 未安装）；不为一条验收去装包
+
+== 10. 删账号：userdel 不带 -r，home 里的东西一个不少 ==
+PASS  删账号任务终态
+PASS  删账号结果 verified
+PASS  执行器读回 linux_removed=true
+PASS  独立证据：getent 读不到 alice 了
+PASS  独立证据：home 目录还在
+PASS  独立证据：home 里的文件还在、内容没变
+PASS  独立证据：sudoers 规则文件跟着撤掉了
+PASS  独立证据：整份 sudo 配置仍然通过 visudo -c
+PASS  面板记录也删了
+
+== 11. （有条件）公钥登录的三件事：钥匙能用、口令不是门槛、壳才是门槛 ==
+PASS  只有钥匙、没有口令的账号用钥匙能登（publickey 不看口令字段）
+PASS  禁用 bob 的任务终态
+PASS  独立证据：bob 的登录壳换成 nologin
+PASS  独立证据：钥匙还在文件里（禁用没动 authorized_keys）
+PASS  核心：禁用之后同一把钥匙登不上（换壳就是那道门）
+NOTE  sshd 的原文：Warning: Permanently added '127.0.0.1' (ED25519) to the list of known hosts. This account is currently not available. 
+PASS  启用 bob 的任务终态
+PASS  独立证据：登录壳回到 /bin/rbash
+PASS  启用之后同一把钥匙又能登（说明上一条的拒绝来自壳）
+PASS  撤掉 bob 的公钥
+PASS  撤掉公钥之后登不上（托管区在生效）
+== 12. 收尾：把这一轮造的东西全撤掉 ==
+PASS  删 bob 任务终态
+PASS  收尾：sudoers.d 里没有 upanel 文件
+PASS  收尾：整份 sudo 配置通过 visudo -c
+PASS  收尾：账号列表里没有这两个名字
+
+== 13. 结论 ==
+NOT RUN  共享账号 + Samba passdb 的那一半: 本脚本只在装了 samba-common-bin 时才验；共享账号的 SMB 认证属于 P14.3 的验收面
+NOT RUN  两条公钥动作并发写同一份 authorized_keys: 锁行为由 internal/accounts/sshkey_test.go 与 shares 的锁单测覆盖；真机并发会把冲突变成时序问题
+NOT RUN  第 11 把公钥被拒（上限 10）: 上限判定在判决层，单测覆盖；真机验到 2 把即可
+NOT RUN  home 在别处 / home 是符号链接的账号: 面板对这类账号是拒绝写（SSH_KEY_HOME_INVALID），只在单测里造过；真机没有造这种磁盘布局
+NOT RUN  面板自己的 TOTP 与登录策略: 属于 P14.6
+PASS=168 FAIL=0 NOT RUN=6

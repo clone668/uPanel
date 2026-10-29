@@ -1,0 +1,26 @@
+Warning: Permanently added '[127.0.0.1]:2223' (ED25519) to the list of known hosts.
+STAMP 2026-10-28T04:03:55Z upgrade 开始（同一份包再装一次 = 升级）
+PASS  升级退出码 0
+PASS  升级走到第 13 步
+PASS  第 9 步这次**没有**跳过备份
+PASS  不再是'全新安装跳过备份'
+PASS  备份目录存在
+PASS  备份清单只有 root 能读（0600）
+PASS  备份写了 MANIFEST.sha256
+PASS  成功备份不留 .incomplete
+PASS  备份里有 agent.key（秘密与库必须同一份）
+PASS  备份里有面板库
+PASS  备份里有代理库
+PASS  面板库副本 integrity_check = ok
+PASS  代理库副本 integrity_check = ok
+PASS  备份之后两个单元还是 active
+PASS  MANIFEST.sha256 全部校验通过
+PASS  升级没有改写配置文件
+PASS  升级没有改写 agent.key
+PASS  升级后两个单元 active
+PASS  升级后健康检查 200
+PASS  升级后管理员能登录
+PASS  升级后标记账号还在
+PASS  装进去的 VERSION 与包里的逐字相同
+
+==== upgrade: PASS=22 FAIL=0 NOT RUN=0 ====

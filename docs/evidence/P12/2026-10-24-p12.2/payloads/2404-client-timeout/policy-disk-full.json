@@ -1,0 +1,1 @@
+{"data":{"id":"pol_40c49f05e512d4d2829e5e8d35050d72","name":"p12-2 写满策略","repository_id":"rep_783f0aa5d3fbc408c66eee6ab8b2699d","sources":[{"kind":"root","root_id":"root1","relative_path":"data-full"}],"consistency_mode":"files_only","app_ids":[],"retention":{},"version":1},"request_id":"a3b03e4495807445c008217bb223473c"}

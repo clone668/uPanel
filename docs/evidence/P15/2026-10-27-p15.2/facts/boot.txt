@@ -1,0 +1,3 @@
+boot_id=05010244-3d31-4306-a482-e924d7a4e21a uptime=64
+is-active=inactive is-enabled=enabled
+appdata_shape=不存在 appdata_entries=0

@@ -1,0 +1,38 @@
+==================== A. 当前源码树，两条测试单独跑 ====================
+== [webhook-isolated] 开始 2026-10-28T23:52:49Z (cwd=/tmp/upanel-src-fix) -race -count=3 -timeout=0 -run ^TestWebhookSelfSignedCertIsRejected$ -v ./internal/agent/ ==
+=== RUN   TestWebhookSelfSignedCertIsRejected
+2026/10/28 23:53:04 http: TLS handshake error from 127.0.0.1:56304: remote error: tls: bad certificate
+--- PASS: TestWebhookSelfSignedCertIsRejected (1.63s)
+=== RUN   TestWebhookSelfSignedCertIsRejected
+2026/10/28 23:53:04 http: TLS handshake error from 127.0.0.1:38034: remote error: tls: bad certificate
+--- PASS: TestWebhookSelfSignedCertIsRejected (0.13s)
+=== RUN   TestWebhookSelfSignedCertIsRejected
+2026/10/28 23:53:04 http: TLS handshake error from 127.0.0.1:32834: remote error: tls: bad certificate
+--- PASS: TestWebhookSelfSignedCertIsRejected (0.14s)
+PASS
+ok  	upanel/internal/agent	3.671s
+== [webhook-isolated] 结束 2026-10-28T23:53:05Z ==
+== [expired-isolated] 开始 2026-10-28T23:53:05Z (cwd=/tmp/upanel-src-fix) -race -count=3 -timeout=0 -run ^TestOperationExpiredPreflightRejected$ -v ./internal/agent/ ==
+=== RUN   TestOperationExpiredPreflightRejected
+--- PASS: TestOperationExpiredPreflightRejected (16.74s)
+=== RUN   TestOperationExpiredPreflightRejected
+--- PASS: TestOperationExpiredPreflightRejected (15.53s)
+=== RUN   TestOperationExpiredPreflightRejected
+--- PASS: TestOperationExpiredPreflightRejected (14.34s)
+PASS
+ok  	upanel/internal/agent	48.507s
+== [expired-isolated] 结束 2026-10-28T23:54:07Z ==
+==================== B. 探针树：只把夹具的 1 秒余量改成 60 秒 ====================
+探针树里的那一行现在是：
+452:		p.ExpiresAt = time.Now().UTC().Add(-time.Minute)
+== [expired-probe] 开始 2026-10-28T23:54:09Z (cwd=/tmp/upanel-src-probe) -race -count=3 -timeout=0 -run ^TestOperationExpiredPreflightRejected$ -v ./internal/agent/ ==
+=== RUN   TestOperationExpiredPreflightRejected
+--- PASS: TestOperationExpiredPreflightRejected (15.45s)
+=== RUN   TestOperationExpiredPreflightRejected
+--- PASS: TestOperationExpiredPreflightRejected (14.32s)
+=== RUN   TestOperationExpiredPreflightRejected
+--- PASS: TestOperationExpiredPreflightRejected (16.07s)
+PASS
+ok  	upanel/internal/agent	47.559s
+== [expired-probe] 结束 2026-10-28T23:58:30Z ==
+== 第四轮完成 2026-10-28T23:58:30Z ==

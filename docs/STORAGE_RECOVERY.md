@@ -253,6 +253,9 @@ sudo scripts/storage-external-check.sh
 
 ## 7. 相关文档
 
+下面前四项在**仓库**里，不在发布包的 `docs/` 内（包里是安装与使用文档）。装机现场查不到它们，
+但本文第 1—6 节不依赖它们。
+
 - `docs/PLAN.md` 第 9 节：存储写的范围与红线（不做什么、为什么）。
 - `docs/CONTRACTS.md` 第 5、6 节：动作参数、校验上限、结果字段。
 - `docs/STAGES.md` §9：P07 各子任务的验收条件。

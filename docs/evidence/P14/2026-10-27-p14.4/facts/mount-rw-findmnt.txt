@@ -1,0 +1,1 @@
+/mnt/nfs-media 127.0.0.1:/srv/upanel/volumes/data nfs rw,relatime,vers=3,rsize=524288,wsize=524288,namlen=255,hard,proto=tcp,timeo=600,retrans=2,sec=sys,mountaddr=127.0.0.1,mountvers=3,mountport=51089,mountproto=tcp,local_lock=none,addr=127.0.0.1

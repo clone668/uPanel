@@ -1,0 +1,45 @@
+== sh scripts/check.sh (2026-10-30 22:3x, PATH 前置 v22.23.3) ==
+== 说在前面：这是宿主 Windows + Git Bash 的读数，不是 Ubuntu 真机验收。web-smoke 走未登录路径，只断言到登录页。
+==> line-endings
+<== PASS  line-endings
+==> sh-syntax
+<== PASS  sh-syntax
+==> go-build
+<== PASS  go-build
+==> go-vet
+<== PASS  go-vet
+==> go-test
+<== PASS  go-test
+==> go-build-linux
+<== PASS  go-build-linux
+==> go-vet-linux
+<== PASS  go-vet-linux
+==> gofmt
+<== PASS  gofmt
+==> node-version
+<== PASS  node-version
+==> web-typecheck
+<== PASS  web-typecheck
+==> web-lint
+<== PASS  web-lint
+==> web-test
+<== PASS  web-test
+==> web-build
+<== PASS  web-build
+==> web-smoke
+<== PASS  根路径返回 200（HTTP 200）
+<== PASS  页面语言为 zh-CN
+<== PASS  页面有标题（uPanel）
+<== PASS  前端挂载成功（#app 有内容）
+<== PASS  显示面板品牌与副标题
+<== PASS  production 构建不显示演示模式横幅
+<== PASS  未登录访问 / 落到登录页
+<== PASS  没有未捕获的页面异常
+<== PASS  除预期的 API 探测外没有失败请求
+<== PASS  没有其他控制台错误
+PASS 10 / FAIL 0 / SKIP 0（共 10 项，production，目标 dist 预览，未登录）
+<== PASS  web-smoke
+==> openapi-lint
+<== PASS  openapi-lint
+PASS 15 / FAIL 0 / NOT RUN 0
+明细: line-endings:PASS sh-syntax:PASS go-build:PASS go-vet:PASS go-test:PASS go-build-linux:PASS go-vet-linux:PASS gofmt:PASS node-version:PASS web-typecheck:PASS web-lint:PASS web-test:PASS web-build:PASS web-smoke:PASS openapi-lint:PASS

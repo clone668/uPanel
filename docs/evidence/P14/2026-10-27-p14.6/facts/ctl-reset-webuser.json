@@ -1,0 +1,11 @@
+{
+  "database_path": "/var/tmp/upanel-accept-p14-6/webdata/upanel.db",
+  "user_id": 1,
+  "username": "admin",
+  "role": "admin",
+  "state_cleared": true,
+  "recovery_codes_cleared": 10,
+  "agent_status": "destroyed",
+  "revoked_sessions": 1,
+  "schema_version": 14
+}

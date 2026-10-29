@@ -1,0 +1,2 @@
+Filesystem     1024-blocks  Used Available Capacity Mounted on
+tmpfs               262144     4    262140       1% /var/tmp/upanel-accept-p12-2/full-restore-target

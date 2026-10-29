@@ -1,0 +1,981 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>uPanel 桌面式控制台</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+
+<style>
+/* ============================================================
+   设计计划
+   外壳借 NAS 桌面隐喻（群晖 DSM / 飞牛 fnOS 的用法）：顶部面板条、
+   桌面图标、可拖动的窗口、底部应用坞。新手认得这条路，就不用背菜单。
+   但窗口里面不降级：仍是一屏放得下的仪表盘，数字等宽，状态带理由。
+   材料：桌面是冷灰纸 + 极淡点阵；窗口是暖白纸；只有一种墨蓝强调色。
+   窄屏 ≤760px：图标变大，窗口变整屏叠层，拖动关闭。
+   ============================================================ */
+
+:root {
+  color-scheme: light;
+
+  --desk: #e9e6dd;
+  --desk-top: #f0eee7;
+  --desk-dot: rgba(28, 26, 20, 0.055);
+  --surface: #fbfaf6;
+  --surface-2: #f4f2ec;
+  --ink: #16181b;
+  --ink-2: #4a4f57;
+  --ink-3: #83888f;
+  --rule: #e0dbcf;
+  --rule-strong: #c3bcab;
+
+  --bar: rgba(251, 250, 246, 0.9);
+  --tile: #fdfcf8;
+
+  --accent: #1f47c9;
+  --accent-soft: #e6eaf9;
+
+  --good: #16724a;
+  --warn: #a55a00;
+  --bad: #a8261f;
+  --unknown: #6b6f76;
+
+  --sans: 'IBM Plex Sans', 'Noto Sans SC', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
+
+  --t-xs: 11px;
+  --t-sm: 12px;
+  --t-md: 13px;
+  --t-lg: 15px;
+  --t-xl: 20px;
+  --t-2xl: 28px;
+
+  --shadow: 0 28px 54px -30px rgba(26, 23, 16, 0.5), 0 2px 8px rgba(26, 23, 16, 0.07);
+  --radius: 4px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --desk: #0a0c0f;
+    --desk-top: #12161c;
+    --desk-dot: rgba(255, 255, 255, 0.05);
+    --surface: #16191d;
+    --surface-2: #1c2026;
+    --ink: #ecebe4;
+    --ink-2: #a6a9ad;
+    --ink-3: #74787d;
+    --rule: #2a2f36;
+    --rule-strong: #3d434b;
+    --bar: rgba(16, 19, 23, 0.92);
+    --tile: #1a1e23;
+    --accent: #829bff;
+    --accent-soft: #1b2240;
+    --good: #4fbf8f;
+    --warn: #e0a03c;
+    --bad: #ff7b70;
+    --unknown: #8b8f94;
+    --shadow: 0 30px 58px -26px rgba(0, 0, 0, 0.85), 0 2px 10px rgba(0, 0, 0, 0.45);
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --desk: #0a0c0f;
+  --desk-top: #12161c;
+  --desk-dot: rgba(255, 255, 255, 0.05);
+  --surface: #16191d;
+  --surface-2: #1c2026;
+  --ink: #ecebe4;
+  --ink-2: #a6a9ad;
+  --ink-3: #74787d;
+  --rule: #2a2f36;
+  --rule-strong: #3d434b;
+  --bar: rgba(16, 19, 23, 0.92);
+  --tile: #1a1e23;
+  --accent: #829bff;
+  --accent-soft: #1b2240;
+  --good: #4fbf8f;
+  --warn: #e0a03c;
+  --bad: #ff7b70;
+  --unknown: #8b8f94;
+  --shadow: 0 30px 58px -26px rgba(0, 0, 0, 0.85), 0 2px 10px rgba(0, 0, 0, 0.45);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: var(--desk);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--t-md);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.mono, .num, .kpi__value, .kv dd, .stream__time, .win__title { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+.desk {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(120% 85% at 8% -12%, var(--desk-top), transparent 60%),
+    radial-gradient(80% 60% at 100% 108%, rgba(31, 71, 201, 0.07), transparent 60%),
+    radial-gradient(circle at 1px 1px, var(--desk-dot) 1px, transparent 0) 0 0 / 22px 22px,
+    var(--desk);
+}
+
+/* ---------- 顶部面板条 ---------- */
+.bar {
+  display: flex; align-items: center; gap: 10px;
+  height: 44px; padding: 0 12px;
+  background: var(--bar);
+  border-bottom: 1px solid var(--rule);
+  position: relative; z-index: 30;
+  flex-wrap: nowrap; overflow-x: auto;
+}
+.bar__launch {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: var(--mono); font-size: var(--t-md); font-weight: 600;
+  letter-spacing: -0.02em; color: var(--ink);
+  background: transparent; border: 1px solid transparent;
+  border-radius: var(--radius); padding: 4px 8px; cursor: pointer; flex: none;
+}
+.bar__launch:hover { border-color: var(--rule-strong); }
+.bar__launch .caret { color: var(--ink-3); font-weight: 400; font-size: var(--t-sm); }
+.bar__host {
+  display: flex; align-items: center; gap: 7px;
+  font-family: var(--mono); font-size: var(--t-sm); color: var(--ink-2);
+  border-left: 1px solid var(--rule); padding-left: 11px; flex: none;
+}
+.bar__run { display: flex; align-items: center; gap: 2px; margin-left: 4px; min-width: 0; }
+.bar__spacer { flex: 1; }
+.bar__right { display: flex; align-items: center; gap: 10px; flex: none; }
+.bar__clock { font-family: var(--mono); font-size: var(--t-sm); color: var(--ink-2); }
+.bar__icon {
+  width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--rule); border-radius: var(--radius);
+  background: transparent; color: var(--ink-2); cursor: pointer; font-size: var(--t-sm);
+}
+.bar__icon:hover { color: var(--ink); border-color: var(--rule-strong); }
+.bar__who { font-size: var(--t-sm); color: var(--ink-2); }
+
+.state { display: inline-flex; align-items: center; gap: 6px; font-size: var(--t-sm); white-space: nowrap; }
+.dot { width: 7px; height: 7px; display: inline-block; border-radius: 1px; flex: none; }
+.state--good { color: var(--good); } .state--good .dot { background: var(--good); }
+.state--warn { color: var(--warn); } .state--warn .dot { background: var(--warn); }
+.state--bad { color: var(--bad); } .state--bad .dot { background: var(--bad); }
+.state--unknown { color: var(--ink-3); } .state--unknown .dot { background: var(--unknown); }
+
+/* ---------- 桌面 ---------- */
+.stage { position: relative; flex: 1; min-height: 0; }
+
+.icons {
+  display: grid;
+  grid-template-columns: repeat(2, 92px);
+  gap: 2px 4px;
+  padding: 14px 12px 96px;
+  align-content: start;
+  position: relative;
+  z-index: 1;
+}
+.icon {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 10px 4px;
+  background: transparent; border: 1px solid transparent;
+  border-radius: 8px; cursor: pointer; font-family: inherit;
+}
+.icon:hover { background: rgba(255, 255, 255, 0.5); border-color: var(--rule); }
+.icon[aria-selected='true'] { background: var(--accent-soft); border-color: var(--accent); }
+.icon[disabled] { opacity: 0.4; cursor: default; }
+.icon[disabled]:hover { background: transparent; border-color: transparent; }
+.icon__tile {
+  width: 54px; height: 54px; display: grid; place-items: center;
+  background: linear-gradient(180deg, var(--tile), var(--surface-2));
+  border: 1px solid var(--rule-strong); border-radius: 13px;
+  color: var(--ink-2); font-size: 22px; font-family: var(--mono); line-height: 1;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75), 0 1px 2px rgba(26, 23, 16, 0.07);
+}
+:root[data-theme='dark'] .icon__tile { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .icon__tile { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05); }
+}
+.icon[aria-selected='true'] .icon__tile { border-color: var(--accent); color: var(--accent); }
+.icon:hover .icon__tile { color: var(--ink); }
+.icon__label { font-size: var(--t-sm); color: var(--ink); text-align: center; line-height: 1.2; }
+.icon__label small { display: block; font-family: var(--mono); font-size: 10px; color: var(--ink-3); margin-top: 1px; }
+
+/* ---------- 窗口 ---------- */
+.win {
+  position: absolute;
+  left: 214px; top: 44px;
+  width: 960px; max-width: calc(100% - 32px);
+  background: var(--surface);
+  border: 1px solid var(--rule-strong);
+  border-radius: 9px;
+  box-shadow: var(--shadow);
+  display: flex; flex-direction: column; overflow: hidden;
+  z-index: 10;
+}
+.win[data-open='false'] { display: none; }
+.win[data-min='true'] { display: none; }
+.win__bar {
+  display: flex; align-items: center; gap: 8px;
+  height: 35px; padding: 0 6px 0 12px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--rule);
+  cursor: grab; user-select: none; touch-action: none;
+  position: relative;
+}
+.win__bar::before {
+  content: ''; position: absolute; inset: 0 0 auto 0; height: 2px;
+  background: transparent;
+}
+.win[data-focus='true'] .win__bar::before { background: var(--accent); }
+.win__bar:active { cursor: grabbing; }
+.win__title { font-size: var(--t-sm); color: var(--ink-2); white-space: nowrap; }
+.win[data-focus='true'] .win__title { color: var(--ink); }
+.win__tag { font-family: var(--mono); font-size: 10px; border: 1px solid var(--rule-strong); border-radius: 2px; padding: 0 4px; color: var(--ink-3); }
+.win__spacer { flex: 1; }
+.win__ctl {
+  width: 25px; height: 23px; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 3px; background: transparent;
+  color: var(--ink-3); cursor: pointer; font-family: var(--mono); font-size: var(--t-sm);
+}
+.win__ctl:hover { background: var(--rule); color: var(--ink); }
+.win__ctl--close:hover { background: var(--bad); color: #fff; }
+.win__body { overflow: auto; }
+.win[data-max='true'] { inset: 8px !important; width: auto !important; border-radius: 9px; }
+.win[data-max='true'] .win__body { flex: 1; }
+
+/* ---------- 窗口内容 ---------- */
+.winhead { display: flex; align-items: flex-end; gap: 12px; padding: 15px 18px 11px; flex-wrap: wrap; }
+.winhead h1 { margin: 0; font-size: var(--t-lg); font-weight: 600; letter-spacing: -0.01em; }
+.winhead p { margin: 1px 0 0; font-size: var(--t-sm); color: var(--ink-2); }
+.winhead .spacer { flex: 1; }
+
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+.kpi { padding: 11px 16px 13px; border-right: 1px solid var(--rule); min-width: 0; }
+.kpi:last-child { border-right: 0; }
+.kpi__label { font-size: var(--t-xs); color: var(--ink-2); display: flex; align-items: center; gap: 6px; }
+.kpi__value { font-size: var(--t-2xl); font-weight: 500; letter-spacing: -0.025em; line-height: 1.1; margin-top: 3px; }
+.kpi__value small { font-size: var(--t-sm); color: var(--ink-3); font-weight: 400; margin-left: 2px; }
+.kpi__foot { margin-top: 6px; font-size: var(--t-xs); color: var(--ink-3); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.spark { display: block; flex: none; }
+
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-size: var(--t-xs); font-weight: 500; color: var(--ink-3); letter-spacing: 0.08em; padding: 7px 12px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+td { padding: 7px 12px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+tr:last-child td { border-bottom: 0; }
+tbody tr:hover td { background: var(--surface-2); }
+td.num, th.num { text-align: right; }
+.pad { padding: 14px 18px 16px; }
+
+.tag { font-family: var(--mono); font-size: var(--t-xs); border: 1px solid var(--rule-strong); border-radius: 2px; padding: 0 5px; color: var(--ink-2); white-space: nowrap; }
+.tag--accent { border-color: var(--accent); color: var(--accent); }
+.tag--warn { border-color: var(--warn); color: var(--warn); }
+
+.bar-meter { height: 6px; background: var(--surface-2); border: 1px solid var(--rule); border-radius: 2px; overflow: hidden; }
+.bar-meter span { display: block; height: 100%; background: var(--accent); }
+.bar-meter--warn span { background: var(--warn); }
+
+.kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 7px 16px; margin: 0; }
+.kv dt { color: var(--ink-3); font-size: var(--t-sm); }
+.kv dd { margin: 0; font-size: var(--t-md); overflow-wrap: anywhere; }
+
+.split { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.panel { border: 1px solid var(--rule); border-radius: var(--radius); overflow: hidden; min-width: 0; }
+.panel__head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--rule); background: var(--surface-2); }
+.panel__head h2 { margin: 0; font-size: var(--t-sm); font-weight: 600; }
+.panel__head .meta { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
+.panel__head .spacer { flex: 1; }
+
+.stream { font-family: var(--mono); font-size: var(--t-sm); }
+.stream__row { display: grid; grid-template-columns: 58px 46px 124px minmax(0, 1fr); gap: 9px; padding: 5px 16px; border-bottom: 1px solid var(--rule); }
+.stream__row:last-child { border-bottom: 0; }
+.stream__row:hover { background: var(--surface-2); }
+.stream__time { color: var(--ink-3); }
+.stream__unit { color: var(--ink-2); overflow-wrap: anywhere; }
+.stream__msg { color: var(--ink); overflow-wrap: anywhere; min-width: 0; }
+.lv { font-size: 10px; letter-spacing: 0.06em; }
+.lv--info { color: var(--ink-3); } .lv--warn { color: var(--warn); } .lv--error { color: var(--bad); }
+
+.toolbar { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; padding: 9px 16px; border-bottom: 1px solid var(--rule); background: var(--surface-2); }
+.toolbar__label { font-family: var(--mono); font-size: 10px; color: var(--ink-3); letter-spacing: 0.08em; }
+.chip { font-family: var(--mono); font-size: var(--t-sm); border: 1px solid var(--rule); border-radius: 2px; background: var(--surface); color: var(--ink-2); padding: 2px 8px; cursor: pointer; }
+.chip[aria-pressed='true'] { border-color: var(--ink-2); color: var(--ink); background: var(--surface-2); }
+.chip:hover { border-color: var(--rule-strong); }
+
+.btn { font-family: inherit; font-size: var(--t-sm); border: 1px solid var(--rule-strong); border-radius: var(--radius); background: var(--surface); color: var(--ink); padding: 4px 11px; cursor: pointer; }
+.btn:hover { border-color: var(--ink-3); }
+.btn--primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn:disabled { cursor: not-allowed; color: var(--ink-3); border-color: var(--rule); background: var(--surface-2); }
+.actions { display: flex; gap: 7px; flex-wrap: wrap; }
+
+.chain__row { display: flex; align-items: center; gap: 9px; padding: 5px 0; }
+.chain__link { width: 1px; height: 12px; background: var(--rule-strong); margin-left: 13px; }
+.chain__node { font-family: var(--mono); font-size: var(--t-sm); border: 1px solid var(--rule-strong); border-radius: var(--radius); padding: 1px 6px; background: var(--surface-2); }
+.chain__node--target { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.chain__rel { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
+
+.hint { margin: 8px 0 0; font-size: var(--t-xs); color: var(--ink-2); line-height: 1.55; }
+.hint code { font-family: var(--mono); font-size: 10px; background: var(--surface-2); border: 1px solid var(--rule); border-radius: 2px; padding: 0 3px; }
+
+/* ---------- 底部应用坞 ---------- */
+.dock {
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 3px;
+  padding: 6px 8px;
+  background: var(--bar);
+  border: 1px solid var(--rule-strong); border-radius: 11px;
+  box-shadow: 0 20px 40px -24px rgba(26, 23, 16, 0.6);
+  z-index: 25; max-width: calc(100% - 32px); overflow-x: auto;
+}
+.dock__item {
+  display: inline-flex; flex-direction: column; align-items: center; gap: 3px;
+  border: 0; background: transparent; cursor: pointer; padding: 4px 9px;
+  border-radius: 7px; font-family: inherit; color: var(--ink-3); font-size: 10px; min-width: 54px;
+  white-space: nowrap;
+}
+.dock__item:hover { background: var(--surface-2); color: var(--ink); }
+.dock__glyph { font-family: var(--mono); font-size: 16px; color: var(--ink-2); line-height: 1.1; }
+.dock__item[data-running='true'] .dock__glyph { color: var(--accent); }
+.dock__item[data-focus='true'] { background: var(--accent-soft); color: var(--ink); }
+.dock__sep { width: 1px; align-self: stretch; background: var(--rule); margin: 5px 3px; }
+
+.footnote { position: absolute; left: 18px; bottom: 22px; font-family: var(--mono); font-size: 10px; color: var(--ink-3); z-index: 2; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .icon__tile { transition: transform 120ms ease, box-shadow 120ms ease; }
+  .icon:hover .icon__tile { transform: translateY(-2px); box-shadow: 0 8px 16px -10px rgba(26, 23, 16, 0.45); }
+}
+
+@media (max-width: 1180px) {
+  .icons { grid-template-columns: repeat(auto-fill, 88px); }
+}
+
+@media (max-width: 760px) {
+  .bar { height: 42px; padding: 0 8px; gap: 6px; }
+  .bar__host, .bar__who, .bar__clock { display: none; }
+  .icons { grid-template-columns: repeat(auto-fill, 84px); gap: 4px 4px; padding: 12px 10px 20px; }
+  .dock { display: none; }
+  .icon { padding: 8px 2px; }
+  .icon__tile { width: 48px; height: 48px; font-size: 19px; }
+  .win {
+    position: fixed; inset: 42px 0 0 0 !important;
+    width: 100% !important; max-width: 100%; border-radius: 0;
+    border-left: 0; border-right: 0; border-bottom: 0;
+  }
+  .win__bar { cursor: default; }
+  .win__body { flex: 1; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpi:nth-child(2) { border-right: 0; }
+  .kpi:nth-child(-n + 2) { border-bottom: 1px solid var(--rule); }
+  .split { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .stream__row { grid-template-columns: 50px 40px minmax(0, 1fr); padding: 5px 12px; }
+  .stream__unit { display: none; }
+  .footnote { display: none; }
+  .winhead { padding: 12px 14px 10px; }
+  .pad { padding: 12px 14px 14px; }
+}
+</style>
+</head>
+<body>
+
+<div class="desk">
+  <div class="bar">
+    <button class="bar__launch" id="launcher" type="button">
+      uPanel <span class="caret">▾</span>
+    </button>
+    <span class="bar__host">upanel-lvm · 24.04.5</span>
+    <div class="bar__spacer"></div>
+    <div class="bar__right">
+      <span class="state state--good" title="upanel-agent 已连接"><i class="dot"></i>代理正常</span>
+      <span class="bar__clock">13:20</span>
+      <button class="bar__icon" id="theme-toggle" type="button" title="切换配色">◐</button>
+      <span class="bar__who">admin</span>
+    </div>
+  </div>
+
+  <div class="stage" id="stage">
+    <div class="icons" id="icons">
+      <button class="icon" type="button" data-app="overview" aria-selected="true">
+        <span class="icon__tile">◫</span><span class="icon__label">概览</span>
+      </button>
+      <button class="icon" type="button" data-app="storage">
+        <span class="icon__tile">▤</span><span class="icon__label">存储</span>
+      </button>
+      <button class="icon" type="button" data-app="logs">
+        <span class="icon__tile">≡</span><span class="icon__label">日志</span>
+      </button>
+      <button class="icon" type="button" data-app="jobs">
+        <span class="icon__tile">⧗</span><span class="icon__label">任务中心<small>3</small></span>
+      </button>
+      <button class="icon" type="button" disabled>
+        <span class="icon__tile">▶</span><span class="icon__label">应用<small>2</small></span>
+      </button>
+      <button class="icon" type="button" disabled>
+        <span class="icon__tile">⚙</span><span class="icon__label">服务与进程</span>
+      </button>
+      <button class="icon" type="button" disabled>
+        <span class="icon__tile">⌸</span><span class="icon__label">文件</span>
+      </button>
+      <button class="icon" type="button" disabled>
+        <span class="icon__tile">⌘</span><span class="icon__label">终端</span>
+      </button>
+      <button class="icon" type="button" disabled>
+        <span class="icon__tile">⇪</span><span class="icon__label">备份</span>
+      </button>
+      <button class="icon" type="button" disabled>
+        <span class="icon__tile">⇄</span><span class="icon__label">网络</span>
+      </button>
+      <button class="icon" type="button" disabled>
+        <span class="icon__tile">◷</span><span class="icon__label">计划任务</span>
+      </button>
+      <button class="icon" type="button" disabled>
+        <span class="icon__tile">◉</span><span class="icon__label">监控告警</span>
+      </button>
+      <button class="icon" type="button" disabled>
+        <span class="icon__tile">⚒</span><span class="icon__label">设置</span>
+      </button>
+      <button class="icon" type="button" disabled>
+        <span class="icon__tile">＋</span><span class="icon__label">未接入</span>
+      </button>
+    </div>
+
+    <!-- ======== 概览 ======== -->
+    <section class="win" id="win-overview" data-app="overview" data-open="true" data-max="false" data-focus="true" aria-label="概览">
+      <div class="win__bar">
+        <span class="win__title">概览</span>
+        <span class="win__tag">upanel-lvm</span>
+        <span class="win__spacer"></span>
+        <button class="win__ctl" type="button" data-act="min" title="最小化">—</button>
+        <button class="win__ctl" type="button" data-act="max" title="最大化">□</button>
+        <button class="win__ctl win__ctl--close" type="button" data-act="close" title="关闭">×</button>
+      </div>
+      <div class="win__body">
+        <div class="winhead">
+          <div>
+            <h1>概览</h1>
+            <p>Ubuntu 24.04.5 LTS · 6.8.0-147-generic · 已运行 3 天 7 小时</p>
+          </div>
+          <div class="spacer"></div>
+          <div class="actions">
+            <button class="btn" type="button">刷新</button>
+            <button class="btn btn--primary" type="button">新建任务</button>
+          </div>
+        </div>
+
+        <div class="kpis">
+          <div class="kpi">
+            <div class="kpi__label">CPU 使用率</div>
+            <div class="kpi__value">12.4<small>%</small></div>
+            <div class="kpi__foot">
+              <span>4 核 · 窗口 2s</span>
+              <svg class="spark" width="64" height="18" viewBox="0 0 64 18" aria-hidden="true">
+                <polyline points="0,13 5,11 10,14 15,8 20,10 25,6 30,11 35,9 40,5 45,8 50,6 55,4 60,7 64,6" fill="none" stroke="var(--accent)" stroke-width="1.4" />
+              </svg>
+            </div>
+          </div>
+          <div class="kpi">
+            <div class="kpi__label">内存</div>
+            <div class="kpi__value">1.83<small>/ 3.66 GiB</small></div>
+            <div class="kpi__foot">
+              <span>可用 1.42 · 缓存 0.60</span>
+              <span class="bar-meter" style="width:56px"><span style="width:50%"></span></span>
+            </div>
+          </div>
+          <div class="kpi">
+            <div class="kpi__label">根分区 /</div>
+            <div class="kpi__value">62<small>%</small></div>
+            <div class="kpi__foot">
+              <span>12.4 / 20.0 GiB</span>
+              <span class="bar-meter bar-meter--warn" style="width:56px"><span style="width:62%"></span></span>
+            </div>
+          </div>
+          <div class="kpi">
+            <div class="kpi__label">负载</div>
+            <div class="kpi__value">0.34</div>
+            <div class="kpi__foot"><span>5m 0.28 · 15m 0.21</span><span>4 核</span></div>
+          </div>
+        </div>
+
+        <div class="pad">
+          <div class="split">
+            <div class="panel">
+              <div class="panel__head"><h2>磁盘</h2><span class="spacer"></span><span class="meta">5 个设备</span></div>
+              <table>
+                <thead><tr><th>设备</th><th>类型</th><th class="num">容量</th><th>挂载</th><th>状态</th></tr></thead>
+                <tbody>
+                  <tr><td class="mono">sda</td><td>整盘</td><td class="num mono">20.0 GiB</td><td class="mono">—</td><td><span class="tag tag--warn">受保护</span></td></tr>
+                  <tr><td class="mono">sda2</td><td>分区</td><td class="num mono">20.0 GiB</td><td class="mono">—</td><td><span class="tag tag--warn">受保护</span></td></tr>
+                  <tr><td class="mono">dm-0</td><td>LVM LV</td><td class="num mono">20.0 GiB</td><td class="mono">/</td><td><span class="tag tag--warn">受保护</span></td></tr>
+                  <tr><td class="mono">sdb</td><td>整盘</td><td class="num mono">4.0 GiB</td><td class="mono">—</td><td><span class="state state--good"><i class="dot"></i>可写</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="panel">
+              <div class="panel__head"><h2>主机</h2><span class="spacer"></span><span class="meta">13:20:09</span></div>
+              <div style="padding:11px 12px">
+                <dl class="kv">
+                  <dt>系统</dt><dd>Ubuntu 24.04.5 LTS</dd>
+                  <dt>内核</dt><dd class="mono">6.8.0-147</dd>
+                  <dt>架构</dt><dd class="mono">x86_64</dd>
+                  <dt>启动 ID</dt><dd class="mono">4a25a825</dd>
+                  <dt>面板服务</dt><dd><span class="state state--good"><i class="dot"></i>运行中</span></dd>
+                  <dt>代理</dt><dd><span class="state state--good"><i class="dot"></i>已连接</span></dd>
+                  <dt>docker</dt><dd><span class="state state--unknown"><i class="dot"></i>未安装</span></dd>
+                </dl>
+              </div>
+            </div>
+          </div>
+
+          <div class="split" style="grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);margin-top:14px">
+            <div class="panel">
+              <div class="panel__head"><h2>最近任务</h2><span class="spacer"></span><span class="meta">3 条</span></div>
+              <table>
+                <thead><tr><th class="num">#</th><th>动作</th><th>目标</th><th>结果</th><th class="num">用时</th></tr></thead>
+                <tbody>
+                  <tr><td class="num mono">128</td><td class="mono">storage.partition_table.initialize</td><td class="mono">sdb</td><td><span class="state state--good"><i class="dot"></i>成功</span></td><td class="num mono">1.8s</td></tr>
+                  <tr><td class="num mono">127</td><td class="mono">service.restart</td><td class="mono">nginx.service</td><td><span class="state state--good"><i class="dot"></i>成功</span></td><td class="num mono">0.6s</td></tr>
+                  <tr><td class="num mono">126</td><td class="mono">deployment.apply</td><td class="mono">adminer</td><td><span class="state state--warn"><i class="dot"></i>部分完成</span></td><td class="num mono">42.1s</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="panel">
+              <div class="panel__head"><h2>常用入口</h2><span class="spacer"></span><span class="meta">2 个</span></div>
+              <div style="padding:11px 12px;display:flex;flex-direction:column;gap:9px">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span class="mono" style="font-size:var(--t-sm)">adminer</span>
+                  <span class="tag">http</span>
+                  <span class="state state--good" style="margin-left:auto"><i class="dot"></i>可打开</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span class="mono" style="font-size:var(--t-sm)">files</span>
+                  <span class="tag">https</span>
+                  <span class="state state--warn" style="margin-left:auto"><i class="dot"></i>证书待续</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== 存储 ======== -->
+    <section class="win" id="win-storage" data-app="storage" data-open="false" data-max="false" style="width:900px" aria-label="存储">
+      <div class="win__bar">
+        <span class="win__title">存储</span>
+        <span class="win__tag">dm-0</span>
+        <span class="win__spacer"></span>
+        <button class="win__ctl" type="button" data-act="min" title="最小化">—</button>
+        <button class="win__ctl" type="button" data-act="max" title="最大化">□</button>
+        <button class="win__ctl win__ctl--close" type="button" data-act="close" title="关闭">×</button>
+      </div>
+      <div class="win__body">
+        <div class="winhead">
+          <div><h1>存储</h1><p>1 块整盘受系统盘保护 · sdb 4.0 GiB 可写</p></div>
+          <div class="spacer"></div>
+          <div class="actions">
+            <button class="btn" type="button">重新采集</button>
+            <button class="btn btn--primary" type="button">初始化 sdb</button>
+          </div>
+        </div>
+        <div class="pad">
+          <div class="split">
+            <div class="panel">
+              <div class="panel__head"><h2>设备</h2><span class="spacer"></span><span class="meta">按拓扑排序</span></div>
+              <table>
+                <thead><tr><th>设备</th><th class="num">容量</th><th>文件系统</th><th>状态</th></tr></thead>
+                <tbody>
+                  <tr><td class="mono">sda</td><td class="num mono">20.0 GiB</td><td class="mono">—</td><td><span class="tag tag--warn">受保护</span></td></tr>
+                  <tr><td class="mono">├ sda1</td><td class="num mono">1.0 MiB</td><td class="mono">—</td><td><span class="tag tag--warn">受保护</span></td></tr>
+                  <tr><td class="mono">├ sda2</td><td class="num mono">20.0 GiB</td><td class="mono">LVM2_member</td><td><span class="tag tag--warn">受保护</span></td></tr>
+                  <tr><td class="mono">│ └ dm-0</td><td class="num mono">20.0 GiB</td><td class="mono">ext4</td><td><span class="tag tag--warn">受保护</span></td></tr>
+                  <tr><td class="mono">sdb</td><td class="num mono">4.0 GiB</td><td class="mono">—</td><td><span class="state state--good"><i class="dot"></i>可写</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="panel">
+              <div class="panel__head"><h2 class="mono">dm-0</h2><span class="tag tag--accent">LVM LV</span><span class="spacer"></span><span class="meta">ext4 → /</span></div>
+              <div style="padding:12px">
+                <div class="bar-meter bar-meter--warn"><span style="width:62%"></span></div>
+                <div class="kpi__foot"><span>12.4 GiB 已用</span><span>可用 7.6 GiB</span></div>
+                <div class="chain" style="margin-top:14px">
+                  <div class="chain__row"><span class="chain__node">sda</span><span class="chain__rel">整盘</span></div>
+                  <div class="chain__link"></div>
+                  <div class="chain__row"><span class="chain__node">sda2</span><span class="chain__rel">partition_of</span></div>
+                  <div class="chain__link"></div>
+                  <div class="chain__row"><span class="chain__node chain__node--target">dm-0</span><span class="chain__rel">depends_on → /</span></div>
+                </div>
+                <div class="actions" style="margin-top:16px">
+                  <button class="btn" type="button" disabled>格式化</button>
+                  <button class="btn" type="button" disabled>卸载</button>
+                </div>
+                <p class="hint">
+                  理由 <code>SYSTEM_DISK_PROTECTED</code>：根在 dm-0 上，所以 sda 也跟着受保护。
+                  保护沿依赖链往上走，不看这块盘上有没有文件系统。
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel" style="margin-top:14px">
+            <div class="panel__head"><h2>读写</h2><span class="spacer"></span><span class="meta">窗口 1s · dm-0</span></div>
+            <table>
+              <thead><tr><th>设备</th><th class="num">读</th><th class="num">写</th><th class="num">IOPS 读</th><th class="num">IOPS 写</th></tr></thead>
+              <tbody>
+                <tr><td class="mono">dm-0</td><td class="num mono">0 B/s</td><td class="num mono">1.2 MiB/s</td><td class="num mono">0</td><td class="num mono">34</td></tr>
+                <tr><td class="mono">sdb</td><td class="num mono">—</td><td class="num mono">—</td><td class="num mono">—</td><td class="num mono">—</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== 日志 ======== -->
+    <section class="win" id="win-logs" data-app="logs" data-open="false" data-max="false" style="width:1000px" aria-label="日志">
+      <div class="win__bar">
+        <span class="win__title">日志</span>
+        <span class="win__tag">journald</span>
+        <span class="win__spacer"></span>
+        <button class="win__ctl" type="button" data-act="min" title="最小化">—</button>
+        <button class="win__ctl" type="button" data-act="max" title="最大化">□</button>
+        <button class="win__ctl win__ctl--close" type="button" data-act="close" title="关闭">×</button>
+      </div>
+      <div class="win__body">
+        <div class="toolbar">
+          <span class="toolbar__label">单元</span>
+          <button class="chip" type="button" aria-pressed="true">upanel-agent</button>
+          <button class="chip" type="button" aria-pressed="true">upanel-web</button>
+          <button class="chip" type="button" aria-pressed="false">systemd</button>
+          <span style="width:8px"></span>
+          <span class="toolbar__label">级别</span>
+          <button class="chip" type="button" aria-pressed="true">warn</button>
+          <button class="chip" type="button" aria-pressed="true">info</button>
+          <div class="win__spacer" style="flex:1"></div>
+          <span class="state state--good"><i class="dot"></i>跟随中 · 最近 15 分钟</span>
+        </div>
+        <div class="stream">
+          <div class="stream__row"><span class="stream__time">13:20:09</span><span class="lv lv--info">INFO</span><span class="stream__unit">upanel-agent</span><span class="stream__msg">设备快照采集完成 devices=5 用时 84ms</span></div>
+          <div class="stream__row"><span class="stream__time">13:20:04</span><span class="lv lv--info">INFO</span><span class="stream__unit">upanel-web</span><span class="stream__msg">GET /api/v1/storage/devices 200 41ms</span></div>
+          <div class="stream__row"><span class="stream__time">13:19:58</span><span class="lv lv--warn">WARN</span><span class="stream__unit">upanel-agent</span><span class="stream__msg">拒绝写动作 device=sda action=storage.format reason=SYSTEM_DISK_PROTECTED</span></div>
+          <div class="stream__row"><span class="stream__time">13:19:41</span><span class="lv lv--info">INFO</span><span class="stream__unit">upanel-agent</span><span class="stream__msg">任务 #128 完成 state=succeeded 用时 1.8s</span></div>
+          <div class="stream__row"><span class="stream__time">13:19:12</span><span class="lv lv--info">INFO</span><span class="stream__unit">systemd</span><span class="stream__msg">Started upanel-web.service - uPanel Web</span></div>
+          <div class="stream__row"><span class="stream__time">13:18:47</span><span class="lv lv--info">INFO</span><span class="stream__unit">upanel-agent</span><span class="stream__msg">任务 #127 完成 state=succeeded 用时 0.6s</span></div>
+          <div class="stream__row"><span class="stream__time">13:18:02</span><span class="lv lv--info">INFO</span><span class="stream__unit">upanel-web</span><span class="stream__msg">GET /api/v1/system/summary 200 27ms</span></div>
+        </div>
+        <div class="toolbar" style="border-top:1px solid var(--rule);border-bottom:0;background:transparent">
+          <span class="toolbar__label">已显示 7 条 · 更早的按游标分页，不拉全量</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== 任务中心 ======== -->
+    <section class="win" id="win-jobs" data-app="jobs" data-open="false" data-max="false" style="width:640px" aria-label="任务中心">
+      <div class="win__bar">
+        <span class="win__title">任务中心</span>
+        <span class="win__tag">3 条</span>
+        <span class="win__spacer"></span>
+        <button class="win__ctl" type="button" data-act="min" title="最小化">—</button>
+        <button class="win__ctl" type="button" data-act="max" title="最大化">□</button>
+        <button class="win__ctl win__ctl--close" type="button" data-act="close" title="关闭">×</button>
+      </div>
+      <div class="win__body">
+        <table>
+          <thead><tr><th class="num">#</th><th>动作</th><th>目标</th><th>结果</th><th class="num">用时</th></tr></thead>
+          <tbody>
+            <tr><td class="num mono">128</td><td class="mono">storage.partition_table.initialize</td><td class="mono">sdb</td><td><span class="state state--good"><i class="dot"></i>成功</span></td><td class="num mono">1.8s</td></tr>
+            <tr><td class="num mono">127</td><td class="mono">service.restart</td><td class="mono">nginx.service</td><td><span class="state state--good"><i class="dot"></i>成功</span></td><td class="num mono">0.6s</td></tr>
+            <tr><td class="num mono">126</td><td class="mono">deployment.apply</td><td class="mono">adminer</td><td><span class="state state--warn"><i class="dot"></i>部分完成</span></td><td class="num mono">42.1s</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <div class="dock" id="dock" aria-label="应用坞"></div>
+    <div class="footnote">设计稿 · 非运行实例</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var root = document.documentElement;
+  var stage = document.getElementById('stage');
+  var order = ['overview', 'storage', 'logs', 'jobs'];
+  var apps = {};
+  order.forEach(function (key) {
+    apps[key] = {
+      title: { overview: '概览', storage: '存储', logs: '日志', jobs: '任务中心' }[key],
+      glyph: { overview: '◫', storage: '▤', logs: '≡', jobs: '⧗' }[key],
+      el: document.getElementById('win-' + key)
+    };
+  });
+
+  var z = 10;
+  var focused = null;
+  var seq = 0;
+
+  function isOpen(key) { return apps[key].el.getAttribute('data-open') === 'true'; }
+  function isMin(key) { return apps[key].el.getAttribute('data-min') === 'true'; }
+  function isVisible(key) { return isOpen(key) && !isMin(key); }
+  function isNarrow() { return window.matchMedia('(max-width: 760px)').matches; }
+
+  function focus(key) {
+    if (!apps[key] || !isOpen(key)) return;
+    apps[key].el.setAttribute('data-min', 'false');
+    apps[key].el.style.zIndex = String(++z);
+    order.forEach(function (k) {
+      apps[k].el.setAttribute('data-focus', k === key ? 'true' : 'false');
+    });
+    focused = key;
+    paint();
+  }
+
+  function open(key, keepPosition) {
+    if (!apps[key]) return;
+    apps[key].el.setAttribute('data-open', 'true');
+    apps[key].el.setAttribute('data-min', 'false');
+    if (!keepPosition) place(key);
+    focus(key);
+  }
+
+  function minimize(key) {
+    if (!apps[key]) return;
+    apps[key].el.setAttribute('data-min', 'true');
+    apps[key].el.setAttribute('data-focus', 'false');
+    if (focused === key) {
+      focused = null;
+      var back = order.filter(isVisible).pop();
+      if (back) focus(back);
+    }
+    paint();
+  }
+
+  function close(key) {
+    if (!apps[key]) return;
+    apps[key].el.setAttribute('data-open', 'false');
+    apps[key].el.setAttribute('data-min', 'false');
+    apps[key].el.setAttribute('data-max', 'false');
+    apps[key].el.setAttribute('data-focus', 'false');
+    if (focused === key) {
+      focused = null;
+      var back = order.filter(isVisible).pop();
+      if (back) focus(back);
+      else {
+        order.forEach(function (k) { apps[k].el.setAttribute('data-focus', 'false'); });
+      }
+    }
+    paint();
+  }
+
+  function toggleMax(key) {
+    var el = apps[key].el;
+    el.setAttribute('data-max', el.getAttribute('data-max') === 'true' ? 'false' : 'true');
+    focus(key);
+  }
+
+  function place(key) {
+    var el = apps[key].el;
+    if (isNarrow()) return;
+    if (el.dataset.placed === '1') return;
+    el.dataset.placed = '1';
+
+    var railW = 206;
+    var avail = Math.max(360, stage.clientWidth - railW - 24);
+    var wantW = key === 'logs' ? 1000 : key === 'storage' ? 900 : 960;
+    var width = Math.min(wantW, avail);
+    el.style.width = width + 'px';
+
+    if (key === 'overview') {
+      el.style.left = (railW + 10) + 'px';
+      el.style.top = '24px';
+    } else {
+      seq += 1;
+      el.style.left = (railW + 10 + seq * 14) + 'px';
+      el.style.top = (40 + seq * 14) + 'px';
+    }
+  }
+
+  // ---------- 拖动 ----------
+  order.forEach(function (key) {
+    var win = apps[key].el;
+    var handle = win.querySelector('.win__bar');
+    var dragging = false, sx = 0, sy = 0, bx = 0, by = 0;
+
+    handle.addEventListener('pointerdown', function (e) {
+      if (e.target.closest('.win__ctl')) return;
+      if (isNarrow() || win.getAttribute('data-max') === 'true') return;
+      dragging = true;
+      try { handle.setPointerCapture(e.pointerId); } catch (err) {}
+      sx = e.clientX; sy = e.clientY;
+      bx = parseFloat(win.style.left) || 0;
+      by = parseFloat(win.style.top) || 0;
+      focus(key);
+    });
+
+    handle.addEventListener('pointermove', function (e) {
+      if (!dragging) return;
+      var nextX = bx + (e.clientX - sx);
+      var nextY = by + (e.clientY - sy);
+      var maxX = stage.clientWidth - 120;
+      var maxY = stage.clientHeight - 44;
+      nextX = Math.min(Math.max(-win.offsetWidth + 140, nextX), Math.max(0, maxX));
+      nextY = Math.min(Math.max(0, nextY), Math.max(0, maxY));
+      win.style.left = nextX + 'px';
+      win.style.top = nextY + 'px';
+    });
+
+    function stop(e) {
+      if (!dragging) return;
+      dragging = false;
+      try { handle.releasePointerCapture(e.pointerId); } catch (err) {}
+    }
+    handle.addEventListener('pointerup', stop);
+    handle.addEventListener('pointercancel', stop);
+
+    win.addEventListener('pointerdown', function () { focus(key); }, true);
+
+    Array.prototype.forEach.call(win.querySelectorAll('.win__ctl'), function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var act = btn.getAttribute('data-act');
+        if (act === 'max') toggleMax(key);
+        else if (act === 'min') minimize(key);
+        else close(key);
+      });
+    });
+  });
+
+  // ---------- 桌面图标 ----------
+  var icons = Array.prototype.slice.call(document.querySelectorAll('.icon[data-app]'));
+  icons.forEach(function (icon) {
+    var key = icon.getAttribute('data-app');
+    icon.addEventListener('click', function () {
+      var wasSelected = icon.getAttribute('aria-selected') === 'true';
+      icons.forEach(function (o) { o.removeAttribute('aria-selected'); });
+      icon.setAttribute('aria-selected', 'true');
+      if (wasSelected || isNarrow()) open(key);
+    });
+    icon.addEventListener('dblclick', function () { open(key); });
+    icon.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(key); }
+    });
+  });
+
+  // ---------- 应用坞 ----------
+  var dock = document.getElementById('dock');
+
+  function paint() {
+    dock.innerHTML = '';
+    var any = false;
+    order.forEach(function (key) {
+      if (!isOpen(key)) return;
+      any = true;
+      var app = apps[key];
+
+      var item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'dock__item';
+      item.setAttribute('data-running', 'true');
+      if (focused === key) item.setAttribute('data-focus', 'true');
+      item.innerHTML = '<span class="dock__glyph">' + app.glyph + '</span>' + app.title;
+      item.addEventListener('click', function () { focus(key); });
+      dock.appendChild(item);
+    });
+
+    if (any) {
+      var sep = document.createElement('span');
+      sep.className = 'dock__sep';
+      dock.appendChild(sep);
+    }
+
+    var all = document.createElement('button');
+    all.type = 'button';
+    all.className = 'dock__item';
+    all.innerHTML = '<span class="dock__glyph">＋</span>全部应用';
+    all.addEventListener('click', function () {
+      order.forEach(function (k) { close(k); });
+    });
+    dock.appendChild(all);
+
+    icons.forEach(function (icon) {
+      var key = icon.getAttribute('data-app');
+      if (isOpen(key)) icon.setAttribute('aria-selected', focused === key ? 'true' : icon.getAttribute('aria-selected'));
+    });
+  }
+
+  // ---------- 主题 ----------
+  var toggle = document.getElementById('theme-toggle');
+  function isDark() {
+    var set = root.getAttribute('data-theme');
+    if (set === 'dark') return true;
+    if (set === 'light') return false;
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+  function syncTheme() {
+    toggle.textContent = isDark() ? '☀' : '◐';
+    toggle.title = isDark() ? '切到纸面' : '切到夜间';
+  }
+  toggle.addEventListener('click', function () {
+    var next = isDark() ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('upanel-desktop-theme', next); } catch (e) {}
+    syncTheme();
+  });
+  try {
+    var saved = localStorage.getItem('upanel-desktop-theme');
+    if (saved === 'dark' || saved === 'light') root.setAttribute('data-theme', saved);
+  } catch (e) {}
+  syncTheme();
+
+  // ---------- 启动 ----------
+  // 窄屏先给图标页，不直接盖一张窗口上去
+  if (!isNarrow()) {
+    place('overview');
+    focus('overview');
+  } else {
+    order.forEach(function (k) {
+      apps[k].el.setAttribute('data-open', 'false');
+      apps[k].el.setAttribute('data-focus', 'false');
+    });
+    paint();
+  }
+
+  var resizeTimer = null;
+  window.addEventListener('resize', function () {
+    if (resizeTimer) window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(function () {
+      if (isNarrow()) return;
+      order.forEach(function (key) {
+        var el = apps[key].el;
+        if (!isOpen(key) || el.getAttribute('data-max') === 'true') return;
+        var maxLeft = Math.max(16, stage.clientWidth - 160);
+        var maxTop = Math.max(56, stage.clientHeight - 100);
+        var left = parseFloat(el.style.left) || 0;
+        var top = parseFloat(el.style.top) || 0;
+        if (left > maxLeft) el.style.left = maxLeft + 'px';
+        if (top > maxTop) el.style.top = maxTop + 'px';
+      });
+    }, 120);
+  });
+})();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,10 @@
+10:34:33	s5-reauth-start	+67s
+10:34:37	s5-reauth-done	+71s
+10:34:37	s5-preflight-done	+71s
+10:34:37	s5-preflight-id-read	+71s
+10:34:38	s5-submit-done	+72s
+10:35:05	s7-reauth-start	+99s
+10:35:14	s7-reauth-done	+108s
+10:35:16	s7-preflight-done	+110s
+10:35:16	s7-preflight-id-read	+110s
+10:35:18	s7-submit-done	+112s

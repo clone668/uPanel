@@ -1,0 +1,29 @@
+{
+  "web": {
+    "mode": "production",
+    "listen_address": "127.0.0.1:9443",
+    "tls_cert_path": "/etc/upanel/tls/panel.pem",
+    "tls_key_path": "/etc/upanel/tls/panel.key",
+    "shutdown_timeout_seconds": 10
+  },
+  "agent": {
+    "socket_path": "/run/upanel/agent.sock",
+    "shutdown_timeout_seconds": 10,
+    "web_user": "upanel-web",
+    "socket_group": "upanel-web",
+    "database_path": "/var/lib/upanel-agent/agent.db",
+    "secret_key_path": "/etc/upanel/agent.key",
+    "storage": { "smart_enabled": true, "smart_interval_minutes": 15 },
+    "files": {
+      "roots": [
+        { "id": "srv", "name": "站点与应用目录", "path": "/srv/upanel", "writable": true }
+      ]
+    },
+    "terminal": {
+      "shell_user": "upanel-shell",
+      "home_path": "/var/lib/upanel-shell"
+    }
+  },
+  "database": { "path": "/var/lib/upanel/upanel.db", "busy_timeout_ms": 5000 },
+  "log": { "level": "info", "format": "json", "add_source": false }
+}

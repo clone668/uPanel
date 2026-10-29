@@ -1,0 +1,28 @@
+{
+  "token": "nrb_79053eab3069fde6f77e4dfc01557def",
+  "interface": "ens4",
+  "permanent_mac": "52:54:00:12:34:56",
+  "mode": "static",
+  "candidate_address": "10.0.2.15",
+  "candidate_gateway": "10.0.2.2",
+  "previous": {
+    "panel_file_present": false,
+    "panel_file_name": "90-upanel-ens4.yaml",
+    "mode": "dhcp",
+    "address": "10.0.2.15",
+    "prefix_length": 24,
+    "gateway": "10.0.2.2"
+  },
+  "applied_at": "2026-10-26T14:59:12Z",
+  "deadline": "2026-10-26T15:01:12Z",
+  "state": "pending",
+  "actions": [
+    "渲染通过：netplan generate exit=0",
+    "timer 已武装：upanel-netrollback@nrb_79053eab3069fde6f77e4dfc01557def.timer 到期 2026-10-26T15:01:12Z",
+    "netplan apply exit=0"
+  ],
+  "executable": "/tmp/upanel-bin/upanel-agent",
+  "config_path": "/etc/upanel/upanel.json",
+  "operation_id": "op_5a813f36694ee08e2e1c9b16b17fb16c",
+  "updated_at": "2026-10-26T14:59:36Z"
+}

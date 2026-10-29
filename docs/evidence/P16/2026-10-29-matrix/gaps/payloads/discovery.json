@@ -1,0 +1,203 @@
+{
+  "data": {
+    "status": "partial",
+    "error": "systemd：服务状态尚未完成第一次采集",
+    "collected_at": "2026-10-29T02:36:59Z",
+    "sources": [
+      {
+        "source": "systemd",
+        "status": "error",
+        "error": "服务状态尚未完成第一次采集",
+        "count": 0
+      },
+      {
+        "source": "local_listen",
+        "status": "ok",
+        "count": 7
+      },
+      {
+        "source": "docker",
+        "status": "ok",
+        "count": 0
+      }
+    ],
+    "candidates": [
+      {
+        "target_id": "local_containerd-38819",
+        "kind": "local",
+        "source": "local_listen",
+        "name": "containerd",
+        "title": "containerd (38819)",
+        "reason": "进程 805（containerd）正在监听，它不属于任何能被面板识别的 systemd 单元",
+        "observed_state": "running",
+        "listeners": [
+          {
+            "address": "127.0.0.1",
+            "port": 38819,
+            "protocol": "tcp",
+            "loopback": true
+          }
+        ],
+        "suggested_scheme": "http",
+        "suggested_port": 38819,
+        "probe_available": true,
+        "probe_note": "",
+        "bound_app_id": null,
+        "bound_app_name": null
+      },
+      {
+        "target_id": "local_python3-19491",
+        "kind": "local",
+        "source": "local_listen",
+        "name": "python3",
+        "title": "python3 (19491)",
+        "reason": "进程 3000（python3）正在监听，它不属于任何能被面板识别的 systemd 单元",
+        "observed_state": "running",
+        "listeners": [
+          {
+            "address": "127.0.0.1",
+            "port": 19491,
+            "protocol": "tcp",
+            "loopback": true
+          }
+        ],
+        "suggested_scheme": "http",
+        "suggested_port": 19491,
+        "probe_available": true,
+        "probe_note": "",
+        "bound_app_id": null,
+        "bound_app_name": null
+      },
+      {
+        "target_id": "local_python3-19492",
+        "kind": "local",
+        "source": "local_listen",
+        "name": "python3",
+        "title": "python3 (19492)",
+        "reason": "进程 3001（python3）正在监听，它不属于任何能被面板识别的 systemd 单元",
+        "observed_state": "running",
+        "listeners": [
+          {
+            "address": "127.0.0.1",
+            "port": 19492,
+            "protocol": "tcp",
+            "loopback": true
+          }
+        ],
+        "suggested_scheme": "http",
+        "suggested_port": 19492,
+        "probe_available": true,
+        "probe_note": "",
+        "bound_app_id": null,
+        "bound_app_name": null
+      },
+      {
+        "target_id": "local_python3-19493",
+        "kind": "local",
+        "source": "local_listen",
+        "name": "python3",
+        "title": "python3 (19493)",
+        "reason": "进程 9696（python3）正在监听，它不属于任何能被面板识别的 systemd 单元",
+        "observed_state": "running",
+        "listeners": [
+          {
+            "address": "127.0.0.1",
+            "port": 19493,
+            "protocol": "tcp",
+            "loopback": true
+          }
+        ],
+        "suggested_scheme": "http",
+        "suggested_port": 19493,
+        "probe_available": true,
+        "probe_note": "",
+        "bound_app_id": null,
+        "bound_app_name": null
+      },
+      {
+        "target_id": "local_sshd-22",
+        "kind": "local",
+        "source": "local_listen",
+        "name": "sshd",
+        "title": "sshd (22)",
+        "reason": "进程 826（sshd）正在监听，它不属于任何能被面板识别的 systemd 单元",
+        "observed_state": "running",
+        "listeners": [
+          {
+            "address": "0.0.0.0",
+            "port": 22,
+            "protocol": "tcp",
+            "loopback": true
+          },
+          {
+            "address": "::",
+            "port": 22,
+            "protocol": "tcp",
+            "loopback": true
+          }
+        ],
+        "suggested_scheme": "http",
+        "suggested_port": 22,
+        "probe_available": true,
+        "probe_note": "",
+        "bound_app_id": null,
+        "bound_app_name": null
+      },
+      {
+        "target_id": "local_systemd-resolve-53",
+        "kind": "local",
+        "source": "local_listen",
+        "name": "systemd-resolve",
+        "title": "systemd-resolve (53)",
+        "reason": "进程 667（systemd-resolve）正在监听，它不属于任何能被面板识别的 systemd 单元",
+        "observed_state": "running",
+        "listeners": [
+          {
+            "address": "127.0.0.53",
+            "port": 53,
+            "protocol": "tcp",
+            "loopback": true
+          },
+          {
+            "address": "127.0.0.54",
+            "port": 53,
+            "protocol": "tcp",
+            "loopback": true
+          }
+        ],
+        "suggested_scheme": "http",
+        "suggested_port": 53,
+        "probe_available": true,
+        "probe_note": "",
+        "bound_app_id": null,
+        "bound_app_name": null
+      },
+      {
+        "target_id": "local_upanel-web-19490",
+        "kind": "local",
+        "source": "local_listen",
+        "name": "upanel-web",
+        "title": "upanel-web (19490)",
+        "reason": "进程 9605（upanel-web）正在监听，它不属于任何能被面板识别的 systemd 单元",
+        "observed_state": "running",
+        "listeners": [
+          {
+            "address": "127.0.0.1",
+            "port": 19490,
+            "protocol": "tcp",
+            "loopback": true
+          }
+        ],
+        "suggested_scheme": "http",
+        "suggested_port": 19490,
+        "probe_available": true,
+        "probe_note": "",
+        "bound_app_id": null,
+        "bound_app_name": null
+      }
+    ],
+    "missing_bindings": [],
+    "truncated": false
+  },
+  "request_id": "d4af887d3785f19faf4c94b2151d47f0"
+}

@@ -1,0 +1,107 @@
+== 0. 环境
+PASS  验收脚本以 root 运行
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  python3 可用（解析响应 + 种历史行）
+PASS  Web 账号 upanel-web 存在
+
+== 1. 装配：配置（历史监控打开，保留窗口压缩）+ 代理 + 管理员 + Web ==
+PASS  代理密钥文件已存在（沿用上一轮）
+PASS  代理启动并创建 socket
+PASS  init-admin 退出码
+PASS  Web 启动（历史监控打开）
+PASS  管理员登录 200
+
+== 2. A：真实采集（5 秒节奏、不重复写、分钟聚合出现） ==
+PASS  查询最近 40 秒的 CPU 曲线 200
+NOTE  cpu_usage_percent 的 raw 点（unix 秒）：1792962835,1792962840,1792962845,1792962850,1792962855,1792962860,1792962865,1792962870
+PASS  40 秒跨度 + 5 秒步长读的是 raw 层
+PASS  序列里有 CPU 曲线
+PASS  raw 点至少 4 个（30 秒内按 5 秒采集）
+PASS  raw 点时间戳互不重复（同一份快照不写两次）
+PASS  raw 点的时间戳都对齐到 5 秒（桶边界）
+PASS  每个 raw 点 sample_count=1（原始点不是聚合出来的）
+PASS  每个点都满足 min ≤ value ≤ max
+PASS  status 200
+PASS  status.enabled=true
+PASS  status.collecting=true（采集循环在跑）
+PASS  status 报告的 raw 保留窗口与配置一致
+PASS  status 报告的 minute 保留窗口与配置一致
+PASS  status 报告的采集间隔是 2 秒
+PASS  库里已经有分钟聚合行
+PASS  库里确实有原始样本
+PASS  status 带出登记的指标清单（界面据此画选择框）
+PASS  status 的 series 目录里有 host 这一组（**按 scope 分组**，不是按粒度）
+PASS  series 的每条都带 scope/target_id/metric
+PASS  series 里有 filesystem 组（说明容量样本也进了历史）
+PASS  库里没有违反 min ≤ value ≤ max 的分钟行
+PASS  分钟行的 sample_count 是多个原始点累加出来的
+
+== 3. B：缺口（停代理期间不写样本、不补零） ==
+PASS  代理进程已经退出（kill -0 失败，不是只删了 socket 文件）
+PASS  代理停机时 status 仍 200
+PASS  代理停机时 collecting 仍为 true（循环在跑，只是拿不到快照）
+PASS  代理停机时 last_error 写明原因
+PASS  代理恢复启动
+PASS  查询跨越缺口的窗口 200
+PASS  缺口被如实计数（missing_points > 0）
+PASS  缺口窗口里没有任何点（缺失就是没有点，不是 0 值点）
+NOTE  缺口窗口：GAP_START=1792962954 GAP_END=1792962980（26 秒），判定区间 (1792962959, 1792962975)
+PASS  代理停机期间库里也没有行（不是存了 0）
+
+== 4. C：保留与启动补算（种入历史行，重启后先聚合再裁剪） ==
+PASS  Web 已停止（准备种历史行）
+PASS  种入上一个整小时（unix 1792958400）的 minute 行
+PASS  Web 重启（启动即补算 + 裁剪）
+PASS  重启后 status 200
+PASS  启动补算出了小时行（samples.hour > 0）
+PASS  超过保留窗口的老 raw 行被裁掉（不是等下次重启）
+PASS  种入的那一小时被聚成 hour 行，值仍是 20、样本数 ≥ 720
+PASS  三小时跨度查询 200
+PASS  三小时跨度读到 hour 层（超过 minute 保留窗口）
+PASS  hour 层里读得到种进去的那一个小时（值 20）
+
+== 5. D：查询规则（跨度选层、点数上限、参数校验、权限） ==
+PASS  24 小时跨度查询 200
+PASS  24 小时跨度按配置的保留窗口落到 hour 层
+PASS  步长被加粗到小时的整数倍（1440 点上限）
+PASS  max_points 如实回报 1440
+PASS  每个序列的点数不超过 1440
+PASS  一小时跨度读 minute 层（超过 raw 保留窗口）
+PASS  未知指标 400
+PASS  未知指标错误码 VALIDATION_ERROR
+PASS  未知指标的报错点出名字
+PASS  缺 scope 400
+PASS  指标不属于该 scope 400
+PASS  from 不是 RFC3339 → 400
+PASS  step=0 → 400
+PASS  to 在未来 → 400
+PASS  未来窗口的报错说得清为什么
+PASS  跨度超过 365 天 → 400
+PASS  未登录 401
+PASS  未登录错误码
+PASS  创建 viewer 201
+PASS  viewer 登录 200
+PASS  viewer 读历史 200（权限 V）
+PASS  viewer 读历史状态 200（权限 V）
+PASS  POST /system/metrics 405
+
+== 6. E：关闭采集（旧数据仍可查，status 说清原因） ==
+PASS  Web 以 metrics.enabled=false 重启
+PASS  关闭采集后 status 200
+PASS  关闭采集：enabled 仍为 true（旧数据可查）
+PASS  关闭采集：collecting=false
+PASS  关闭采集：reason 指明是配置关的
+PASS  关闭采集后仍然查得到历史数据 200
+PASS  关闭采集后查询结果 enabled=true
+PASS  关闭采集后不再写新样本（最新 raw 时间戳没有前进）
+
+== 7. F：日志卫生 ==
+PASS  Web 日志里没有出现管理员口令
+PASS  Web 日志里没有出现 viewer 口令
+PASS  Web 日志里没有私钥
+PASS  Web 日志里没有 panic
+PASS  Web 日志非空（失败会写进日志，不静默）
+
+通过 88 项，失败 0 项

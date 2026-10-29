@@ -1,0 +1,60 @@
+== 环境
+os=Ubuntu 22.04.5 LTS
+kernel=5.15.0-198-generic
+started_at=2026-10-27T16:27:13Z
+web_binary_mtime=2026-10-27 15:05:11.648322221 +0000
+== 单元状态
+upanel-web active=active since=Tue 2026-10-27 16:22:12 UTC
+upanel-agent active=active since=Tue 2026-10-27 16:22:10 UTC
+== 打开 upanel.db 的进程
+pid=769 comm=upanel-web cmd=/usr/local/bin/upanel-web --config /etc/upanel/upanel.json 
+== 找 sqlite3 解释器
+用 python3（Python 3.10.12）的 sqlite3 模块
+== 表清单（空闲开始前）
+alert_events	0
+alert_rules	0
+alert_silence	1
+app_favorites	0
+app_groups	0
+app_health_results	0
+app_volume_dependencies	0
+apps	0
+audit_events	0
+certificates	0
+idempotency_keys	0
+job_events	0
+jobs	0
+metric_samples	913
+notification_channels	1
+notification_deliveries	0
+preflights	0
+proxies	0
+schema_migrations	14
+sessions	0
+settings	0
+sqlite_sequence	3
+user_totp	0
+user_totp_recovery_codes	0
+users	1
+== 空闲采样开始 2026-10-27T16:27:17Z
+== 空闲采样结束 2026-10-27T16:32:53Z
+== 表行数变化（空闲 5 分半）
+metric_samples	+774	(913 → 1687)
+== 采样明细（date db wal shm adb_wal rows_total note）
+2026-10-27T16:27:17Z	db=385024	wal=2735712	shm=32768	adb_wal=0	rows_total=933	note=before-idle
+2026-10-27T16:27:47Z	db=385024	wal=3110632	shm=32768	adb_wal=0	rows_total=993	note=t=30s
+2026-10-27T16:28:18Z	db=385024	wal=3469072	shm=32768	adb_wal=0	rows_total=1085	note=t=60s
+2026-10-27T16:28:48Z	db=385024	wal=3782192	shm=32768	adb_wal=0	rows_total=1145	note=t=90s
+2026-10-27T16:29:19Z	db=507904	wal=4128272	shm=32768	adb_wal=0	rows_total=1230	note=t=120s
+2026-10-27T16:29:49Z	db=507904	wal=4128272	shm=32768	adb_wal=0	rows_total=1290	note=t=150s
+2026-10-27T16:30:20Z	db=507904	wal=4128272	shm=32768	adb_wal=0	rows_total=1357	note=t=180s
+2026-10-27T16:30:50Z	db=507904	wal=4128272	shm=32768	adb_wal=0	rows_total=1417	note=t=210s
+2026-10-27T16:31:21Z	db=507904	wal=4128272	shm=32768	adb_wal=0	rows_total=1502	note=t=240s
+2026-10-27T16:31:52Z	db=507904	wal=4128272	shm=32768	adb_wal=0	rows_total=1562	note=t=270s
+2026-10-27T16:32:22Z	db=507904	wal=4128272	shm=32768	adb_wal=0	rows_total=1647	note=t=300s
+2026-10-27T16:32:53Z	db=507904	wal=4128272	shm=32768	adb_wal=0	rows_total=1707	note=t=330s
+== PRAGMA wal_checkpoint(TRUNCATE)
+busy=0 log=0 checkpointed=0
+journal_mode=wal
+autocheckpoint=1000
+== 完 2026-10-27T16:32:54Z

@@ -1,0 +1,29 @@
+{
+  "token": "nrb_bfc428392a1c733a9df5087e53b57f90",
+  "interface": "ens4",
+  "permanent_mac": "52:54:00:12:34:56",
+  "mode": "static",
+  "candidate_address": "10.99.99.99",
+  "previous": {
+    "panel_file_present": true,
+    "panel_file_name": "90-upanel-ens4.yaml",
+    "panel_file_sha256": "d1e99812eb7f48a45be70959dd0f0db42130d8b87d8a98a6b439d4e9c21f0587",
+    "panel_file_content": "# 由 uPanel 生成（P14.2）。下一次 apply 会整体覆盖本文件。\n# 手工修改不会保留；要交回自管，请删除本文件后自行 netplan apply。\nnetwork:\n  version: 2\n  ethernets:\n    ens4:\n      dhcp4: true\n",
+    "mode": "dhcp",
+    "address": "10.0.2.15",
+    "prefix_length": 24,
+    "gateway": "10.0.2.2"
+  },
+  "applied_at": "2026-10-26T15:01:12Z",
+  "deadline": "2026-10-26T15:03:12Z",
+  "state": "pending",
+  "actions": [
+    "渲染通过：netplan generate exit=0",
+    "timer 已武装：upanel-netrollback@nrb_bfc428392a1c733a9df5087e53b57f90.timer 到期 2026-10-26T15:03:12Z",
+    "netplan apply exit=0"
+  ],
+  "executable": "/tmp/upanel-bin/upanel-agent",
+  "config_path": "/etc/upanel/upanel.json",
+  "operation_id": "op_f0fb42ad419fa333299c24b58b5f0b83",
+  "updated_at": "2026-10-26T15:01:36Z"
+}

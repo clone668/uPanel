@@ -1,0 +1,4 @@
+total 12
+drwxr-xr-x 2 root root 4096 Oct 27 11:42 .
+drwxr-xr-x 4 root root 4096 Oct 27 11:42 ..
+-rw------- 1 root root   34 Oct 27 11:42 marker.txt

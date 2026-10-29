@@ -1,0 +1,14 @@
+<== PASS  登录页可访问
+<== PASS  登录成功并离开登录页（/）
+<== PASS  部署页标题是“受管部署”
+<== PASS  这台机器上还没有受管部署（空状态说清楚了）
+<== PASS  页面写明它读的是管理面、不是容器观测面
+<== PASS  没有“直接部署”的按钮
+<== PASS  页面上没有 Compose YAML 输入框
+<== PASS  新建表单说明定义是闭集
+<== PASS  表单里只有闭集里的字段，没有 YAML 框也没有特权选项
+<== PASS  本地校验对合法草稿不报错
+<== FAIL  脚本异常：Error: 预检没有给出 allowed=true：即将对 upanel-smoke 执行：部署 /  / 写入包装单元与渲染配置，并以 compose 项目 upanel-smoke 拉起容器；端口 127.0.0.1:18089 → 容器 80 /  / 未登记的动作 "deployment.apply" / 取消
+
+PASS 10 / FAIL 0（共 10 项，目标 https://127.0.0.1:9443，部署名 upanel-smoke）
+exit=1

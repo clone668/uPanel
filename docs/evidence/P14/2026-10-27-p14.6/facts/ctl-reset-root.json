@@ -1,0 +1,12 @@
+{
+  "database_path": "/var/tmp/upanel-accept-p14-6/webdata/upanel.db",
+  "user_id": 1,
+  "username": "admin",
+  "role": "admin",
+  "state_cleared": true,
+  "recovery_codes_cleared": 10,
+  "agent_status": "forbidden",
+  "agent_detail": "对端身份不被代理接受：请以 upanel-web 身份运行本命令",
+  "revoked_sessions": 1,
+  "schema_version": 14
+}

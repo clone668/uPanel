@@ -1,0 +1,4 @@
+PHASE=main
+PASS=229 FAIL=0 NOT RUN=1
+FAILED_NAMES= (none)
+NOTRUN_NAMES= | 初始化 GPT / 建分区 / 格式化

@@ -1,0 +1,19 @@
+NEXT                        LEFT              LAST                        PASSED        UNIT                           ACTIVATES
+Mon 2026-10-26 19:08:47 UTC 4h 3min left      Sun 2026-10-25 19:08:42 UTC 19h ago       update-notifier-download.timer update-notifier-download.service
+Mon 2026-10-26 19:18:46 UTC 4h 13min left     Sun 2026-10-25 19:18:46 UTC 19h ago       systemd-tmpfiles-clean.timer   systemd-tmpfiles-clean.service
+Tue 2026-10-27 00:00:00 UTC 8h left           Mon 2026-10-26 00:00:20 UTC 15h ago       dpkg-db-backup.timer           dpkg-db-backup.service
+Tue 2026-10-27 00:00:00 UTC 8h left           Mon 2026-10-26 00:00:20 UTC 15h ago       logrotate.timer                logrotate.service
+Tue 2026-10-27 00:18:49 UTC 9h left           Mon 2026-10-26 13:49:20 UTC 1h 15min ago  apt-daily.timer                apt-daily.service
+Tue 2026-10-27 02:09:46 UTC 11h left          Mon 2026-10-26 12:26:40 UTC 2h 38min ago  certbot.timer                  certbot.service
+Tue 2026-10-27 02:27:48 UTC 11h left          Mon 2026-10-26 14:26:31 UTC 38min ago     motd-news.timer                motd-news.service
+Tue 2026-10-27 06:30:55 UTC 15h left          Mon 2026-10-26 06:43:40 UTC 8h ago        apt-daily-upgrade.timer        apt-daily-upgrade.service
+Tue 2026-10-27 11:37:04 UTC 20h left          Mon 2026-10-26 04:06:16 UTC 10h ago       man-db.timer                   man-db.service
+Sun 2026-11-01 03:10:29 UTC 5 days left       Sun 2026-10-25 03:11:11 UTC 1 day 11h ago e2scrub_all.timer              e2scrub_all.service
+Mon 2026-11-02 01:11:07 UTC 6 days left       Mon 2026-10-26 00:37:40 UTC 14h ago       fstrim.timer                   fstrim.service
+Wed 2026-11-04 08:39:26 UTC 1 week 1 day left Sun 2026-10-25 08:22:28 UTC 1 day 6h ago  update-notifier-motd.timer     update-notifier-motd.service
+n/a                         n/a               n/a                         n/a           apport-autoreport.timer        apport-autoreport.service
+n/a                         n/a               Mon 2026-10-26 15:04:19 UTC 52s ago       p142-watchdog.timer            p142-watchdog.service
+n/a                         n/a               n/a                         n/a           snapd.snap-repair.timer        snapd.snap-repair.service
+n/a                         n/a               n/a                         n/a           ua-timer.timer                 ua-timer.service
+
+16 timers listed.

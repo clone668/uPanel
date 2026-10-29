@@ -1,0 +1,10 @@
+Hostname: ff43485e6626
+IP: 127.0.0.1
+IP: ::1
+IP: 172.18.0.2
+RemoteAddr: 172.18.0.1:33386
+GET / HTTP/1.1
+Host: 127.0.0.1:18087
+User-Agent: curl/7.81.0
+Accept: */*
+

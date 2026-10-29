@@ -1,0 +1,27 @@
+Warning: Permanently added '[127.0.0.1]:2223' (ED25519) to the list of known hosts.
+STAMP 2026-10-27T15:03:22Z uninstall 开始（默认卸载：保留数据）
+PASS  默认卸载退出码 0
+PASS  打出卸载完成横幅
+PASS  单元文件已删除（upanel-web.service）
+PASS  单元已不再登记（upanel-web.service）
+PASS  单元文件已删除（upanel-agent.service）
+PASS  单元已不再登记（upanel-agent.service）
+PASS  已删除 /usr/local/bin/upanel-web
+PASS  已删除 /usr/local/bin/upanelctl
+PASS  已删除 /usr/local/lib/upanel
+PASS  /etc/upanel 保留
+PASS  agent.key 还在且仍是 0600
+PASS  面板库保留
+PASS  代理库保留
+PASS  /srv/upanel 保留（永远不会自动删）
+PASS  默认卸载不打印备份行
+PASS  保留清单里点名了配置与两库
+PASS  服务已停
+PASS  端口不再响应（进程真的没了）
+PASS  重装退出码 0
+PASS  重装后健康检查 200
+PASS  重装后管理员能登录（账号在库里，不是重装的）
+PASS  重装后标记账号还在
+PASS  重装后 agent.key 没变（秘密仍然解得开）
+
+==== uninstall: PASS=23 FAIL=0 NOT RUN=0 ====

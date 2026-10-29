@@ -1,0 +1,18 @@
+# 这一轮换了系统盘：从 cloud image 重建，不是在上轮跑脏的盘上接着跑
+# 生成于宿主时钟（UTC）。重建前先用 SHA256SUMS 核对基底镜像，避免"从坏底重建"。
+
+== 基底镜像校验（24.04）==
+（22.04 那条与本次无关，见 P16/2026-10-28-p16.2-final/facts-vm-reset.txt）
+04e8f2461a16a44e78a370284471f29616cdd9baf1893df25807b71f985b6c94 *ubuntu-24.04-server-cloudimg-amd64.img   # 与 images/SHA256SUMS 一致
+
+== 24.04 重建动作（docs/TEST_ENVIRONMENT.md 第 4 节的文件级重建）==
+rm -f system.qcow2 data-a.qcow2 data-b.qcow2 data-c.qcow2
+qemu-img create -f qcow2 -F qcow2 -b ../images/ubuntu-24.04-server-cloudimg-amd64.img system.qcow2 40G
+qemu-img create -f qcow2 data-a.qcow2 8G
+qemu-img create -f qcow2 data-b.qcow2 4G
+qemu-img create -f qcow2 data-c.qcow2 4G
+
+
+== 重建后、跑之前的客机现场 ==
+up 2 min（2026-10-28T05:47:06Z）/ cloud-init status: done / 2 vCPU / 3915 MB / Ubuntu 24.04.5 LTS / 6.8.0-147-generic
+docker：absent      /etc/upanel：不存在      upanelctl：absent

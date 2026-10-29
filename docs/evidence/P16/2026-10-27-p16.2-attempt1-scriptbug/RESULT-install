@@ -1,0 +1,4 @@
+PHASE=install
+PASS=34 FAIL=5 NOT RUN=0
+FAILED_NAMES= | 管理员能登录 | 登录拿到了 CSRF 令牌 | host_caps.ready 为真 | 建了标记账号（卸载/重装之后靠它证明数据还在） | 库里至少有两个账号（安装器建的 admin + 这次建的标记账号）
+NOTRUN_NAMES= (none)

@@ -1,0 +1,19 @@
+==================== A 组：夹具 -time.Second（1 秒余量） + 1.5 秒延迟 ====================
+-- /tmp/upanel-src-fix 里插入的那一行：
+752:	time.Sleep(1500 * time.Millisecond) // 探针：模拟采样 now 与读库之间被抢占 1.5 秒
+452:		p.ExpiresAt = time.Now().UTC().Add(-time.Second)
+=== RUN   TestOperationExpiredPreflightRejected
+    operations_test.go:459: 状态码 = 201，期望 409；响应 {"data":{"operation_id":"op_65787069726564000000000000000000","action":"acceptance.ping","preflight_ref":"pf_0abfe963129810e3104290a1f494e786","stage":"accepted","step":"","progress_percent":null,"cancellable":true,"cancellation_requested":false,"target":{"display_name":"验收测试对象（ping）","identity_fingerprint":"939b961dc5b35ceaa95dc961df142b3c"},"result":{},"error":{},"created_at":"2026-10-29T00:07:15Z","updated_at":"2026-10-29T00:07:15Z","duplicate":false},"request_id":"rid-operation"}
+--- FAIL: TestOperationExpiredPreflightRejected (18.00s)
+FAIL
+FAIL	upanel/internal/agent	18.726s
+FAIL
+==================== B 组：夹具 -time.Minute（60 秒余量） + 1.5 秒延迟 ====================
+-- /tmp/upanel-src-probe 里插入的那一行：
+752:	time.Sleep(1500 * time.Millisecond) // 探针：模拟采样 now 与读库之间被抢占 1.5 秒
+452:		p.ExpiresAt = time.Now().UTC().Add(-time.Minute)
+=== RUN   TestOperationExpiredPreflightRejected
+--- PASS: TestOperationExpiredPreflightRejected (16.78s)
+PASS
+ok  	upanel/internal/agent	18.464s
+== 第六轮完成 2026-10-29T00:09:05Z ==

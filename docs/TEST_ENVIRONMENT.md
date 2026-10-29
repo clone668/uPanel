@@ -303,6 +303,19 @@ sudo BIN_DIR=/tmp/upanel-bin sh tests/integration/p04-4-ui-acceptance.sh
    QEMU 的虚拟盘会返回 `smart_status.passed=true`；带上 `-i -A` 后同一块盘是
    `smart_support.available=false`。两边看不同的输出，等于在测两件事。
 
+还有一条与具体阶段无关、但每次都咬人的：**从 Windows 宿主 `scp` 上去的二进制没有可执行位**。
+宿主是 Windows，`bin/linux-amd64/*` 上没有 Unix 权限位，`scp` 落到 VM 上就是 `0644`，
+症状是 `Permission denied`（脚本里表现为“二进制存在且可执行”三条一起失败）。推完补一条：
+
+```sh
+ssh -i H:\Code\vms\upanel-2404\id_ed25519 -p 2222 upanel@127.0.0.1 'chmod 0755 /tmp/upanel-bin/*'
+```
+
+同理，**`.sh` 与 `.sql` 必须是 LF**。Windows 工作树里写出来的脚本会带 CRLF，推到 Linux 上是
+`not found` / `set: Illegal option -`（第一行 `#!/bin/sh` 后面多了一个回车，解释器名就成了
+`/bin/sh\r`），而带 CRLF 的迁移文件会让已建好的库校验和失配。
+`scripts/check.sh` 的 `line-endings` 一关专拦这个（`*.sh` / `*.sql` / `*.service`）。
+
 载荷会留在 `/var/tmp/upanel-accept-p04-4/payloads/`，拷回宿主后既进 `docs/evidence/`，
 也是 `web/src/fixtures/p04-4-vm/` 的来源（逐字节相同）。
 
@@ -404,3 +417,246 @@ systemd 会在磁盘操作过程中 SIGSEGV，多次重试后变成
 负载放大——跑验收时不要在宿主上并发 `go test`、不要另一台 VM 同时跑验收、不要一边
 ssh 进去查东西（这一条我自己违反过两次，两次都制造了假失败，见 DECISIONS Q329）。
 每份 `env.txt` 都要写清这一轮用的是哪个加速后端。
+
+### 8.10 整机 fd 总数是验收环境的前置条件（`systemd-logind` 泄漏过 7477 个 fd，2026-10-26）
+
+代理每 5 秒扫一次存储拓扑，"设备是否被占用"那一步要把**每个进程的每个 fd** 取一遍设备号
+（`internal/storage/busy.go` 的 `ProcBusyScanner.walkProc`）。所以"整机开着多少 fd"不是
+卫生指标，而是这条路径的输入规模。
+
+2026-10-26 的 P13.2 首轮撞到过：24.04 验收机上整机 7976 个 fd，其中 `systemd-logind`
+独占 **7477**（上一批验收反复进出 session 攒下的泄漏）。后果是一串看着像产品坏了的症状：
+
+```
+storage.topology            24.85 s / 41.08 s      ← 重启 logind 之后 0.027 / 0.023 / 0.307 s
+system.summary               0.068 s
+lsblk                        0.485 s
+```
+
+拓扑查询超时 → Web 侧记"读取存储拓扑失败：代理不可用" → 容量序列一个点也落不下来 →
+`status.series` 里连 `filesystem` 这个 scope 都没有 → 所有与文件系统有关的断言连锁失败
+（那一轮 117 PASS / 25 FAIL）。`agent.log` 里同时有 47 条"代理请求耗时偏长"，代理也就吃满
+了一个核——上一轮记下的"agent 103% CPU"之谜同源。
+
+处置：`sudo systemctl restart systemd-logind`（或重启这台 VM），之后 logind 回到 22 个 fd。
+验收脚本 §0 已经自带体检，超过 4000 就打一行说明并 `exit 2`，不在这种机器上产出假红：
+
+```sh
+python3 -c '
+import os
+total=0; top=""; top_n=0
+for pid in os.listdir("/proc"):
+    if not pid.isdigit(): continue
+    try: n=len(os.listdir("/proc/"+pid+"/fd"))
+    except OSError: continue
+    total+=n
+    if n>top_n:
+        try: top, top_n = open("/proc/"+pid+"/comm").read().strip(), n
+        except OSError: pass
+print(total, top, top_n)'
+```
+
+空载的 2 vCPU 客户机是 **30—50**（两台实测 42 / 36）。几百是正常，四位数就要查是谁。
+
+### 8.11 NFS 验收的两条环境约束（P14.4，2026-10-27）
+
+P14.4 在 **VM-B（Ubuntu 22.04.5、内核 `5.15.0-198-generic`、端口 2223）** 上跑，机器上原有
+`nfs-kernel-server` 与 `nfs-common` 各 `1:2.6.1-1ubuntu1.2`（8.6 那条"只在 VM-B 上装"指的就是
+这台）。两条约束在写验收脚本时必须知道，否则会造出看着像产品故障的假红：
+
+**一、被导出、且客户端连过的文件系统，`umount` 会一直 `target is busy`。**
+本机自己卸客户端挂载点时，内核 `knfsd` 仍持有那个文件系统——`fuser -vm <挂载点>` 直接点名
+`kernel knfsd`。所以脚本卸挂载点必须**硬卸优先**（`umount` → `umount -f` → `umount -l`），
+只写 `umount -l` 会留下"摘了命名空间但内核还拿着"的状态，后面所有"卷没在用了"的断言全红。
+裸机复现（无面板参与）：挂上 → `umount -l` → 本机 `umount` 仍 rc=32。
+
+**二、`-monitor none` 起的机器拔不了盘。**
+8.3 的启动命令就是 `-monitor none`，所以"设备级掉线"（拔 sdb、I/O 错误之后 `statfs` 报错）
+在现有 VM 上做不到。P14.4 验的是"挂载点从命名空间里消失之后面板做什么"（lazy umount），
+设备级掉线在验收脚本里**登记为 NOT RUN**，不用 lazy umount 冒充。
+
+另外两条只影响断言写法、不影响环境：NFSv3 客户端的 `findmnt` OPTIONS **永远报 `rw`**
+（只读是服务端回 `EROFS`，不在挂载选项里）；`root_squash` 生效后客户端 root 落盘属
+`nobody:nogroup`，服务端放进去的 `0600` 文件客户端读不到（夹具要自己 `chmod 0644`）。
+
+### 8.12 账号验收的三条环境约束（P14.5，2026-10-27）
+
+P14.5 在 **VM-A（Ubuntu 22.04.5、内核 `5.15.0-198-generic`、宿主转发 `127.0.0.1:2223`）** 上跑。
+首轮在 §0 就红了一条基线，查下去是环境而非产品，记在这里免得下一轮再花时间去查：
+
+**一、`/etc/sudoers.d/` 里任何文件的权限不是 `0440`，`visudo -c` 就是 rc=1。**
+这台 VM 上有一份手写的 `/etc/sudoers.d/upanel`（内容 `upanel ALL=(ALL) NOPASSWD: ALL`，
+`0644`）。`visudo -c` 会为它报一行
+`/etc/sudoers.d/upanel: bad permissions, should be mode 0440` 并返回 1，于是验收脚本第一条
+基线断言 `起点：整份 sudo 配置通过 visudo -c` 直接红，后面凡是依赖"整份配置能校验"的断言
+（包括 P14.5 的双门禁）也跟着不可信。处置：删掉这份手写文件即可——cloud-init 生成的
+`/etc/sudoers.d/90-cloud-init-users` 已经给了 `upanel` 用户 `NOPASSWD:ALL`，删掉之后
+`visudo -c` rc=0、`sudo -n true` 仍然通。原始文件留档在 `/var/tmp/p145-envfix/upanel.badmode`。
+
+**二、这台 VM 没装 Samba（`nfs-kernel-server` 装了）。**
+账号验收不需要 Samba：普通账号要的是 `useradd`/`usermod`/`userdel`/`getent`/`passwd`/
+`chpasswd`、两档壳与 `visudo`。所以验收脚本第 2 节断言 `GET /accounts` 的
+`capability.status == available` 是对的判据——它问的是账号的能力，不是 Samba 的。
+（首轮这条红是**产品缺陷**：接口当时把 `share.accounts` 带的 Samba 能力返回给了账号页。
+修法与回归见 DECISIONS Q478；**不要**用"给 VM 装 Samba"来绕开它。）
+
+**三、第 11 节的公钥登录两面要求 sshd 在跑。**
+门是 `systemctl is-active ssh || systemctl is-active sshd`，不活跃就把那两条记成 NOT RUN
+而不是红。VM-A 上 `ssh.service` 是 active（验收本身就是从宿主 SSH 进去跑的），所以这一节
+会真跑：同一把钥匙对"有口令的账号"能登、对"锁定/没口令的账号"不能登，然后再给账号设上
+口令、同一把钥匙又能登——最后这半步是归因，它把"被拒"钉在口令状态上而不是钥匙或
+sshd 配置上。
+
+### 8.13 重启类相位的三条约束（P16.2，2026-10-27）
+
+P16.2 的相位之间夹着一次**真重启**（`boot` 相位的前提就是"机器刚重启过"）。这一轮有三处
+踩空，都发生在验收脚本之外（宿主侧驱动），记在这里因为下一平台还要再走一遍：
+
+**一、`systemctl reboot` 返回的时候 sshd 还活着，立刻探活必然成功。**
+驱动若"发完重启就循环探活、第一次成功就认为重启完成"，会把**关机前的那一瞬间**当成
+"机器回来了"：它报 `VM 回来了（约 0s 后 ssh 可达）`，然后接着跑 `boot`，而客户机正在关机
+——那一相位与后面四个相位的 ssh 全部 `banner exchange: Connection timed out`，
+`RESULT-*` 一律 0 字节，看起来像"五个相位都挂了"。正确写法是**先等掉线、再等回来**：
+
+```sh
+$SSH 'sudo systemctl reboot' >/dev/null 2>&1
+while ...; do $SSH 'echo up' >/dev/null 2>&1 || break; sleep 5; done   # 等下去
+while ...; do $SSH 'echo up' >/dev/null 2>&1 && break; sleep 5; done   # 等回来
+```
+
+**二、tcg 下 22.04 从关机到 sshd 可用实测约 4 分钟，whpx 也未必更快。**
+这一轮的实际读数：重启发出约 22:52，客户机 `uptime -s` 记 14:54:33（UTC），宿主到 14:56
+前后才稳定连上。所以"等回来"的上限要给到 15 分钟以上，5 分钟不够；反过来，**看到
+`banner exchange` 超时不要判客户机卡死**——上一轮我在这一点上误杀过 QEMU（以为 whpx 下
+卡住，实际它自己继续跑完了）。判是否真死看 `Get-Process qemu-system-x86_64` 的 CPU 时间
+是否推进，而不是看 ssh 有没有回应。
+
+**三、同一条验收序列任何时刻只能有一个驱动实例；`TaskStop` 只杀管道末端。**
+上一轮我把驱动写成 `... | tail -40` 再 `TaskStop`，被杀的只是 `tail`，主脚本仍在 VM 里
+`rm -rf /root/upanel-pkg`；我随即起了第二个驱动，两边撞车，日志里出现
+`sha256sum: bin/upanelctl: No such file or directory`、`重装退出码 0: 期望 '0'，实际 '2'`、
+`Connection refused`，整份分相位计数作废。停任务要确认进程真的没了（`Get-Process` /
+`ps`），并且**换证据目录**、不要把上一轮的 `facts/` 当这一轮的基线。
+
+**四、seed server 没起，客户机会带着 `DataSourceNone` 白跑一整轮开机。**
+`launch-vm.ps1` 只把 `ds=nocloud;s=http://10.0.2.2:<SeedPort>/` 塞进 SMBIOS，**不会**替你起那个
+HTTP 服务。2026-10-27 起 24.04 时漏了这一步：cloud-init 试到超时后落到 `DataSourceNone`
+（console 里 `Used fallback datasource`、`no authorized SSH keys fingerprints found for user ubuntu`），
+没有 `upanel` 用户、没有公钥，SSH 一直是 `Permission denied (publickey)`；从开机到 cloud-init
+收尾花了 **987 秒**（tcg 下的重试等待），看起来像"机器起不来"。
+起之前先确认 seed 在响应：
+
+```sh
+node H:/Code/vms/upanel-2404/serve-seed.js H:/Code/vms/upanel-2404/seed 8899 &
+curl -sS http://127.0.0.1:8899/meta-data | head -1     # instance-id: upanel-2404-0001
+curl -sS http://127.0.0.1:8899/user-data | head -1     # #cloud-config
+```
+
+漏了的那一轮要把叠层盘重建（cloud-init 已经以 fallback datasource 收过尾，重启不会补种），
+并把那一轮的 `console.log` 改名留档——`console.noDatasource-run.log` 就是这么来的。
+
+
+
+### 8.14 断言不要单次采样 `systemctl is-active`（P16.2，2026-10-28）
+
+`failup` 相位要证明"坏包让代理起不来"。这条断言原来只读一次
+`systemctl is-active upanel-agent.service`，判它不等于 `active`——24.04 上就这样假红过
+一次（Q515），而安装器其实判得没错。原因是采样撞上了 systemd 的记账间隙：
+
+* 单元是 `Type=simple`：`Started` 一打就进 `active`；
+* 但"主进程 exit 1"要 **0.234~0.400 秒**之后才被记账（11 轮 journal 微秒实测）；
+* `Restart=on-failure` + `RestartSec=3s` 让单元每约 3.4 秒重来一轮
+  → **`active` 占空比约一成**，单次采样有约 10% 的概率正好落在里面。
+
+写法改成两件都不吃这个竞态的事：① 断言 socket 不存在（`/run/upanel/agent.sock`——"面板用不了
+代理"的直接判据，起不来的进程造不出它）；② 隔 1.2 秒采两次，只有**连续两次**都为 `active`
+才判失败（跨过一轮重启）。同理，任何"等它起来/等它停"的循环都别只看 `is-active`：
+`install.sh` 第 13 步要的是 `socket 存在 && is-active` 同时成立——socket 是稳定判据，
+单靠 `is-active` 的瞬时真会放过一个立刻退出的二进制。
+
+读数与算账在 `docs/evidence/P16/2026-10-28-p16.2-2404-final/`（`journal-restart-cycle.txt`、
+`active-window-analysis.txt`、`run1-pre-tighten/`）。
+
+### 8.15 `-race` 只能在 VM 里跑，而且得自己装 C 编译器与官方 Go（2026-10-28）
+
+想跑 `go test -race` 的第一步不是跑，是**确认这台机器跑得动**：
+
+* **宿主（Windows）跑不了**：`go env CGO_ENABLED` 是 `0`，`command -v gcc` 什么都没有，
+  直接报 `-race requires cgo`。就算在 Windows 上装个 mingw 让它编得过，编出来的也只是
+  `windows` 构建标签下的代码——要查竞态的那些 `*_linux.go` 根本不会进二进制。**-race 的读数
+  必须在 linux 上取。**
+* **`apt install golang-go` 也不行**：24.04 仓库里是 1.22，而 `go.mod` 写的是 `go 1.27.3`，
+  老 Go 连模块都读不进去。得下 go.dev 的官方 tarball 解到 `/usr/local/go`。
+* **cgo 要 C 编译器**：`apt install gcc`（24.04 上是 13.3.0），然后确认
+  `go env CGO_ENABLED` = `1`、`CC` = `gcc`。别只看 `go test -race` 能不能编——先看 `go env`。
+* **模块图比想象大**：`go mod download all` 在这台 VM 上拉了约 **640 MB**（含 `mongodb` 驱动、
+  `quic-go`、`grpc`、`modernc.org/sqlite` 这些间接依赖），纯下载花了约两分钟。
+  想省这一步就跳过它直接 `go test -race ./...`，Go 会按需拉。
+* **`-count=1` 必须带**：不带的话命中了测试缓存，"这一轮到底跑没跑"说不清。
+
+还有一个后果要知道：`-race` 把整段代码都插桩，**Argon2id 单次校验会被放大数倍**，
+`TestDefaultPasswordParamsTiming` 那条 1 秒上界在插桩下必然红——这是工具的性质，不是参数变重了。
+P04.3 在 KVM 上是 1.79—2.03 秒；P16 这一轮在 2 vCPU 的 TCG 机上是 **1 分 31 秒**
+（`单次 Argon2id 校验耗时 1m30.976442106s`，用例自己打印的），同机不带 `-race` 的对照读数
+见 `docs/evidence/P16/2026-10-28-race/`。
+
+**这一轮（P16 全量）补上的四条，都是踩过才知道的：**
+
+* **必须用 root 跑。** 用普通用户跑，`internal/agentstore` 一打开代理数据库就做属主校验
+  （数据目录必须归 root），于是 `agentstore` / `agent` / `cmd/upanel-agent` / `cmd/upanelctl` /
+  `internal/api` 里一片红——第一次跑抓到 **307 条** `代理数据目录不可用: … 属主必须是 root，实际为 1000`。
+  那不是竞态，是产品自己的安全校验在正常工作。**读数必须在 root 下取**（P04.3 / P04.3-H2 也是 root）。
+* **源码不能靠 `git ls-files | tar` 打包。** 工作树里有大量未跟踪的 `.go`（这一轮是 224 个），
+  按 git 清单打会漏掉它们；更隐蔽的是漏掉 `tests/fixtures/`——`internal/agent` 的存储夹具用例
+  会报"定位夹具目录 storage-2404 失败"。要按显式目录清单打：
+  `tar czf … go.mod go.sum api cmd internal migrations deploy scripts tests`。
+* **`-timeout` 必须放大，而且放到 90 分钟也可能不够。** `go test` 每包默认 10 分钟，
+  P04.3 在 KVM 上 `internal/api` 的 `-race` 已用 273 秒；这台 2 vCPU 的 TCG 机上，
+  `internal/agent` / `internal/api` / `internal/auth` 三个包**跑了 90 分钟都没跑完**
+  （超时那一刻分别在 `TestFileActionsRejectUnknownFields`、`TestAppLogsSystemdRejectsContainerParams`、
+  `TestLoginIssueAndAuthenticate`，都在正常推进，不是死锁）。补跑要 `-timeout=0`，并且让它们
+  各占一条 vCPU。
+* **墙钟类断言在插桩下会零星变红，别急着归因产品。** 本轮两条：`internal/storage` 的
+  "隔离期内还等了 9.2 毫秒"（上界 5 毫秒，功能三条全过）、`internal/backup` 的
+  "600 毫秒握手预算"（重试第二轮被插桩拖过预算）。判据实验放在证据目录里，
+  不要为了让它们变绿去放宽上界——那是把验收标准改小。
+
+**补跑那一轮（2026-10-28T14:44Z 起，9 小时 03 分）又补上四条，都是先踩了才写的：**
+
+* **跑之前先把装机留下的 `upanel-web` / `upanel-agent` 停掉。** 这台 VM 的系统盘是上一轮
+  P16.2 页面链路验收装机留下的，两个服务常驻；实测空闲状态下 `upanel-web` 在 6 小时 40 分里
+  吃了 **9002 秒 CPU（平均 37.5% 个核）**，两次 10 秒定点采样是 46% 与 26%，`journalctl` 60 秒
+  零行（不是刷日志）。2 条 TCG vCPU 被一个没人用的服务吃掉四分之一到一个半核，贴边界的墙钟
+  读数就全是噪声。`systemctl is-active upanel-web upanel-agent` 必须先看到两个 `inactive`。
+  读数在 `docs/evidence/P16/2026-10-28-race/idle-panel-cpu.txt`。
+* **别把三个重包并行扔进 2 条 vCPU，如果其中有握手超时或墙钟上界这类断言。** 并行本身不会
+  改变 pass/fail（少一份负载只会更容易过），但它会把"本机 TLS 握手"这种本该毫秒级的事拖过
+  5 秒预算：本轮 `TestWebhookSelfSignedCertIsRejected` 在**本机** `httptest.NewTLSServer` 上
+  拿到 `TLS handshake timeout`，隔离重跑 3/3 全过（0.13 s）。**要并行就挑不夹墙钟断言的包。**
+* **`TestDefaultPasswordParamsTiming` 的红不全是 `-race` 的锅。** 原来记的是"检测器把 Argon2id
+  放大到 1.79—2.03 秒"，补跑里跑了**不带 `-race`** 的对照：这台 TCG 24.04 是 **3.061838022 秒**，
+  一样撞 1 秒上界。KVM 22.04 不带检测器是 0.6 秒。**判据量的是机器速度**——模拟机上这条
+  永远过不了，别为了它改上界。
+* **给 `internal/api` 留够时间。** 同一个包在 KVM 上是 273 秒，在这台 2 vCPU 的 TCG 机上
+  `-race -timeout=0` 用了 **28929 秒（8 小时 02 分）**。三条大包并行那一趟已经 9 小时，
+  排期时按"整个 `-race` 全量是一夜"来算，不要按分钟。
+
+### 8.16 宿主 `scripts/check.sh` 的 node 固定在仓库外面（2026-10-29）
+
+`scripts/check.sh` 的 `node-version` 项是**等值比较**：`"v$EXPECTED_NODE"` 对 `node -v`，`EXPECTED_NODE`
+读 `.nvmrc`（`22.23.3`）。这台宿主 PATH 首位是系统装的 `C:\Program Files\nodejs\node.exe`（v24.15.0），
+所以直接跑就是 `node-version:FAIL`，连带 `openapi-lint` 一起红。
+
+* **固定版工具链不在仓库里，在仓库的上一级。** `git clone` 下来**不会自带**它。这台机器上的位置是
+  `/h/Code/.toolchains/node-v22.23.3-win-x64`（= `C:\…\Code\.toolchains\…`，仓库 `uPanel` 的**兄弟目录**，
+  同目录还有 `qemu/`）；另有一份拷贝在 `C:\Users\huxi\tools\node-v22.23.3-win-x64`。用哪份都行，前置到
+  PATH 首位即可：`export PATH="/h/Code/.toolchains/node-v22.23.3-win-x64:$PATH"`。
+  **注意别在仓库根下找 `.toolchains/`**——它不在那儿，`ls -d .toolchains/*` 只会安静地什么都不返回，
+  `.gitignore` 里也没有这一条（所以 `git status` 不会提示你它缺了）。
+* **`openapi-lint` 在 node 24 上的红是运行时退出崩，不是 spec 不合格。** 那一跑 redocly 已经打印
+  `Woohoo! Your API description is valid.`（6 个 warning 全是既有的），随后 node 在退出路径上撞
+  `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 76`，exit 127。
+  **不要去改 spec、也不要把这一项从 check.sh 里摘掉**——换成 pinned node 22 之后同一条命令干净退出。
+* 遇到这两个红先怀疑 PATH，别怀疑代码。判据本身没放宽：比较是等值的，只是喂给它的 node 版本不对。
+  三份读数都在 `docs/evidence/P16/2026-10-28-race/facts-host-check.txt`（13/2 一份，15/0 两份：`~/tools` 与 `/h/Code/.toolchains` 各一次）。
+

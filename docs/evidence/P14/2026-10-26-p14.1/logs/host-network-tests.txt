@@ -1,0 +1,80 @@
+=== RUN   TestInterfacesReadsAddressesAndSysfsFacts
+--- PASS: TestInterfacesReadsAddressesAndSysfsFacts (0.00s)
+=== RUN   TestInterfacesFallsBackToSysfsWhenIPMissing
+--- PASS: TestInterfacesFallsBackToSysfsWhenIPMissing (0.00s)
+=== RUN   TestInterfacesReportsUnparsableIPOutput
+--- PASS: TestInterfacesReportsUnparsableIPOutput (0.00s)
+=== RUN   TestCapabilityEditableOnSinglePhysicalNetplanHost
+--- PASS: TestCapabilityEditableOnSinglePhysicalNetplanHost (0.00s)
+=== RUN   TestCapabilityBlockedByNetworkManagerRunning
+--- PASS: TestCapabilityBlockedByNetworkManagerRunning (0.00s)
+=== RUN   TestCapabilityBlockedByBridge
+--- PASS: TestCapabilityBlockedByBridge (0.00s)
+=== RUN   TestCapabilityBlockedByMultiplePhysicalNICs
+--- PASS: TestCapabilityBlockedByMultiplePhysicalNICs (0.00s)
+=== RUN   TestCapabilityNetworkManagerWithoutNetplan
+--- PASS: TestCapabilityNetworkManagerWithoutNetplan (0.00s)
+=== RUN   TestCapabilityUnknownWhenNetplanUnreadable
+--- PASS: TestCapabilityUnknownWhenNetplanUnreadable (0.00s)
+=== RUN   TestRoutesBothFamiliesAndDefaultGateways
+--- PASS: TestRoutesBothFamiliesAndDefaultGateways (0.00s)
+=== RUN   TestRoutesNormalizeHostRoutesToPrefix
+--- PASS: TestRoutesNormalizeHostRoutesToPrefix (0.00s)
+=== RUN   TestRoutesReportsMissingIP
+--- PASS: TestRoutesReportsMissingIP (0.00s)
+=== RUN   TestListenersParseTCPAndUDPMinusNoise
+--- PASS: TestListenersParseTCPAndUDPMinusNoise (0.00s)
+=== RUN   TestListenersTruncatesAndSaysSo
+--- PASS: TestListenersTruncatesAndSaysSo (0.00s)
+=== RUN   TestListenersReportsUnreadableProcNet
+--- PASS: TestListenersReportsUnreadableProcNet (0.00s)
+=== RUN   TestFirewallParsesUFWNumberedVerbose
+--- PASS: TestFirewallParsesUFWNumberedVerbose (0.00s)
+=== RUN   TestFirewallInactiveStillReadsDefaults
+--- PASS: TestFirewallInactiveStillReadsDefaults (0.00s)
+=== RUN   TestFirewallMissingProgramIsNotNone
+--- PASS: TestFirewallMissingProgramIsNotNone (0.00s)
+=== RUN   TestFirewallDetectsForeignManagerAndRefusesWrite
+--- PASS: TestFirewallDetectsForeignManagerAndRefusesWrite (0.00s)
+=== RUN   TestFirewallUbuntuDefaultNftablesConfIsNotAManager
+--- PASS: TestFirewallUbuntuDefaultNftablesConfIsNotAManager (0.00s)
+=== RUN   TestFirewallNftablesEnabledCountsAsForeignManager
+--- PASS: TestFirewallNftablesEnabledCountsAsForeignManager (0.00s)
+PASS
+ok  	upanel/internal/network	0.571s
+PASS
+ok  	upanel/internal/agentclient	1.199s [no tests to run]
+=== RUN   TestNetworkRequireAdmin
+--- PASS: TestNetworkRequireAdmin (0.51s)
+=== RUN   TestNetworkUnavailableWithoutReader
+--- PASS: TestNetworkUnavailableWithoutReader (0.27s)
+=== RUN   TestNetworkAgentUnavailableIs503
+--- PASS: TestNetworkAgentUnavailableIs503 (0.27s)
+=== RUN   TestNetworkInterfacesPassesCapabilityThrough
+--- PASS: TestNetworkInterfacesPassesCapabilityThrough (0.27s)
+=== RUN   TestNetworkIssuesAreData
+--- PASS: TestNetworkIssuesAreData (0.27s)
+=== RUN   TestFirewallShapeHolds
+--- PASS: TestFirewallShapeHolds (0.27s)
+=== RUN   TestPackagesNoWriteRoutes
+--- PASS: TestPackagesNoWriteRoutes (0.26s)
+=== RUN   TestServicesRoutesRequireSession
+--- PASS: TestServicesRoutesRequireSession (0.26s)
+=== RUN   TestServicesRoutesAllowedForViewer
+--- PASS: TestServicesRoutesAllowedForViewer (0.62s)
+=== RUN   TestShareRoutesRequireSessionAndAdmin
+--- PASS: TestShareRoutesRequireSessionAndAdmin (0.67s)
+=== RUN   TestShareRoutesAgentUnavailable
+--- PASS: TestShareRoutesAgentUnavailable (0.33s)
+=== RUN   TestStorageRoutesRequireSession
+--- PASS: TestStorageRoutesRequireSession (0.34s)
+=== RUN   TestStorageRoutesAllowedForViewer
+--- PASS: TestStorageRoutesAllowedForViewer (0.63s)
+=== RUN   TestVolumeRoutesRequireSession
+--- PASS: TestVolumeRoutesRequireSession (0.33s)
+=== RUN   TestVolumeRoutesViewerAndAdmin
+--- PASS: TestVolumeRoutesViewerAndAdmin (0.77s)
+=== RUN   TestVolumeRoutesWithoutReaderAre503
+--- PASS: TestVolumeRoutesWithoutReaderAre503 (0.33s)
+PASS
+ok  	upanel/internal/api	8.154s

@@ -1,0 +1,57 @@
+本轮对 internal/agent/scriptaction_test.go 的改动（该文件在工作树里是未跟踪状态，故用快照对比原样）：
+
+改动点：
+31:	mu sync.Mutex
+32-
+33-	assessment scripts.Assessment
+118:func (f *fakeScripts) ranRequests() []scripts.RunRequest {
+119-	f.mu.Lock()
+120-	defer f.mu.Unlock()
+121-	out := make([]scripts.RunRequest, len(f.ran))
+122-	copy(out, f.ran)
+123-	return out
+124-}
+125-
+425:	for len(src.ranRequests()) == 0 {
+第一轮（普通用户）跑出来的那条真实数据竞争，原始报告：
+
+==================
+WARNING: DATA RACE
+Write at 0x00c0003bfe08 by goroutine 434:
+  upanel/internal/agent.(*fakeScripts).Run()
+      /tmp/upanel-src/internal/agent/scriptaction_test.go:97 +0x164
+  upanel/internal/agent.newScriptRunAction.func3()
+      /tmp/upanel-src/internal/agent/scriptaction.go:224 +0x415
+  upanel/internal/agent.TestScriptRunCancelReachesRunner.func1()
+      /tmp/upanel-src/internal/agent/scriptaction_test.go:396 +0x12d
+
+Previous read at 0x00c0003bfe08 by goroutine 433:
+  upanel/internal/agent.TestScriptRunCancelReachesRunner()
+      /tmp/upanel-src/internal/agent/scriptaction_test.go:403 +0x767
+  testing.tRunner()
+      /usr/local/go/src/testing/testing.go:2195 +0x21c
+  testing.(*T).Run.gowrap1()
+      /usr/local/go/src/testing/testing.go:2260 +0x38
+
+Goroutine 434 (running) created at:
+  upanel/internal/agent.TestScriptRunCancelReachesRunner()
+      /tmp/upanel-src/internal/agent/scriptaction_test.go:395 +0x72a
+  testing.tRunner()
+      /usr/local/go/src/testing/testing.go:2195 +0x21c
+  testing.(*T).Run.gowrap1()
+      /usr/local/go/src/testing/testing.go:2260 +0x38
+
+Goroutine 433 (running) created at:
+  testing.(*T).Run()
+      /usr/local/go/src/testing/testing.go:2260 +0xb12
+  testing.runTests.func1()
+      /usr/local/go/src/testing/testing.go:2744 +0x84
+  testing.tRunner()
+      /usr/local/go/src/testing/testing.go:2195 +0x21c
+  testing.runTests()
+      /usr/local/go/src/testing/testing.go:2742 +0x9e9
+  testing.(*M).Run()
+      /usr/local/go/src/testing/testing.go:2602 +0xf44
+  main.main()
+      _testmain.go:1002 +0x164
+==================

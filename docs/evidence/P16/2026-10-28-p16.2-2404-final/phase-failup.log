@@ -1,0 +1,25 @@
+Warning: Permanently added '[127.0.0.1]:2222' (ED25519) to the list of known hosts.
+STAMP 2026-10-28T06:01:09Z failup 开始（造一次会失败的升级，再救回来）
+PASS  坏包升级没有成功（退出码非 0）
+PASS  坏包升级打出了失败横幅
+PASS  失败发生在第 13 步（代理没起来）
+PASS  喊停时点名了 panel 会只剩 AGENT_UNAVAILABLE
+PASS  喊停时贴出了代理的 journal
+PASS  没有打出安装完成横幅
+PASS  不是第 1 步校验失败（坏包是自洽的）
+PASS  失败之前备份已经完成（目录 + MANIFEST 在）
+PASS  失败升级的备份里面板库 integrity_check = ok
+PASS  失败升级的备份里代理库 integrity_check = ok
+PASS  失败升级的备份自身可校验
+PASS  失败之后面板库仍能通过 integrity_check
+PASS  失败之后代理库仍能通过 integrity_check
+PASS  坏包让代理服务起不来（这正是失败现场）: socket 不在，is-active 采样 'activating'/'activating'
+PASS  重跑好包后退出码 0（失败可重入）
+PASS  恢复后代理服务 active
+PASS  恢复后 Web 服务 active
+PASS  恢复后健康检查 200
+PASS  恢复后管理员能登录
+PASS  恢复后标记账号还在（数据没丢）
+PASS  恢复后代理密钥没被改写
+
+==== failup: PASS=21 FAIL=0 NOT RUN=0 ====

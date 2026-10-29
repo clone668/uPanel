@@ -1,0 +1,1 @@
+{"data":{"id":"pol_19c708887d7d44c09d69d267b683232e","name":"p15-3 停应用","repository_id":"rep_5eb19d5c288a85fa263c6bed2bcb4ae3","sources":[{"kind":"root","root_id":"deploydata"}],"consistency_mode":"stop_managed_apps","app_ids":["app_0123456789abcdef0123456789abcdef"],"retention":{"keep_last":3},"version":1},"request_id":"1f181220a458029cddca5787ab1e32ac"}

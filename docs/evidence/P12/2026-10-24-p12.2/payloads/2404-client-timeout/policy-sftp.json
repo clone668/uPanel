@@ -1,0 +1,1 @@
+{"data":{"id":"pol_aa403acc788db92236ac39e5e487a728","name":"p12-2 SFTP 策略","repository_id":"rep_0124ed3f15c87b4e7450c8e2926c1f91","sources":[{"kind":"root","root_id":"root1","relative_path":"data"}],"consistency_mode":"files_only","app_ids":[],"retention":{},"version":1},"request_id":"67bf8c4bade0c06a746a56ed2264c520"}

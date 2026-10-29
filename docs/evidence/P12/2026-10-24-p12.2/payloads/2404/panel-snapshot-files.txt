@@ -1,0 +1,7 @@
+snapshot 81660a12 of [/var/tmp/upanel-accept-p12-2/panel-copies/pol_8a627fe0c5aa869d99e2672de2ef2926/upanel.db] filtered by [] at 2026-10-24 10:21:27.064522276 +0000 UTC):
+/var
+/var/tmp
+/var/tmp/upanel-accept-p12-2
+/var/tmp/upanel-accept-p12-2/panel-copies
+/var/tmp/upanel-accept-p12-2/panel-copies/pol_8a627fe0c5aa869d99e2672de2ef2926
+/var/tmp/upanel-accept-p12-2/panel-copies/pol_8a627fe0c5aa869d99e2672de2ef2926/upanel.db

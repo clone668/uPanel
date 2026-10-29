@@ -1,0 +1,249 @@
+== 0. 前置环境与 ACME 夹具 ==
+PASS  p12-2-prerequisite-loaded
+PASS  upanelctl-installed
+PASS  hosts-points-to-loopback
+PASS  http01-webroot-port-80
+PASS  http01-webroot-port-5002
+PASS  pebble-api-cert-made
+PASS  pebble-config-points-at-our-cert
+PASS  pebble-acme-directory
+PASS  acme-api-trusted-by-system-store
+PASS  certbot-ca-bundle-is-system-store
+PASS  certbot-account-cache-cleared
+PASS  certbot-account-registered
+PASS  certbot-account-on-disk
+PASS  agent-started
+PASS  web-started
+PASS  web-not-root
+PASS  login-admin
+PASS  capabilities-certificate.issue
+PASS  capabilities-certificate.renew
+PASS  capabilities-backup.run
+PASS  capabilities-backup.restore
+PASS  capabilities-backup.verify
+PASS  capabilities-backup.prune
+PASS  capabilities-schedule.apply
+PASS  capabilities-script.run
+
+== 1. 备份页要的读链路：形状必须与页面声明一致 ==
+PASS  p12-2-policy-id
+PASS  repositories-list-200
+PASS  repository-id-shape
+PASS  repositories-has-our-repo
+PASS  policies-list-200
+PASS  policies-has-our-policy
+PASS  policies-binds-our-repo
+PASS  snapshots-list-200
+PASS  snapshots-size-included-false
+PASS  snapshots-list-items-not-empty
+PASS  snapshots-list-has-no-size
+PASS  snapshots-list-count-matches
+PASS  snapshots-list-has-short-id
+PASS  snapshot-detail-200
+PASS  snapshot-detail-found
+PASS  snapshot-detail-has-size
+PASS  scripts-list-200
+PASS  scripts-list-has-no-content
+PASS  script-detail-envelope
+PASS  script-detail-has-content
+
+== 2. 再认证矩阵：页面的 needsReauth 必须与代理的 ActionPolicy 一致 ==
+PASS  m-script-apply-reauth
+PASS  m-script-apply-preflight-200
+PASS  m-script-apply-preflight-allowed
+PASS  m-script-apply-submit-202
+PASS  m-script-apply-succeeded
+PASS  m-script-id-shape
+PASS  m-schedule-apply-reauth
+PASS  m-schedule-apply-preflight-200
+PASS  m-schedule-apply-preflight-allowed
+PASS  m-schedule-apply-submit-202
+PASS  m-schedule-apply-succeeded
+PASS  m-schedule-id-shape
+PASS  script-detail-envelope
+PASS  script-detail-has-content
+PASS  preflight-backup.repository.initialize-200
+PASS  requires-reauth-backup.repository.initialize
+PASS  preflight-backup.run-200
+PASS  requires-reauth-backup.run
+PASS  preflight-backup.restore-200
+PASS  requires-reauth-backup.restore
+PASS  preflight-backup.prune-200
+PASS  requires-reauth-backup.prune
+PASS  preflight-backup.verify-200
+PASS  requires-reauth-backup.verify
+PASS  preflight-schedule.apply-200
+PASS  requires-reauth-schedule.apply
+PASS  preflight-schedule.delete-200
+PASS  requires-reauth-schedule.delete
+PASS  preflight-script.apply-200
+PASS  requires-reauth-script.apply
+PASS  preflight-script.run-200
+PASS  requires-reauth-script.run
+PASS  preflight-script.delete-200
+PASS  requires-reauth-script.delete
+PASS  m-cleanup-schedule-reauth
+PASS  m-cleanup-schedule-preflight-200
+PASS  m-cleanup-schedule-preflight-allowed
+PASS  m-cleanup-schedule-submit-202
+PASS  m-cleanup-schedule-succeeded
+PASS  m-cleanup-script-reauth
+PASS  m-cleanup-script-preflight-200
+PASS  m-cleanup-script-preflight-allowed
+PASS  m-cleanup-script-submit-202
+PASS  m-cleanup-script-succeeded
+
+== 3. 备份动作：页面发的参数形状与 prune 的待删名单 ==
+PASS  backup-run-1-reauth
+PASS  backup-run-1-preflight-200
+PASS  backup-run-1-preflight-allowed
+PASS  backup-run-1-submit-202
+PASS  backup-run-1-succeeded
+PASS  backup-run-1-outcome-verified
+PASS  backup-run-2-reauth
+PASS  backup-run-2-preflight-200
+PASS  backup-run-2-preflight-allowed
+PASS  backup-run-2-submit-202
+PASS  backup-run-2-succeeded
+PASS  backup-run-rejects-caller-apps-reauth
+PASS  backup-run-rejects-caller-apps
+PASS  policy-retention-patch
+      仓库里现在有 7 条快照，保留 2 条。
+PASS  prune-reauth
+PASS  prune-preflight-200
+PASS  prune-preflight-allowed
+      预检算出的待删快照：["d8ea22a10b5e5127ba979279e3307b7de95a8d2560818e5f8ca8c5131b2e33d7", "610e91925b45fd01003909941b8295fb6c99ec54bd32e4bb2fa266d8e9ebd64d"]（2 条）
+PASS  prune-requires-phrase
+PASS  prune-submit-accepted
+PASS  prune-succeeded
+PASS  prune-deleted-what-preflight-said
+PASS  prune-snapshot-list-shrank
+PASS  prune-after-preflight-200
+PASS  prune-left-keep-last
+
+== 4. 证书续期计划：定义由面板按账本展开，单元由代理写 ==
+      签发之前：1 分钟负载已回落到 1.45，继续
+PASS  issue-a-reauth
+PASS  issue-a-preflight
+PASS  issue-a-allowed
+PASS  issue-a-submit
+PASS  issue-a-succeeded
+PASS  issue-a-outcome-verified
+PASS  issue-a-issuer-is-pebble
+PASS  issue-a-has-not-after
+PASS  ledger-a-id-shape
+PASS  ledger-a-source-certbot
+PASS  ledger-a-staging
+PASS  ledger-a-fingerprint-matches-report
+PASS  schedule-cert-wrong-409-reauth
+PASS  schedule-cert-domain-mismatch-rejected
+PASS  schedule-a-reauth
+PASS  schedule-a-preflight-200
+PASS  schedule-a-preflight-allowed
+PASS  schedule-a-submit-202
+PASS  schedule-a-succeeded
+PASS  schedule-a-id-shape
+PASS  schedule-a-kind
+PASS  schedule-a-cert-domain-from-ledger
+PASS  schedule-a-cert-staging-from-ledger
+PASS  schedule-a-installed
+PASS  schedule-a-active
+PASS  schedule-a-next-elapse
+PASS  schedule-a-next-elapse-wallclock
+PASS  schedule-a-timer-oncalendar
+PASS  schedule-a-single-exec-line
+PASS  schedule-a-exec-wait
+
+== 5. 定时续期（还没到期）：被唤醒、真的调了 certbot、不强制重签 ==
+      定时触发之前：1 分钟负载已回落到 1.43，继续
+PASS  schedule-a-unit-run
+PASS  schedule-a-trigger-recorded
+PASS  schedule-a-trigger-action
+      任务表 watermark=77
+      面板任务表里的那一行：job_e86c1c3f8fc394c07c70869ee827064d	succeeded	0	{"domain":"p125a-3d6ab1.example.test","scheduled":true,"staging":true}	{}
+PASS  schedule-a-job-imported-succeeded
+PASS  schedule-a-job-needs-sync-cleared
+PASS  schedule-a-job-params-scheduled-true
+PASS  schedule-a-job-params-domain
+PASS  schedule-a-job-params-staging
+PASS  schedule-a-job-params-no-certificate-id
+PASS  certbot-args-keep-until-expiring
+PASS  certbot-args-no-force-renewal
+PASS  certbot-args-our-domain
+PASS  ledger-a-attempt-updated
+PASS  ledger-a-cert-not-replaced
+PASS  ledger-a-not-after-unchanged
+
+== 6. 定时续期（快到期）：该续就续，换的是一张真的 Pebble 证书 ==
+      签发 B 之前：1 分钟负载已回落到 1.43，继续
+PASS  issue-b-reauth
+PASS  issue-b-preflight
+PASS  issue-b-allowed
+PASS  issue-b-submit
+PASS  issue-b-succeeded
+PASS  ledger-b-id-shape
+PASS  fixture-expiring-cert-made
+      盘上这张证书现在是：Oct 28 19:08:29 2026 GMT（三天后过期）
+PASS  schedule-b-reauth
+PASS  schedule-b-preflight-200
+PASS  schedule-b-preflight-allowed
+PASS  schedule-b-submit-202
+PASS  schedule-b-succeeded
+PASS  schedule-b-unit-run
+      面板任务表里的那一行：job_916fdc05f5ab9612734e520b5e8c66df	succeeded	0	{"domain":"p125b-3d6ab1.example.test","scheduled":true,"staging":true}	{}
+PASS  schedule-b-job-succeeded
+PASS  schedule-b-job-params-domain
+PASS  disk-b-cert-reissued-by-pebble
+PASS  disk-b-cert-enddate-changed
+PASS  certbot-args-keep-until-expiring-b
+PASS  ledger-b-fingerprint-changed
+PASS  ledger-b-not-after-changed
+
+== 7. 定时续期失败时，账本上留下的是原因（不是一句"没发生"） ==
+      失败场景的触发之前：1 分钟负载已回落到 1.48，继续
+PASS  acme-directory-down
+PASS  probe-port-80-still-up
+      面板任务表里的那一行：job_8bdbeba8f49aa318186bdfa981729061	failed	0	{"domain":"p125a-3d6ab1.example.test","scheduled":true,"staging":true}	{"code":"COMMAND_FAILED","message":"certbot 退出码 1：Saving debug log to /var/log/letsencrypt/letsencrypt.log An unexpected error occurred: ValueError: Requesting 127.0.0.1/dir: Connection refused Ask for help or search for solutions at https://community.letsencrypt.org. See the logfile /var/log/letsencrypt/letsencrypt.log or re-run Cert","recovery_hint":"先确认系统实际状态，再决定是否重新提交"}
+PASS  schedule-fail-job-failed
+PASS  schedule-fail-job-has-reason
+PASS  schedule-fail-job-reason-mentions-certbot
+PASS  ledger-a-last-error-written
+PASS  ledger-a-last-error-is-job-reason
+PASS  ledger-a-fingerprint-after-failure
+PASS  disk-a-cert-still-the-expiring-one
+PASS  acme-directory-restored
+
+== 8. 页面产物：两个视图真的打进了二进制，且带着这一阶段的动作 ==
+PASS  ui-index-200
+PASS  ui-index-has-app-root
+PASS  ui-index-injects-mode
+PASS  ui-route-backup-falls-back
+PASS  ui-route-backup-is-index
+PASS  ui-route-schedules-falls-back
+PASS  ui-route-schedules-is-index
+PASS  ui-csp-header
+PASS  ui-entry-js-referenced
+PASS  ui-entry-js-200
+      第 1 层取回 43 个 js
+      第 2 层取回 0 个 js
+PASS  ui-bundle-has-backup-policies
+PASS  ui-bundle-has-backup-run
+PASS  ui-bundle-has-backup-verify
+PASS  ui-bundle-has-backup-prune
+PASS  ui-bundle-has-backup-restore
+PASS  ui-bundle-has-schedule-apply
+PASS  ui-bundle-has-cert-renewal-kind
+PASS  ui-bundle-has-requires-reauth
+PASS  ui-bundle-has-snapshot-size
+
+== 9. 页面要的读接口都活着（admin 视角） ==
+PASS  ui-relogin-for-read-checks
+PASS  ui-read-/api/v1/backup/repositories
+PASS  ui-read-/api/v1/backup/policies
+PASS  ui-read-/api/v1/schedules
+PASS  ui-read-/api/v1/scripts
+PASS  ui-read-/api/v1/certificates
+PASS  ui-schedules-list-has-our-schedules
+
+== 小结 ==
+PASS 214 / FAIL 0 / NOT RUN 0

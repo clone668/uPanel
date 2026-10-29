@@ -1,0 +1,41 @@
+Oct 27 11:43:18 upanel-2204 systemd[1]: Finished uPanel 受管理部署：webapp.
+Oct 27 11:44:03 upanel-2204 systemd[1]: Stopping uPanel 受管理部署：webapp...
+Oct 27 11:44:04 upanel-2204 docker[4395]:  Container webapp-webapp-1  Stopping
+Oct 27 11:44:06 upanel-2204 docker[4395]:  Container webapp-webapp-1  Stopped
+Oct 27 11:44:06 upanel-2204 docker[4395]:  Container webapp-webapp-1  Removing
+Oct 27 11:44:06 upanel-2204 docker[4395]:  Container webapp-webapp-1  Removed
+Oct 27 11:44:06 upanel-2204 docker[4395]:  Network webapp_default  Removing
+Oct 27 11:44:06 upanel-2204 docker[4395]:  Network webapp_default  Removed
+Oct 27 11:44:06 upanel-2204 systemd[1]: upanel-deploy-webapp.service: Deactivated successfully.
+Oct 27 11:44:06 upanel-2204 systemd[1]: Stopped uPanel 受管理部署：webapp.
+Oct 27 11:44:06 upanel-2204 systemd[1]: upanel-deploy-webapp.service: Consumed 1.107s CPU time.
+Oct 27 11:44:39 upanel-2204 systemd[1]: Starting uPanel 受管理部署：webapp...
+Oct 27 11:44:40 upanel-2204 docker[4891]:  Network webapp_default  Creating
+Oct 27 11:44:41 upanel-2204 docker[4891]:  Network webapp_default  Created
+Oct 27 11:44:41 upanel-2204 docker[4891]:  Container webapp-webapp-1  Creating
+Oct 27 11:44:42 upanel-2204 docker[4891]:  Container webapp-webapp-1  Created
+Oct 27 11:44:42 upanel-2204 docker[4891]:  Container webapp-webapp-1  Starting
+Oct 27 11:44:44 upanel-2204 docker[4891]:  Container webapp-webapp-1  Started
+Oct 27 11:44:44 upanel-2204 systemd[1]: Finished uPanel 受管理部署：webapp.
+Oct 27 11:44:46 upanel-2204 systemd[1]: Stopping uPanel 受管理部署：webapp...
+Oct 27 11:44:47 upanel-2204 docker[5121]:  Container webapp-webapp-1  Stopping
+Oct 27 11:44:49 upanel-2204 docker[5121]:  Container webapp-webapp-1  Stopped
+Oct 27 11:44:49 upanel-2204 docker[5121]:  Container webapp-webapp-1  Removing
+Oct 27 11:44:49 upanel-2204 docker[5121]:  Container webapp-webapp-1  Removed
+Oct 27 11:44:49 upanel-2204 docker[5121]:  Network webapp_default  Removing
+Oct 27 11:44:50 upanel-2204 docker[5121]:  Network webapp_default  Removed
+Oct 27 11:44:50 upanel-2204 systemd[1]: upanel-deploy-webapp.service: Deactivated successfully.
+Oct 27 11:44:50 upanel-2204 systemd[1]: Stopped uPanel 受管理部署：webapp.
+Oct 27 11:44:50 upanel-2204 systemd[1]: upanel-deploy-webapp.service: Consumed 1.189s CPU time.
+-- Boot 050102443d314306a482e924d7a4e21a --
+Oct 27 11:46:33 upanel-2204 systemd[1]: upanel-deploy-webapp.service: Bound to unit srv-upanel-volumes-p15data.mount, but unit isn't active.
+Oct 27 11:46:33 upanel-2204 systemd[1]: Dependency failed for uPanel 受管理部署：webapp.
+Oct 27 11:46:33 upanel-2204 systemd[1]: upanel-deploy-webapp.service: Job upanel-deploy-webapp.service/start failed with result 'dependency'.
+Oct 27 11:46:39 upanel-2204 systemd[1]: Starting uPanel 受管理部署：webapp...
+Oct 27 11:46:42 upanel-2204 docker[1397]:  Network webapp_default  Creating
+Oct 27 11:46:42 upanel-2204 docker[1397]:  Network webapp_default  Created
+Oct 27 11:46:42 upanel-2204 docker[1397]:  Container webapp-webapp-1  Creating
+Oct 27 11:46:43 upanel-2204 docker[1397]:  Container webapp-webapp-1  Created
+Oct 27 11:46:43 upanel-2204 docker[1397]:  Container webapp-webapp-1  Starting
+Oct 27 11:46:46 upanel-2204 docker[1397]:  Container webapp-webapp-1  Started
+Oct 27 11:46:46 upanel-2204 systemd[1]: Finished uPanel 受管理部署：webapp.

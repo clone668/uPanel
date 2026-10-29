@@ -1,0 +1,49 @@
+# 这一轮读数绑定的确切字节
+
+按 Q510：验收读数只对"跑出它的那些字节"成立。换一次构建，这里的结论就得重跑。
+
+## 来源树
+
+| 项 | 值 |
+|---|---|
+| 仓库 | `github.com/clone668/uPanel` |
+| 分支 | `main` |
+| HEAD | `8e52b36bf93579d8bd739604258d09ebdd4d595a` |
+| 工作区状态 | **脏**（`git status --porcelain` 输出 353 行，本轮未提交） |
+| 构建命令 | `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath ./cmd/upanel-{agent,web,ctl}` |
+| `BuildDate` | **没有注入**（只有 `scripts/release.sh` 会注入；这里用的是 `go build` 直出） |
+
+工作区是脏的，所以 HEAD 不足以还原现场 —— 依据是下面三个二进制自己的哈希。
+
+## 二进制（与 VM 上 `sha256sum` 逐字一致）
+
+| 文件 | sha256 |
+|---|---|
+| `upanel-agent` | `5ad12b15820439bd6b9fbc5514090a5d938d7a4f1899c85de82ad54eb01a5533` |
+| `upanel-web` | `cd6dc5ee829343ab62633f9fadf0a59d8ceb442a48ac6cc4808be589dfa99a77` |
+| `upanelctl` | `563f938935d6220a4d1e80cf0a386db6135eb29dfbed5d780455f49a31f0425b` |
+
+## 验收脚本
+
+| 项 | 值 |
+|---|---|
+| 路径 | `tests/integration/p16-4-matrix-gaps.sh` |
+| sha256 | `382f31fe9b55e50fbee3d462f461e15d5859d754198166e74b818f64334da062` |
+
+## 机器
+
+| 项 | 值 |
+|---|---|
+| 主机 | `upanel-2404`（VM-B，QEMU TCG，`-cpu max`） |
+| 系统 | Ubuntu 24.04.5 LTS |
+| 内核 | `6.8.0-147-generic` |
+| CPU / 内存 | 2 vCPU / 3914 MiB |
+| 根文件系统 | `/dev/sda1`，38 GiB，跑前可用 35 GiB |
+
+## 起点状态（脚本自己处理了，这里记一笔）
+
+跑之前 `upanel-agent` 与 `upanel-web` 两个 systemd 单元是 active（P16 早前几轮装的）。脚本开头停掉、结尾 `systemctl start` 还回去 —— 因为它要自己启一套代理去接 `/run/upanel/agent.sock`，两个进程抢同一个 socket 只会读到先到的那个。
+
+**还回去之后的状态，如实记**：收尾那一刻 `upanel-agent` 是 `active`，`upanel-web` 是 `activating`
+（脚本退出时清掉了自己那个 socket，装回来的代理才刚起，Web 在重试）。这条不影响本文件里的任何读数——
+第 4—6 节用的是脚本自己起的进程，不是这两个单元。重跑之前若要用回装的实例，先 `systemctl restart upanel-web`。

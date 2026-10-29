@@ -1,0 +1,22 @@
+# 由 uPanel 渲染，请勿手工修改：改这个文件不会回到面板定义，下一次部署会被覆盖。
+# 项目 webapp；服务 webapp；容器端口 80；宿主 127.0.0.1:18088/tcp
+services:
+  "webapp":
+    image: "nginx:1.27-alpine"
+    restart: "no"
+    ports:
+      - target: 80
+        published: "18088"
+        host_ip: "127.0.0.1"
+        protocol: "tcp"
+    environment:
+      "APP_MODE": "p15-3"
+    volumes:
+      - type: "bind"
+        source: "/srv/upanel/volumes/p15data/appdata"
+        target: "/data"
+        read_only: false
+        bind:
+          create_host_path: false
+    mem_limit: 134217728
+    cpus: 0.5

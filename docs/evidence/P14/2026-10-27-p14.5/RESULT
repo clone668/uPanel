@@ -1,0 +1,3 @@
+PASS=168 FAIL=0 NOT RUN=6
+FAILED_NAMES= (none)
+NOTRUN_NAMES= | 共享账号不能拿 sudo | 共享账号 + Samba passdb 的那一半 | 两条公钥动作并发写同一份 authorized_keys | 第 11 把公钥被拒（上限 10） | home 在别处 / home 是符号链接的账号 | 面板自己的 TOTP 与登录策略

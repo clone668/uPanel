@@ -1,0 +1,17 @@
+#!/bin/sh
+# 不是产品的一部分：VM 的救命绳。只在"UFW 启用、且没有任何 from any 的规则放行 22/tcp"
+# 时动手，动手就留标记——验收会因为那个标记判 FAIL。
+who=${1:-unknown}
+mkdir -p /var/tmp/upanel-accept-p14-3/logs
+if [ "$("/usr/sbin/ufw" status 2>/dev/null | head -n1 | grep -ciE '^Status: active')" = "0" ]; then
+  printf '%s %s not-needed: ufw 不处于启用状态\n' "$(date -u +%FT%TZ)" "$who" >>/var/tmp/upanel-accept-p14-3/logs/watchdog-$who.log
+  exit 0
+fi
+if "/usr/sbin/ufw" show added 2>/dev/null | grep -qE '^ufw (allow|limit) (22/tcp|from any to any port 22 proto tcp)( |$)'; then
+  printf '%s %s not-needed: 22/tcp 有放行\n' "$(date -u +%FT%TZ)" "$who" >>/var/tmp/upanel-accept-p14-3/logs/watchdog-$who.log
+  exit 0
+fi
+printf '%s %s FIRED: ufw 启用而 22/tcp 没有放行，正在停用 ufw\n' "$(date -u +%FT%TZ)" "$who"   >>/var/tmp/upanel-accept-p14-3/logs/watchdog-$who.log
+: >/var/tmp/upanel-accept-p14-3/watchdog-fired-$who
+"/usr/sbin/ufw" --force disable >>/var/tmp/upanel-accept-p14-3/logs/watchdog-$who.log 2>&1
+"/usr/sbin/ufw" allow 22/tcp >>/var/tmp/upanel-accept-p14-3/logs/watchdog-$who.log 2>&1

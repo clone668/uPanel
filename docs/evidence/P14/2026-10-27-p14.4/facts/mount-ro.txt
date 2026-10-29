@@ -1,0 +1,12 @@
+--- findmnt
+/mnt/nfs-media-ro rw,relatime,vers=3,rsize=524288,wsize=524288,namlen=255,hard,proto=tcp,timeo=600,retrans=2,sec=sys,mountaddr=127.0.0.1,mountvers=3,mountport=51089,mountproto=tcp,local_lock=none,addr=127.0.0.1
+--- 客户端看到的内容
+total 12
+drwxr-xr-x 2 root root 4096 Oct 26 20:43 .
+drwxr-xr-x 7 root root 4096 Oct 26 20:39 ..
+-rw-r--r-- 1 root root   30 Oct 26 20:43 readme.txt
+--- 服务端目录
+total 12
+drwxr-xr-x 2 root root 4096 Oct 26 20:43 .
+drwxrwxrwx 4 root root 4096 Oct 26 20:42 ..
+-rw-r--r-- 1 root root   30 Oct 26 20:43 readme.txt

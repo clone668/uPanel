@@ -1,0 +1,94 @@
+== 0. 环境
+PASS  验收脚本以 root 运行
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  python3 可用（解析响应、受控种入）
+PASS  runuser 可用（以 Web 身份写库）
+NOTE  整机 fd 总数 562（最多的进程：systemd 126）
+PASS  Web 账号 upanel-web 存在
+
+== 1. 装配：配置（采集打开）+ 代理 + 管理员 + Web ==
+PASS  代理密钥文件已存在（沿用上一轮）
+PASS  代理启动并创建 socket
+PASS  init-admin 退出码
+PASS  Web 启动
+PASS  管理员登录 200
+PASS  创建 viewer 201
+PASS  viewer 登录 200
+PASS  采集状态 200
+PASS  取到可用的文件系统目标 /（空间规则要按挂载点建）
+
+== 2. A：规则校验、权限与乐观并发 ==
+PASS  viewer 读规则列表 200（权限 V）
+PASS  规则列表初始为空
+PASS  viewer 建规则 403（权限 A）
+PASS  viewer 建规则的错误码
+PASS  未登录读规则 401
+PASS  未登录的错误码
+PASS  管理员不带 CSRF 建规则 403
+PASS  不给 duration_seconds → 400
+PASS  不给 duration_seconds 的错误码
+PASS  报错点出缺的是 duration_seconds
+PASS  未知指标 → 400
+PASS  未知指标的报错点出名字
+PASS  duration_seconds 低于下限 → 400
+PASS  报错说明下限是 30
+PASS  恢复线不低于告警线 → 400（死区必须存在）
+PASS  报错点出 recovery_threshold
+PASS  次级指标跨 scope → 400
+PASS  报错说明两个 scope 不在一处
+PASS  次级口径只给一个字段 → 400
+PASS  报错说明三个字段要一起给
+PASS  建临时规则 201
+PASS  没有次级口径时 combination 被归一成 any（留个 all 会骗人）
+PASS  enabled=false 生效（临时规则不参与判定）
+PASS  新建规则的初始状态是 ok
+PASS  PATCH 不给 version → 400
+PASS  报错说明 version 的用途
+PASS  PATCH 带上正确 version 200
+PASS  改名生效
+PASS  version 递增
+PASS  没提的字段沿用原值（PATCH 是叠加不是覆盖）
+PASS  旧 version PATCH → 409
+PASS  冲突的错误码
+PASS  改不存在的规则 → 404
+PASS  不存在的错误码
+PASS  DELETE 的 version 不是数字 → 400
+PASS  DELETE 用旧 version → 409
+PASS  DELETE 不带 version 按当前版本删 200
+PASS  删不存在的规则 → 404
+PASS  事件列表 state 取闭集外的值 → 400
+PASS  事件列表 rule_id 不是数字 → 400
+PASS  事件列表 200
+PASS  此刻还没有任何事件
+PASS  静默只给起点 → 400（起止要同进同出）
+PASS  静默窗口终点早于起点 → 400
+PASS  viewer 改静默 403（权限 A）
+PASS  没设过窗口时读静默 200
+PASS  没有窗口时 starts_at 是 null（不是空串）
+PASS  没有窗口时 ends_at 是 null（不是空串）
+
+== 3. B/C/D：生命周期（受控种入）、空间双阈值、维护静默 ==
+PASS  受控序列就位（accept0/rx_bytes_per_sec 已写入 9 个样本）
+PASS  设置维护静默 200
+PASS  静默窗口当前生效（active=true）
+PASS  静默理由被记住
+PASS  容量指标 duration_seconds 低于两个采集周期 → 400
+PASS  报错点出 duration_seconds
+PASS  报错说清是“装不下两个点”
+PASS  建 R1（网卡入向 gte 1000/500，持续 30 秒，冷却 240 秒）201
+PASS  R1 的 scope 由指标反查成 interface
+PASS  建 R2（空间双口径 any，持续 60 秒）201
+PASS  R2 的 scope 由指标反查成 filesystem
+PASS  建 R3（空间双口径 all，持续 60 秒）201
+PASS  建 R4（永不超限的控制组）201
+NOTE  R1=2 R2=3 R3=4 R4=5，受控序列 accept0/rx_bytes_per_sec，目标文件系统 /
+PASS  超限但还没持续够 → pending（不是立刻触发）
+PASS  pending 的 last_reason 说明在计持续
+PASS  pending 期间还没有任何事件（持续没够就不报）
+PASS  持续够 30 秒后进入 firing
+NOTE  R1 从建规则到 firing 用了 45 秒（pending 至少 30 秒）
+PASS  触发时只开一条事件（不是每轮开一条）
+/tmp/p13-2-acceptance.sh: 876: arithmetic expression: expecting primary: " 1792996240 -  "
+EXIT=2

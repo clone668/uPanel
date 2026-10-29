@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"agent: 参数不合法: 第 1 条规则：network: 防火墙定义不合法: action 只有 allow/deny/reject/limit，收到 \"log\""},"request_id":"0d9044a1be147700e8ad5958de84c59d"}

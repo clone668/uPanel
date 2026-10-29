@@ -34,6 +34,8 @@ admin：完整的已实现管理权限；viewer：仅允许下表明确标注 V 
 
 会话 Cookie 固定名称 __Host-upanel_session，HttpOnly、Secure、SameSite=Strict、Path=/，不设置 Domain。随机值至少 256 bit，服务端只保存哈希。默认 30 分钟空闲超时、12 小时绝对超时；登录/权限变化后轮换会话，退出立即失效。
 
+**空闲超时是滑动的，Cookie 必须跟着滑。** 每次校验把空闲期往后推时，服务端用同一令牌重发 `Set-Cookie`，`Expires` 同步到库里新的到期时间（节流：同一会话每分钟至多重发一次）。只在登录时下发一次到期时间是错的——那会让 Cookie 在登录后 30 分钟整点消失，而库里会话还活着，表现为"一直在用，到点照样被踢"，任何跨过 30 分钟的操作（备份恢复、长任务观察）都会半路断在 401。
+
 已登录所有非 GET/HEAD 请求需要 X-CSRF-Token；令牌绑定会话，前端只保存在内存。登录接口要求 JSON Content-Type、X-UPanel-Request: 1 和精确匹配的 Origin。Origin 白名单来自本机配置，不由任意 Host 或 X-Forwarded-* 生成。WebSocket 握手同样校验 Cookie、Origin 和单次会话许可。
 
 日志流、下载和 SSE 可以使用 Cookie 的同源 GET，服务端不开放跨域。生产默认不信任代理头，只有明确配置可信代理地址才解析其来源。
@@ -63,10 +65,78 @@ admin：完整的已实现管理权限；viewer：仅允许下表明确标注 V 
 | GET /health/live | 最小存活状态，不返回内部路径/版本细节 | 匿名 |
 | GET /meta | version、mode、capabilities、server_time、timezone_display_policy | V |
 | GET /system/summary | OS、内核、uptime、boot_id、CPU/内存/负载、告警摘要、采集时间 | V |
-| GET /system/metrics?scope=&from=&to=&step= | 明确 scope 的时序样本；限制时间范围/点数 | V |
+| GET /system/metrics?scope=&from=&to=&step= | 明确 scope 的时序样本；限制时间范围/点数（口径见 §13.1） | V |
+| GET /system/metrics/status | 历史采集的运行时状态：是否在采、各粒度行数、保留窗口、最近错误 | V |
+| GET /system/power-state | 重启标志、来源包清单与本 boot_id（口径见 §12.1） | admin |
+| GET /system/capabilities | 外部程序能力快照：这台机器装了哪些程序、什么版本、缺的为什么缺（口径见 §3.1） | admin |
 | GET /audit | 审计分页和筛选 | admin |
 
 capabilities 为列表，每项包含 id、state、reason、required_packages、supported_actions。state 为 ready、missing_dependency、unsupported、disabled、mock。模式为 production 或 mock，不允许 silent fallback。mock 服务绑定 127.0.0.1:18881，与真实代理完全隔离；页面持续显示“演示数据，未操作服务器”。
+
+### 3.1 P16.1 已实现范围：外部程序能力探测（一份实现，三种问法）
+
+**为什么这件事以前没有答案。** 备份页要 restic、部署页要 docker、代理页要 nginx、防火墙页要
+ufw，缺任何一个时界面只能显示“读了但没读到”——真正的原因（没装？装的是别的版本？跑在容器里
+没有这个程序？）只有 SSH 进去才知道。同时 `capabilities.dependencies` 是一个**硬编码的空数组**：
+字段存在、注释写着“当前尚未探测”，于是三处页面各读各的空。
+
+**一份实现，三种问法。** 探测只有 `internal/hostcaps` 一处，三个出口读同一份事实：
+
+| 出口 | 谁用 | 形状 |
+|---|---|---|
+| `upanelctl host-caps` | 安装器、没有面板时的排障 | 人读的表 / `--json` / `--line` |
+| `GET /internal/v1/capabilities` 的 `host_caps` | 面板 Web 进程 | `Report` 或 `null` |
+| `GET /api/v1/system/capabilities` | 浏览器 | `{ready, host_caps}` |
+
+`capabilities.dependencies` **已删除**，不再保留一个永远为空的字段：留着它会让人以为那里本该
+有内容、只是这一轮没填上。
+
+**四条诚实性规则（每一条都对应一种会被读成假话的情形）。**
+
+1. **只在固定目录里找**：`/usr/sbin`、`/sbin`、`/usr/bin`、`/bin`。不走 `PATH`——PATH 里可能有
+   当前目录或别的可写路径，“在 PATH 里”与“这台机器上有”不是一件事。
+2. **三态**：`present` / `absent` / `unknown`。固定目录读不出来时该条是 `unknown`，且整份报告
+   `partial=true`、原因进 `issues[]`。把 `unknown` 并进 `absent` 会让人去重装已经装好的东西。
+3. **版本只在真读到的时候填**：命令跑完、退出码 0、输出匹配到锚点才填版本；超时、认不出、
+   没有可靠的版本开关（`exportfs`、`useradd`、`visudo` 就是这种）一律留空并写原因。空串的意思是
+   “没有版本”，不是“版本是 0”，也不是“未知”。
+4. **`null` ≠ 空**：代理还没探完时 `host_caps` 是 `null`，`ready=false`。前端必须画“还没探完”。
+   一条表都不渲染，与渲染一张空表是两件事——后者在任何人眼里都是“这台机器什么都没装”。
+
+**缓存而不是请求内探测**：代理启动时探一次，之后每 10 分钟重探。端点只读快照。理由是这条
+端点会被页面反复刷新，让每次刷新都等十几条版本命令不合适；反过来，一次探测十几条命令并发跑
+（`probeConcurrency=4`），正常 1 秒内结束。
+
+**规格表**（21 条，`internal/hostcaps` 的 `specTable`）：systemd、journalctl、systemd-analyze、
+docker、docker.compose、nginx、restic、ssh、ufw、ip、nfs、samba、apt、certbot、smartctl、sgdisk、
+mkfs.ext4、mkfs.xfs、findmnt、shadow、sudo。登记标准是“有真实消费者”——表里每一条都对应一个
+已经在用的子系统；没有消费者的条目不进表，一张越写越长、一半没人读的能力表会让人以为探到的
+每一条都已经作数。
+
+**`upanelctl host-caps --line` 的列契约**（安装脚本用它，POSIX sh 没有 jq）：每行一条、无表头、
+制表符分隔、六列，顺序固定：
+
+```
+id <TAB> state <TAB> version <TAB> path <TAB> feature <TAB> hint
+```
+
+空字段表示“没有”，**不许**用 `-` 或 `n/a` 之类的占位符（脚本会把占位符当成版本号）。
+`--json` 与 `--line` 互斥（400 → 这里是退出码 2）。
+
+**退出码**：`host-caps` 的退出码只表示“这次探测本身有没有跑完”，**不表示缺不缺东西**。一台没装
+Samba 的机器是正常的，把它算成失败会让安装器拒绝安装。超时（默认 `--timeout 30s`）打半份报告并
+返回 1。
+
+**权限**：`GET /system/capabilities` 是 admin。这份清单列的是这台机器装了哪些程序、什么版本、在
+哪，合起来就是主机指纹（与容器清单、部署定义同一个判断，PLAN §14）。viewer 用不到它。
+
+**只转述，不判决**：`present` 只代表程序在固定目录里、版本读得到；某个动作能不能真的做，仍然由
+那个动作自己的预检回答。把这份清单当准入条件会造出第二套判决，两套判据迟早打架。
+
+**同时补充的 CLI 字段**：`upanelctl check-config --json` 增加 `agent_database_path`（代理库的
+生效路径）。备份脚本靠它定位代理库，而不是把 `/var/lib/upanel-agent` 写死在脚本里——配置里挪过
+库的位置，备份就得跟着挪。
+
 
 ## 4. 预检、执行和幂等
 
@@ -160,7 +230,7 @@ SSE 使用持久递增 seq 作为 id，事件类型为 status、progress、log�
 | proxy.delete | proxy_id、version | nginx+domain；不删除应用；托管配置还在时 409 | 是 |
 | certificate.issue | proxy_id、email、environment=staging/production | cert+domain；明确签发环境 | 是 |
 | certificate.import | proxy_id、certificate_upload_id、private_key_secret_ref | cert+domain；验证证书与私钥匹配 | 是 |
-| certificate.renew | certificate_id | cert+nginx；允许内置定时身份 | 否 |
+| certificate.renew | certificate_id（面板展开；定时续期为 domain、staging、scheduled，见 §12.5） | cert+nginx；允许内置定时身份 | 否 |
 | package.refresh | 空对象 | apt-global | 否 |
 | package.install / package.remove | packages（精确包名数组） | apt-global；模拟和保护名单 | 是 |
 | package.upgrade | packages（明确选中的包名数组） | apt-global；禁止隐式 dist-upgrade | 是 |
@@ -170,7 +240,7 @@ SSE 使用持久递增 seq 作为 id，事件类型为 status、progress、log�
 | backup.restore | repository_id、snapshot_id、target_root_id、relative_path、overwrite | repository+目标卷+依赖应用 | 是 |
 | backup.verify | repository_id、snapshot_id、sample_restore | repository；临时恢复目录有空间限额 | 否 |
 | backup.prune | backup_policy_id、version | repository；预检列出要删除的快照，保留策略校验 | 是 |
-| schedule.apply | schedule_id（新建为 null）、version、definition | timers；只允许登记动作 | 是 |
+| schedule.apply | schedule_id（新建为 null）、version、definition（证书续期计划的 certificate 由面板按证书记录展开，见 §12.5） | timers；只允许登记动作 | 是 |
 | schedule.delete | schedule_id、version | timers；不碰外部 timer | 是 |
 | script.apply | script_id（新建为 null）、version、name、content | scripts；只写固定目录、归属 upanel-shell | 是 |
 | script.delete | script_id、version | scripts；存在计划引用则拒绝 | 是 |
@@ -917,6 +987,152 @@ Windows 与 macOS 两种说明只给地址形状（`\\host\名` 与 `smb://host/
 名单外账号与匿名被拒”。Windows/macOS 客户端在没有对应测试虚拟机时标 **NOT RUN**，不得
 用 Linux 客户端的结果代替。
 
+### 7.5 P14.4 已实现范围：NFS 受管理导出（协议第二支）
+
+共享从这一节起是**两种协议**，不是一种协议的两种配置：SMB 的访问控制是“受管理账号 + POSIX
+ACL”，NFS 的是“来源网段 + `root_squash`”。所以下面每一条都先问协议，而不是在一套规则里
+塞“如果不是 nfs 则……”。定义结构（`ShareDefinition`）不变，只是按协议**必填项不同**。
+
+**（1）定义字段的按协议取舍。** 同一份 `ShareDefinition`，`protocol=smb` 与 `protocol=nfs`
+要求的字段不同，混填一律拒绝：
+
+| 字段 | smb | nfs |
+|---|---|---|
+| `smb_users` | 必填，不允许空名单（空名单退化成 guest，本项目禁止） | **必须为空**，出现非空即 `NFS_USERS_NOT_ALLOWED` |
+| `allowed_cidrs` | 可空（空 = 不限来源，但 §7.4(4) 要求说明里写明 Samba 对本机永远放行） | **不可空**（`SHARE_NO_CIDRS`），且每一项前缀长度不能为 0（`NFS_OPEN_TO_WORLD`） |
+| `nfs_options` | **不得出现**（出现即拒） | 必填，且是闭集 `{root_squash:true, sync:true}`，缺项或 false 即 `NFS_OPTIONS_INVALID` |
+| `relative_path` | 空串 = 卷根，非法写法见 `ValidateRelativePath` | 同左 |
+| `read_only` | 所有账号 ACL 上限 `r-x` + 共享段 `read only = yes` | 导出行写 `ro` + 目录权限 `0755`（两道锁） |
+
+`no_root_squash`、`async`、`insecure`、`*` **不是默认关闭的可选项**，而是根本不存在于取值
+空间里（PLAN §10）。要放开需要改代码，不是改一次请求参数。开放网段同理：NFS 没有账号这一
+层，允许 `0.0.0.0/0` 等于向全世界导出，所以它在定义校验里就是错的。
+
+**（2）只维护一份文件，行尾标记是认领依据。** 面板写的全部 NFS 状态都在
+
+    /etc/exports.d/upanel.exports
+
+这一份里，**整份重写**（不是增量追加）。每一行末尾带 `# upanel:<share_id>`：
+
+    /srv/upanel/volumes/data/media 10.0.2.0/24(rw,sync,root_squash,no_subtree_check) # upanel:shr_…
+
+`# upanel:` 是“这一行是面板写的”的**唯一**判据。行尾注释不会影响 `exportfs` 解析（22.04
+实测），所以认领标记可以就放在行尾，不必另开索引文件。三条硬规矩：
+
+- `/etc/exports`（系统主导出文件）**只读**，面板一个字都不改；它只被用来做冲突检测。
+- 别的 `*.exports` 文件（管理员自己的）不读进面板、不导入为可编辑共享、也不被改写。
+- `/etc/exports.d/` 下只有以 `.exports` 结尾的文件才会被 `exportfs` 自动读取（实测：改名
+  成 `.conf` 之后导出立刻消失）。文件名因此是常量，不是配置项。
+
+**（3）“刷新成功”不等于“表变了”——判决一律读回实际导出表。** `exportfs -ra` 的退出码不是
+证据（没有可刷新的内容时它照样 0）。执行顺序固定为：
+
+1. 执行前**重新判决**：比对 `share_id` + `version`，卷此刻是否 `mounted`（不是则
+   `DEPENDENCY_BLOCKED`）、目录是否仍在该卷里（`EXPORT_PATH_CONFLICT` 在预检已被拦过一次，
+   执行期再查一次）；
+2. 渲染整份 `upanel.exports` 候选内容（`sha256` 即 `config_hash`）→ 原子写入（写临时文件 +
+   `fsync` + rename）；
+3. `exportfs -ra`；
+4. **读回** `exportfs -v`（实际生效的导出表）逐条比对：路径在、`rw`/`ro` 对、`sync`、
+   `root_squash`、`no_subtree_check` 都在，且没有多余的面板路径；
+5. 只有第 4 步通过且 `nfs-server` 为 `active` 且卷仍挂载，`served` 才为真、`outcome` 才是
+   `verified`；否则 `accepted`，并说清是哪一项没就位；
+6. 第 3、4 步任何一步失败：**立刻还原旧文件**并再 `exportfs -ra` 一次，`outcome=rolled_back`，
+   错误里点名 `EXPORTS_RELOAD_FAILED` 或 `EXPORT_VERIFY_MISMATCH`。回滚只撤自己刚写的东西，
+   不动别人的导出文件。
+
+`outcome` 闭集仍是 §4 那五个（`verified`/`accepted`/`rolled_back`/`partial`/`unknown`），
+**没有 `failed`**。
+
+**（4）能力报告（`capability.nfs`）。** `GET /shares` 与 `GET /shares/:id` 的 `capability`
+里多一个 `nfs` 对象（openapi `ShareNfsCapability`）：`status`（`available`/`blocked`）、
+`reason`、`exportfs`（工具绝对路径）、`exports_dir`、`exports_file`、`exports_dir_ready`、
+`exports_present`、`exports_hash`、`exported_paths`（此刻实际被导出的面板路径）、
+`main_exports_readable`、`service_state`（`active`/`inactive`/`unknown`）、`config_write`、
+`notices`。判据只有一条：**有没有 `exportfs`**；没有就 `blocked`，任何 NFS 应用在预检阶段
+以 `NFS_UNAVAILABLE` 阻塞（"摘不掉导出行也刷不了表"）。
+
+`exportfs` 的落点由能力报告给出、执行层从 `Capability().Tools.Exportfs` 取——两处必须是同一
+个值。这不是洁癖：`Tools` 是执行层拿工具路径的唯一入口，这里漏填，`reloadExports` 与
+`readExportTable` 就永远看到空字符串，真机上表现为“每次刷新都报缺少 exportfs”。
+
+**（5）NFS 专用的阻塞与告警码。** 与 SMB 那套**不共用**（把 `SHARE_NO_USERS` 套到 NFS 上
+会得到一句自相矛盾的话）：
+
+| 码 | 类别 | 含义 |
+|---|---|---|
+| `NFS_OPTIONS_INVALID` | 阻塞 | `nfs_options` 缺失或取值不在闭集里 |
+| `NFS_OPEN_TO_WORLD` | 阻塞 | 允许网段里有前缀长度 0 的一项 |
+| `NFS_USERS_NOT_ALLOWED` | 阻塞 | nfs 定义里带了 `smb_users` |
+| `SHARE_NO_CIDRS` | 阻塞 | nfs 共享没有点名允许网段 |
+| `NFS_UNAVAILABLE` | 阻塞 | 本机没有 `exportfs` 或读不到导出配置 |
+| `EXPORT_PATH_CONFLICT` | 阻塞 | 这个目录已经被导出：别人的导出文件里有，或面板自己的另一条共享占着（见下） |
+| `EXPORTS_UNPARSABLE` | 告警 | 别人的导出文件里有读不懂的行 → “确认没有冲突”这句话打折扣 |
+| `EXPORTS_UNREADABLE` | 告警 | `exportfs -v` 失败 → “此刻在不在导出”无从回答 |
+| `EXPORTS_NOT_APPLIED` | 告警 | 这条共享此刻不在导出表里（还没应用 / 被撤销） |
+| `NFS_SERVICE_INACTIVE` | 告警 | `nfs-server` 没在运行：会照写、照校验，但对外不提供服务 |
+| `NFS_CALCULATED_ONLY` / 其它 smb 码 | — | 不出现在 nfs 分支里 |
+
+`EXPORT_PATH_CONFLICT` 为什么是阻塞而不是告警：`exportfs` 遇到同一条路径被导出两次会报
+`duplicated export entries` 并以 1 退出，整份导出表的刷新因此失败——别人的导出也一起停止
+刷新。预检先拦一次，执行期再查一次（并发窗口）。
+
+“被导出两次”有**两个来源**，判据必须都覆盖，漏一个用户就会在预检看到 `allowed`、在执行时
+收到一句 `exportfs` 的 `duplicated`：
+
+1. **别人的导出文件**导出过这个目录（`ExportConflicts`，比的是 `/etc/exports` 与别的
+   `*.exports`；面板自己文件里的行由“整份重写”负责，不参与）；
+2. **面板自己的另一条共享**指着同一个目录（`SameDirShares`）。两条共享的网段与只读标记
+   可以不同，合并成一行等于替用户猜他想留哪一条——所以只判定、不合并。判定按名字排除
+   自己：新建共享在预检时还没有 id，名字是那一刻唯一确定的身份（登记表里名字唯一）。
+   子目录不算同目录（`/x` 与 `/x/ro` 是两条不同的导出，`exportfs` 认完整路径）。
+
+**（6）目录与权限。** 目录不存在时按 `relative_path` 创建，权限按 `read_only` 定：读写
+`0777`、只读 `0755`。**不设 POSIX ACL**：NFS 走 `sec=sys`、uid 透传，服务端事先不知道谁会
+连上来，访问控制只能交给网段；ACL 在 NFS 上只会变成一层“看起来在管、实际挡不住”的假象。
+只读共享的两道锁是 `ro` 导出行 + `0755` 目录，二者缺一都不算只读。
+
+停用/删除共享**只摘导出行，永远不删目录与里面的文件**；NFS 没有 ACL 可收，`acl_revoked`
+显式为 `false` 且 `acl_note` 写清原因（不留空让人猜是不是忘了做）。
+
+**（7）锁与开机依赖。** 托管导出文件是整份重写的，所以 NFS 的写与停用都取
+`nfs:exports` 这把全局锁（与 SMB 的 `samba:config` **分开**：两者写的是不同文件，共用一把锁
+会让不相关的动作互相排队）。锁集合 = `{share:<名字>, volume:<卷 id>, nfs:exports}`。
+
+开机依赖写的是 `nfs-server.service.d/upanel-exports.conf`（`RequiresMountsFor=` 点名各导出
+目录的卷挂载点），与 SMB 的 `smbd` drop-in 各写各的。撤销最后一个 NFS 导出时这份 drop-in
+一起收回。
+
+**（8）卷依赖与运行时撤销。** 卷掉线时那条导出会被从 `upanel.exports` 里摘掉并重新生效
+（`runtime_revoked` + `config_applied=false`），卷回来**不会**自动复活——与 §7.3 同一条
+“撤销只减不增”。有启用导出的卷不允许从面板卸载（`VOLUME_IN_USE_BY_SHARE`）；卷在别处掉线
+（拔盘、外部 `umount`、后端消失）就走撤销循环。重新应用是唯一的出路。
+
+**（9）页面（NFS 那一半）。** 新建表单按协议切换整块，而不是把 SMB 的字段灰掉——灰掉的字段
+会让人以为“填了也许有用”，而它根本不会被写下去：NFS 下不出现账号块、不出现 SMB/ACL 的说法，
+出现的是固定选项（`root_squash` / `sync` / `no_subtree_check`，不可改）与“必须点名网段”的
+说明。客户端说明换成三种：`mount.nfs`（Linux）、`mount_nfs`（macOS）、`mount -o anon`
+（Windows NFS 客户端，可选装）。三条硬规矩：
+
+- **命令里没有账号，也没有密码**——NFS 根本没有这一层；出现它们是误导。
+- **导出目录不编绝对路径**：`ShareRecord` 里没有卷挂载点，说明给的是
+  `<卷挂载点>/<相对路径>` 占位 + `showmount -e <host>`（打印服务端此刻的导出表），
+  让人问出真路径，而不是猜一个像模像样的 `/srv/...`。
+- **挂完先 `findmnt`，再写**：挂载失败时客户端可能**静默写本地目录**、`mount` 的退出码
+  仍然是 0。说明里 `mount` 之后紧跟着 `findmnt -T <挂载点>`，这不是啰嗦，是唯一能避免把
+  数据写到本机系统盘上的动作。
+
+**验证要求**（§16 的追加）：NFS 的验收必须
+
+- 用 `exportfs -v` 读**实际导出表**做断言，不接受 `exportfs -ra` 的退出码；
+- 以真实客户端（`mount -t nfs -o vers=3,proto=tcp`）证明读写、只读拒写、**root_squash 后
+  落盘属主是 `nobody:nogroup`**，并且写入前先 `findmnt` 确认挂上了；
+- 证明面板**没有改** `/etc/exports`（前后哈希一致），也没有碰别人的 `*.exports`；
+- 证明网段真的是唯一访问控制：把名单换成不含客户端的一项之后，本机客户端**连不上**；
+- 证明卷掉线后导出被摘掉、客户端挂不上、卷回来后不自动复活、重新应用才恢复；
+- Windows/macOS 的 NFS 客户端与 NFSv4 直挂在没有对应测试条件时标 **NOT RUN**，不得用
+  Linux 客户端或 v3 的结果代替。
+
 ## 8. 应用、容器与部署契约
 
 
@@ -1432,6 +1648,548 @@ P09.5 **没有新增或修改任何接口**。这一节存在的原因是：页�
 **（6）卡片显示的是“读到的那一轮”。** 摘要里的 `runtime_state` 来自服务采集器的快照
 （默认 10 秒一轮），动作完成之后页面不会“乐观更新”，下一次刷新才会变。这条写在这里是为了
 避免把“晚一拍”当成缺陷去修——要更快只能改采集节奏，那是整台机器的开销权衡，不是页面的决定。
+
+### 8.6 P15.1 已实现范围：受约束部署定义、校验与 Compose 渲染（`internal/deploy`）
+
+P15.1 交付的是**纯函数层**：定义的结构、校验、以及把一份合法定义渲染成 Compose 配置的字节。
+它没有接口、没有库表、不执行任何东西——执行与落盘属 P15.2，更新与镜像 digest 属 P15.3，
+页面属 P15.4。这一节写在这里的原因是：这一层的每一条约束都是契约，不是实现细节。
+
+**（1）定义是闭集。** 十个字段，一个不多一个不少：
+
+| 字段 | 类型与范围 |
+|---|---|
+| `name` | `^[a-z][a-z0-9_-]{0,62}$`；同时是 Compose 项目名与容器名前缀 |
+| `image_reference` | `[registry[:port]/]repo[:tag][@digest]`，≤255 字节；仓库名必须小写；digest 只收 `sha256:`+64 位或 `sha512:`+128 位小写十六进制；tag 与 digest 都没有时补 `:latest` |
+| `container_port` | 1—65535（0 表示随机端口，不接受：面板记下的入口地址会失效） |
+| `host_bind_address` | **字面 IP**，不接受主机名、不接受带端口的写法 |
+| `host_port` | 1—65535 |
+| `environment[]` | 名字是 POSIX 标识符且不重复，≤64 条；每条的 `value` 与 `secret_ref` **二选一**（显式空串 `""` 与“没给”是两件事）；`secret_ref` 形如 `sec_`+32 位小写十六进制 |
+| `mounts[]` | ≤16 条；`source_root_id` 是已登记文件根 id；`relative_path` 空或 `.` 表示根自身，其余必须是 `path.Clean` 的不动点（`..`、绝对路径、`a//b` 全部拒绝）；`container_path` 必须是绝对路径且不是 `/`、`/proc`、`/sys`、`/dev`、`/boot`、`/lib/modules` 及各类容器运行时 socket，也不能重复 |
+| `resource_limits` | `memory_limit_bytes` **必填**，16 MiB—64 GiB；`cpu_limit` **必填**，十进制字符串，0.05—8 核 |
+| `health_check` | `enabled` 关时其余字段整体清零；开时 `kind` ∈ {http,tcp}，`port` 只能是容器端口（0 视为容器端口），http 必须给以 `/` 开头的 `path`；间隔 5—300 秒（默认 30）、单次超时 1—60 秒且**必须小于间隔**（默认 3）、重试 1—10（默认 3）、启动宽限 0—600 秒 |
+| `volume_dependencies[]` | ≤32 条，形如 `vol_`+32 位小写十六进制 |
+
+**没有** `compose_yaml`、`privileged`、`devices`、`network_mode`、`cap_add`、`pid`、`ipc`、
+`restart`、`user`、`build`、`env_file`、`extends`、`secrets`。请求体里出现这些字段不是被忽略，
+而是 **400 `unknown_field`** 并点名是哪个字段——静默丢弃会让人以为自己提交成功了。
+
+**（2）拒绝码是闭集**，界面按 `field` 高亮、按 `code` 归类：
+
+| 码 | 含义 |
+|---|---|
+| `unknown_field` | 定义里没有这个字段 |
+| `missing` | 必填项缺失 |
+| `malformed` | 形状不对（字符集、IP 字面量、路径规范形式、digest 形态） |
+| `out_of_range` | 超出范围或条数上限 |
+| `duplicate` | 环境变量名或容器内路径重复 |
+| `not_allowed` | 形状合法但这份定义不允许（相对路径越界、容器路径命中禁用目标、绑通配地址、只读根读写挂载、健康检查探非容器端口……） |
+| `unknown_root` | 挂载引用的文件根没有登记 |
+| `volume_missing` | 依赖卷不在登记表里，或挂载所在卷没有写进 `volume_dependencies` |
+
+只报第一个错误（与 `internal/apps` 同一个口径）。
+
+**（3）三段校验，回答三个不同的问题。**
+
+1. **形状**（`Normalize`）：定义自己能决定的事——字符集、范围、路径形状、默认值、排序。
+2. **宿主事实**（`CheckHost`）：定义自己答不了的事——这个地址是不是本机此刻的地址、这个根在不在、
+   它所在的**受管理卷**还在不在、以及那个卷有没有写进 `volume_dependencies`。三者必须对得上：
+   门禁守的是“声明的依赖卷”，容器吃的是“挂载所在的根”，少一环“卷缺失时重启也不绕过保护”就
+   断在半路。绑定地址只允许回环、显式放开的通配地址（默认关闭）或本机某一刻真的配着的地址。
+3. **秘密**（渲染时）：`secret_ref` 只经 `app_env` 用途解出明文，只存在于渲染出的字节里。
+
+**渲染在代理侧进行**，不在 Web 侧：环境变量的秘密只存在代理的密钥环里，Web 永远看不到明文
+（§14.2）。Web 只保存“哪个变量引用哪个 `sec_` 标识”；对秘密的读取接口一律只说“已设置”。
+
+**（4）渲染是确定性的，五处引号/写法是功能不是风格。**
+
+- 同一份定义永远渲染出同一份字节：环境变量按名字排序、挂载按容器路径排序、无时间戳。
+  配置摘要 = 这堆字节的 `sha256`，**只在内部比对**（字节里有明文秘密，公开摘要等于给离线
+  爆破提供靶子）。
+- `restart` 恒为字符串 `"no"`。裸 `no` 在 YAML 1.1 里是布尔 `false`；而任何自动重启策略都
+  意味着开机或崩溃后容器绕过依赖卷门禁自己起来。
+- 挂载用**长语法**并显式 `bind.create_host_path: false`：短语法靠冒号分隔（路径里一个冒号就
+  切错），而 compose 默认会在宿主路径不存在时替你建一个空目录再照常启动——数据写进系统盘、
+  界面显示“运行中”。
+- 所有引号标量把 `$` 转义成 `$$`：compose 会做变量插值，口令里的一个字面 `$` 会被宿主环境
+  改写甚至拼进容器。
+- `health_check` **不**渲染进 Compose：容器内的 healthcheck 需要一条能在镜像里跑起来的命令，
+  面板不知道镜像里有什么（`CMD-SHELL wget/curl` 在 slim 镜像上永远 unhealthy，还往容器里
+  引入一条 shell 命令）。它由 P15.3 在启动后从面板侧探测。
+- 渲染结果里不写顶层 `name` 字段（老版本 Compose 不认），项目名由执行时 `-p <name>` 传入，
+  两者必须一致。
+
+渲染出的形态（同一份定义 `webapp`，`nginx:1.27`，一个公开变量、一个秘密变量、两条挂载）：
+
+```yaml
+# 由 uPanel 渲染，请勿手工修改：改这个文件不会回到面板定义，下一次部署会被覆盖。
+# 项目 webapp；服务 webapp；容器端口 8080；宿主 127.0.0.1:18080/tcp
+services:
+  "webapp":
+    image: "nginx:1.27"
+    restart: "no"
+    ports:
+      - target: 8080
+        published: "18080"
+        host_ip: "127.0.0.1"
+        protocol: "tcp"
+    environment:
+      "APP_MODE": "production"
+      "DB_PASSWORD": "pa$$$$word"
+    volumes:
+      - type: "bind"
+        source: "/srv/upanel/volumes/media/webapp/assets"
+        target: "/usr/share/nginx/html"
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: "bind"
+        source: "/srv/upanel/volumes/media"
+        target: "/var/cache/nginx"
+        read_only: false
+        bind:
+          create_host_path: false
+    mem_limit: 536870912
+    cpus: 0.5
+```
+
+**（5）秘密读不到就渲染不出来。** 没有“当成空串”的退路：一份带着空口令起来的容器，比一份
+没起来的容器难查得多。渲染器为 nil、`secret_ref` 解不出来、值里有 NUL、值超过 32 KiB，都是
+`ErrSecretUnavailable`，整份配置不产出半份。
+
+**（6）仍未实现，也没有用别的东西假装实现。** 定义与渲染的持久化、`POST /deployments` 一类
+写接口、配置文件的 0600 落盘、包装 systemd 单元、执行 `docker compose`、记录实际镜像 digest、
+健康探测与更新/回切，全部属 P15.2/P15.3/P15.4。`GET /deployments` 仍然是只读观测（§8.3）。
+
+**（7）验收状态。** 本子任务只有单元测试（表驱动，含 §17 点名的恶意输入逐条）；
+**没有在任何真实 Ubuntu 虚拟机上跑过**，也没有被任何生产代码路径调用（P15.2 才接线）。
+按 STAGES §17 的验收条目（真实部署/升级/卷缺失重启），本阶段结论是**未验证**。
+
+### 8.7 P15.2 已实现范围：systemd 包装单元、挂载依赖与落地（`internal/deploy`）
+
+本子任务把 §8.6 的“渲染出一份配置”推进到“在宿主上真的落地一个受管部署”，并且**只做创建
+与删除**：`deployment.apply`（`deployment_id` 为 null）、`deployment.remove`。
+
+**（1）卷的事实从“在不在”变成“挂在哪、是不是那块盘”。** `HostEnv.Volumes` 的取值由
+`bool` 换成 `VolumeFacts{MountPoint, FilesystemUUID, Mounted, MountedUUID}`，两个新判据随之
+成立：
+
+| 判据 | 拒绝码 / 字段 | 为什么 |
+|---|---|---|
+| 依赖卷没有可用的挂载点 | `not_allowed` / `volume_dependencies` | 没有挂载点就拼不出 mount unit，`BindsTo` 无从谈起——那只是数据库里一行好看的字 |
+| 文件根的路径不在它登记的卷挂载点之内 | `not_allowed` / `mounts[i].source_root_id` | 门禁守 A 卷、容器吃 B 目录；卷没挂上也不会有任何人发现 |
+
+`CheckVolumesReady` 是 PLAN §11 规则 2/4 的“启动前 UUID 核对”：依赖卷必须 `Mounted` 且
+`MountedUUID == FilesystemUUID`。三种情形各自有明确消息——没挂载、挂的是另一块盘、读不到 UUID。
+
+**（2）包装单元（`RenderUnit`）。** 名字 `upanel-deploy-<name>.service`（名字可写就能覆盖别人的
+单元，所以由定义名派生、形状校验在拼之前）。内容要点，逐条对应 PLAN §11 规则 3—6：
+
+| 单元里的东西 | 落点 |
+|---|---|
+| `BindsTo=<mount unit>` + `After=<mount unit>`，逐卷 | 规则 3/4：卷没挂上单元起不来；运行中失联 systemd 停掉单元，`ExecStop` 收项目（规则 5） |
+| `RequiresMountsFor=<卷挂载点…>` | 同上，开机与手动启动两条路径都覆盖 |
+| `Type=oneshot` + `RemainAfterExit=yes` | `compose up -d` 的返回值是“这次启动”的结果，不是容器运行状态 |
+| `ExecStart=/usr/bin/docker compose -p <name> -f <cfg> up -d --remove-orphans --no-build` | 只拉镜像、不在本机构建；孤容器随启动清掉 |
+| `ExecStop=… down --remove-orphans` | 停止只有一条路径 |
+| `Requires=docker.service`、`After=network-online.target docker.service` | docker 没起来时 `compose` 必然失败，那不该被当成“启动成功” |
+| `[Install] WantedBy=multi-user.target` | 容器 `restart` 恒为 `no`，开机没人拉它——单元必须自己被 enable，否则机器重启后应用永远回不来 |
+| 单元里没有 `sh -c`、没有 `$`、没有命令替换 | argv 里多一个可写元素，docker 就离“任意命令执行器”近一步 |
+
+mount unit 名按 `systemd-escape --path` 逐字符实现（`/srv/upanel/volumes/my-app` →
+`srv-upanel-volumes-my\x2dapp.mount`）：段内的 `-` 不转义会与 `/` 拼出的名字撞车，拼错一个字符
+则 `BindsTo` 指向不存在的单元、整个部署起不来。
+
+**（3）落地（`Applier`）。** 只碰两个路径：`/etc/systemd/system/upanel-deploy-<name>.service`
+（0644）与 `/etc/upanel/deploy/<name>.compose.yaml`（0600，里面有 `app_env` 解出来的明文秘密）。
+
+- **部署版本 = 配置文件字节的 `sha256:<hex>`**，与 §8.6 的 `ConfigDigest` 同一个值。
+- 写入是临时文件 → `fsync` → `chmod` → `rename` → 目录 `fsync`；临时文件建在目标目录里，跨文件
+  系统的 `rename` 会退化成复制 + 删除，那就不是原子的。
+- **幂等**：同一份定义重放时摘要相同、单元字节相同 → 不重写、不重启，仍然 `enable` + `start`
+  并读回。
+- **启动动词看“写了什么”**：这次真的重写了单元（新建，或单元被人改过）而盘上早就站着这个单元
+  时，动词是 `restart` 而不是 `start`——`start` 对 `RemainAfterExit` 的 active oneshot 是空操作，
+  `ExecStart` 不会重跑，刚写下去的配置永远读不到（观测里 `unit_restarted=true`，见（7））。
+- **不幂等的部分明确拒绝**：这个名字上已有一份**内容不同**的配置 → `ErrDeploymentExists`，
+  并说明换定义属 `deployment.update`（P15.3）。在 P15.2 里悄悄覆盖，等于把一次更新伪装成一次
+  部署，而更新需要的拉镜像、记 digest、按选择备份、健康检查、回切边界一件都没做。
+- **单元被手工改过**（内容与生成的字节不同）→ 整篇重写并报告 `Written=true`。
+- **成功与否看读回**：`systemctl is-enabled` / `is-active`，不看 `start` 的退出码。`compose up`
+  返回 0 但单元不是 `active` 时，错误消息直接给出 `journalctl -u <unit>` 与 `compose logs`。
+  这两个动词的**退出码是答案不是失败**（`disabled`/`masked` 退出 1、`inactive` 退出 3），只有
+  超时、起不来、输出超限才算读不到——把退出码当失败，会让"删除一个已经停掉的部署"永远删不掉
+  （真机 boot 段暴露，见 DECISIONS Q486）。
+- **删除**：`systemctl disable --now`（`ExecStop` 跑 `compose down`）→ 不 `active` 才删两个文件 →
+  `daemon-reload`。停不下来就**不删**（`ErrUnitStillActive`）：留下一个在跑、却没有单元文件的
+  部署，下一次 apply 会当成“可以从头创建”。版本令牌对不上 → `ErrVersionMismatch`，一个字不动。
+  **数据卷与业务目录一个字节都不动**（CONTRACTS §5 对 `deployment.remove` 的明文要求）。
+- `Find` 按部署标识反查名字：标识是名字的 SHA-256 派生值，不可逆，只能扫单元目录比对；
+  只认 `upanel-deploy-<合法名字>.service`，不匹配就跳过，命中多个则拒绝猜测。
+
+**（4）`deployment.apply` / `deployment.remove` 的两阶段（`Service`）。**
+
+- `AssessApply`：`Normalize` → `CheckHost` → `CheckVolumesReady` → `Render`（秘密读不到则整份
+  不产出，进 blockers）→ `PlanUnit` → `Inspect`（磁盘上已有哪一份、摘要是什么）。返回的定义是
+  **规范化后**的那一份，预检绑定的就是它。
+- `ExecuteApply` 把上面每一步**重跑一遍**再落地：秘密可能在预检与执行之间被轮换、卷可能刚被
+  卸下、单元可能刚被人改过。渲染摘要与预检时不同→ `stale`；状态令牌不同 → `stale`。
+- `deployment.apply` 带非 null `deployment_id`（且等于名字派生值）→ `ServiceError{Code:
+  "update_not_implemented"}`；标识与名字对不上 → `malformed` / `deployment_id`。
+- `deployment.remove` 找不到 → blocker `no_such_deployment`。删除的预检永远带一条
+  `data_kept` 告警：删的是单元与配置，不是数据。
+- 健康检查（`health_check.enabled`）在预检里给一条 `health_probe_pending` 告警：**这一版不探测
+  HTTP**，部署成功后核对的是 systemd 单元状态与容器状态。P15.3 接线。
+
+**（5）接线（`internal/agent/deployaction.go`、`deployfacts.go`）。** 两条动作已经登记进生产登记
+表（`RegisterDeployActions`），§5 表格里那两行现在是**动作**，不只是契约：
+
+| 接口 | 形状 |
+|---|---|
+| `DeploySource` | `AssessApply` / `ExecuteApply` / `AssessRemove` / `ExecuteRemove`，生产实现是 `*deploy.Service` |
+| `DeployFacts`（产出 `deploy.HostEnv`） | 受管理卷 → `VolumeFacts{MountPoint, FilesystemUUID, Mounted, MountedUUID}`，挂载事实读自拓扑采集器（网络挂载也算“挂着别的东西”）；文件根 → `RootFacts{Path, Writable, VolumeID}`，`VolumeID` 按**最长挂载点前缀**算出；`DataBase=/srv/upanel/volumes`；本机地址表来自网络采集器，每次调用重新问一遍（刚改完的地址必须在预检里存在） |
+| `DeploySecretResolver` | `app_env` 的 `secret_ref` 走密钥环；解出来的明文只进渲染结果，不进观测、不进日志 |
+
+- 登记了卷却没有拓扑来源、或拓扑状态不是 OK 时，`HostEnv` **报错**而不是返回空表：判断不出卷
+  挂着没有，就不在这个状态上部署。
+- 不在任何受管理卷里的文件根**照实登记**（`VolumeID` 留空），让校验层给出“这个根不受依赖卷门禁
+  保护”，而不是把它藏起来（藏起来的结果是界面上那个根凭空消失）。
+- docker 路径固定 `/usr/bin/docker`（`deploy.DockerBinary`，单元里逐字写死）：PATH 里的 `docker`
+  可能是一个同名脚本。
+- 单元起来之后多做一次**容器交叉核对**（按 compose 项目名数容器）。核对失败不降级成“部署成功”：
+  观测里 `containers_checked=false` 加 `containers_error`，任务结论照它说。
+- 锁：`compose:<name>`、`port:<proto>/<addr>:<port>`、`volume:<id>`（去重后排序）；删除只锁
+  compose 项目（它释放端口、不动卷）。
+- 进度步骤名只有两个：`writing`（写单元与配置）、`stopping`（删除时停单元）。只报**已经开始做**的
+  步骤——被拒绝之后还挂一条“准备中”，人会以为部署已经开始。
+
+**（6）版本令牌与“新建”的冲突（真机首跑暴露，已修）。** 代理层要求一条 allowed 的预检绑定非空
+`Target.StateVersion`（`validatePlanResult`），而新建部署在磁盘上没有旧版本。因此
+`deploy.deploymentStateVersion` 给出四种非空、可重算的令牌：有渲染配置 → 它的摘要；盘上什么都
+没有 → **这一次将要落盘**的摘要；单元还在而配置被删 → `unit-only`；都没有 → `absent`。执行前复核
+仍抓得住漂移（定义或秘密变了，摘要就变 → `stale`）。详见 DECISIONS Q484。
+
+**（7）落在已有单元上：`start` 是空操作（真机首跑暴露，已修）。** 上一轮崩溃会留下一个
+`active` 的包装单元（`Type=oneshot` + `RemainAfterExit=yes` 会一直“活着”），而配置目录可能已经
+不在了。这时 `apply` 写单元写配置、`systemctl start` 立刻返回 0、`is-active` 读回 `active`，
+**容器一个都不会起**——真机 P15.2 §5 就是这么读到 `containers_running=0` 的（任务因此诚实地报
+`partial` 而不是 `verified`，这一层判决本来就是对的）。修法不是放宽判据，而是让动词对得上现场：
+盘上已经有这个单元、这次又真的写了东西 → `restart`（`ExecStop` 收项目、`ExecStart` 拿新配置
+重新 `up`），并把这个事实写进观测 `unit_restarted`。`start` 只在盘上本来没有单元时使用。
+
+**（8）仍未实现，也没有用别的东西假装实现。**
+
+- `deployment.update`（P15.3）、镜像 digest 记录、按选择备份、健康探测与回切、`/deployments` 写
+  接口与 UI（P15.4）。
+- bind mount 之前的**句柄级**路径核对（软链接在解析后替换）仍未实现：现在靠
+  `path.Clean` + 前缀判据 + 渲染时的路径解析，挡得住 `..` 与绝对路径，挡不住“解析后被换成
+  软链接”。这条限制在 §8.6 与 PROGRESS §8 里各记了一条。
+
+**（9）验收状态（真机：VM-A，Ubuntu 22.04.5，docker 29.1.3 / compose 2.40.3）。** 证据目录
+`docs/evidence/P15/2026-10-27-p15.2/`（`RESULT`、`RESULT-boot`、两段完整控制台、`facts/`、`logs/`、
+`payloads/`）。
+
+| 段 | PASS | FAIL | NOT RUN |
+|---|---|---|---|
+| `PHASE=main`（准备现场 → 部署 → 重放 → 判决层 → 停止与卷依赖 → 留状态并重启） | 199 | 0 | 2 |
+| `PHASE=boot`（重启后不自启 → 依赖恢复后起来 → 删除保留数据） | 51 | 0 | 0 |
+
+STAGES §17 的三条验收逐条落地：①**真实部署**——`deployment.apply` 在真机上写出单元与配置、
+`systemctl start` 后读回 `enabled`/`active`、容器真的在跑、宿主端口 HTTP 200；重放不重写不重启
+（`written=false`、`unit_restarted=false`、容器 ID 与 `StartedAt` 不变）。②**卷缺失重启不绕过**
+——故障注入 `systemctl mask <mount unit>` 后 `systemctl start` 失败（`Unit … is masked.`），
+单元不 active、没有容器、卷没挂上、没有替我们建目录；重启后单元 `enabled` 但 `inactive`，系统盘上
+没有多出数据，解除 mask 并挂回卷之后单元自己起得来。③**删除保留数据**——`deployment.remove`
+后单元与配置都不在了、`systemd` 报 `not-found`，业务目录还在、`marker.txt` 逐字节一致、卷仍挂着。
+
+两条 NOT RUN 各有理由：`容器里读到的 marker`（`traefik/whoami` 是 scratch 镜像，容器内没有
+`cat`/`sh`，挂载改由 `docker inspect` 的 `Source` 与 `findmnt` 交叉核对）；`运行中卷失联 →
+systemd 自动停单元`（容器把那块卷 bind 进自己的 mount namespace，内核里是 busy，只能靠
+`umount -l` 造假现场，那样的读数不算证据）。
+
+**仍未验证**：`deployment.update` 与镜像 digest、按选择备份、健康探测与回切（P15.3）；
+`/deployments` 写接口与页面（P15.4）；24.04 上的 systemd/docker 差异；bind mount 之前的句柄级
+路径核对（（8）里的那一条）。真机首跑暴露的四个产品缺陷与两个"假件/脚本挡住测试"的教训见
+DECISIONS Q484—Q486。
+
+### 8.8 P15.3 已实现范围：部署记录、更新、健康探测与回切（internal/deploy）
+
+**（1）三个文件，谁也不替谁作证。**
+
+| 文件 | 权限 | 是什么 |
+|---|---|---|
+| `<name>.compose.yaml` | `0600` | 渲染字节，含明文秘密。**部署版本就是它的 `sha256:<hex>`** |
+| `<name>.compose.yaml.prev` | `0600` | 上一版的渲染字节，回切时逐字节还原 |
+| `<name>.deployment.json` | `0640` | 规范化后的定义 + 镜像记录（只有 `sec_` 引用，无明文秘密） |
+
+为什么定义必须落盘：`apply` 落的是**渲染后的字节**，不是定义。拿一份 Compose 配置反推定义
+（解析 YAML、再把明文口令塞回 `secret_ref`）既不可靠也危险，而 `update` 要做的恰恰是"在同一份
+定义上只换镜像"。P15.2 起每次成功落地都顺手写一份记录——注意这条是**后加的**：P15.2 期间创建的
+部署盘上没有记录，`update` 对它们一律拒绝（`no_definition_record`），只能 `remove` 后重新
+`apply`。读取失败分两种，不许混：`ErrRecordMissing`（盘上没有）与"有但不是合法 JSON"
+（`requireRecord` 报 `ErrRecordMissing` 的包装，两个都拒绝，但消息不同）。
+
+镜像记录里两个 digest 是两件事：`Image.Requested` 是人话（`nginx:1.27`，可变），
+`Image.Digest` 是 `docker image inspect` 的 `.Id`（唯一身份）。**空串只表示"没有读数"，不表示
+"一样"**——观测里另有 `image_digest_known` 说这件事。
+
+**（2）`deployment.update` 的动作形状（`internal/agent/deployaction.go`）。**
+
+- 参数：`deployment_id`、`version`、`image_reference`、可选 `backup_policy_id`。四个字段都修剪空白。
+- 判决层给的是**评估**不是 500：`AssessUpdate` 的 blocker 走 `deployPlanFromError`，与 apply 同一套。
+  影响面五种：`backup_before_update`、`image_pull`、`unit_restart`、`health_probe_rollback`、
+  `deployment_record`。
+- `StateVersion` = 盘上配置的摘要（`deploymentStateVersion(state, "")`），执行前复核用它抓漂移。
+- 锁：`compose:<name>`、`port:<proto>/<addr>/<port>`、`volume:<id>`，再加备份那两个
+  （`backup-policy:<pol_id>`、`backup-repo:<repo_id>`）。**更新期间同一个仓库上不该同时跑一次
+  `backup.run`**——两份快照在同一个 restic 进程池里抢锁，运维看到的是"备份莫名其妙失败"。
+- 进度步骤名只有五个，且只报**已经开始做**的步骤：`stopping`、`backup`、`pulling`、`writing`、
+  `probing`。回切不报新的开始步骤（它是失败路径上的收尾，不是计划里的一步）。
+
+**（3）执行顺序，以及每一步为什么要这个顺序。**
+
+1. 执行前复核：`AssessUpdate` 全部重跑。镜像 tag 是别人的东西、卷可能刚被卸下、记录可能刚被人
+   改过——三种都答"现在不行"。秘密在预检与执行之间变了（渲染摘要不等）也拒绝，`code=stale`。
+2. **要先备份就先停单元**（`stopping`）：容器还在写的时候拷出来的目录，只是一份看起来像备份的
+   东西。停不下来（`StopUnit` 之后读回不是 inactive）就不开始备份——`start`/`stop` 对
+   `Type=oneshot` 的空操作历史见 Q485。
+3. 备份（`backup`）：`SnapshotID` 是唯一算数的证据；有快照但没有 `restic stats` 读回核对
+   （`Verified=false`）同样不算"备过"。**没建成就不换镜像**，`code=backup_failed`，配置没写、
+   镜像没换，单元按原样起回。
+4. 拉镜像（`pulling`）。没选备份时这一步在写盘之前（不用先停，`restart` 会自己 down 再 up）。
+5. 定义里钉了 `@sha256:…` 时，拉回来的 `.Id` 必须等于 `ExpectedImageDigest`，否则
+   `code=image_digest_mismatch`，拒绝换上（镜像被动过，或 tag 指向了别的字节）。
+6. 旧字节留档：`SavePreviousConfig` 写 `<name>.compose.yaml.prev`，**写之前再核一次**盘上摘要
+   是否仍等于预检时的值（不等就 `stale`）——从这一步起回切有据可依。
+7. 写新配置并拉起（`writing`）。这里需要两个 `ApplyRequest` 字段，它们各自只解决一件事：
+   - `ReplaceExisting: true`——"盘上那份不同内容的配置就是要被换掉"。没有它，`Apply` 的
+     `ErrDeploymentExists` 判据（P15.2 用来挡住"同名不同内容"的重建）会把更新挡在门外。
+   - `MustRun: true`——必须 `restart` 而不是 `start`。`systemctl start` 对 `active` 的 oneshot
+     是空操作（Q485），更新会在"配置换了、容器没换"上安静地成功。
+8. 健康探测（`probing`），见（5）。
+
+失败路径上的"起回来"走 `Applier.RestartUnit`，**不走 `Apply`**：`Apply` 会重新判断写不写文件，
+而这时文件是什么状态恰恰不确定；只 restart 不碰文件，语义最小。
+
+**（4）回切：原样字节，数据不跟着回切。**
+
+`rollback` 把 `<name>.compose.yaml.prev` 的**原始字节**写回盘上并 `restart`，再探一次。
+**不重新渲染**上一版：预检与执行之间秘密可能被轮换，重新渲染出来的字节与上一版不等，那就不叫
+回切了。
+
+两条"回切成功"的拒绝码与别的拒绝码不同：
+
+```go
+CodeUpdateFailedRolledBack = "update_failed_rolled_back" // 换上之后起不来，已回切
+CodeHealthFailedRolledBack = "health_failed_rolled_back" // 探测没通，已回切
+```
+
+代理层据此把结果记成 `Outcome = rolled_back` **且 error 为 nil**：失败任务的结果按契约是空对象，
+而回切现场最有价值的恰恰是读回值（回切后的摘要、单元状态、`rollback_health_*`）。回切本身也
+失败才是错误（`code=update_failed_rollback_failed`），消息里带上 `.prev` 的路径。
+
+**回切不碰数据。** 有数据库迁移的应用，新版本可能已经动过数据，旧版本读不了它——这不是无损
+回滚。这句话逐字出现在 `CodeUpdateFailedRolledBack` 与 `CodeHealthFailedRolledBack` 的错误消息
+里（"数据没有回切——如果新版本已经动过数据，旧版本可能读不了它"），不许软化。
+
+**（5）健康探测：探公开入口，不探容器端口（`internal/deploy/probe.go`）。**
+
+探的是**宿主绑定地址 + 宿主端口**，因为那才是运维与反向代理看到的东西。通配地址
+（`0.0.0.0`、`::`）换成 `127.0.0.1`；不跟随重定向；禁 keep-alive；`http` 判状态码在
+`200—399` 之间，`tcp` 判能建连。有 120 秒预算（`HealthProbeBudget`），预算不够探满时
+`Truncated=true`——**被截断的探测不算探通**。启动宽限期（`health_check.start_period`）内的
+失败不记成失败。只读 4 KiB 响应体，读完即关——探测只为拿状态码，不替应用读数据。
+
+`HealthProbe` 是三值不是二值：`Checked=false` 表示"没探成"（这是告警，不是失败），
+`Checked && !Healthy` 才是失败。这个区分很要紧——把"探不成"当成"探不通"会把一次好的更新回切
+掉，反过来会把一次坏的应用报成成功。
+
+**（6）时间预算：在 10 分钟的硬线里切段（`internal/deploy/update.go`）。**
+
+操作本身有 10 分钟总预算（`agent.OperationTimeout`，主进程侧的硬线），更新在里面切：
+
+```
+UpdateBudget            = 9 min     更新自己的总预算
+UpdateBackupBudget      = 360 s     更新前那次备份的上限
+UpdateStopBudget        = ComposeDownTimeoutSeconds + 60 s
+UpdateRollbackReserve   = 120 s     每次 stepBudget 都预留：写回旧字节 + restart + 再探一次
+UpdateMinStep           = 5 s       一步至少需要这么多，不够就不开始这一步
+```
+
+备份那一段必须收窄：`backup.run` 本身动辄数小时的上限，放在更新里就是"安静地跑四十分钟、最后
+因为操作超时把应用留在停止状态"。**超预算的备份停掉，本次更新什么都不改地失败**，并明确告诉人
+"先用 `backup.run` 单独跑一次"。`stepBudget` 在**动手之前**判断剩余时间够不够，不够就失败——
+不在做到一半的时候被掐断。
+
+**（7）只接受 `files_only` 备份策略。**
+
+`stop_managed_apps` 需要 Web 侧展开的"应用运行对象"（哪些单元、什么顺序、怎么等），
+`deployment.update` 的参数里没有这些。给 `stop_managed_apps` 的策略在预检被拒
+（`code=backup_policy_needs_apps`），执行时也再拒一次（预检与执行之间策略可能被改）。
+
+**（8）`deployment.apply` 现在也做健康探测，`health_probe_pending` 告警已删除。**
+
+§8.7 里那条"这一版不探测 HTTP，给一条 `health_probe_pending`"随 P15.3 接线作废：
+`ExecuteApply` 在 `started` 之后、`recordAfterApply` 之前探测，写进 `ApplyOutcome.Health`。
+探测不改变 apply 的判决（apply 不负责"应用能应答"），但探测失败时观测降级成 `partial`——
+**只在原本是 `verified` 时覆盖**，不把 `rolled_back`/`unknown` 往下拉。`health_*` 与
+`warnings` 都落在 `ObservedState`（`Result` 没有 `Warnings` 字段）。
+
+**（9）仍未实现，也没有用别的东西假装实现。**
+
+- `/deployments` 写接口与页面（P15.4）：UI 侧"选镜像 → 选备份策略 → 发起更新 → 看回切结果"
+  整条链路还没有。
+- 回切之后的**数据**一致性检查（见（4））：这一版明确不做，也不假装做。
+- 探测只覆盖 `http`/`tcp` 两种 kind；脚本类健康检查（`exec`）不在契约里。
+
+**（10）验收状态。**
+
+**已验证（宿主）**：`go test ./internal/deploy/ ./internal/agent/` 全绿，含
+`internal/deploy/update_test.go` 的 13 个用例、`record_test.go`、`probe_test.go`、
+`internal/agent/deploybackup_test.go`；`sh scripts/check.sh` **PASS 14 / FAIL 0 / NOT RUN 0**。
+单测抓到三个**产品缺陷**，都不是测试问题：`ErrDeploymentExists` 挡住更新、配置只在 `!exists` 时写、
+`restartQuietly` 静默失败（细节见 DECISIONS Q493）。
+
+**已验证（真机，2026-10-27，VM-A Ubuntu 22.04.5 / docker 29.1.3 / compose 2.40.3 / restic 0.12.1）**：
+`tests/integration/p15-3-acceptance.sh` 单段 `PHASE=main` **229 PASS / 0 FAIL / 1 NOT RUN**，退出码 0，
+证据 `docs/evidence/P15/2026-10-27-p15.3/`。这里的断言都读字段、并与独立工具交叉核对，不扫响应体：
+
+- 记录：`0640`、属主 root；`image.digest` 与 `docker image inspect -f '{{.Id}}'` 逐字相同；
+  除 `sec_` 引用外无秘密残留；首次建站**没有 `.prev`**。
+- 正常更新：`ab9215e4…` → `e406bf01…`，`previous_config_digest` 等于更新前那个；
+  `config_changed=true` / `idempotent=false` / `unit_restarted=true` / `health_ok=true`；
+  `.prev` 的 sha256 与字节数与更新前逐字相同；三份文件 0600 / 0600 / 0640。
+- 同镜像重放：`config_changed=false` 而 `unit_restarted=true`，预检给 `config_unchanged`
+  （预检 `warnings[]`，不是执行期观测）。
+- 回切：换成 `busybox:1.36.1` 后 104 秒（4 次尝试等满超时）→ `outcome=rolled_back`、`error` 为空、
+  `health_ok=false`、`rollback_verified=true`、`rollback_health_ok=true`；盘上字节回到上一版、
+  `.prev` 未被动、容器回到上一版镜像、HTTP 又通；**记录未被改**。
+- 按选择备份：`unit_stopped=true`、`backup_verified=true`，快照在任务观测与独立 `restic snapshots`
+  两处都能读到（标签含 `upanel:consistency:files_only`）。
+- 拒绝与失败：`backup_policy_needs_apps` / `stale` / `record_mismatch` / `no_definition_record` /
+  `update_not_implemented` / `deployment_exists` 之后盘上配置与容器一字节未动；钉一个拉不到的
+  digest → 预检放行、执行期 `failed`、配置与 `.prev` 未动、容器仍在跑、单元仍 active、服务仍应答。
+
+**仍然只有单测读数（真机造不出那个现场）**：`image_digest_mismatch`——注册表按 digest 寻址，
+钉错 digest 会让 `docker pull` 先失败，走不到该判定（真机上验到的正是这一条：`failed to resolve
+reference … not found`，此时配置零改动）。另外未覆盖：把时间耗到段边界逼出 `partial`、
+连续两次失败的回切、24.04 的 systemd/docker 差异。
+
+### 8.9 P15.4 已实现范围：部署现场的管理面只读接口与部署页
+
+**两张表回答两个问题，谁也不替谁作证。**
+
+| 接口 | 读什么 | 回答的问题 |
+|---|---|---|
+| `GET /deployments`（§8.3，未改动） | docker 的 compose 项目 | 这些容器此刻在不在跑 |
+| `GET /deployments/managed` | `/etc/upanel/deploy` 下的三个文件 + systemd 的两个回答 | 这些是**面板部署的**哪几份、版本是什么、能不能更新 |
+
+两张表按 `deployment_id` 连起来：它与 `containers.ProjectID(name)` 逐字相同（`dep_` + 名字的
+sha256 前 32 位）。一个项目**只**出现在观测面是正常现象——有人在面板之外
+`docker compose up` 起来的——那种东西管理面不给它编造版本；反过来，配置还在盘上而单元文件
+被人删了，也只在管理面看得见。
+
+**接口形状。**
+
+- `GET /api/v1/deployments/managed` → `{deployments: ManagedDeployment[], skipped?: [...], truncated: bool}`；
+  没有部署时 `deployments` 是 `[]`，不是 `null`。
+- `GET /api/v1/deployments/managed/:name` → 单个 `ManagedDeployment`。
+- 都是 admin；都是只读——**创建、换镜像、删除不在这两个接口上**，仍然走
+  `deployment.apply` / `deployment.update` / `deployment.remove` 的预检 → 任务（§5）。这一层
+  没有、也不会有“直接部署”的接口：绕过预检就绕过了幂等、资源锁、执行前复核与审计。
+- 名字形状 `^[a-z][a-z0-9_-]{0,62}$`；不合法 → 400 `VALIDATION_ERROR`（`field=name`），
+  三样文件全不在 → 404 `NOT_FOUND`（`code=no_such_deployment`），代理连不上 → 503。
+
+**字段语义（四条容易读错的）。**
+
+1. `version` ≠ `config_digest`。`version` 是**更新与删除要带回来的版本令牌**，由「这个名字此刻在
+   磁盘上的样子」压出来：有渲染配置就是它的 sha256；盘上什么都没有就是 `absent`；单元还在而配置
+   被人删了是 `unit-only`。它**永远不为空**。`config_digest` 只是盘上那份渲染配置的 sha256，
+   配置不在时是空串。
+2. `record_present=false` 与 `record_error` 是两件事：前者是“盘上没有定义记录”（P15.3 之前创建的
+   部署），后者是“有这份文件但读不了”（不是合法 JSON、格式版本不对）。两种都不能更新，
+   但原因不同，页面照实说。
+3. `config_drift=true` 说明盘上配置的 sha256 与记录里的不一致——有人在面板之外动过那份文件。
+   更新的预检会以 `record_mismatch` 拒绝。
+4. `unit_state.known=false` **必须**带 `reason`：单元文件不在磁盘上（部署没落地）与 systemctl
+   没答（systemd 出问题）对管理员意味着完全不同的事（去翻文件 vs 去翻 journal），不能压成
+   同一个“未知”。单元文件不在时**不问** systemctl——那会得到一条与事实无关的读数。
+
+**读取上限与截断。** 单次最多读 200 份（`deploy.MaxInspections`）。配置目录里的条目分两类：
+后缀是 `.compose.yaml` / `.deployment.json` 的收名字（`.prev` 与无关文件不列）；能读成部署的进
+`deployments`，名字不合法之类的进 `skipped`（附 `reason`）——**不许静默丢掉**，那是一份面板
+不知道的东西。超过上限时 `truncated=true`，调用方必须说出来。
+
+**代理侧（`internal/agent/deployquery.go`）。** 两条查询 `deployments.list` / `deployments.get`，
+实现端是 `agent.DeployInspector`（`Inspect` / `List`），与 `agent.DeploySource`（六个写方法）
+**分成两个字段**：能读出现场与能执行动作是两件事，只接了其中一个的代理不该声称另一个可用。
+`systemquery.ProductionDeps.DeployInspector` 为 nil 时不登记这两条查询（能力表不许撒谎）；
+`cmd/upanel-agent` 在 Applier 建成之后就登记读取端，只有 docker 不可用时才只登记读取端
+（读现场不需要 docker：三个文件与 systemctl 就够）。`deployments.get` 在解码期校验名字形状，
+非法名 → `ErrParamsInvalid` → 400，**不进实现端**。
+
+**页面（`/apps/deployments`，`meta.moduleKey='apps'`）。** 挂应用模块下而不是去占导航里那一格
+“容器”：导航固定 16 项、只有 `containers` 还是 `implementedIn: null`，而这一页读的是受管部署，
+不是容器与镜像管理——用它去顶那一格属于超承诺。与账号挂在“共享”下同一个处置（Q475、Q495）。
+
+页面按 STAGES §17 的明文要求**禁止**三样东西，而且不是“换个说法绕过”：
+
+- **没有原始 Compose YAML 输入框**：定义是闭集（§8.2），`compose_yaml` 在数据模型里没有位置，
+  页面也就变不出这个字段；留一个再拒，比不留更糟。
+- **没有危险宿主挂载**：挂载只能选“受管理文件根 + 根内相对路径”，容器内目标禁 `/`、`/proc`、
+  `/sys`、`/dev`、`/boot`、`/lib/modules` 与三个容器 socket 路径（含其子路径）。
+- **没有特权选项**：`privileged` / `devices` / `network_mode` / `cap_add` / `user` 都不在表单里，
+  也都写不进请求体（代理侧 `DisallowUnknownFields` → 400 `unknown_field`）。
+
+本地校验（`web/src/api/deployments.ts` 的 `validateDeploymentDraft`）只是**立即反馈**：它拦下的
+东西代理侧一律还会再拦一次。真正的判决在预检——它要看宿主事实（卷在不在、秘密读不读得到、
+端口有没有被占）。`updateHint` / `removeHint` 同理：它们只解释**已知的**拦路条件（没有记录、
+盘上被改过、版本令牌读不出来），返回 null 也只代表“没有已知的拦路条件”，不代表一定成功。
+
+**已验证（宿主单测，2026-10-30）。**
+
+- `internal/deploy`：`TestInspectReadsDeploymentFacts`、`TestInspectReportsConfigDrift`、
+  `TestInspectWithoutRecordStillLists`、`TestInspectSurfacesBrokenRecord`、
+  `TestInspectMissingDeployment`（断言**没调** systemctl）、`TestListEnumeratesConfigDir`（孤立
+  记录 + 非法名 + 孤立 `.prev` + 无关文件）、`TestListMissingConfigDir`（`deployments` 是 `[]`）、
+  `TestListTruncates`、`TestInspectionJSONShape`。
+- `internal/agent`：`deployquery_test.go` 五个用例（列表、参数拒绝 400、单条 200/404/400、
+  读盘失败 500、没有实现端就不登记）。
+- `internal/agentclient`：缺 `deployments` 键与空数组被分开（前者 `UnavailableError`）。
+- `internal/api`：`deployments_test.go` 六个用例（401/403、列表、空列表是 `[]`、详情 + 非法名
+  400 + 编码斜杠“不是 200 且没问过读取端”、三种错误三种状态码、没有读取端时 503）。
+  gin 同时注册 `/deployments/managed`、`/deployments/managed/:name` 与 `/deployments/:id`
+  不 panic（静态段优先匹配）。
+- 前端：`web/src/api/deployments.test.ts` 19 个用例、`jobresult.test.ts` 的部署段 5 个用例、
+  `router/routes.test.ts` 新增一条（部署页挂在应用模块下，且不点亮“容器”），
+  `vue-tsc` 与 `vite build` 通过；整轮 `sh scripts/check.sh` **PASS 14 / FAIL 0 / NOT RUN 0**
+  （首跑 gofmt 抓到 5 个未格式化文件，`gofmt -w` 之后重跑；`git diff -w` 为空，只有空白改动）。
+
+**真机读数（2026-10-28，22.04.5；`docs/evidence/P15/2026-10-28-p15.4/`）。**
+
+这一页原先在真机上是**点不通的**：三条动作都是 R=是，而**登录不开再认证窗口**，页面只把
+“这一步要求再认证”写成确认卡上的一句文案，于是按下确认必然 403 `REAUTH_REQUIRED`——页面链路
+一次都走不完（P15.2/P15.3 验的是脚本直接打接口，不是这一页）。现在页面自己开门：预检
+`requires_reauth=true` 而 `session.reauth_expires_at` 不在有效期内时，摆出再认证卡（面板密码 +
+开了 TOTP 才出现的验证码），`POST /auth/reauth` 成功后 `session.restore()`，再把被打断的那一步
+接着提交。**面板密码只走这一条路径**，不进任务参数、不进日志；5 分钟窗口内的后续动作不再要密码。
+
+真机上走完的整条链路（43 条断言全过）：登录 → 空状态（“这台机器上还没有受管部署”，页面同时
+说明自己读的是管理面）→ 新建（`nginx:1.27-alpine`，`127.0.0.1:18089` → 容器 80，128 MiB / 0.5 核）
+→ 预检 `allowed=true` → 再认证 → 任务 `verified` → 列表（`dep_…`、阶段取自 `unit_state`）→
+详情（配置与单元路径、非空 `sha256:…` 版本令牌、闭集、资源上限、上一版配置）→ 换镜像
+（`nginx:1.28-alpine`，确认卡写明会回切）→ 窗口内不再要密码 → 任务 `verified` → 详情刷新出新镜像
+并留着上一版 → 删除（确认卡写明数据卷与业务目录不动）→ 任务 `verified` → 回到空状态。
+面板侧 57 条请求全是 200/202；三次预检的请求体里没有 `compose_yaml` / `privileged` /
+`network_mode` / `cap_add` / `devices`。
+
+**仍未验证。** 受管目录里 200 份以上的截断、`skipped` 非空、`config_drift` 真实发生这三种现场
+仍然只有单测；**“删除没动卷数据”这次只有文案证据**（新建的部署没有挂载卷）；24.04 上的渲染
+与表单行为没有读数；任务执行中读现场可能顶到 10 秒预算，超时被报成 `AGENT_UNAVAILABLE`
+（KNOWN_LIMITATIONS C12）。
+
+**仍未实现。** `/deployments` 的 REST 写接口（创建/更新/删除仍然只有动作通道）、
+容器与镜像管理（导航里“容器”那一格仍是空的）、24.04 差异。
 
 ## 9. 反向代理与证书契约
 
@@ -2113,6 +2871,384 @@ epoch → upstream → revision，非数字段按“`~` < 空 < 字母 < 其他�
 `apt-mark hold` 的状态、`/var/log/apt/history.log` 的历史：都不在 P11.1 里。页面不显示它们，
 也不显示“没有新版本”这种把未知说成已知的话。
 
+### 12.2 P12.2 已实现范围：备份仓库、策略、运行与快照
+
+本节把第 12 节的备份契约落成真正的路由。**写侧只有一条路：编辑代理里那份定义。**
+执行是 `backup.run` 的预检 → 任务（P12.2 已接），清理是 `backup.prune`（P12.3），恢复不在本节。
+
+| 方法与路径 | 权限 | 行为 |
+|---|---|---|
+| GET /backup/repositories | admin | 仓库定义列表（`rep_` + 32 位十六进制 id、version、两处秘密的**引用**） |
+| POST /backup/repositories | admin + CSRF + 再认证 | 登记仓库定义；只存元数据，不传明文 |
+| GET /backup/repositories/:id | admin | 单条仓库定义 |
+| PATCH /backup/repositories/:id | admin + CSRF + 再认证 | 改定义；必须带 `version` |
+| GET /backup/policies | admin | 策略列表 |
+| POST /backup/policies | admin + CSRF | 登记策略 |
+| GET /backup/policies/:id | admin | 单条策略 |
+| PATCH /backup/policies/:id | admin + CSRF | 改策略；必须带 `version` |
+| DELETE /backup/policies/:id | admin + CSRF | 删策略；不删仓库、不删快照 |
+| GET /backup/snapshots?repository_id=&policy_id= | admin | 快照列表（**不含**大小），`registered` 说明仓库在不在 |
+| GET /backup/snapshots/:id?repository_id= | admin | 单条快照（含 `restic stats` 的大小与文件数），`found` 说明这条在不在 |
+
+代理侧对应三条查询 `backup.snapshots`（参数 `{repository_id, policy_id?}`）、
+`backup.snapshot`（`{repository_id, snapshot_id}`），与一个动作 `backup.run`
+（参数 `backup_policy_id`、`version`，`apps` 由面板展开后填入）。
+
+**（1）备份定义只有一份真相，就在代理里。** P12.1 的镜像不是为了性能，是为了让预检计划里
+被冻结的那个目标在**执行时**没法被换掉。既然镜像已经是权威，面板就不该再存一张自己的
+`backup_repositories` / `backup_policies` 表：两张表必然漂移，而漂移之后没人能回答
+“这条策略到底绑的是哪个仓库”。P12.2 的选择是**面板不存第二份**，`/backup/*` 整组是镜像的
+编辑器。直接后果：代理不在时这一组整组回 **503**（`AGENT_UNAVAILABLE`），不是“先登记、
+回头同步”——那种“回头”从来没有发生过一次。CONTRACTS §14.1 里那两行表因此仍属逻辑模型，
+本阶段没有对应的迁移。
+
+**（2）权限分层按“这条定义引用了什么”定，不是按“备份重要不重要”定。**
+仓库定义引用仓库口令与 SFTP 私钥（两处都是**引用**），改它等于改“下次备份把数据写到哪儿去”，
+所以 POST/PATCH 要再认证；策略不引用任何秘密、也不动主机状态，它只描述“备份什么、按什么口径”，
+因此只要 CSRF。快照是纯读，没有写入口。审计动作分三组
+（`backup.repository.manage/create/update`、`backup.policy.manage/create/update/delete`），
+中间件拒绝时也能记到正确的动作名下——group 级中间件是唯一能做到这件事的位置。
+
+**（3）`version` 是乐观并发令牌，不是装饰。** PATCH 缺 `version` 或 `version < 1` 时面板
+**先**拒（400，并在审计里记一条被拒），代理再拒是 409 `VERSION_CONFLICT`。两个状态码不能合并：
+“你没说改的是哪一版”是调用方的错，“你说的那一版已经不在了”是别人先改了一步。前者 400，
+后者 409 + 让用户刷新——界面只有分开这两种，才给得出正确的一句话。
+
+**（4）`backup.run` 的参数里 `apps` 由面板展开，调用方给不了。** 契约 §5 的参数表写的是
+`backup_policy_id、version`，所以面板侧 `/preflights` 的请求体也是这两个字段，而且严格解码：
+请求体里出现 `apps` 直接 400（不是忽略）。展开规则只有两条：`apps.TypeSystemd` →
+`kind=systemd`、`object=<unit>`；`apps.TypeDocker` → `kind=container`、`object=<容器 id>`。
+**解析不出就阻塞，不降级**：`compose` 部署（一停就是整组，超出代理的启停通道）、只登记了入口
+没有绑定的应用、已经删掉的应用，三种情况都回 `422 DEPENDENCY_BLOCKED` 并**点名**是哪个
+`app_id`、为什么。理由很硬：把“停不了”的写成“不用停”，快照会被打上
+`stop_managed_apps` 的标签，而其中一部分文件其实是在应用写着的时候读的——标签会撒谎，
+而且事后无法从快照本身看出来。
+
+**（5）参数与策略双向核对。** 代理侧 `appsVsPolicy` 两个方向都判：多了 = 调用方在**扩大**
+策略授权（拒绝），少了 = **停机不全**（阻塞，`BACKUP_APP_UNAVAILABLE`，消息里写明
+“这条快照做不到 stop_managed_apps”）。少了这一条，一个 app 解析失败就会变成一次安静的不一致备份，
+而 `files_only` 与 `stop_managed_apps` 的区别正在这里。
+
+**（6）一致性口径是闭集，说的是“保证什么”，不是“尽量”。**
+`files_only` 只保证文件字节：预检会带一条告警说明正在写入的数据库（容器里的 MySQL、
+面板以外的应用库）在快照里可能不一致，需要一致就改用 `stop_managed_apps`。
+`stop_managed_apps` 则要求策略里**每一个** `app_id` 都解析出运行对象，一个不行就整轮阻塞（见上条）。
+口径同时是快照标签（`upanel:consistency:<mode>`），读回来能认这份快照是按哪种口径做的。
+
+**（7）停 → 备份 → 拉起，三件事各自留痕。** 顺序固定：读一遍应用现状（只有**刚才真的在跑**的
+才需要拉起，静止的不动——备份不该顺手启动一个别人停掉的应用）→ 停（逐条记 `done`/`verified`/`note`）
+→ 面板库副本 → `restic backup` → 读回核对 → 拉起 → 清临时副本。任何一步失败都要把
+“谁被停了、谁没起来”写进结果，用 `context.WithoutCancel` 保证收尾不被取消带走：
+**备份失败不是不拉起应用的理由**。拉起本身失败同样是一条结果事实（`verified=false` + 原因），
+不能吞掉。
+
+**（8）退出码不是证据。** `restic backup` 退出 0 只说明命令跑完了。判定“快照真的存在”靠
+`--json` 输出里的 snapshot id，再用 `restic stats <id>` 重新读一次（`Verified=true` 只在读回来
+之后成立），并把 `files_new` / `files_changed` / `data_added` / `restic_duration_ms` 落进
+`observed_state`。证据链是“命令 → 快照 id → 回读”，少一环就只剩一句“应该成功了吧”。
+
+**（8b）结果里的快照 id 一定是完整的 64 位。** 不同版本的 restic 在 `backup --json` 的
+summary 里给的 id 长度不一样：0.14 起给完整 id，0.12（22.04 自带）只给 8 位短 id。短 id 是
+**前缀**而不是身份——它可能同时是几条快照的前缀，所以不能直接拿去 `stats`，更不能写进结果。
+代理遇到短 id 时回仓库查一次（`restic snapshots --json` 按前缀匹配），**命中恰好一条**才换成
+完整 id 继续读回；命中 0 条或多条都判失败（证据不足不等于挑一条）。因此公开接口给出的
+`snapshot_id` 永远是完整 id。
+
+**（9）面板库用它自己的在线备份接口，`VACUUM INTO`，不用 `os.Copy`。** 直接拷贝 `.db`
+会漏掉 `-wal` 里尚未合并的事务，得到一份看起来正常、实际更旧甚至半截的库。
+`VACUUM INTO` 在**一个读事务**里读源库（连同 WAL），写出已整理、已自洽的新库；读连接以
+`mode=ro` 打开，源库一个字节都不改。一个真机上的坑写在代码注释里：DSN 上加
+`_pragma=query_only(1)` 会让 `VACUUM INTO` 直接报 `attempt to write a readonly database`——
+“顺手加固”会把备份弄坏在原地，单测钉住了这一条。副本目录 0700 / 文件 0600（里面有口令
+哈希与会话），只在这次运行期间存在，跑完即删；`observed_state` 里只留大小、
+`PRAGMA user_version`、`integrity_check` 结果与时间——**不留副本，也不留路径**。
+
+**（10）快照列表不返回大小，这是刻意的。** 每条快照的大小要单独跑一次 `restic stats`，
+列 200 条就是 200 次进程启动。列表回 `size_included:false` 且 `size_bytes` / `file_count`
+**字段不出现**（不是写 0——“没读”与“读了是 0 字节”是两件事），详情才带 stats。
+`registered` / `found` 是**状态字段**，不回 404：`registered=false` 的意思是“这台机器上没登记
+这个仓库”，404 会被读成“这条路由不存在”。
+
+**（11）上限是明确的数。** 一次 `restic backup` 6 小时（几十 GB 首次全量在慢盘上就是这个量级，
+再长说明源选错了）；快照查询 2 分钟；快照列表一次最多 500 条。同一个仓库上并发运行由
+`BACKUP_REPOSITORY_BUSY` 挡住（锁由代理维护，见 §15）。
+
+**（12）本节没有的东西。** `DELETE /backup/repositories/:id`：契约里没有，而且删掉定义会让
+仓库里那些快照“属于谁”无从回答。删除快照与清理仓库是 `backup.prune`（P12.3）的预检 → 任务，
+页面查询不触发任何删除。仓库初始化是 `backup.repository.initialize`（P12.1，动作已接）。
+恢复演练、验证记录的回写不在本节。
+
+### 12.3 P12.3 已实现范围：恢复、抽样验证与显式保留清理
+
+本节接上契约动作 `backup.restore`、`backup.verify`、`backup.prune`。三者仍走
+预检 → 任务 → 幂等 → 资源锁 → 结果读回 → 审计，不增加直接执行 restic 的 HTTP 旁路。
+
+**（1）恢复公开参数严格只有五个。** `repository_id`、`snapshot_id`、`target_root_id`、
+`relative_path`、`overwrite`；调用方传入 `apps` 直接 400。覆盖恢复需要停机时，面板根据
+当前受管理应用绑定保守展开运行对象：systemd 单元与容器可进入计划，compose/link 等
+无法由现有受控通道安全停整组的绑定阻塞，超过 32 个应用同样阻塞。展开结果进入冻结的
+`normalized_params`，调用方不能借空数组缩小停机范围。覆盖动作要求再认证与服务端生成的
+`OVERWRITE ...` 确认短语。
+
+**（2）默认恢复不覆盖非空目录。** 目标只能尚不存在或已经为空；根自身、绝对路径、越界
+路径与符号链接目标拒绝。预检同时绑定快照、目标目录状态版本、仓库定义指纹与仓库版本；
+执行前重新评估，任何一项变化都按 `PREFLIGHT_STALE` 拒绝，不能拿旧许可写到新目标或新仓库。
+
+**（3）先恢复进同父目录随机暂存树，核对后才发布。** restic 只拿到本次进程显式继承的目录
+fd（子进程固定为 `/proc/self/fd/3`），不接受调用方给任意宿主路径。暂存树拒绝符号链接、
+FIFO、特殊文件、setuid/setgid 与多硬链接普通文件；普通文件和目录经句柄归一为
+`root:root`。Ubuntu 22.04/24.04 的 restic 0.12.1/0.16.4 都没有 `restore --no-owner`，
+因此不靠虚构参数声称关闭所有权恢复。每个恢复文件还与仓库字节重新计算的 SHA-256 核对。
+
+已存在目标使用 Linux `RENAME_EXCHANGE`，不存在目标使用 `RENAME_NOREPLACE` 发布；发布后
+重新遍历并核对。发布或复核失败时交换回去或改回暂存名，旧目标只在新树发布并验证后清理。
+覆盖恢复只停执行前真正运行的应用，收尾按原状态拉起并读回；新树已发布但应用未全部恢复
+时任务如实为 `partial`，不能回滚成一句“全部失败”，也不能写成“全部成功”。
+
+**（4）结构检查与抽样恢复是两种证据。** `backup.verify` 的 `sample_restore=false` 只执行
+`restic check`，不写 `restore_verified_at`。`sample_restore=true` 才在代理 StateDir 下私有
+0700 临时目录做真实抽样恢复：最多 8 个文件，单文件最多 8 MiB，总计最多 32 MiB；每个
+抽样文件与 `restic dump` 的仓库字节比较 SHA-256。只有抽样和比对都成功才按仓库+完整快照
+id 持久化验证时间，快照详情随后能读回该时间。超限文件是不参与抽样，不是假装已验证。
+
+**（5）清理由管理员显式发起，定时备份不隐式删除。** `backup.prune` 使用策略里的
+`keep_last`、`keep_daily`、`keep_weekly` 并集，日桶按 UTC、周桶按 ISO 周。预检列出
+`expected_delete_ids` 并冻结策略/仓库/集合状态；执行前重新计算，集合变化即
+`PREFLIGHT_STALE`，一个快照也不删。确认短语为服务端生成的 `DELETE ...`。清理的
+`target.identity_fingerprint` 只描述“这条策略与这个仓库定义是谁”，待删集合属于会变化的
+执行状态，只进 `state_version`；否则新增两次备份就会被错报成 `DEVICE_IDENTITY_CHANGED`，
+而不是契约要求的 `PREFLIGHT_STALE`。仓库定义或位置真正改变时，身份指纹仍然变化。
+
+实际删除只使用固定 argv `restic forget --prune <完整快照 id...>`，不接受调用方追加 restic
+参数。清理后重新读取快照列表，核对拟删项消失且保留项仍存在；部分删除或读回无法确认时
+保留真实 `deleted_ids` 并报告 `unknown`，不把未确认的仓库状态写成成功。
+
+**（6）失败处理保护旧数据。** 存储写满、SFTP 连接中断、restic 非零退出或抽样不一致都在
+发布前使恢复失败；暂存树不发布，原目标不动，已停应用仍进入恢复流程。恢复范围外文件不是
+交换对象，也不能被清理旧暂存树顺带删除。restic 口令仍只经 `RESTIC_PASSWORD`，SFTP 私钥
+仍只在 tmpfs 临时存在；恢复、验证与清理没有扩大秘密边界。
+
+仓库里的**失效锁**由产品自己清理：`restic check` 与 `restic forget --prune` 需要独占锁，
+撞上残留锁（持有进程已不在）时先执行 `restic unlock`——不带 `--remove-all`，只删 restic
+自己认定为失效的锁，另一路正在跑的 restic 手里的锁不会被拿走——再重试一次。`unlock`
+自身失败时原样报出原始失败，不拿清理失败盖掉原因。这条不是便利：面板是这台机器上唯一
+碰得到仓库的东西（口令只经标准输入、私钥只在 tmpfs 里短暂存在），restic 那句
+“the `unlock` command can be used to remove stale locks” 对运维是做不到的指令。
+
+失败消息必须带上真正的原因。restic 的 stderr 末尾常常只是一句汇总
+（`Fatal: There were 10 errors`），这种情况下要补齐第一条具体错误行（例如
+`... no space left on device`），否则面板上"写满磁盘"和"没权限"长成同一个样子。
+
+### 12.4 P12.4 已实现范围：受管理 timer、内置动作复用任务框架、受管理脚本
+
+本节接上契约动作 `/schedules` 与 `/scripts` 两组路由，以及代理侧的 `schedule-trigger`
+内部路由。计划不是"面板里的一条 cron 记录"：真正跑起来的是 systemd timer，面板负责把
+定义渲染成单元文件、装上、读回状态，并按槽位幂等地触发已登记的内置动作。
+
+**（1）计划与脚本只有代理里那份，Web 是镜像直读。** `GET /schedules`、`GET /schedules/:id`、
+`GET /scripts`、`GET /scripts/:id` 都直读代理，代理不在时返回 **503 `AGENT_UNAVAILABLE`**，
+不返回空列表——空列表会让管理员以为"计划都没了"，进而重建一遍。id 形状不对（不是
+`sch_` + 32 位小写十六进制 / `scr_` + 同理）在打代理之前就 400。四个 GET 与全部写操作都只
+admin；viewer 一律 403。计划的定义体只存在代理库，Web 不写第二份。
+
+**（2）定义字段与校验是闭集。** `ScheduleDefinition`：`kind`（`backup` /
+`certificate_renewal` / `user_script`）、`target`（kind 对应的动作与参数，与任务框架同形）、
+`calendar_expression`（systemd `OnCalendar=` 的表达式部分，不含时区）、`timezone`（IANA 名）、
+`persistent`、`max_runtime_seconds`（1—86400）。表达式与日历分离，是因为把 ` Asia/Shanghai`
+拼进 `OnCalendar` 的写法在 systemd 里合法、在字符串校验里会变成"任意内容都放行"；
+分开之后两边都能各自校验，拼装只在渲染单元时做一次。日历语法非法或时区不可解析在
+保存前就 400，不落到"装上了但不响"。
+
+一个对象只接受一条计划（库里 `UNIQUE(kind, target_id)`），计划名字也不重复
+（`UNIQUE(name)`）。两条约束都在**预检**里说话：命中回 `SCHEDULE_TARGET_TAKEN` /
+`SCHEDULE_NAME_TAKEN` 阻塞项，消息点名是哪条计划占着；更新自己不算占用。让它们留到
+执行阶段才失败，形状就是"预检说允许、提交以后操作失败"。
+
+合法性由 `systemd-analyze calendar` 回答，调用时把它的**进程时区钉成 `UTC`**
+（`TZ=UTC`）：`Next elapse` 用的是进程时区，而进程时区就是 UTC 时 systemd 会省掉
+`(in UTC)` 那一行——不钉死的话，同一份代码在 UTC 服务器上会把合法表达式判成"不会
+触发"，在别的时区上又会把 `CST` 这类缩写当成偏移 0。`next_elapse` 因此恒为 UTC
+绝对时刻，墙钟展示与时区换算只发生在面板这一侧。
+
+**（3）意图与事实分开，`blockers` 永不为 null。** `enabled`、`version`、`timer_ref` 是面板
+要的；`installed`、`unit_file_state`、`active_state` 是 systemd 说的原话
+（`enabled`/`disabled`/`static`、`active`/`inactive`/`failed`）。`next_elapse` 只在能读到
+`systemctl list-timers` 的真实时刻时出现，读不到时字段缺席而不是编一个时间。
+`blockers` 是数组，没有阻塞时是空数组——`null` 会被前端读成"未知"。
+
+**（4）单元是固定名字的 oneshot + timer。** 名字由计划 id 决定：
+`upanel-sch_<32hex>.service` / `.timer`，与 `timer_ref` 的 pattern 一致。service 为
+`Type=oneshot`、`User=root`、`ExecStart=/usr/local/bin/upanelctl schedule-trigger --schedule-id <id> --wait`、
+`TimeoutStartSec=<max_runtime_seconds + 60>s`；timer 为 `OnCalendar=<expr> <tz>`、
+`Persistent=<persistent>`、`AccuracySec=1s`、`RandomizedDelaySec=0`、
+`Unit=…service`、`WantedBy=timers.target`。`AccuracySec=1s` 与
+`RandomizedDelaySec=0` 是为了让"这一分钟该响"变成可复现的事实，否则 systemd 默认的
+一分钟精度与随机延迟会把验收和故障排查都变成猜谜。
+
+`--wait` 不是方便标志，它是“不重叠”的实现位置。代理对触发请求的答复是立刻的（真活跑在后台），没有 `--wait` 时单元几十毫秒就退出，oneshot 只能拦住同一次唤醒的重复执行，拦不住“上一次还在跑、下一次又起来”。带上 `--wait` 之后，`upanelctl` 守到这次操作到达终态才退出，单元在此期间一直处于 active（oneshot 跑着时 systemd 的原话是 `activating`），systemd 不会为它再起一个实例。
+
+**“不重叠”的准确含义是“两次运行不并行”，不是“一天只跑一次”。** 到期时撞上运行中的那次唤醒，systemd 有两条路：跳过，或者把它排到当前这次运行结束之后再起一次（24.04、systemd 255 上是后者，journal 里能看到第二条 `Starting` 出现在上一条 `Finished` 之后）。两条都不产生并行，也就都不违反这里的承诺；能不能接受“补跑一次”取决于计划本身的长短（75 秒的活配每分钟的日历，本来就是每分钟一次）。要少跑几次就改日历表达式，不要指望不重叠去吞掉它。验收断言因此看的是**启动/结束序列**（每一条 `Starting` 之前必须有上一对 `Finished`），而不是总触发数（DECISIONS Q383）。
+
+`TimeoutStartSec` 在计划最长运行时长之外多给 60 秒：那是代理杀进程、写结果、把阶段改成 `failed` 的收尾。两个数相等会出现“代理正好在超时那一刻收尾、单元同一时刻被判超时”的错位，日志里留下一条与事实相反的 `failed`。
+
+`enabled=false` 的计划不渲染单元，并在保存时移除已有单元（含 `disable --now`）。写单元前
+先 `systemd-analyze verify` 过一遍；渲染或校验失败就不落盘、不留半套（service 装了而
+timer 没装）。装完 `daemon-reload`，再读回 `is-enabled`、`is-active`、`list-timers`。
+
+**（5）触发只经代理的内部路由，且只认 UID 0。** `POST /internal/v1/schedules/:id/trigger`
+由 `internal/agent/peer.go` 按路径形状单独放行：该路由的对端 UID 必须是 0，其它内部路由
+仍然只接受 `upanel-web`；非 root 回 403「socket 对端 UID 无权调用该接口」。输入只接受
+触发 ID，不接受 action/params——动作来自代理里已批准的计划定义，调用方不能借触发路由
+跑任意动作。
+
+`--wait` 需要读回"这一次跑到哪了"，而唯一的读口也必须是 root-only，且只能读到**这条计划
+自己触发的那个操作**：`GET /internal/v1/schedules/:id/trigger-runs/:operation_id`
+（同样按形状放行，见 `rootOnlyPathPatterns`）。代理在处理端核对操作记录的操作者
+（`SchedulerUserID`）与会话哈希（`hashHex("scheduler:"+计划 id)`）是否都由这条计划派生，
+核对不上回 404「操作不存在」，与"没有这条操作"同形——不让这条路由变成"root 能读任意
+操作"的通道。触发答复因此必须自带 `max_runtime_seconds`（计划定义里的数）：root 读不到
+计划详情（那是 `upanel-web` 的路由，root 调它是 403），等待上限只能由答复带。
+`upanectl` 的等待上限 = `max_runtime_seconds + 30s`，单元 `TimeoutStartSec` =
+`max_runtime_seconds + TriggerWaitSlackSeconds(60)`，两者留 30 秒差：超时那一刻先由
+`upanectl` 在 journal 里说话（"等到 … 仍未见操作 … 到达终态"），而不是只剩一句
+`start operation timed out`。
+
+**（6）槽位幂等由触发 ID 承担。** `TriggerID(schedule, SlotAt(now))` 把当前时刻折到 UTC
+分钟槽，同一槽里重放得到同一个触发 ID，返回 200 + `duplicate: true` 且不新增触发记录；
+伪造槽（拿旧时刻算一个 ID 递上来）回 400「触发 ID 与当前时间槽不符」。宽限
+`TriggerGraceSlots` 默认 2 分钟，覆盖 `Persistent=true` 的迟到唤醒：systemd 迟到的
+`OnCalendar` 仍落在可接受的槽里，不会被当成伪造。时区只影响 timer 的墙钟解释，槽位
+始终是 UTC 分钟——DST 与跨时区因此不产生"漏触发"或"双触发"（双跑由幂等兜住）。
+一次触发的判决是闭集 `triggered|blocked|duplicate|failed`：预检挡住记 `blocked`，不记
+`failed`，因为那是策略在起作用，不是故障。
+
+**（7）内置动作复用任务框架，不新开旁路。** 触发产生的操作照旧经过预检、任务、幂等、
+资源锁、结果验证与审计，操作 id 由 `OperationID(trigger)` 稳定派生，请求指纹
+`scheduledOperationRequestHash` 不含预检引用（否则重试会算出不同指纹）。管理员保存计划时
+的显式授权替代交互确认；这条替代不能扩展到格式化、网络变更等动作——
+`SCHEDULE_KIND_UNSUPPORTED` 之外的越界动作在预检阶段就被挡住。
+
+**（8）系统操作者在库里有一行，但它不能登录。** 触发以保留用户 `SchedulerUserID = 1 << 62`
+提交。面板在处理这类操作时惰性创建 `scheduler` 行（`role='viewer'`、`disabled=1`、
+`password_hash='!system-account-no-password'`）：任务表要外键到用户，凭空一个 id 会破坏
+库的自洽。该账号登录时得到的回答与"没有这个账号"完全一致，用户列表里不出现。计划产生的
+任务在 P12.4 只能从库里读——`/jobs` 页面按用户隔离，读不到系统操作者名下的任务。
+
+**（9）代理产生的定时操作会被对账导入。** 代理提供
+`GET /internal/v1/operations?actor=scheduler&since=&limit=`（只认 `actor=scheduler`），
+Web 的对账循环每 30 秒一轮，在锁内先 `ImportScheduled` 再 `SweepPending`。导入三行如实
+抄写：`users`（上面那行 `scheduler`）、`preflights`（代理给的预检引用与结论）、`jobs`
+（状态、时间、结果）。导入行的 `cancellable=0`（取消要通过代理的取消路由，面板上的取消
+按钮对定时任务不成立）、`needs_sync=1`（下轮继续从代理读回状态）。水位取
+`jobs` 表里该用户最大的 `created_at`，因为代理的 `since` 是"这条操作创建时间"，
+用导入时间做水位会漏掉创建早于上次同步、完成晚于它的操作。
+
+`needs_sync` 的语义只有一句话：**Web 有没有成功把这条操作的状态抄回来过**。它与
+"能不能改这条任务的状态"是两件事——`jobs` 的终态不可回退，所以对账的条件更新会跳过
+终态行，`needs_sync` 必须单独收掉（只动这一列，状态一个字节都不改）。不这么做的话，
+导入时就已经跑完的定时操作（最常见的形状：脚本两秒结束、对账三十秒后才导入）会永远留
+在待对账集合里：面板那栏一直说"还没核对过"，扫描每 30 秒再问一遍代理，没有尽头
+（DECISIONS Q381）。代理的阶段与本地终态不一致时留一行 warn 并保留本地记录——终态是
+终的，分歧进日志而不是靠改写历史来"对齐"。
+
+**（10）脚本以固定解释器和非 root 身份运行。** 脚本落盘在
+`/var/lib/upanel-agent/scripts`，`root:upanel-shell` `0750`，解释器固定 `/bin/sh`
+（不接受调用方给解释器路径）。`interpreter` 在库内、镜像接口里与这里**同一个写法**：
+`/bin/sh` 是绝对路径，不是基名 `sh`——同一个名字在库里和接口里指两个东西，读库的人迟早
+会漏掉那一次翻译。脚本目录的每一级上级都要能被 `upanel-shell` 穿过：目录自身
+`root:upanel-shell 0750`，上级只补 other 的 `x` 位（`0700 → 0711`，能穿过去、列不出来），
+保存与运行前各核一次。运行身份 `upanel-shell`，该账号不能 sudo、不在 docker/disk
+组里，因此脚本写不了 `/etc`——`script.run` 不是"root 顺便替用户跑脚本"的旁路。运行前
+核对落盘文件的 SHA-256 与登记值，不符拒跑；正文只在详情里返回，列表不带正文。被计划
+引用的脚本不能删（`SCRIPT_IN_USE`）。超过 `max_runtime_seconds` 的脚本被终止，任务原因
+如实写「脚本 "x" 超过 N 秒被终止」，并且不留 `sleep` 子孙进程。
+
+**（11）P12.4 期间尚未接线、P12.5 已接上的部分。** P12.4 保存 `certificate_renewal` 类计划
+会被 `SCHEDULE_KIND_UNSUPPORTED` 拒绝；P12.5 把这条闸拆了——种类参数进定义、目标按盘上
+live 目录判、参数只带域名与 ACME 环境（§12.5）。三类计划现在都能落成单元并按槽位触发。
+
+**（12）读一份计划列表的代价随计划条数增长，调用上限也按这个定。** 每条计划的现场都要
+真的问 systemd 两次（`systemd-analyze calendar` 算下次触发、`systemctl show` 读单元事实），
+所以代理侧组装列表是**有界并发**（`schedules.ViewsConcurrency = 4`，按下标回填，顺序不变），
+Web 侧给计划与脚本镜像单独一个 `agentclient.ScheduleQueryTimeout = 30s` 的客户端：代价随
+行数增长的只读接口不套 10 秒通用上限——套上去的结果是计划越多、代理越健康，越容易被报成
+`AGENT_UNAVAILABLE` 并回 503（DECISIONS Q385）。`ctx` 被调用方取消时列表接口报那个错误，
+不把"我们不等了"落成"单元读不到"。
+
+### 12.5 P12.5 已实现范围：证书续期 timer 与"定时触发也写得回账本"
+
+**（1）证书续期计划的种类参数随定义存。** `ScheduleDefinition.certificate = {domain, staging}`，
+只有 `kind=certificate_renewal` 能带它（别的种类带了直接报 `certificate` 字段非法，不静默忽略）。
+理由是触发场景本身：`certificate.renew` 在那一天由 systemd 拉起，那一刻没有面板可问，而
+"续哪个域名、用哪个 ACME 环境"必须在那之前就定下来。`staging` 尤其不能省略——它决定
+`--server`，用正式入口续一张 staging 证书会换掉一个本不该上生产的对象，反过来更糟
+（用测试入口续正式证书，盘上那张就变成浏览器不认的了）。
+
+**（2）域名与 ACME 环境由面板按证书记录展开，不信调用方。** `schedule.apply` 的定义里
+`target_id` 与 `certificate.domain` 是"指向哪张证书"的两个来源，两者不一致时界面说的是 A、
+凌晨续的是 B，而 systemd 那边没有人能拦。代理判不了这件事（证书账本在面板库），所以
+Web 在预检之前展开：`target_id` 必须是 `crt_` + 32 位小写十六进制、记录必须存在、来源必须
+是 `certbot`（手动导入的证书 certbot 续不了，给它建定时续期只会每晚失败一次），然后按记录
+**填**域名与 staging。调用方给了这一块就核对，不一致回 409 并点名两边的值——不做"以服务端
+为准"的静默覆盖，那是把一个界面 bug 变成一条看起来正常的计划。
+
+**（3）代理侧按盘上 live 目录回答"这张证书还在不在"。** `TargetLookup` 的入参因此从
+`(kind, target_id)` 改成整份定义：判的目标事实不在任何一张表里，而在
+`/etc/letsencrypt/live/<domain>`。三种结论分得很开——目录在 → 可跑；不存在 → `SCHEDULE_TARGET_NOT_READY`
+并写明"这张证书不是 certbot 签的，或者已经被删掉了"；路径被同名文件占着 → 也说 NOT_READY 但
+说法不同（certbot 写不进去）；读盘报错（权限、IO）→ 交回真实错误，不伪装成"证书不在"。域名
+为空的老定义在代理侧报 `SCHEDULE_TARGET_NOT_FOUND`（判不了盘就是找不到）。
+
+**（4）定时续期的参数只有三样。** `{domain, staging, scheduled: true}`。没有 `certificate_id`、
+没有邮箱：两者都在面板库，触发那一刻问不到；域名已经足够决定续哪张证书（live 目录按域名），
+ACME 账号在机器上、certbot 自己找。`IssueParams` 因此多一个 `scheduled` 字段，`Normalize`
+在它为真时允许这两个字段为空——**可空不等于随便填**，填了照常校验形态。
+
+**（5）定时续期不强制重签。** `--force-renewal` 只挂在"人在面板上点续期"那一下（他要的是
+立刻重签，certbot 的"还没到期、跳过"会让按钮看起来没反应）。签发与定时续期都用
+`--keep-until-expiring`：一张还没到期的证书不会被无谓地重签——每晚强制重签，一周就能把
+Let's Encrypt 对某个域名的签发限额烧光（同一域名每周 5 张）。
+
+**（6）定时续期也写得回面板的证书账本。** 两条路要补，缺一条面板上的指纹与到期时间就会
+停在续期之前：
+- **参数**：`JobApplier.applyIssue` 在 `certificate_id` 为空时按域名找记录（`domain` 上有唯一
+  索引）。记录 id 不变，站点绑定与审计才跟得住；邮箱参数为空时保留原来的（`Renew` 的既有
+  语义），不去改它；域名在账本里根本没有时如实报错并**不**建行——定时续期只按域名对账。
+- **时机**：导入路径落下的任务经常"导入时就已经跑完"（触发两秒结束、对账三十秒后才导入），
+  这样的行一进库就是终态，永远不会有"从非终态推进到终态"那一下去触发 `OnJobFinished`。
+  所以终态的导入自己补一次结束回调，且只补一次（同一条 `operation_id` 的导入是幂等的）。
+
+**（7）备份页与计划任务页（前端）只读定义、只经预检写。** 两页都只对 admin 出现（导航里
+按 `implementedIn` 出现，路由 `/backup`、`/schedules`）。写操作全部落到 `StorageActionDialog`
+这一条链上（`POST /operations/preflight` + `POST /jobs`），页面里没有"直接 PUT 一份定义"的
+路径：
+
+- 备份：仓库与策略的**登记/修改**走 REST（仓库 POST/PATCH 要 CSRF 与 5 分钟内再认证，错误码
+  `REAUTH_REQUIRED` 由页面调 `/auth/reauth` 后重试**同一份** payload 与幂等键；策略不引用秘密，
+  只要 CSRF），而 `backup.repository.initialize`、`backup.run`、`backup.restore`、`backup.verify`、
+  `backup.prune` 走预检 → 任务。契约里没有"删除仓库"这条 REST 路由，页面因此也不给入口——删掉
+  定义会让仓库里那些快照"属于谁"无从回答。
+- 计划与脚本：`GET /schedules`、`GET /schedules/:id`、`GET /scripts`、`GET /scripts/:id` 是
+  唯一的读路径；`schedule.apply`、`schedule.delete`、`script.apply`、`script.delete`、
+  `script.run` 全部走预检 → 任务（都 `RequiresReauth`，`script.run` 另带 `max_runtime_seconds`）。
+  `POST /internal/v1/schedules/:id/trigger` 是代理内部路由（只认 UID=0 的本机 CLI），浏览器
+  够不到它；页面上因此没有"立即触发一条计划"，要现在跑一次只有备份页的「立即备份」与脚本的
+  「立即运行」。
+- **页面不自己拼待删快照名单**：`backup.prune` 的参数只有 `{backup_policy_id, version}`，
+  待删集合由预检算出、代理写进 `normalized_params.expected_delete_ids`，提交时按同一份预检
+  复核（期间多一份新快照即 `PREFLIGHT_STALE`）。把名单再从页面抄一遍进参数，只会让人以为
+  那是来自另一处的证据。
+- **快照列表不带大小**：`size_included=false` 时每条都不带 `size_bytes`/`file_count`（列表不跑
+  restic stats，那是分钟级代价），点开详情才读。界面上把这件事写在明面上，否则"没有大小"
+  会被读成"快照是空的"。
+- **超时分层**：备份动作的预检与提交都用 95 秒（代理侧预检/再核各 90 秒），快照查询 75 秒。
+  20 秒的通用上限会把一次正常的预检在前端自己掐断，屏幕上是"请求超时"，服务端其实正在回答。
+- **三个观测字段分开显示**：计划的 `enabled`（定义的意图）、`installed`、`unit_file_state`、
+  `active_state` 是四件不同的事，页面上不压成一个绿灯；"enabled 打开但 timer 没在跑"必须能
+  一眼看见。
+- **备份成功不等于恢复已验证**：`backup.run` 的核验是"写完读回来对得上"，结果页每次都写出
+  这句话；要"这份数据读得回来"只能单独做一次 `backup.verify`，而且要勾上抽样恢复。
+
 ## 13. 网络、账号与告警契约
 
 GET /network/interfaces、GET /network/routes、GET /network/listeners、GET /firewall、GET /accounts、GET /accounts/:id/ssh-keys：admin。
@@ -2133,8 +3269,963 @@ GET/POST /alerts/rules、PATCH/DELETE /alerts/rules/:id：读 V、写 admin；�
 
 GET /alerts/events：V；POST /alerts/events/:id/ack：admin；GET/POST /notification-channels、PATCH/DELETE /notification-channels/:id、POST /notification-channels/:id/test：admin；通道字段 type=in_app/smtp/webhook、受约束 endpoint/settings、secret_ref、enabled。测试发送是明确的操作，不能在保存时自动发送。
 
-## 14. 最小数据库模型
+### 13.1 P13.1 已实现范围：历史监控的采集、粒度与查询口径
 
+**两条端点，分工固定。** `GET /system/metrics` 回答"过去怎么走的"，只读样本表；
+`GET /system/metrics/status` 回答"这个进程到底在不在记"，把运行时事实与库里的行数放在一起。
+两者都是 **V** 权限。合成的理由不要试：图会反复拉 Query，而 Status 的行数统计是全表
+`COUNT(*)`，合成一个接口等于让每次刷新都做一次全表扫描。
+
+**`GET /system/metrics` 的参数**
+
+| 参数 | 语义 |
+|---|---|
+| `scope` | 必填，闭集 `host` / `interface` / `filesystem`。缺失或越界 → 400 `VALIDATION_ERROR` |
+| `target_id` | 可重复或逗号分隔；为空表示该 scope 下全部目标；上限 64 个，空串与超过 512 字节都拒绝 |
+| `metric` | 可重复或逗号分隔；为空表示该 scope 全部登记指标；上限 16 个；不属于该 scope 的指标 → 400，报错里点名并列出可用指标 |
+| `from` / `to` | RFC3339。都缺省时 `to=now`、`from=to-1h`；`from >= to` → 400；跨度超过 365 天 → 400；`to` 超前当前时间 2 分钟以上 → 400（未来窗口永远是空的，那不是"没有数据"） |
+| `step` | 期望步长（秒）。`0` 表示自动；显式给 `< 本层桶宽` 会被抬到桶宽，不会返回"比原点还密"的插值点 |
+
+**读哪一层由时间跨度决定，不由步长决定。** 判据是横跨多久与实际保留窗口（`web.metrics`
+的配置，不是硬编码默认值）：跨度 ≤ raw 保留窗口读 `raw`；≤ minute 保留窗口读 `minute`；
+否则读 `hour`。按步长选层是**错的**——步长 3600 去读已被裁掉的 raw 只会得到一条空曲线，
+而"空"与"没有历史"在界面上长得一样。
+
+步长的下界是所选层的桶宽（raw 5 秒、minute 60 秒、hour 3600 秒）；按该步长算出的桶数
+超过 `max_points`（1440）时，步长加粗到"跨度 ÷ 1440 向上取整、再向上对齐到层宽"。
+响应如实回报 `resolution`、`step_seconds`、`max_points`，界面据此解释"为什么被加粗了"。
+
+**`GET /system/metrics` 的响应**：`enabled`、可空 `reason`、`scope`、`from`、`to`、
+`step_seconds`、`resolution`、`max_points`、`series[]`、`observed_from`、`observed_to`、
+`generated_at`。`series` 每项为 `scope`、`target_id`、`metric`、`unit`、`points[]`、
+`missing_points`。`points` 每项为 `timestamp`（**桶的起点**，UTC）、`value`、`min`、`max`、
+`sample_count`。
+
+带 `min`/`max`/`sample_count` 不是锦上添花：只有平均值的话，"这一分钟 CPU 冲到 100% 又
+落回来"在图上彻底消失。`missing_points` 是"该有、但没有"的桶数，它包含序列首尾没有数据的
+部分，因此大于 0 不等于中间断了一段——但它是**唯一**能让人看出曲线有洞的字段。
+
+**缺失就是没有点。** 段 `status != ok`、或值为 null 时不写样本；查询不补零、不插值；
+没写的桶只进 `missing_points`。`observed_from`/`observed_to` 都为 null 表示这个区间真的
+没有数据，与"有数据但稀疏"是两件事。
+
+**采集口径**：登记 10 个指标——host `cpu_usage_percent`/`load1`/`load5`/`load15`/
+`memory_used_percent`；interface `rx_bytes_per_sec`/`tx_bytes_per_sec`（`lo` 不入历史）；
+filesystem `used_percent`/`inode_used_percent`/`available_bytes`。Web 每 2 秒轮询代理
+快照（比代理 5 秒采集快一档，否则会踩点丢整份快照），按快照的 `collected_at` 去重，
+库层 `INSERT OR IGNORE` 兜底；样本时间取**段自己的**采集时间，不取快照时间——采集卡住时
+不能把旧值扮成新值。
+
+**三层聚合与保留**：raw→minute、minute→hour，每层只卷**已经结束**的桶（上界是当前桶的
+起点）；平均值按 `sample_count` 加权，区间取 `MIN`/`MAX`；聚合窗口等于源粒度的保留窗口，
+裁剪点是 `now - 窗口 - 2×桶宽`，先聚合后裁剪。启动时与每轮都按 `NOT EXISTS` 自愈补算，
+不依赖"上一轮一定成功"。行数上限（`max_rows`）从最老的桶开始删，**永不删最新桶**——
+把整层删空等于让面板显示"没有历史"。
+
+**`GET /system/metrics/status` 的响应**：`enabled`（这个进程能不能回答历史问题）、
+`collecting`（采集循环在不在跑）、可空 `reason`、`interval_seconds`、
+`filesystem_interval_seconds`、`retention.{raw_seconds,minute_seconds,hour_seconds}`、
+`max_rows`、`samples`（`raw`/`minute`/`hour`/`total`）、`last_sample_at`、`last_error`、
+`last_error_at`、`inserted`、`aggregated`、`pruned`、`metrics[]`、`series`、`generated_at`。
+
+`series` 是 `map`，**键是 scope**（`host` / `interface` / `filesystem`），值是
+`{scope, target_id, metric}` 的数组：这一栏回答的是"这台机器的历史里出现过哪些序列"，
+按 scope 分组才让人一眼看出"哪些指标有历史、哪些根本没有"。它**不是**按粒度分组的——
+粒度是查询时按跨度选出来的，库里三层同时存在，拿它当键会产生三份几乎一样的清单。
+
+`enabled=true` 且 `collecting=false` 是合法状态：配置里关掉采集之后，旧数据仍然可查。
+`last_sample_at` / `inserted` / `aggregated` / `pruned` 只说**这个进程**，重启后从零开始——
+它们用来判断"循环真的在动"，不参与任何产品结论。演示模式下两份响应都是 `enabled=false`
+且 `reason` 说明是演示模式，不是"没有采集器"。
+
+### 13.2 P13.2 已实现范围：告警规则、判定口径与事件
+
+**规则字段的最终形状。** §13 里那行只列了 `metric`、`target_id`、`comparison`、
+`threshold`、`secondary_threshold`、`combination`、`duration_seconds`、
+`recovery_threshold`、`cooldown_seconds`、`enabled`、`version`。P13.2 实现时发现一个
+表达缺口：`secondary_threshold` 只有数字、没有指标名，而"使用率 ≥ 85% 或剩余 ≤ 10 GiB"
+里的第二个数是 `available_bytes` 的量纲，拿它配 `used_percent` 去理解就成了"剩余 10%"——
+那是另一条规则。因此**补两个字段**（`secondary_metric`、`secondary_comparison`），
+原有字段一个不改、一个不删。
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `name` | string(1—120) | 是 | 给人看的短名，允许重名 |
+| `metric` | string | 是 | 必须是 `/system/metrics/status` 的 `series` 里出现过的指标名 |
+| `target_id` | string(≤512) | 视 scope | `host` 指标必须为空串；`interface`（网卡名）与 `filesystem`（挂载点路径）必须给出 |
+| `comparison` | `gt`/`gte`/`lt`/`lte` | 是 | 告警方向 |
+| `threshold` | number | 是 | 量纲随指标（percent / bytes / bytes_per_sec / count） |
+| `secondary_metric` | string \| null | 否 | 第二口径的指标名；与 `metric` 同一 scope 且不同名 |
+| `secondary_comparison` | `gt`/`gte`/`lt`/`lte` \| null | 否 | 第二口径的方向 |
+| `secondary_threshold` | number \| null | 否 | 第二口径的阈值 |
+| `combination` | `any`/`all` | 否（默认 `any`） | 双口径的合成方式；没有次级口径时恒为 `any` |
+| `duration_seconds` | int(30—86400，且 ≥2×指标写入节奏) | 是 | 持续多久才算数；上限等于 raw 粒度保留窗口；容量指标的实际下限是 60 |
+| `recovery_threshold` | number | 是 | 恢复线，必须严格落在告警线**安全侧**（`gte`/`gt` 时更小、`lt`/`lte` 时更大） |
+| `cooldown_seconds` | int(0—86400) | 否（默认 300） | 恢复之后多久之内不再重新触发 |
+| `enabled` | bool | 否（默认 true） | 停用会把打开的事件收口 |
+| `version` | int | 读/写 | 乐观并发；PATCH 必须带，不匹配回 409 |
+
+`scope` **不出现在请求里**：它由 `metric` 反查得到（同一个指标只在一个 scope 下登记）。
+让调用方同时给 `scope` 和 `metric`，就多出一种"两者不匹配"的非法输入要解释，
+而它没有正确的语义可供解释。
+
+三个 `secondary_*` 字段**要么全给、要么全不给**；`secondary_metric` 给空字符串表示
+显式清除双口径（此时另两项必须省略）。半套规则没有意义：有指标没阈值是空条件，
+有阈值没指标不知道量纲。
+
+**响应里的状态字段。** 除上表外，规则还带 `scope`、`state`（`ok`/`pending`/`firing`）、
+`state_since`、`recover_since`、`cooldown_until`、`last_eval_at`、可空 `last_value`
+（最近一轮朝告警方向最极端的值）与 `last_reason`（最近一轮为什么没下结论）。
+`last_reason` 是"这条规则为什么一直不响"的唯一答案，不是调试信息。它按"最近一轮
+对这条规则有话说"写回：数据不足时写清是哪一种不足；`pending` 与"正在计恢复持续"的
+**每一轮**都写还差多久（不是只在进入的那一轮写一次，否则第二轮就会把它覆盖成空串，
+一条正在攒持续的规则看起来像什么都没发生）；正常超限、正常恢复这两个结论本身不需要
+解释，此时为空。
+
+**端点。**
+
+| 方法 | 路径 | 权限 |
+|---|---|---|
+| GET | `/alerts/rules` | V |
+| POST | `/alerts/rules` | admin + CSRF |
+| PATCH | `/alerts/rules/:id` | admin + CSRF（body 必须带 `version`） |
+| DELETE | `/alerts/rules/:id?version=` | admin + CSRF（`version` 可选，给了就必须匹配） |
+| GET | `/alerts/events?state=&rule_id=&limit=` | V |
+| GET | `/alerts/silence` | V |
+| PUT | `/alerts/silence` | admin + CSRF |
+
+`PATCH` 是真正的部分更新：没出现的字段沿用原值（因此 `enabled=false`、
+`cooldown_seconds=0` 这类零值能被区分出来）。`POST` 要求 `metric`、`comparison`、
+`threshold`、`duration_seconds`、`recovery_threshold` 显式给出——零值不能当默认值，
+一条 `threshold=0` 的 CPU 规则会在第一轮就永远 firing。
+
+`PUT /alerts/silence` 的请求体是 `{starts_at?, ends_at?, reason?}`（RFC3339）。
+起止都给 = 设置窗口（跨度 ≤ 7 天，`ends_at` 必须晚于 `starts_at`）；**都省略 = 清除**。
+清除是一次显式动作，不是"把窗口设成过去的时间"那种会被时钟漂移意外造成的状态。
+响应 `{active, starts_at, ends_at, reason, updated_at, updated_by}`，没有窗口时起止为 `null`。
+
+**判定口径（这是 P13.2 真正的内容，不是实现细节）。**
+
+1. **只读 raw 粒度。** 告警回答"这一刻到底有没有超限"，一分钟聚合的平均值会把 30 秒的
+   尖峰抹平。`duration_seconds` 的上限因此是 86400（raw 保留 24 小时），不是随意定的。
+2. **"持续"是区间的事实。** 窗口 `(now - duration, now]` 内的**每一个**样本都要在线外
+   才算超限；有一个样本落回线内就从 `pending` 掉回 `ok`。用区间平均判断会把
+   "冲高 30 秒又落回来"抹平，而那正是最需要看见的东西。
+3. **恢复要跨过另一条线。** `recovery_threshold` 与 `threshold` 之间的样本既不算超限、
+   也不算恢复——这条死区就是防刷屏的全部机制。恢复同样要持续 `duration_seconds`。
+4. **没有数据不是 0。** 窗口里没有样本、最新样本超过容差没更新、或者窗口前段还没攒够
+   （最早样本晚于窗口起点 + 2 个写入节奏）——这三种情况状态机**原地不动**：不触发、
+   不恢复，只把原因写进 `last_reason`。采集停掉十分钟就自动"恢复"一次的告警，比没有告警
+   更坏。同理，已经 firing 的规则遇到数据中断会继续开着——"不知道"不能得出"已经好了"。
+5. **容差按序列自己的写入节奏算，不按 raw 桶宽一刀切。** 容量序列
+   （`used_percent` / `inode_used_percent` / `available_bytes`）走 `storage` 的 30 秒缓存，
+   30 秒才落一行；主机与网卡序列 5 秒一行。因此：新鲜度界限 = `max(3×节奏, 20 秒)`
+   （主机 20 秒、容量 90 秒），窗口前段的缺口余量 = `max(2×节奏, 10 秒)`
+   （主机 10 秒、容量 60 秒）。**这一条是验收在真机上撞出来的**：按 5 秒判容量序列，
+   一条空间规则的表象是"配好了永远不响"，而 `last_reason` 写的是"窗口内没有任何样本"。
+   同理 `duration_seconds` 有第二个地板：至少装得下**两个**采集周期（主机 ≥30 秒、
+   容量 ≥60 秒），否则"窗口内每一个样本都超限"这句话没有内容，规则直接回 400。
+6. **双口径的合成是对偶的。** `any`：窗口满足任一条件即超限，恢复要求**两个都**回到安全侧；
+   `all`：窗口满足全部条件才超限，恢复只要**有一个**回到安全侧。次级口径没有恢复线字段，
+   它的恢复就是"不超限"。
+7. **状态机三态。** `ok --超限--> pending --超限持续够--> firing --恢复持续够--> ok`。
+   数据不足时状态不变，因此不存在第四个状态。"unknown"不是状态，是这一轮没做判断。
+8. **冷却。** 恢复时写入 `cooldown_until = now + cooldown_seconds`；冷却期内重新超限
+   不重新起算。阈值贴着常态（备份刚跑完的那半小时）是最常见的刷屏来源，靠它挡住。
+
+**事件的形状与去重。** 一个事件周期**只有一行**：触发时插入 `state=firing`，恢复时把同一行
+改成 `resolved` 并写上 `resolved_at`、`duration_seconds`（实际时长）与 `peak_value`
+（按 `[started_at, resolved_at]` 重算的极值，不是触发那一刻的值）。因此"恢复只发一次、
+未变化不刷屏"是结构保证而不是逻辑保证：`alert_events` 上有一个
+`UNIQUE INDEX ... ON alert_events (rule_id) WHERE state = 'firing'`，同一时刻一条规则最多
+一条未恢复事件。
+
+事件行里存**规则快照**（`rule_name`、`scope`、`target_id`、`metric`、`comparison`、
+`threshold`）：规则改名、改阈值、甚至被删掉之后，这条历史仍然说得清"当时是什么条件"。
+显示用的字段一律读快照，不回 join 规则表——join 出去的值会随规则改动而"穿越"，
+让一条旧事件看起来像是按新阈值触发的。
+
+规则被删除时事件**不级联删除**：`rule_id` 是 `ON DELETE SET NULL`，事件的 `rule_id` 变 0，
+其余字段照旧。删除或停用规则之前会先把打开的事件收口——否则没有任何东西会再评估它，
+那行会变成一条永远 firing 的孤儿行。
+
+**`silenced` 与它的边界。** 事件触发时若落在维护静默窗口内，行上记 `silenced=1`。
+事件照记、判定照跑，只是通知（P13.3）不发：机器确实超限了，这是事实，不该因为
+"正在维护"就假装没发生。静默**不影响规则的状态机**。
+
+**事件列表的响应字段**：`id`、`rule_id`（规则已删除时为 0）、`rule_name`、`scope`、
+`target_id`、`metric`、`comparison`、`threshold`、`state`（`firing`/`resolved`）、
+`started_at`、可空 `resolved_at`、`duration_seconds`、可空 `peak_value`、`silenced`、
+可空 `acked_at`、`acked_by`。`POST /alerts/events/:id/ack` 属 P13.4（面板上的确认动作），
+P13.2 只把列准备好。
+
+**审计动作**：`alert.rule.create` / `alert.rule.update` / `alert.rule.delete` /
+`alert.rule.manage`（被中间件拒绝）/ `alert.silence.update` / `alert.silence.manage`。
+规则变更同时记改动前后的阈值、恢复线、持续、冷却与启停——只记改后值等于把一半事实丢了。
+
+### 13.3 P13.3 已实现范围：通知通道、投递账与"由谁发送"
+
+**五个端点，全部 admin + CSRF**（连读也是 admin：通道列表带着 webhook 地址与收件邮箱，
+那是"告警会发给谁"的答案，与 /alerts 的读开给 viewer 不是一回事）：
+
+| 端点 | 语义 |
+|---|---|
+| `GET /notification-channels` | 列表。字段 `id`、`name`、`type`、`settings`、可空 `secret_ref`、`enabled`、`max_attempts`、`version`、`target`、`created_at`、`updated_at` |
+| `POST /notification-channels` | 新建。`type` 与 `name` 必填；`max_attempts` 缺省 3 |
+| `PATCH /notification-channels/:id` | 修改，**`version` 必填**（防覆盖）。`settings` 是**整体替换**，不是逐字段合并 |
+| `DELETE /notification-channels/:id` | 删除，`version` 可选。in_app 拒删（400） |
+| `POST /notification-channels/:id/test` | **显式**测试发送，只发一次、不重试；回投递行 |
+
+`type` 是闭集 `in_app` / `smtp` / `webhook`。`settings` 按类型解释：smtp 用
+`host`/`port`/`tls`/`from`/`to`/`username`；webhook 用 `url`。类型用不上的字段一律清空
+（`normalizeChannel` 做这件事，库里不存垃圾）。`target` 是只读的人读形式
+（smtp 是收件人列表、webhook 是 URL），由服务端算，不接受提交。
+
+**秘密从哪里来、到哪里去。** SMTP 口令与 webhook 令牌**不入面板库**：调用方先按
+P02.4 的通道把口令上传成用途 `notification_password` 的秘密，再把返回的 `secret_ref`
+填进通道。面板侧只保存这个引用。
+
+**发送由代理执行。** `POST /internal/v1/notifications/deliver`（Web 账号专用）是唯一
+的出口：面板把 `type`、`settings`、`secret_ref`、`title`、`body` 交给代理，代理自己去
+加密库里解明文、发出去、回一张回执。这样做的理由是**明文不出持有它的进程**：如果面板
+自己发，就必须给它一个"取回 SMTP 口令"的接口，而那是 CONTRACTS 从 P02.4 起就拒绝开
+的洞。代价是代理多了"向外发一个请求"的能力，所以代理侧的限制是硬的、不看调用方：
+
+- 只允许 `smtp` 与 `webhook`，没有第三种协议，也没有"自定义命令"；
+- webhook 只接受 `https`，**拒绝 URL 里的用户名口令与 `#片段`，不跟随重定向**，
+  响应只读 4 KiB；
+- SMTP 只接受 `starttls` 或 `implicit`，**没有明文模式**；AUTH 只走 PLAIN，且必须在
+  TLS 上（`smtp.PlainAuth` 自己也会拒绝非 TLS 连接）；
+- 单次投递总时长上限 **8 秒**（小于面板侧 10 秒的调用上限，免得面板先把代理掐掉）；
+- `secret_ref` 必须指向用途为 `notification_password` 的秘密。**这一条由代理自己核对，
+  不靠调用方自觉**：否则面板只要把它填进一条自己控制的 SMTP 投递，就能让代理把仓库
+  口令当 AUTH 口令发到自己的服务器上——"不能读明文"被绕成"把明文发给我"。
+  用途核对与"不存在"回同一个 400，不区分，免得变成探测秘密用途的接口。
+
+回执形状：`accepted`、`status`（SMTP 应答码或 HTTP 状态码，0 表示没拿到）、`detail`
+（对端原话，截到 300 字符，不含秘密）、`retryable`。**投递失败也回 200**：从调用方看，
+"代理按你的要求去发了、被对端拒绝"与"代理没理你"是两件事，做成 5xx 会让面板只能猜
+该重试还是该放弃。`retryable` 由代理判定（它才知道那是 4xx 临时拒绝、超时，还是 5xx
+永久错误）：SMTP 4xx、连接失败、超时、HTTP 429/5xx 为真；SMTP 5xx、证书错误、
+HTTP 3xx 与其余 4xx 为假。
+
+**投递账（outbox）。** 每次投递一行 `notification_deliveries`：通道快照（名字、类型、
+目标）、事件引用（测试发送为 NULL）、`kind`（`fired`/`resolved`/`test`）、标题正文、
+`state`（`pending`/`sent`/`failed`）、`attempts`、`max_attempts`、`next_attempt_at`、
+`last_error`、`last_status`、`sent_at`。
+
+- 入队与告警事件**在同一笔事务**里（`alerts.EventNotifier` 在 `applyOutcome` 的事务内
+  被调用）：要么事件与投递一起进去，要么一起没有。中间崩一次不该留下"事件在库里、
+  谁也不知道它发生过"。
+- 同一事件在同一通道上每种 `kind` 只一条（部分唯一索引 `(event_id, channel_id, kind)
+  WHERE event_id IS NOT NULL`）。**重试是改这一行，不是再插一行**。
+- **维护静默的事件一条都不入队**（fired 与 resolved 都是）：一条你从未被告知开始的告警，
+  不该用一条"它结束了"来收尾。因停用/删除规则而收口的事件同样不发。
+- in_app 通道的投递**写入即 `sent`**：它不发到任何地方，读投递账就是读面板收件箱
+  （读路径与桌面通知属 P13.4）。它是迁移里种下的唯一一条，不可删、只可停用。
+- 通道被删或被停用时，到点的投递判 `failed` 并写清原因（"通道已停用，未发送"），
+  **不计入 attempts**：一次都没发出去的东西不该看起来像试过一次。
+- 退避：第 n 次失败后排 `30s × 2^(n-1)`，**上限 10 分钟**。上限不是怕算得太大，而是怕
+  一次"重试上限 10"的通道把最后一次尝试排到几小时之后——那时人早就以为它在正常工作了。
+- `max_attempts` 建在通道上（默认 3，上限 10）：重试几次是"这条通道有多重要"的一部分。
+
+**测试发送**是显式动作，保存配置**绝不**自动发：保存一次就往外面喷一封邮件，是那种
+"没人要求、但取消不掉"的行为。它不重试（要的是"此刻能不能发出去"这个事实）、立即尝试
+一次、仍然记一行 `kind=test` 的投递账、结果原样回给调用方（含对端原话）。
+in_app 回 400（没有外部动作可做），没有发送端回 503 `AGENT_UNAVAILABLE`
+（"代理没连上"会自己好起来，不该说成"联系管理员"）。
+
+**审计动作**：`notification.channel.create` / `.update` / `.delete` / `.test`，以及
+被中间件拒绝时的 `notification.channel.manage`。记通道名、类型、目标、`settings`（里面
+本来就没有口令）、`secret_ref`、启停、重试上限、版本；修改与删除额外记改动前的值。
+测试发送在**投递之前**落审计：这次点击真的会让一个请求离开这台机器。
+
+**已知限制（不在 P13.3 修）**：审计写入器按**键名片段**做红字化，`secret_ref` 命中
+`secret` 片段，因此审计里只留下 `"secret_ref":"[redacted]"`——"用了哪份凭据"这件事在
+审计里丢失。脱敏方向是"按键名 + 值类型白名单"，那会改到 P08/P12 已有的审计语义，
+需要单独一轮评估，不在 P13.3 顺手改。
+
+### 13.4 P13.4 已实现范围：确认、投递账读路径、历史曲线的展示口径
+
+**两个新端点。**
+
+| 端点 | 权限 | 语义 |
+|---|---|---|
+| `POST /alerts/events/:id/ack` | admin + CSRF | 确认一条事件。请求体为空；确认人取自会话 |
+| `GET /notification-deliveries` | admin | 读投递账。过滤 `state`、`kind`、`limit` |
+
+**确认不是恢复。** 这是本节最要紧的一条：`acked_at`/`acked_by` 是**旁挂**字段，写入它们
+不动 `state`、`resolved_at`、`last_seen`，也不进规则的状态机。一条 `firing` 的事件被人点过
+“知道了”之后仍然是 `firing`——恢复只由评估循环按 `recovery_threshold` 判。做成状态迁移
+的话，“有人在管”与“事情已经好了”就成了同一格，而线上最需要区分的正是这两件事。
+
+四条语义：
+
+- **幂等**：第二次确认原样返回第一次的 `acked_at` 与 `acked_by`，不刷新时间。刷新等于
+  “最后一次有人看”，那是另一列的事，本轮不开。
+- **第一个确认人胜出**：写入条件是 `WHERE id = ? AND acked_at IS NULL`。两个人同一刻点，
+  只有第一个落到库里，第二个人读回第一行——谁也没覆盖谁。
+- **已恢复的事件也能确认**：“我看到了”在恢复之后仍然有意义，否则“哪些事后来有人查过”
+  会在恢复那一刻断掉。
+- **viewer 不能确认**：只读会话能看事件列表（§13.2），但认领是把名字挂到一次处置上的
+  动作，与写同一档。
+
+审计动作 `alert.event.ack`，target 为 `alert_event:<id>`，details 记 `rule_id`、`state`、
+`acked_at`、`acked_by`。事件不存在时回 404 `NOT_FOUND`（消息“告警事件不存在”）并记
+denied；id 非正整数回 400。“确认了一条不存在的事件”必须是可见的失败，不能是 200。
+
+**投递账读路径是顶层路径，不挂在通道下。** 一行投递带着的是**投递当时**的通道快照
+（名字、类型、目标），通道后来改名、停用、删除都不改变那一行——挂在
+`/notification-channels/:id/` 下会把它说成“这个通道此刻的属性”。另外面板收件箱要回答
+“最近发出去过什么”，那是跨通道的排序，挂通道下会变成“先列通道再逐个查”的 N+1。
+
+- 行形状与 §13.3 通道端点里的投递回执**共用同一个 DTO**：`id`、`event_id`（测试发送为
+  null）、`event_rule`、`channel_id`、`channel_name`、`channel_type`、`channel_target`、
+  `kind`、`title`、`body`、`state`、`attempts`、`max_attempts`、`next_attempt_at`、
+  `last_error`、`last_status`、`sent_at`、`created_at`。
+- 过滤参数：`state` ∈ `pending`/`sent`/`failed`、`kind` ∈ `fired`/`resolved`/`test`；
+  `limit` 默认 50、最大 200。非正整数回 400 `VALIDATION_ERROR`（"limit 必须是正整数"），
+  **超过 200 按 200 截断而不报错**——“多要一点”不是参数错，是上限在生效；枚举取闭集外的
+  值回 400（报错列出允许的取值）。
+- **admin，连读也是 admin**：账里有收件邮箱、webhook 地址原文与正文。`/alerts` 那套
+  “读开给 viewer”在这里不成立，理由与 §13.3 的通道列表相同。
+- in_app 通道“写入即 `sent`”（§13.3），因此这条读路径就是**面板收件箱**：它没有外部
+  发送方，读投递账是它唯一的读法。
+
+**历史曲线的展示口径（前端约束，不是接口）。** 三件事写死在这里，因为它们是“图上会不会
+撒谎”的问题，不该由每个页面各自判断：
+
+- **缺失不是 0。** `metric_samples` 缺失的时间段**没有行**（§13.1），服务端不补零。前端
+  按桶宽切段：相邻两点相差超过 `3 × step` 就断开，段与段之间**什么都不画**。把点按顺序
+  连成一条，一次十分钟的采集中断会变成一条平滑直线——图上看是“一切正常”，真相是“这十
+  分钟我们什么都不知道”。宽限取 3 个桶而不是 0，是因为采集节奏本身有抖动，相差 1—2 个
+  桶是正常的。
+- **一个点都没有时不画轴。** 上下界为 null 时说“这段时间没有样本”，而不是画一条贴着 0
+  的线。单点画成小方块：它存在，但接不上任何东西。
+- **`last_value` / `peak_value` 为 null 时显示“—”。** 那不是 0，是“这一次评估没有取到
+  值”（例如采集被停用）。
+
+**采集陈旧分三态，三句话不一样。** 判据（注意两个 `enabled` 不是一个意思，这是最容易
+搞混的一处）：
+
+- `status.enabled=false` → **未开启**：这个进程**没有库**，一条历史都答不了（演示模式 /
+  未装配）。它不是故障，是模式。
+- `status.enabled=true` 且 `collecting=false` → **没在采集**：库在、旧数据查得到，只是不再
+  写新的。配置里 `web.metrics.enabled=false` 属于这一种，`reason` 会写明原因
+  （”配置里关闭了历史采集（web.metrics.enabled=false）…”）。所以**关掉采集不等于
+  `enabled=false`**：把两者混为一谈，界面会把一份正常工作的产品显示成”没有库”。
+- `collecting=true` 但 `last_sample_at` 距今超过 `max(3 × interval_seconds, 20s)` → **陈旧**
+  （循环还在、写不进去，此时 `last_error` 才是要看的）。
+
+`last_sample_at` 为空时按 `collecting` 分开：没在采集的归”没在采集”，在采集却从没写过样本的
+归”陈旧”，**两种都不许显示成正常**。查询接口（`GET /system/metrics`）的 `enabled` 也按同一
+口径：它回答”这次查询有没有历史可比”，不回答”现在在不在记”——后者只有 status 答。
+
+宽限取 `max(3 × interval, 20s)` 是因为主机 5 秒一行、容量 30 秒一行：拿 5 秒去判容量，
+会把正常状态报成陈旧。
+
+### 13.5 P14.1 已实现范围：网络现状的四条只读端点与"能不能改"的判定
+
+**四条端点，全部 admin，全部只读。** `GET /network/interfaces`、`GET /network/routes`、
+`GET /network/listeners`、`GET /firewall`。它们回答的是"现在是什么样"和"这份现状我们将来
+能不能安全地改"，**一个字节都不写**：改地址是 `network.apply`（P14.2）、改规则是
+`firewall.apply`（P14.3），两者都走预检 → 任务 → 独立回滚 timer。在这一组里开一个
+"直接 netplan apply"或"直接 ufw allow"的入口，等于把确认、回滚与审计一起绕过去。
+
+为什么是 admin 而不是 V：网卡、地址、路由、监听端口与防火墙规则合起来就是"这台机器上
+开了什么入口、通向哪里"，与容器清单同级的侦察材料。
+
+**审计只记被拒的那一次，不记成功的读。** 四个路由组登记了 `network.manage` /
+`firewall.manage`，而登记的作用是让**中间件拒绝**落一条 `outcome=failure`——"某个 viewer
+在什么时候试图看这台机器的网络全貌与防火墙规则"是值得留痕的那件事。成功的读取不写审计：
+页面一打开就是四条 GET，刷新一次再加四条，一天下来审计表里只剩这一种行，真正的管理事件
+会被淹掉（与 §9 `PUT /apps/:id/favorite` 不写审计是同一条理由）。写路径 `network.apply` /
+`firewall.apply` 的审计在 P14.2/P14.3，记的是改了什么、凭什么改、改完读回来是什么。
+
+**三条贯穿四条端点的口径。**
+
+1. **查不到不等于没有。** 每一条响应都带 `issues[]`：`source` ∈ `sysfs`/`ip`/`proc-net`/
+   `netplan`/`ufw`/`systemd`，`code` ∈ `missing`/`permission_denied`/`timeout`/`unparsable`/
+   `failed`，`detail` 是给人看的一句话。某一路来源读不到时**其余内容照常返回**，
+   HTTP 仍是 200——把"读不到"折成空数组，页面上就是"这台机器没有监听端口"。
+2. **不猜。** 网卡类型从 `/sys/class/net/<name>/{bridge,bonding,wireless,phy80211,tun_flags,type}`
+   与 `/proc/net/vlan/<name>` 判，不从名字猜；配置归属从 `/etc/netplan` 的**存在**与 `/run`
+   下的**渲染产物**判，不解析 netplan 的 YAML（P14.2 的写路径会自己逐字段核对）。
+3. **只读也不许慢。** 一次采集的总预算 8 秒，单条命令 6 秒；超时如实记 `timeout`。
+
+**`GET /network/interfaces`**：`collected_at`、`interfaces[]`、`capability`、`issues[]`。
+
+- `interfaces[]`：`name`、`index`、`kind`（闭集 `loopback`/`ethernet`/`bridge`/`bond`/`vlan`/
+  `wifi`/`tun`/`other`）、`mac`（小写）、`mtu`、`state`（内核 operstate 原样小写）、
+  `carrier`（`true`/`false`/**`null`＝读不到**，虚拟网卡常常读不到）、`master`、
+  `physical`（`/sys/class/net/<name>/device` 存在）、`addresses[]`（`family`、
+  `address`、`prefix_len`、`scope`、`type`）。
+- 地址与网卡清单来自 `ip -j addr show`；sysfs 补 MTU/MAC/载波/物理性。`ip` 不在时**仍从
+  sysfs 列出网卡**（只是没有地址），并在 `issues` 里记一条 `ip/missing`。
+- `capability`：`backend` ∈ `netplan-networkd`/`netplan-networkmanager`/`networkmanager`/
+  `unknown`、`editable`、`target`（可改的那张网卡）、`reasons[]`。
+  `editable=true` **仅在** 以下全部成立时：`backend=netplan-networkd`，运行时网卡里没有
+  Wi-Fi/网桥/bond/VLAN，物理以太网卡**恰好一张**且没有 `master`，NetworkManager 没在跑
+  （`/run/NetworkManager` 不存在）。`editable=false` 时 `reasons` **至少一条**，写清究竟是
+  哪一条不成立——灰掉的按钮后面没有原因，人只会以为面板坏了。
+  读不到 `/etc/netplan` 归 `unknown`（"不知道"），**不**归"没有配置"。
+
+**`GET /network/routes`**：`collected_at`、`routes[]`、`gateways[]`、`issues[]`。
+
+- IPv4 与 IPv6 各查一次，只查 v4 会漏掉 v6 默认网关。默认路由（`0.0.0.0/0`、`::/0`）
+  排在最前，v4 在 v6 前，顺序在代码里固定，不依赖 `ip` 的输出顺序。
+- `metric` 与 `pref_set` **成对**：0 是合法优先级，"没有 metric"由 `pref_set=false` 表达。
+- `gateways[]` 是去重后的默认下一跳（`family`、`address`、`device`、`metric`）。
+
+**`GET /network/listeners`**：`collected_at`、`listeners[]`、`truncated`、`issues[]`。
+
+- 数据来自 `/proc/net/{tcp,tcp6,udp,udp6}`，只取 LISTEN（TCP `0A`）与 UDP `07`，
+  **不跑 `ss`**：`ss` 的输出格式在不同版本间会变，而 procfs 的列布局是稳定的。
+- 进程归属由 `/proc/<pid>/fd` 的 `socket:[inode]` 反查；反查不到时 `pid=0`——那是
+  **读不到**，不是"没有进程"。套接字 inode 只用于反查，出响应前清零，不上线。
+- `truncated=true` 表示结果被上限（2000 条）截断，页面必须说明"这不是全部"。
+
+**`GET /firewall`**：`collected_at`、`manager`、`manager_reasons[]`、`installed`、`enabled`、
+`default_incoming/outgoing/routed`、`logging`、`rules[]`、`editable`、`reasons[]`、`issues[]`。
+
+- `manager` ∈ `ufw`/`firewalld`/`nftables`/`iptables-persistent`/`none`/`unknown`。
+  **`none` 不是"没有防火墙"**，`unknown` 也不是：ufw 与 firewalld 同时在场时判 `unknown`，
+  因为两套规则同存时"我加了一条放行"在另一套的默认拒绝面前什么都不是。`manager_reasons[]`
+  写清是哪条事实让它这么判。
+- **每类管理者都要有"在管"的证据，不能只看程序在不在。** firewalld：`firewall-cmd`/`firewalld`
+  程序在，或 `/run/firewalld` 在（表示它在跑）。nftables：`/etc/nftables.conf` 存在**并且**
+  `nftables.service` 被 `enable` 过（`/etc/systemd/system/*.wants/nftables.service`）。
+  只认那个配置文件会把**每一台 Ubuntu** 都判成"ufw 与 nftables 同存"——那份文件是 nftables
+  包自带的默认规则集，装包就有，而服务默认 disabled，于是 P14.3 的写路径在一台最标准的
+  机器上永远打不开（22.04 验收机第一轮就是这么红出来的）。iptables-persistent：
+  `/etc/iptables/rules.v4` 或 `rules.v6` 存在（Ubuntu 默认没有这个目录，只有装了才会出现）。
+  **已知局限**：手工 `nft -f` 载入规则、但没有 `enable` 服务的机器看不到证据——那种机器上
+  内核里确实另有规则，而面板只能看到"没有开机加载的证据"。P14.3 若要在这种机器上开写路径，
+  得先有办法读出内核里的规则集，那是另一件事。
+- `installed` 与 `enabled` 分开：装了没启用（`Status: inactive`）与根本没装是两件事，
+  后者额外有一条 `ufw/missing` 的 issue。
+- `rules[]`：`number`、`action`（`ALLOW`/`DENY`/`REJECT`/`LIMIT`）、`direction`
+  （`IN`/`OUT`/`FWD`）、`interface`、`to`、`from`、`raw`（UFW 原话，解析不准的靠它兜底）。
+- `editable` **仅在** `manager=ufw` 且 `installed` 时为 true；其余一律只读并给出原因。
+
+**代理侧查询名**：`network.interfaces`、`network.routes`、`network.listeners`、
+`firewall.state`。四条**无参数**（空结构 + 拒绝未知字段，`{"command":"..."}` 会被拒）。
+代理没有接上网络采集端时这四条不登记，`capabilities.supported_queries` 因此不会报告一个
+点开就 503 的入口；Web 侧对应地回 503 `AGENT_UNAVAILABLE`，**不给空列表/空规则表**。
+
+### 13.6 P14.2 已实现范围：单物理网卡 IPv4 的受控写入、独立回滚与候选地址确认
+
+P14.1 把"现在是什么样"和"能不能改"读出来了；这一节定义**改**。范围刻意窄到一条缝：
+只改 `capability.target` 那一张物理网卡的 **IPv4**（DHCP 或单地址静态），只通过
+netplan 写一个面板自己的文件，只走一条能自己退回去的路。IPv6、第二地址、桥接、bond、
+VLAN、Wi-Fi、NetworkManager 一律不支持——**返回 `unsupported` 而不是"尽力而为"**：
+STAGES 的验收要求写"复杂 netplan 返回 unsupported"，所以"不支持"必须是一个明确答案，
+不能是静默降级。
+
+| 方法与路径 | 返回 | 说明 |
+|---|---|---|
+| `GET /network/config` | 当前可改网卡的生效配置、`config_hash`、是否有未确认的回滚 | admin、只读。`config_hash` 就是 `network.apply` 要带的 `expected_config_hash` |
+| `POST /operations/preflight`（`action=network.apply`） | 预检计划 | 改地址前的影响与阻塞项；`locks=["network-global"]` |
+| `POST /jobs`（`action=network.apply`） | 任务 | 写配置、装载、核验、**武装回滚 timer** |
+| `POST /operations/preflight` + `POST /jobs`（`action=network.confirm`） | 任务 | 保留新配置：停掉回滚 timer |
+| `POST /operations/preflight` + `POST /jobs`（`action=network.rollback`） | 任务 | 主动反悔：立刻执行回滚（与 timer 到期走同一条代码） |
+
+**`network.apply` 的参数**
+
+```json
+{
+  "interface_id": "ens4",
+  "expected_config_hash": "sha256:…",
+  "definition": {
+    "mode": "dhcp",
+    "ipv4": null
+  }
+}
+```
+
+```json
+{
+  "interface_id": "ens4",
+  "expected_config_hash": "sha256:…",
+  "definition": {
+    "mode": "static",
+    "ipv4": { "address": "10.0.2.15", "prefix_length": 24,
+              "gateway": "10.0.2.2", "dns": ["1.1.1.1"] }
+  }
+}
+```
+
+- `mode` 闭集 `dhcp` / `static`；`dhcp` 时 `ipv4` 必须为 `null`（不是空对象）。
+- `static` 时 `address`、`prefix_length`（1—32）必填；`gateway` 可空，非空时必须在
+  `address/prefix_length` 同一个网段内（`/32` 不允许带网关）；`dns` 0—3 个，每个是 IPv4。
+- 拒绝：`0.0.0.0/8`、`127.0.0.0/8`、`169.254.0.0/16`、`224.0.0.0/4`、`240.0.0.0/4`、
+  `255.255.255.255`、以及组播/广播/未指定地址。
+- `interface_id` 是**网卡名**（`ens4`）。名字会变（`set-name`、udev 改名），所以身份
+  由预检钉死：`interface_id` 解析出来的 `permanent_mac` 与 `expected_config_hash` 里的
+  那一份必须是同一个 MAC；MAC 变了就是"这台机器的网卡换过了"，判 `NETWORK_TARGET_CHANGED`。
+
+**`expected_config_hash` 怎么算**
+
+`sha256:` 前缀 + 对下面这份**规范化 JSON**（键排序、无空白、无浮点）的 sha256：
+
+```json
+{"interface":"ens4","permanent_mac":"52:54:00:12:34:56",
+ "netplan":{"50-cloud-init.yaml":"<文件内容的 sha256>"},
+ "panel_file":{"name":"90-upanel-ens4.yaml","sha256":"<…>"}}
+```
+
+- `netplan` 是 `/etc/netplan` 下**全部**配置文件的名字与内容哈希（面板自己的那份也在里面）；
+- `panel_file` 是面板自己那份文件的现状，不存在时整个键为 `null`。
+
+理由：把"我看到的那份配置"钉住。别的管理员或 cloud-init 在预检之后改了一个字节，
+提交时哈希就对不上，判 `PREFLIGHT_STALE`（沿用该码，不新造一个"差不多"的）。
+不解析、不"大概等价"——**字节不同就是不同**。
+
+**预检（`network.apply`）**
+
+阻塞项（`blockers`）：
+
+| code | 触发条件 |
+|---|---|
+| `NETWORK_UNSUPPORTED` | `capability.editable=false`（附 capability 的 reasons 原文）；或目标网卡不是唯一物理以太网卡；或 `/etc/netplan` 里存在我们无法安全覆盖的配置（见下） |
+| `NETWORK_CONFIG_CHANGED` | `expected_config_hash` 与现场算出来的不一致 |
+| `NETWORK_TARGET_CHANGED` | `interface_id` 现在解析不到，或 permanent MAC 与哈希里的不一致 |
+| `NETWORK_DEFINITION_INVALID` | 定义越出闭集（模式、地址、前缀、网关、DNS、取值禁令） |
+| `NETWORK_ROLLBACK_PENDING` | 已有一条未确认的回滚记录（先确认或先回滚，**不许叠加**） |
+
+告警项（`warnings`，不拦）：`NETWORK_MANAGEMENT_PATH`——面板的访问路径就在这张网卡上
+（`0.0.0.0` 监听或监听地址属于目标网卡的网段）：改完之后浏览器可能立刻断，120 秒后会
+自己回来；`NETWORK_NO_CARRIER`——现在没有载波，改完也不会通。
+
+"无法安全覆盖"的判定（`netplaninspect`，用 YAML 解析，不靠字符串嗅探）：目标网卡在
+**任何** netplan 文件里出现时，允许出现的键只有
+`match`、`set-name`、`dhcp4`、`dhcp6`、`addresses`、`routes`、`nameservers`、`optional`、
+`dhcp4-overrides`、`dhcp6-overrides`、`accept-ra`、`link-local`、`mtu`；出现其它键
+（`macaddress` 覆盖、`gateway4`、`routing-policy`、`ipv6-*` 之类）就是 `unsupported`。
+任何 `bridges`/`bonds`/`vlans`/`wifis` 提到目标网卡 → `unsupported`。文件解析不了
+→ `unsupported`（读不懂的配置不许覆盖）。`match.macaddress` 与网卡永久 MAC 不一致
+→ `unsupported`（配置本来就不属于这张卡）。
+
+**执行（`network.apply`）**
+
+1. 重新算哈希、重比 MAC、重跑 `netplaninspect`（预检之后现场可能变了）。
+2. 记录"改之前的样子"：面板文件是否存在、内容哈希、当前 IPv4 地址、默认网关。
+3. 写 `/etc/netplan/90-upanel-<iface>.yaml`（root:root 0600，YAML 由面板渲染，
+   原子替换：同目录临时文件 + `rename`）。
+4. `netplan generate`——**这一步只渲染、不动网卡**。非零退出一律判失败，恢复原文件
+   （或删除我们刚建的），到此为止，任务结果 `rolled_back`（现场没变；恢复本身失败才是
+   `unknown`）。
+5. 写入回滚记录、渲染并启动 `upanel-netrollback@<token>.timer`（见下）。**先武装、
+   再 apply**：反过来的话，`netplan apply` 卡住或把系统弄成不通，就没有人负责把我们
+   带回来。
+6. `netplan apply`。
+7. 核验（读回内核事实，不信 netplan 的退出码）：目标地址在前缀长度上存在、`dhcp` 模式下
+   这张网卡上**恰好一个**全局 IPv4 地址（DHCP 服务器可以把同一个地址再发一次，所以不能
+   拿"旧地址必须消失"当判据；多出来一个说明别的配置文件也在给这张网卡配地址）、静态模式下
+   默认网关等于要求的那一个、旧地址（与新的不同时）已经不在。核验不过 → **立即执行回滚**
+   （不等 timer），任务结果 `rolled_back`，并带上回滚后核验到的现场；回滚本身没走完则是
+   `unknown` + 记录里 `state=failed`。DHCP 的等待窗 30 秒、静态 15 秒（`dhcpVerifyWindow`）。
+8. 结果里给出 `deadline`（回滚到期的时刻）与 `rollback_token`，页面据此倒计时。
+
+结果的取值只在代理的 outcome 闭集里（`verified`/`accepted`/`rolled_back`/`partial`/
+`unknown`）——**没有 `failed` 这个结果值**。"改坏了但已经退回去"与"我们不知道现在
+是什么样"是两件事，界面对它们的下一步动作不同（前者不用管，后者要立刻去看一眼），
+折成一个"失败"就把这个判断依据抹掉了。`failed` 只出现在回滚记录的 `state` 里。
+
+**回滚 timer（独立于面板，这是本条最要紧的一条）**
+
+- 单元：`/etc/systemd/system/upanel-netrollback@.service` +
+  `upanel-netrollback@<token>.timer`，`OnActiveSec=120s`、`AccuracySec=1s`、
+  `RemainAfterExit=no`、`DefaultDependencies=yes`。
+- `ExecStart=` 指向**代理自己的二进制**（`os.Executable()` 在 apply 时取到并写进单元与
+  记录），子命令 `netrollback --config <cfg> --token <token>`。不写"面板在运行时生成一段
+  root shell 脚本"——那等于把"面板能执行任意 root 命令"这条禁令自己打开。
+- 记录：`/var/lib/upanel-agent/network/rollback/<token>.json`（root 0600），内容含
+  目标网卡、MAC、候选地址、改之前的文件与内容、到期时刻、执行过的命令与结果、
+  `state`（`pending`/`confirmed`/`rolled_back`/`failed`）。
+- 回滚做的事与 apply 对称：恢复（或删除）面板文件 → `netplan generate` → `netplan apply`
+  → 核验旧地址回来了 → 写 `state=rolled_back`。任何一步失败都写 `failed` + 原因，
+  **不重试**（重试会把一个说不清的状态变成两个）。
+- 确认（`network.confirm`）＝ 停 timer + 删单元 + 记录 `state=confirmed`。
+- **开机重放**：代理启动时扫 `state=pending` 的记录——到期时间已过就立刻执行回滚，还没到
+  就按剩余时间重新武装 timer。没有这一步，"回滚期间重启"会留下一个永远不回滚的坏配置。
+
+**确认必须来自候选地址（`NETWORK_CONFIRM_WRONG_ADDRESS`）**
+
+`network.confirm` 的参数是 `interface_id`、`token`、`arrived_on`。`arrived_on` **不是**
+前端填的：Web 从这条连接的 socket 本地地址（`http.LocalAddrContextKey`）取，也就是
+"浏览器这次是连到哪个地址上来的"。代理要求：
+
+1. 记录存在且 `state=pending`、未到期（过期判 `NETWORK_ROLLBACK_EXPIRED`，让它回滚）；
+2. `arrived_on` 归一化后**等于候选地址**——用旧地址到达的确认一律拒绝；
+3. 候选地址现在确实在这张网卡上（读回内核证明改成功了），旧地址确实不在。
+
+这样"在旧地址上点确认"永远过不了关：旧地址要么已经不在（连不上），要么在这里被拒。
+用地址本身做凭据而不是发一个确认码到浏览器：确认码能转发、能被日志带走，而"你现在是从
+哪个地址连过来的"是每次请求都重新发生的现场事实。
+
+**动作策略**
+
+| 动作 | 再认证 | 确认短语 | 可取消 | 资源锁 |
+|---|---|---|---|---|
+| `network.apply` | 是 | **是**（`RECONFIGURE XXXXXX`，短语码由服务端生成，与其他动作同一套规则；"改成什么"写在计划的显示名与影响列表里，与短语并排显示） | 否 | `network-global` |
+| `network.confirm` | 否 | 否 | 否 | `network-global` |
+| `network.rollback` | 否 | 否 | 否 | `network-global` |
+
+`network.apply` 要短语：它是唯一一个能把管理员关在门外的动作，短语里写清"改成什么"，
+让人在敲之前读一遍。`confirm`/`rollback` 不要再认证也不要短语——它们正是**救命**的两步，
+门槛越高，出事后越救不回来。
+
+**审计**
+
+`network.apply`、`network.confirm`、`network.rollback` 都记（`network.apply`/`rollback`
+记改之前与之后的现场）；回滚 timer 自己执行的那一次由**代理**记一条
+`agent.network.rollback`（面板不在场，所以这条只能由代理写进自己的日志与记录文件，
+Web 恢复后从 `GET /network/config` 读到 `state=rolled_back` 并把它显示出来）。
+
+**未接线时**：代理没有接上写入端时不登记这三个动作，`capabilities.supported_queries`
+也不会报告 `network.config`；Web 侧 `GET /network/config` 回 503 `AGENT_UNAVAILABLE`，
+`network.apply` 的预检回 503，**不给一份看起来能用的空配置**。
+
+
+### 13.7 P14.3 已实现范围：UFW 规则集的受控写入、独立回滚与"只碰带标记的规则"
+
+§13.6 改的是地址，这一节改的是**规则集**。两条路共用同一套骨架（预检 → 任务 → 武装回滚
+→ 读回核验 → 120 秒确认窗），差别在改的东西的性质上，所以分成两节而不是一节：
+
+- 地址是**一份文件**，规则集是**一组条目**，而条目没有名字。所以面板给每条自己加的规则
+  挂一个标记（`comment upanel:<id>`），靠它认出"这条是我的"。
+- 地址改错的结果是"连不上"，规则改错的结果是"谁也连不上"。所以管理通路（面板 + SSH）
+  在规则这条路上是**阻塞项**，不是告警项。
+- 只做 **UFW**、只做 **IPv4**、只做"一条规则一个端口一个协议"。规则区间、应用配置
+  （`ufw allow 'Nginx Full'`）、按接口限定、`prepend`/`insert` 指定位置、默认策略
+  （`ufw default`）一律 `FIREWALL_UNSUPPORTED`——**返回不支持，而不是尽力而为**。
+
+| 方法与路径 | 返回 | 说明 |
+|---|---|---|
+| `GET /firewall/config` | 面板管理的规则、`config_hash`、启用状态、是否有未确认的回滚 | admin、只读。**只列带 `upanel:` 标记的规则**；管理员手写的规则仍在 `GET /firewall` 里完整可见 |
+| `POST /operations/preflight`（`action=firewall.apply`） | 预检计划 | 影响、阻塞项；`locks=["firewall-global"]` |
+| `POST /jobs`（`action=firewall.apply`） | 任务 | 武装回滚 timer、加缺的删多的、切启用状态、读回核验 |
+| `POST /operations/preflight` + `POST /jobs`（`action=firewall.confirm`） | 任务 | 保留这次改动：停 timer |
+| `POST /operations/preflight` + `POST /jobs`（`action=firewall.rollback`） | 任务 | 主动反悔：立刻回滚（与 timer 到期走同一条代码） |
+
+**`firewall.apply` 的参数**
+
+```json
+{
+  "expected_config_hash": "sha256:…",
+  "definition": {
+    "enabled": true,
+    "rules": [
+      { "id": "web",  "action": "allow", "port": 443, "proto": "tcp", "from": "" },
+      { "id": "ssh",  "action": "limit", "port": 22,  "proto": "tcp", "from": "" },
+      { "id": "db",   "action": "allow", "port": 5432, "proto": "tcp", "from": "10.0.0.0/8" }
+    ]
+  }
+}
+```
+
+- `definition` 是**整份**规则集，不是一条。apply 的语义是"加缺的、删多的"：
+  少写一条就等于删掉它。
+- `enabled` 在定义里：只加规则不启用等于什么都没做（ufw 未启用时规则不生效），
+  而启用恰恰是最容易把人关在门外的那一步——它必须和规则一起过预检、一起回滚。
+- `id` 形状 `^[a-z0-9][a-z0-9-]{0,31}$`。它进 ufw 的 comment，也进命令行，
+  所以先收窄到不需要引号的形状。**id 一旦用过就不要再改含义**——改 id 等于"删一条旧的、
+  加一条新的"。
+- `action` 闭集 `allow`/`deny`/`reject`/`limit`（与 UFW 的四个动作一一对应，**不做同义词**）。
+- `proto` 闭集 `tcp`/`udp`。**一条规则一个协议**：`ufw allow 22` 同时开 tcp+udp，
+  读回来是两条规则，"我加了一条"与"读回两条"之间那点含糊会在回滚时变成"删了一条还剩一条"。
+- `from` 空表示 `from any`；否则是 IPv4 地址或 IPv4 CIDR，归一成**掩码之后**的 CIDR
+  （单地址 → `/32`，`10.0.0.5/24` → `10.0.0.0/24`）。只认 IPv4：v6 规则在 UFW 里是另一份表
+  （`user6.rules`），塞进同一份定义会让"v4 那条删了、v6 那条还在"变成真实可发生的状态。
+- 规则最多 64 条。再多，页面上的那份列表就变成一面没人读的规则墙。
+
+**`expected_config_hash` 怎么算**
+
+`sha256:` 前缀 + 对下面这段文本的 sha256：
+
+```
+enabled=0|1\n
+<id> <规范写法>\n     （每条一行，顺序是 `ufw show added` 的顺序）
+```
+
+规范写法只有两种形状：`allow 22/tcp`、`allow from 10.0.0.0/8 to any port 5432 proto tcp`。
+
+**只算启用状态与带面板标记的规则**，不算管理员手写的那些。理由：手写规则面板不改，
+把它们算进指纹，会让"管理员在别处加了一条规则"变成"这边的预检作废"。指纹要防的是
+"有人动了我要改的东西"，不是"现场跟五分钟前一模一样"。与 §13.6 的 netplan 指纹同一口径。
+
+**预检（`firewall.apply`）**
+
+阻塞项（`blockers`）：
+
+| code | 触发条件 |
+|---|---|
+| `FIREWALL_UNSUPPORTED` | `editable=false`（附 reasons 原文）；或 `ufw status` / `ufw show added` 跑不出来（读不到现状就不许改） |
+| `FIREWALL_DEFINITION_INVALID` | 定义越出闭集（id 形状、动作、端口、协议、来源、条数）。**真机上通常看不到它**：代理的参数解码（`Decode`）先跑一遍 `ValidateFirewallDefinition`，形状不合法在那一层就返回 `400 VALIDATION_ERROR` 并点名第几条、哪个字段、合法范围。这条阻塞项是纵深防御——`Assess` 独立再校验一次，只在"解码放行而预检拒绝"时才出现（例如将来放宽解码）。它存在的原因是预检侧不能依赖上游一定校验过 |
+| `FIREWALL_CONFIG_CHANGED` | `expected_config_hash` 与现场算出来的不一致 |
+| `FIREWALL_ROLLBACK_PENDING` | 已有一条未确认的回滚记录（先确认或先退回，**不许叠加**） |
+| `FIREWALL_UNKNOWN_MANAGED_RULE` | 现场有一条带 `upanel:` 标记、但形状认不出来的规则（附原话） |
+| `FIREWALL_MANAGEMENT_PATH` | **要启用**，而某个管理端口在改完之后没有 `from any` 的 tcp allow |
+| `FIREWALL_MANAGEMENT_UNKNOWN` | 要启用，但一个管理端口都认不出来、且监听表本身没读全（分不开"面板没在听"与"我没看见面板"，只能停下） |
+
+"管理端口"怎么定（`managementPorts`）：
+
+1. 面板自己绑在**非回环**地址上的监听端口。绑在回环上的不需要规则——ufw 只管过网卡的包。
+2. SSH。优先按进程名认（`sshd` 前缀），一个都认不出来时**退回到 22/tcp**：
+   宁可多要一条放行，也不能少要一条——少要的那条会让人再也连不上，多要的只是浪费一行。
+
+"改完之后有放行"这件事从两处算：管理员手写的（`ufw show added` 里没有 `upanel:` 前缀的
+条目，原样保留）+ 这次定义里的。**带面板标记的条目一律交给定义算，不看现场**：
+这次可能正把它从 allow 改成 deny、或者整个删掉，拿现场当依据会让预检看不到自己正要
+关掉的那个口。
+
+停用（`enabled=false`）时这项检查没有对象，直接跳过——没有任何规则会挡人。
+
+告警项（`warnings`）：没有。这一版里"改完之后会怎样"全部写在 `impacts` 里，不额外制造
+告警噪音；介于"一定安全"与"一定不安全"之间的判断，宁可放进阻塞项。
+
+**执行（`firewall.apply`）**
+
+1. 重新算指纹、重读现状（`ufw status verbose numbered` + `ufw show added`）；指纹与
+   `ExpectedStateVersion` 都要对上，现场有认不出来的面板规则就停。
+2. 写回滚记录（含"改之前的样子"：启用状态 + 规则集）。
+3. **武装回滚 timer**。装不上就不许改：这一步失败直接返回，**没有改动任何规则**。
+4. 改规则，分三段，顺序不是随意的：
+   a. **补**：定义里有、现场没有的；同 id 但形状变了的先删后加（保证读回来只有一条）。
+   b. **收**：现场有、定义里没有的（只收带 `upanel:` 标记的）。
+   c. **切启用状态**，放在最后：启用是唯一会把规则真的套到包上的动作，前面失败还来得及。
+5. **核验**（读回来，不信退出码）：重新跑 `ufw status` 与 `ufw show added`，比启用状态与
+   面板管理的规则集与定义一致。等 15 秒（`firewallVerifyWindow`，200ms 轮询），
+   短了会在一台正忙的机器上误判，长了让人多等。
+6. 核验不符 → **立即回滚**（不等 timer），任务结果 `rolled_back`；回滚本身没走完才是
+   `unknown`。
+
+`ufw delete` 有一个必须说清的坑：**删一条不存在的规则时它打印
+"Could not delete non-existent rule"，退出码仍然是 0**。所以删除的判据是**输出里那句话**，
+不是退出码。拿退出码当判据，"删了但没删掉"会被记成成功，然后回滚时同一条规则会被
+"删"第二次、依然是 0，记录里就成了一份干净的成功。
+
+**回滚 timer（独立于面板）**
+
+- 单元：`/etc/systemd/system/upanel-fwrollback@.service` +
+  `upanel-fwrollback@<token>.timer`，`OnActiveSec=120s`、`AccuracySec=1s`。
+- `ExecStart=` 指向**代理自己的二进制**（apply 时 `os.Executable()` 取到并写进单元与记录），
+  子命令 `fwrollback --token <token>`。这个子命令**不读配置、不开库、不碰 socket**：
+  它跑在面板完全不在场的时候。
+- 记录：`/var/lib/upanel-agent/firewall/rollback/<token>.json`（root 0600，原子写），
+  token 前缀 `frb_`（network 那边是 `nrb_`，两者同目录，靠前缀分得清是谁的）。
+  记录里含：改之前与想要的规则集与启用状态、到期时刻、执行过的每一步、`state`
+  （`pending`/`confirmed`/`rolled_back`/`failed`）。
+- 回滚做的事与 apply 对称：补回旧的 → 删掉多的 → 恢复启用状态 → 读回比对。
+  任何一步失败写 `state=failed` + 原因，**不重试**（重试会把一个说不清的状态变成两个）。
+- 确认（`firewall.confirm`）＝ 停 timer + 删 timer 单元 + 记录 `state=confirmed`
+  + `daemon-reload`。
+- **开机重放**：代理启动时扫 `state=pending` 的记录——已过期立刻回滚，没到就按剩余时间
+  重新武装 timer。ufw 的规则是开机就在的（不像 netplan 那样"没 apply 就不生效"），
+  所以这一步同样不能省：漏掉它，那条 pending 记录就再也没有机会自己退回去了。
+
+`daemon-reload` 会把 `OnActiveSec` 重新起算，所以在"重新武装"这条路上，timer 的时长是
+按**剩余时间**算的（记录里的 `Deadline` 减现在），不是又给满 120 秒。
+
+**确认不需要换地址（与 §13.6 的差别）**
+
+`firewall.confirm` 的参数只有 `token`，**没有 `arrived_on`**。这不是漏了：
+§13.6 那个字段存在的理由是"改完地址后旧地址还能连上、确认必须来自新地址"；防火墙改动
+**不允许**把面板挡在外面（`FIREWALL_MANAGEMENT_PATH` 就是这道门），能发出这条请求，
+本身就说明管理通路还在。多一个用不上的门槛，只在出事后让人多点一次。
+
+**拒绝分支必须带规范化参数**
+
+三个 `Assess`（`apply` / `confirm` / `rollback`）的**每一条**返回路径都要返回非 nil 的
+`Normalized`，包括每一条拒绝。理由是一条会把"说人话的拒绝"变成故障的链：代理在回响应前
+跑 `validatePlanResult`，它见到 `NormalizedParams == nil` 就判**"预检结果不合法"**，于是
+`POST /operations/preflight` 返回 `500 INTERNAL_ERROR`。用户该看到的是
+"没有待确认的防火墙改动（已经确认过、已经退回去、或者根本没改过）"，实际看到的是
+"服务内部错误"，还会诱使人去翻日志找一个不存在的 bug。
+
+这不是假想：真机 P14.3 验收第一轮，`firewall.confirm` / `firewall.rollback` 在没有 pending
+记录时的 8 条断言全部因此变红（500）。修法是在函数第一行就设 `Normalized`（§13.6 的
+`AssessConfirm` 本来就是这么写的，防火墙这一版漏了）；回归测试
+`TestFirewallAssessRefusalsKeepNormalizedParams` 与 `TestFirewallTokenMismatchKeepsNormalizedParams`
+分别钉住"无记录"与"token 不符"两个拒绝分支。
+
+**动作策略**
+
+| 动作 | 再认证 | 确认短语 | 可取消 | 资源锁 |
+|---|---|---|---|---|
+| `firewall.apply` | 是 | 是（`RECONFIGURE XXXXXX`；改了什么写在计划的显示名与影响列表里） | 否 | `firewall-global` |
+| `firewall.confirm` | 否 | 否 | 否 | `firewall-global` |
+| `firewall.rollback` | 否 | 否 | 否 | `firewall-global` |
+
+`firewall-global` 与 `network-global` 是**两把锁**：改的是不同的东西，同时做不会互相
+掩盖，但都同样"改完可能让人失去面板"，所以各自串行。
+
+**审计**
+
+三个动作都记；`firewall.apply` 与 `firewall.rollback` 记改之前与之后的规则集。
+timer 自己执行的那一次由**代理**记 `agent.firewall.rollback`（面板不在场），Web 恢复后
+从 `GET /firewall/config` 的 `pending` 与记录状态读到并显示出来。
+
+**未接线时**：`-firewall-writes` 是**独立开关**，与 `-network-writes` 分开——两个领域
+的写路径各有各的风险，一个开一个不开是正常配置。未接线时不登记这三个动作，
+`capabilities.supported_queries` 也不报告 `firewall.config`；Web 侧 `GET /firewall/config`
+回 503 `AGENT_UNAVAILABLE`，页面上那张卡改说"读不到写路径的入口状态"，
+**不给一份看起来能用的空规则集**（空规则集在这里是一个**有含义的输入**：它等于
+"清空面板管理的规则"，绝不能当作"读不到"的默认值）。
+
+
+### 13.8 P14.5 已实现范围：受管理 Linux 账号、SSH 公钥与受限 sudo 模板
+
+P14.5 把 §13 开头那两行（`GET /accounts`、`GET /accounts/:id/ssh-keys`）与 `AccountDefinition`
+落成实现。它管的是**普通 Linux 账号**；`type=share` 的共享账号仍走 P08 的
+`share.account.apply`（凭据在 Samba 的 passdb 里），`account.apply` 收到 `type=share`
+会直接拒绝并指向那一条。
+
+**为什么共用一张表、一套判决形状。** 普通账号与共享账号落在同一张 `managed_accounts`
+（DECISIONS Q475），区别只有 `type` 一列。所以 `internal/accounts` 复用 `internal/shares`
+的 `Assessment` / `Blocker` / `Impact` / `WriteRequest` / `WriteReport` 与
+`Outcome` 闭集，`*agentstore.ShareStore` 同时满足两个消费方接口，代理里那对
+`sharesPlanner` / `sharesExecutor` 适配器原样用于账号动作。这不是省事：
+两套形状会长出两个适配器，两个适配器会长出两条读回核验。
+
+| 方法与路径 | 返回 | 说明 |
+|---|---|---|
+| `GET /accounts` | `{capability, accounts}` | admin、只读。**记录**与 `GET /share-accounts` 同源（同一张表），但 `capability` 是账号自己的那一份（见下）；旧路由保留是因为共享页已经在用 |
+| `GET /accounts/:id/ssh-keys` | `{account_id, ssh_keys}` | admin、只读。读的是登记表 `managed_ssh_keys`，**不是**此刻的 `authorized_keys`；`Blob` 在 DTO 上是 `json:"-"`，密钥体不出代理 |
+
+六个动作都不开专门路由：一律 `POST /operations/preflight` + `POST /jobs`。
+
+| 动作 | 参数 | 策略 | 落盘与读回 |
+|---|---|---|---|
+| `account.apply` | `account_id`（新建 null）、`version`、`definition` | 再认证；短语否；可取消否 | `useradd --create-home --shell <档> --user-group` → `getent` 读回 uid/shell/home → `chpasswd`（口令只经 stdin）→ `passwd -S` 读回 `P` |
+| `account.delete` | `account_id`、`version`（**必填**） | 同上 | 先删 sudoers 文件与记录，再 `userdel`（**不加 `-r`**）并读回消失，最后删记录；报告 `home_data_kept` |
+| `ssh_key.apply` | `account_id`、`version`、`key_id`（替换时给）、`public_key` | 同上 | 重写托管区 → `rename` → `fsync` 目录 → 整份重读比对指纹集合与托管区外逐字节不变 |
+| `ssh_key.delete` | `account_id`、`version`（必填）、`key_id` | 同上 | 同上 |
+| `sudo_rule.apply` | `account_id`、`version`、`template_id` | 同上 | 候选写入临时文件 → `visudo -c -f 候选` → `rename` → `visudo -c` → `ParseSudoers` 读回 → `sudo -l -U` 读回逐条比对 |
+| `sudo_rule.delete` | `account_id`、`version`（必填） | 同上 | 删文件 → `visudo -c` → 读回确认 |
+
+三个删除动作的 `version` 是必填而不是可选：删的东西已经存在，没有版本号就没有并发
+校验，两次点击之间别人换了壳或换了口径，第二次点击照样会把新状态一起抹掉。apply 类
+的 `version` 可空（目标可以还不存在），但目标存在却没给时不会静默通过——判决层把当前
+版本放进 `StateVersion`，执行前复核以版本冲突拒绝。
+
+**两份能力，不是一个。**
+
+`GET /accounts` 的 `capability` 判的是 `useradd` / `usermod` / `userdel` / `getent` /
+`passwd` / `chpasswd` 在不在，外加两档壳与 `visudo`；`GET /shares` 的 `capability`
+判的是 `smbd` / `smbpasswd` / `pdbedit` / `setfacl` / `getfacl` 与 `smb.conf`。两个工具集
+**不相交**，混用会把“没装 Samba”误判成“不能管账号”——一台标准 Ubuntu 服务器上
+就是这个后果：账号页显示不支持、新建按钮是灰的，而建一个普通账号一个 Samba 工具
+都不需要。这条是虚拟机验收打出来的，能力因此拆成两个对象——与
+`internal/shares/capability.go` 里给 NFS 单独开一份判定用的是同一条理由：把两个
+彼此独立的工具集塞进一个 status，缺一个就把另一个也判死。账号那份的形状：
+
+| 字段 | 取值 | 说明 |
+|---|---|---|
+| `status` | `available` / `blocked` | 缺必需工具或两档壳全缺才是 blocked |
+| `reason` | 文本 | blocked 时点名缺什么，页面原样显示 |
+| `tools` | 对象 | 探到的绝对路径（缺的项不出现）：useradd…chpasswd、visudo、restricted_shell、disabled_shell |
+| `sudo_rule_write` | `available` / `unsupported` | 判据只有 visudo 在不在；缺它不阻塞账号本身 |
+| `shell_profiles` | 数组 | 这台机器上真的能落的壳档（`disabled` / `restricted` 的子集） |
+| `notices` | 数组 | 缺一档壳、缺 visudo 这类不改变 status 的说明 |
+| `collected_at` | 时间 | 采集时间；探针缓存 30 秒，与共享能力同一窗口 |
+
+**`AccountDefinition`**
+
+| 字段 | 取值 | 约束 |
+|---|---|---|
+| `name` | 小写字母/数字/`-`/`_` | 保留名闭集（`root`、`sudo`、`upanel-agent`、`upanel-web`、`upanel-shell` …）一律拒绝 |
+| `display_name` | 文本 | 只是标签，不参与任何系统调用 |
+| `type` | `regular` / `share` | `share` 在本动作里只用于指向 `share.account.apply` |
+| `disabled` | 布尔 | 见下 |
+| `password_secret_ref` | `sec_` 引用或空 | 只接受引用，不接受明文 |
+| `shell_profile` | `disabled` / `restricted` | 落盘是 `/usr/sbin/nologin` / `/bin/rbash`，**不是**任意 shell 路径 |
+
+没有 `uid`、`gid`、`groups`、`home`：这四项由系统分配，面板只读回、只展示、只据此
+对账。能提交它们就等于能提交 `uid=0`。
+
+线上字段名就是上表那六个（`name`、`display_name`、`type`、`disabled`、
+`password_secret_ref`、`shell_profile`），代理解参数时用 `DisallowUnknownFields`：
+未知字段与上面那四项一样，一律 400 `VALIDATION_ERROR`，不静默忽略。
+
+**禁用用换壳，不用 `usermod -L`。** `-U` 对从未设过口令的账号会写一个**空口令**，
+而空口令比 `nologin` 危险得多；换壳的结果还能用 `getent` 一眼读回。所以 `disabled`
+落成 shell 变成 `nologin`，而 `shell_profile` 那一列记的是**期望**——禁用之后再启用
+回到的是那一档，不是一句“原样”。
+
+**UID 区间**：普通账号 `1000–59999`（Debian/Ubuntu 的 `FIRST_UID` 与 adduser 常规
+上沿）。区间外拒绝，不是因为 60000 之后不能用，而是面板解释不了“为什么这个账号的
+uid 和别人不一样”。共享账号走 `--system`，落在下限以下，同一张表里两种类型靠这一条
+就能分开验证。
+
+**`authorized_keys` 的托管区**
+
+`authorized_keys` 是人和面板共用的文件，全份重写会吃掉人手写的行。所以面板只重写
+自己那一块，两块标记之间：
+
+```
+# >>> upanel 托管区（整块由面板重写，手改会被覆盖）>>>
+# <<< upanel 托管区 <<<
+```
+
+`>>>` / `<<<` 不是 `authorized_keys` 的合法指令，也不像任何一条正常钥匙的开头，所以
+“标记被当成钥匙读进去”不可能发生。写完之后**整份重读**：托管区里的指纹集合必须等于
+登记的集合，托管区**之外**必须逐字节不变——后者是“没吃掉别人的行”的唯一证据。
+`~/.ssh` 是 `0700`、`authorized_keys` 是 `0600`；home 必须在 `/home` 之下，且 home 与
+`~/.ssh` 都不能是符号链接（否则面板在往一个被人指到别处的目录写钥匙）。
+
+**sudo 模板是闭集，而且不带参数**
+
+| 模板 | 允许的命令（逐条一次 sudoers 行） |
+|---|---|
+| `system_status` | `/usr/bin/systemctl status --no-pager` |
+| `journal_recent` | `/usr/bin/journalctl -n 200 --no-pager` |
+
+两条都是只读。这一版**故意**不提供启停服务的 sudo：那会绕过面板自己的服务动作
+（保护名单、依赖检查、审计摘要）。模板里**没有通配符**，也**不给单元名参数**：sudoers
+的 `*` 按单参数 glob 匹配，`journalctl -u *` 会连 `--vacuum-size` 一起放行，那样一条
+“看最近日志”就会变成“能清日志”。
+
+**双门禁，失败保留旧规则。** 候选内容先写临时文件，`visudo -c -f 候选` 通过才
+`rename` 到正式路径；然后整份 `visudo -c`、再 `ParseSudoers` 读回、再 `sudo -l -U`
+把 sudo 自己解析出来的授权逐条比对模板。任何一步失败都恢复旧文件——**visudo 失败时
+正式文件根本没被动过**，这就是“失败保留旧规则”的机制：不是“先写坏的再回滚”，而是
+“坏的根本上不去”。
+
+**`/etc/sudoers.d` 里属于面板的文件只有一个前缀 `upanel-`**，文件名由账号名拼成。
+目录里出现同名但**没有认领标记**的文件时判 `SUDO_FILE_DAMAGED` 并停手——那可能是
+别人手写的规则，面板不替人做决定。
+
+**阻塞码与告警码**
+
+阻塞（拒绝执行）：`ACCOUNT_NAME_INVALID`、`ACCOUNT_RESERVED`、`ACCOUNT_TYPE_INVALID`、
+`ACCOUNT_SHELL_PROFILE_INVALID`、`ACCOUNT_DISPLAY_NAME_INVALID`、`ACCOUNT_SECRET_INVALID`、
+`ACCOUNT_NAME_TAKEN`（系统里已有同名账号，**拒绝接管**）、`ACCOUNT_NOT_MANAGED`、
+`ACCOUNT_MISSING`、`ACCOUNT_UID_OUT_OF_RANGE`、`ACCOUNT_HAS_SHARES`、
+`ACCOUNT_LOOKUP_TIMEOUT`、`SSH_KEY_INVALID`、`SSH_KEY_DUPLICATE`、`SSH_KEY_TOO_MANY`
+（每账号 10 把）、`SSH_KEY_NOT_FOUND`、`SSH_KEY_HOME_INVALID`、`SSH_KEY_BLOCK_DAMAGED`
+（托管区标记不成对或重复）、`SUDO_TEMPLATE_INVALID`、`SUDO_ACCOUNT_NOT_ELIGIBLE`
+（保留名、共享账号或已禁用）、`SUDO_RULE_MISSING`、`SUDO_FILE_DAMAGED`、
+`SUDO_VISUDO_UNAVAILABLE`、`SUDO_VISUDO_FAILED`、`ACCOUNTS_UNSUPPORTED`（缺
+`useradd`/`chpasswd`/`visudo`/`sudo` 一整套工具，503）。
+
+告警（不拦，但要看见）：`ACCOUNT_NO_PASSWORD`——账号没有口令。**这不等于“登不上”**：
+publickey 认证不看 shadow 的口令字段，真机上 key-only 账号（没有任何口令、只配了公钥）
+照样能登（P14.5 真机读数，见 DECISIONS Q479）。要拦住一个账号只有一条路——`disabled`
+档把壳换成 `/usr/sbin/nologin`；口令只决定“密码登录”这一种方式能不能用。页面文案因此
+说的是“只能用已配的公钥登录”，不是“登不上”。
+
+**审计**：六个动作都记，`account.apply` 的记录里**不含口令**（只有 `secret_ref` 是否
+存在这一事实），`sudo_rule.*` 记模板标识与最终文件哈希，`ssh_key.*` 记指纹。
+
+**未接线时**：`ProductionDeps.Accounts` 为 nil 时不登记 `accounts.ssh_keys` 与六个
+动作，`capabilities` 里也不会出现它们；Web 侧 `GET /accounts` 与
+`GET /accounts/:id/ssh-keys` 回 503 `AGENT_UNAVAILABLE`，**不给一份空账号列表**——
+空列表会被读成“这台机器上一个账号都没有”。账号与共享是**两个开关**：只装了 Samba
+的机器不该被登记成“能建账号”。
+
+## 14. 最小数据库模型
 以下为逻辑表；实施时用 SQL 迁移建立真实外键、索引和约束。不能只在前端检查唯一性。所有 mutable 元数据表包含 version、created_at、updated_at；PATCH 用 WHERE id=? AND version=? 更新并自增，零行即 409。
 
 ### 14.1 Web 数据库
@@ -2164,17 +4255,32 @@ GET /alerts/events：V；POST /alerts/events/:id/ack：admin；GET/POST /notific
 | backup_policies | id、repository_id FK、definition_json、last_verified_at |
 | schedules | id、name UNIQUE、definition_json、agent_timer_ref、enabled |
 | scripts | id、name、agent_script_ref、content_hash、version |
-| metric_samples | scope、target_id、metric、timestamp、resolution、value；组合索引 |
+| metric_samples | scope、target_id（默认空串）、metric、resolution=raw/minute/hour、ts（**INTEGER Unix 秒，向下对齐到本粒度桶边界**）、value、min_value、max_value、sample_count；主键 `(scope,target_id,metric,resolution,ts)` 且 `WITHOUT ROWID`；`CHECK(ts > 0)`、`CHECK(min_value <= value AND value <= max_value)`；索引 `(resolution, ts)` 供裁剪；见 §13.1 |
 | alert_rules | id、definition_json、enabled、version |
 | alert_events | id、rule_id FK、state、first_seen、last_seen、resolved_at、dedup_key |
 | notification_channels | id、type、settings_json、secret_refs、enabled |
 | settings | key PRIMARY KEY、value_json、version；不能存 root 秘密 |
 
+**本机恢复入口（P14.6）**：`user_totp` 有两类写入者。Web 是 `POST /auth/totp/setup`、
+`POST /auth/totp/confirm`、`DELETE /auth/totp` 三条端点，全部要求 admin + 再认证 + CSRF，
+且 `DELETE` 还要口令加一种第二因子。另一类是**本机 CLI**：`upanelctl totp-reset
+--username <name> [--config PATH] [--db PATH] [--socket PATH] [--no-agent] [--json]`，
+用于"既是唯一管理员、又同时丢了 authenticator 与十枚恢复码"这一种情形——那时 Web 上
+没有任何合法入口。它清掉状态行与全部恢复码、作废该账号**全部**会话（认证强度变了）、
+写一条 `auth.totp.reset` 审计（actor 是 `local-cli:<who>` 快照，`actor_id` 为 NULL：
+没有人证明过自己是谁），并尽力让代理销毁种子。代理销毁这一步**不阻断恢复**：面板库里
+已经没有任何人引用那条种子，登录不会再校验它；但输出必须如实报 `agent_status`
+（`destroyed`/`already_gone`/`unreachable`/`forbidden`/`skipped`），不假装清干净了。
+SO_PEERCRED 规则只认 `upanel-web`，所以以 root 运行会拿到 `forbidden`——这是设计，不是缺陷：
+要连代理那半边一起清，就以 `upanel-web` 身份运行。`reset-password` 与 `totp-reset` 的
+授权都是"能写 upanel.db"这把钥匙，不新增特权通道。
+
 复杂 definition_json 必须由严格 DTO 校验并包含 schema_version=1；JSON 不意味着允许任意字段。外键使用 RESTRICT 为默认，只有会话/收藏等明确从属对象可 CASCADE；删除卷必须检查全部依赖。
 
 ### 14.2 代理数据库与秘密
 
-代理数据库独立由 root 读写，不能让 Web 直接编辑。表至少包括：operations（operation_id UNIQUE、request_hash、动作、阶段、结果）、operation_events、preflight_plans（参数/设备指纹/到期/使用状态）、managed_resources（主机实际接管清单）、config_backups、secrets（密文、用途、引用、时间）、pending_network_rollbacks。
+代理数据库独立由 root 读写，不能让 Web 直接编辑。表至少包括：operations（operation_id UNIQUE、request_hash、动作、阶段、结果）、operation_events、preflight_plans（参数/设备指纹/到期/使用状态）、managed_resources（主机实际接管清单）、config_backups、secrets（密文、用途、引用、时间）、pending_network_rollbacks。P14.2 把 `pending_network_rollbacks` 落成**记录文件**而不是库表：`/var/lib/upanel-agent/network/rollback/<token>.json`（root 0600）。理由是这张表唯一的读者是回滚 timer 自己——它跑在面板完全不在场的时候（Web 停了、库可能都打不开），读一个自足的文件比开库可靠；`netrollback` 子命令因此不碰数据库、不碰 socket。P14.3 的防火墙回滚记录同理由落在
+`/var/lib/upanel-agent/firewall/rollback/<token>.json`，由 `fwrollback` 子命令读（见 §13.7）。
 
 秘密使用维护中的 AEAD 实现，独立随机 nonce；本机密钥保存 /etc/upanel/agent.key，root:root 0600。密钥不可由 Web 读取；备份/灾难恢复文档明确要求单独保管该密钥。
 
@@ -2195,14 +4301,42 @@ GET /alerts/events：V；POST /alerts/events/:id/ack：admin；GET/POST /notific
 | GET /internal/v1/operations/:id | 实际状态和结果；可用于超时后对账 |
 | GET /internal/v1/operations/:id/events | 代理日志/状态流 |
 | POST /internal/v1/operations/:id/cancel | 仅安全取消 |
+| GET /internal/v1/operations?actor=scheduler&since=&limit= | P12.4 起：只列系统操作者提交的定时操作，供 Web 对账导入；`actor` 只认 `scheduler`，`since` 为创建时间水位，`limit` 有上限 |
 | POST /internal/v1/secrets | 用途与秘密；返回引用，无读取明文路由 |
-| POST /internal/v1/schedules/:id/trigger | 仅 SO_PEERCRED UID=0 的本机 CLI 可调用；从代理已批准配置取动作，输入只允许触发 ID，不接受 action/params |
+| POST /internal/v1/schedules/:id/trigger | 仅 SO_PEERCRED UID=0 的本机 CLI 可调用；从代理已批准配置取动作，输入只允许触发 ID，不接受 action/params；答复带 `max_runtime_seconds` |
+| GET /internal/v1/schedules/:id/trigger-runs/:operation_id | 同样是 UID=0 专用；只返回**这条计划自己触发的那个操作**，其它一律 404。`--wait` 的状态来源 |
 | POST /internal/v1/streams | 创建受限日志/文件上传下载/终端流许可，绑定用途和参数 |
 | GET/PUT /internal/v1/streams/:id | 单次受限流；再次核验 socket 凭据、路径/UID/大小限制 |
 | GET/POST /internal/v1/backup/repositories | 备份仓库定义的代理镜像（P12.1）：只同步元数据，不传任何明文 |
 | GET/PATCH/DELETE /internal/v1/backup/repositories/:id | 单条镜像；PATCH 带 version 做乐观并发，DELETE 只删定义、不删数据 |
+| POST /internal/v1/totp/enroll | P14.6：代理生成种子（用途 `totp_seed`，**临时秘密**，10 分钟自毁），回 `secret_ref` 与一次性 `otpauth_uri` |
+| POST /internal/v1/totp/confirm | 校验一次码；通过后把临时种子转为持久秘密并挂引用 `totp:<user_id>` |
+| POST /internal/v1/totp/verify | 核对归属后验码，返回匹配到的时间步（供 Web 做重放防护） |
+| POST /internal/v1/totp/disable | 销毁种子（清空密文、留墓碑）；幂等 |
 
-query 枚举按模块登记，例如 system.summary、storage.topology、services.list、files.list、logs.query；P10.1 起增加 nginx.state（参数 `{fresh}`，见 §9.1）；P11.1 起增加 apt.packages（参数 `{fresh}`）与 system.power_state（空参数，见 §12.1）；P12.1 起增加 backup.repository.state（参数 `{repository_id}`，见 §11 的仓库登记小节）；禁止 query=command。terminal 的字节通道只能连接已降权 PTY，不能进入代理的命令解释器。P14 增加 /internal/v1/totp/enroll、/confirm、/verify、/disable 四个专用接口，操作绑定用户与用途，种子不进入普通 query/secret 读取通道。
+query 枚举按模块登记，例如 system.summary、storage.topology、services.list、files.list、logs.query；P10.1 起增加 nginx.state（参数 `{fresh}`，见 §9.1）；P11.1 起增加 apt.packages（参数 `{fresh}`）与 system.power_state（空参数，见 §12.1）；P12.1 起增加 backup.repository.state（参数 `{repository_id}`，见 §11 的仓库登记小节），P12.2 起增加 backup.snapshots（`{repository_id, policy_id?}`）与 backup.snapshot（`{repository_id, snapshot_id}`，见 §12.2）；P14.5 起增加 accounts.ssh_keys（`{account_id}`，见 §13.8）与 accounts.capability（空参数，见 §13.8）——账号列表不另开查询，它读的就是 share.accounts；禁止 query=command。terminal 的字节通道只能连接已降权 PTY，不能进入代理的命令解释器。P14 增加 /internal/v1/totp/enroll、/confirm、/verify、/disable 四个专用接口，操作绑定用户与用途，种子不进入普通 query/secret 读取通道。
+
+**二次验证的四个接口（P14.6）。** 种子的明文从头到尾只在代理进程里存在：Web 调
+`enroll` 拿回 `secret_ref` 与一条 `otpauth://` URI（给二维码用，除了它没有第二个地方能
+拿到种子），此后所有校验都由代理解密种子来算。三个细节是硬的：
+
+- **未确认的登记是临时秘密**：`enroll` 不挂引用，种子按 §8 的临时秘密规则 10 分钟后自毁，
+  `confirm` 通过才 `Reference` 成持久秘密，引用形如 `totp:<user_id>`。"TOTP 未确认不启用"
+  因此不只靠 Web 的 `enabled` 字段——代理侧这条种子在被确认之前根本没有归属，`verify`
+  会以 403 拒绝它。
+- **归属单独核对**：任何一条 `totp_seed` 都解得开，所以"能解密"证明不了"这条种子是你的"。
+  拿 3 号用户的 `secret_ref` 去验 5 号用户的码，代理在解密之前就用 `Binding`（只读用途与
+  引用，不解密）挡住。用途不是 `totp_seed` 的引用一律 400：拿一张 TLS 私钥的引用冒充种子
+  必须在这一层失败，而不是在"解出来不像码"时失败。
+- **码不对是结果，不是错误**：HTTP 200 + `ok:false` + 闭集 `reason`（`code_mismatch`），
+  因为调用方要的是"这次尝试失败了"这个事实。请求本身不成立（参数畸形、用途不对、种子不
+  存在）才用 4xx。`verify`/`confirm` 成功的响应带 `step`（匹配到的 30 秒时间步），Web 用它
+  拒绝重放：同一个窗口里同一个码不许用第二次。
+
+`disable` **幂等**：种子已经不在了（第一次关闭、或临时登记到期自毁）同样回 200，只是
+`destroyed:false`。理由两条——Web 的重试不该因为第一次其实成功而报错；"不存在"与"存在
+但已销毁"给出不同响应，本身就是一个存在性探针。没接线时四条路由都是 404（不是"在、但
+一律拒绝"），root 也拿不到它们（只有 `upanel-web` 能调），种子的生成与校验没有 root 旁路。
 
 **备份仓库定义的镜像（P12.1）。** 预检计划里的 `normalized_params` 是冻结的，只含 `repository_id` 与 `version`；执行时再向 Web 要一遍定义就等于让“被冻结的那个目标”可替换，所以代理自己持有一份仓库定义的镜像，预检与执行都从镜像里取。镜像只存元数据（名称、后端、位置、两份秘密的**引用**），不存也不接受任何明文；秘密仍只经 `POST /internal/v1/secrets` 进入代理的加密存储。这条路由的存在与“这台机器能不能初始化仓库”是两件事：镜像没接线时路由不存在（404），动作没接线时能力表里也不会出现 `backup.repository.initialize`，装配不谎报能力。路由只接受 `upanel-web` 的对端凭据，root 也会被拒——root 直接改镜像等于绕过 Web 的再认证与审计。
 
@@ -2211,6 +4345,8 @@ query 枚举按模块登记，例如 system.summary、storage.topology、service
 **`backup.repository.state` 的三态（P12.1）。** 返回里的 `initialized` 是 `true`/`false`/`null` 三者之一：`true`/`false` 是**这次真的探测到了**的事实，`null` 是**没探测到**（SFTP 连不上或主机密钥没核对通过、文件根不可用、秘密取不到、restic 不存在）。原因分别写在 `host_key_error` / `probe_error` / `repo_config_error` / `restic_missing` 里，四个字段各有归属，不许把原因折成一句 `initialized:false`。同一原则早已用在 `capacity.supported` 上（读不到容量不是 0 字节）：**“查不了”与“没有”在界面上必须能分开**，否则管理员会把一次网络超时读成“仓库还没建”。`repo_id` 只在 `initialized:true` 且 `restic cat config` 读成功时出现；口令错时 `initialized:true`（仓库确实在）而 `repo_id` 为空、`repo_config_error` 指向口令——那是**事实 + 原因**，不是“空仓库”。
 
 内置定时任务只可执行已登记且启用的 backup.run、certificate.renew 和 script.run。systemd 调用 root 所有的固定 upanelctl schedule-trigger 命令，代理只在专用 trigger 路由接受 UID=0；普通路由仍只接受 upanel-web。系统身份来自 root 持有的任务配置与本地凭据，不允许公开 /jobs 请求自称 scheduler 来跳过再认证。定时触发须重新预检资源与锁，创建稳定触发 ID 并审计；交互确认由管理员保存计划时的显式授权替代，不能扩展到格式化或网络变更。代理产生的定时 operation 会被 Web 对账导入任务表，不能只存在于 journal。
+
+导入用的正是 `GET /internal/v1/operations?actor=scheduler`（P12.4）：`actor` 不是身份断言，参数只筛出代理库里 `user_id` 等于保留系统操作者的那些操作；谁能调这条路由仍由 socket 对端凭据决定（只接受 `upanel-web`）。导入按创建时间水位增量拉取，`jobs` 行的来历因此可追：`preflight_id` 抄代理给的引用，`cancellable=0`、`needs_sync=1`（见 §12.4 第 9 条）。
 
 actor_context 供审计关联，包括 user_id、session_id_hash、request_id、reauth_at。代理信任 Web 完成用户登录认证，但仍独立实施系统安全边界；不能把该设计描述为可抵御已完全控制 Web 进程的管理员身份伪造。
 

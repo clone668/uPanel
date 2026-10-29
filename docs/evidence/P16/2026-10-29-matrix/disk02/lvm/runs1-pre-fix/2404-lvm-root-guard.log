@@ -1,0 +1,125 @@
+== 0. 环境与「根在叠层设备上」的现场自证 ==
+      系统：Ubuntu 24.04.5 LTS
+      内核：6.8.0-147-generic
+PASS  以 root 运行
+PASS  依赖命令可用 python3
+PASS  依赖命令可用 curl
+PASS  依赖命令可用 runuser
+PASS  依赖命令可用 lsblk
+PASS  依赖命令可用 blkid
+PASS  依赖命令可用 blockdev
+PASS  依赖命令可用 dd
+PASS  依赖命令可用 sha256sum
+      / 的来源：/dev/mapper/upanel--vg-root -> /dev/dm-0（设备 id dm-0）
+PASS  / 落在 device-mapper 设备 dm-0 上，dm/uuid 是 LVM
+      dm 名：upanel--vg-root（udev 写成 /dev/mapper/…）
+PASS  根文件系统类型
+      场景：lvm（根设备 dm-0，拓扑里应显示为 lvm）
+      根设备的成员（sysfs slaves）：sda2
+PASS  成员 sda2 是分区（type）
+PASS  成员 sda2 挂在整盘 sda（type）
+      物理盘：sda（共 1 块）
+PASS  成员 sda2 的 PV 签名
+PASS  /boot 不是独立挂载点（在根设备里面）
+PASS  没有独立的 ESP（/boot/efi 不挂在任何块设备上）
+PASS  整盘 sda 自身没有挂载点（MOUNTPOINT 空）
+PASS  整盘 sda 自身没有文件系统（blkid TYPE 空）
+      每块物理盘自己都不承载文件系统 —— 它们受保护只可能来自递归
+PASS  备用盘 /dev/sdb 是整盘
+PASS  备用盘没有挂载点
+PASS  备用盘是活动交换区吗
+PASS  备用盘是 LVM/dm 成员吗
+      备用盘 /dev/sdb 大小 4096 MiB
+      期望的锁：disk:sda
+PASS  Web 账号 upanel-web 存在
+PASS  Web 组 upanel-web 存在
+PASS  代理单元已停（否则 socket 被占）
+PASS  Web 单元已停
+PASS  端口 19495 空闲
+
+== 1. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19495 启动
+PASS  监听 19495 的 Web 进程不是 root（pid=3421 uid=999）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+
+== 2. 拓扑：根设备 / 成员分区 / 每块物理盘都要受保护 ==
+PASS  读拓扑
+PASS  拓扑状态
+PASS  拓扑里认下 / 归属 dm-0
+PASS  根设备在拓扑里的类型 = lvm
+PASS  根设备受保护
+PASS  根设备的理由里说得出是根文件系统
+PASS  成员分区 sda2 受保护
+PASS  成员分区 sda2 的 protection.sources 只有根设备
+PASS  拓扑里有 dm-0 --depends_on--> sda2
+PASS  物理盘 sda 受保护
+PASS  物理盘 sda 在拓扑里的类型是 disk
+PASS  物理盘 sda 自己没有文件系统（filesystem 为 null）
+PASS  物理盘 sda 的 protection.sources 只有根设备（标记是递归上来的）
+PASS  拓扑里有 sda2 --partition_of--> sda
+PASS  备用盘 sdb 不受保护
+
+== 3. 四条写动作预检：叠层各层都拒，锁是每一块底层盘 ==
+PASS  整盘 sda 初始化预检被拒
+PASS  整盘初始化的阻塞码
+PASS  整盘初始化的理由说明是系统数据
+PASS  整盘初始化的锁覆盖每一块底层盘
+PASS  整盘 sda 初始化预检被拒
+PASS  整盘 sda 初始化的阻塞码
+PASS  整盘 sda 初始化的锁覆盖每一块底层盘
+PASS  成员分区 sda2 删除预检被拒
+PASS  成员分区删除的阻塞码
+PASS  成员分区删除的锁覆盖每一块底层盘
+PASS  成员分区 sda2 格式化预检被拒
+PASS  成员分区格式化的阻塞码
+PASS  成员分区格式化的锁覆盖每一块底层盘
+PASS  根设备 dm-0 格式化预检被拒
+PASS  根设备格式化的阻塞码
+PASS  根设备格式化的锁仍覆盖每一块底层盘
+
+== 4. 设备详情的能力视图与预检判决一致 ==
+PASS  整盘详情：受保护
+PASS  整盘详情：初始化能力 blocked
+PASS  整盘能力理由说明是系统数据
+PASS  成员分区详情：受保护
+PASS  成员分区详情：删除能力 blocked
+PASS  成员分区删除理由说明是系统数据
+PASS  根设备详情：受保护
+
+== 5. 反面对照：备用盘没有跟着被标红 ==
+PASS  备用盘详情：不受保护
+PASS  备用盘详情：初始化能力 available
+PASS  备用盘初始化预检 allowed=true（递归没有把整台机锁死）
+PASS  备用盘初始化的锁只锁它自己
+PASS  备用盘预检里没有系统盘阻塞
+
+== 6. 一个字节都没写：前后哈希 + 没有非终态任务 ==
+PASS  整盘首 1 MiB 的哈希可读
+PASS  每块整盘首 1 MiB 都未被写
+PASS  每块整盘末 1 MiB 都未被写
+PASS  成员 sda2 的 PV 签名还在
+PASS  根设备的 sysfs 身份没变
+PASS  根仍在本轮开始时的那个设备上
+PASS  没有非终态任务
+PASS  没有任何存储写任务被执行
+
+== 7. 日志：写原语确实接上了，但一次都没被执行 ==
+PASS  代理启动日志确认写原语已接线（拒绝不是缺工具造成的）
+      {"time":"2026-10-29T11:09:04.756264317Z","level":"INFO","msg":"磁盘写原语已接线","program":"upanel-agent","sfdisk":"/usr/sbin/sfdisk","udevadm":"/usr/bin/udevadm","mkfs_ext4":"/usr/sbin/mkfs.ext4","mkfs_xfs":"/us
+PASS  日志里没有「动作执行失败」
+PASS  日志里没有「执行前复核被拒」
+PASS  日志里没有「动作缺少执行实现」
+PASS  日志里没有明文口令
+
+== 8. 明确不验（记录在案，不假装通过） ==
+NOT RUN  降级/重建中的 RAID：成员 faulted、rebuild 进行中的现场没造；递归不看阵列健康，但没有真机读数就不算验过
+NOT RUN  根在 LVM/RAID 上写满（ENOSPC）：P16.4 的 ENOSPC 现场是独立 tmpfs；把根写满会伤到这台机的系统盘，不做
+NOT RUN  执行期复核（PREFLIGHT_STALE / DEVICE_IDENTITY_CHANGED）：预检就拒了，提交门到不了；那两条由 P07.2 在一次性盘上验，与根在不在叠层设备上无关
+
+场景 lvm：根设备 dm-0 / 成员 sda2 / 物理盘 sda
+PASS 91 / FAIL 0 / NOT RUN 3

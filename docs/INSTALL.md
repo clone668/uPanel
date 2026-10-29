@@ -1,4 +1,4 @@
-# 安装（0.1 核心单机版）
+# 安装（uPanel 1.0）
 
 这份文档讲怎么把一个 uPanel 发布包装到一台 Ubuntu 服务器上、装完怎么核对、出问题怎么重入。
 面板装好之后**怎么访问**见 [ACCESS.md](ACCESS.md)，坏了怎么救见 [RECOVERY.md](RECOVERY.md)。
@@ -9,7 +9,7 @@
 
 | 项 | 支持的范围 | 超出范围时的表现 |
 |---|---|---|
-| 发行版 | Ubuntu 22.04 LTS、24.04 LTS | 安装脚本直接拒绝（`0.1 只支持 Ubuntu 22.04 与 24.04`） |
+| 发行版 | Ubuntu 22.04 LTS、24.04 LTS | 安装脚本直接拒绝（`只支持 Ubuntu 22.04 与 24.04`） |
 | 架构 | `x86_64`（amd64）、`aarch64`（arm64） | 架构不符时脚本在执行二进制探测那一步拒绝 |
 | init | systemd | 没有 `/run/systemd/system` 就拒绝 |
 | 磁盘 | `/usr` 与 `/var` 各留 300 MiB | 不足则拒绝 |
@@ -17,7 +17,7 @@
 | 权限 | 需要 root（`sudo`） | 非 root 直接拒绝 |
 | 反向代理 | 可选 nginx（P10 的站点管理需要） | 缺 nginx 不影响面板启动，只是代理功能显示“依赖未安装” |
 
-0.1 面向**一台**服务器：面板与代理同机，代理只监听 Unix socket。多机管理不在 0.1 范围内。
+uPanel 面向**一台**服务器：面板与代理同机，代理只监听 Unix socket。多机管理不在 1.0 范围内。
 
 ---
 
@@ -37,10 +37,11 @@ dist/
 ```
 bin/upanel-web                  面板（以 upanel-web 身份运行，不是 root）
 bin/upanel-agent                特权代理（以 root 运行，只监听 Unix socket）
-bin/upanelctl                   本机 CLI：check-config / migrate / init-admin / reset-password
+bin/upanelctl                   本机 CLI：check-config / migrate / init-admin / reset-password / host-caps
 deploy/systemd/*.service        两个 systemd 单元
 deploy/scripts/install.sh       安装脚本
 deploy/scripts/uninstall.sh     卸载脚本
+deploy/scripts/backup-state.sh  两个数据库与 /etc/upanel 的备份（升级/卸载前用）
 deploy/upanel.example.json      配置样例（回环 + 无 TLS 的开发用样例）
 docs/                           安装、访问、恢复、本机启动说明
 SHA256SUMS                      包内每个文件的校验和
@@ -58,8 +59,8 @@ VERSION                         本次发布的版本号
 sha256sum -c SHA256SUMS
 
 # 2) 解包
-tar xzf upanel-0.1.0-linux-amd64.tar.gz
-cd upanel-0.1.0-linux-amd64
+tar xzf upanel-1.0.0-linux-amd64.tar.gz
+cd upanel-1.0.0-linux-amd64
 
 # 3) 校验包内每个文件（二进制、单元、脚本、文档）
 sha256sum -c SHA256SUMS
@@ -75,28 +76,43 @@ sha256sum -c SHA256SUMS
 ## 4. 读一遍安装脚本（它做什么、不做什么）
 
 `deploy/scripts/install.sh` 是 POSIX `sh`，没有隐藏的下载步骤、没有 `eval`、没有从网络拉任何东西。
-它按固定顺序做 12 件事，每件事都会打印 `[n/12]` 与结论：
+它按固定顺序做 13 件事，每件事都会打印 `[n/13]` 与结论：
 
 | 步骤 | 做什么 |
 |---|---|
 | 1 | 校验发布包（`sha256sum -c SHA256SUMS`） |
 | 2 | 探测系统：发行版、架构、systemd、端口占用、磁盘空间，并试跑一次 `upanelctl version` 确认二进制能执行 |
-| 3 | 按功能列出缺失依赖（nginx / certbot / samba / docker / smartmontools），**默认不装** |
+| 3 | 列出各功能缺什么（nginx / certbot / samba / docker / smartmontools / journalctl），**事实来自 `upanelctl host-caps`**，与面板「外部程序能力」页同一份；**默认不装** |
 | 4 | 建两个系统账号：`upanel-web`（无登录 shell、无 sudo）、`upanel-shell`（有真 shell、口令锁定、无 sudo） |
 | 5 | 建目录与权限（见第 6 节表格） |
 | 6 | 生成面板自签名证书（ECDSA P-256），并打印 SHA-256 指纹 |
 | 7 | 写 `/etc/upanel/upanel.json`，然后跑 `upanelctl check-config` 当裁判 |
 | 8 | 生成代理秘密密钥 `/etc/upanel/agent.key`（已存在则跳过，**绝不覆盖**） |
-| 9 | 装二进制与文档，以 `upanel-web` 身份执行数据库迁移 |
-| 10 | 创建第一个管理员（密码只从标准输入读） |
-| 11 | 装 systemd 单元，`systemd-analyze verify` → `enable` → `restart` |
-| 12 | 健康检查：HTTPS（用安装的证书做 CA 校验）、服务端证书指纹比对、`upanel-web` 不是 root |
+| 9 | 库里已有数据时，先备份两个数据库与 `/etc/upanel`（`backup-state.sh`：停服务 → 拷库与密钥 → 起回服务 → 写校验清单） |
+| 10 | 装二进制与文档，以 `upanel-web` 身份执行数据库迁移 |
+| 11 | 创建第一个管理员（密码只从标准输入读） |
+| 12 | 装 systemd 单元，`systemd-analyze verify` → `enable` → `restart` |
+| 13 | 健康检查：HTTPS（用安装的证书做 CA 校验）、服务端证书指纹比对、`upanel-web` 不是 root、**代理真的起来了（socket 在 + 单元 active，等 30 秒，等不到就判失败）** |
+
+第 13 步为什么要等到代理起来：代理单元是 `Type=simple`，`systemctl restart` 在进程
+fork 出来时就返回 0。一个装坏了、启动后立刻退出的代理二进制照样能让第 12 步显示
+“已 enable 并启动”。如果第 13 步只打一行“注意 socket 不存在”就报安装完成，
+升级失败的人会以为升级成功了，直到打开页面发现每个系统功能都在报
+`AGENT_UNAVAILABLE`。所以现在这一步是硬校验：30 秒内 socket 不出现、单元不 active，
+就打印代理最近 30 行日志并失败退出（退出码 2）。此时第 9 步的备份已经在，
+按 `docs/RECOVERY.md` 恢复，或用同一个包重跑都可以。
+
+第 3 步为什么改成问 `host-caps`：依赖现状只有一份实现。以前安装器自己 `command -v` 一遍，
+判据是“在 PATH 里就算有”，而代理只在 `/usr/sbin` 这类固定目录里找（PATH 里可能有可写路径）——
+两处判据迟早分叉，于是会出现“安装器说装了、面板说缺”这种谁都不信的场面。现在它读同一张表，
+顺带拿到版本（升级前知道原来装的是 nginx 1.24，而不是只知道“装了”）。
+`openssl` 与 `curl` 仍由安装器自己检查：它们是**安装器自己用的工具**，不属于面板功能清单。
 
 它**不做**的事：不 `apt upgrade`、不删任何文件、不改 `sshd`、不动防火墙、不装 `sudoers` 条目、
 不覆盖已存在的配置或密钥、不创建任何带默认口令的账号。
 
 任何一步失败，脚本会打印：已经完成的步骤（这些不需要重做，脚本是幂等的）、一条重跑命令、
-以及该看哪几行日志。
+以及该看哪几行日志。第 9 步失败是个例外中的例外：没有备份就不往下动数据库，脚本直接停下。
 
 ---
 
@@ -157,7 +173,7 @@ printf '%s\n%s\n' "$PW" "$PW" | sudo sh deploy/scripts/install.sh --source . --p
 |---|---|---|---|
 | `/usr/local/bin/upanel-web`、`/usr/local/bin/upanelctl` | root:root | 0755 | 面板与 CLI |
 | `/usr/local/lib/upanel/upanel-agent` | root:root | 0755 | 特权代理 |
-| `/usr/local/share/doc/upanel/` | root:root | 0755 | 本机文档（安装、访问、恢复） |
+| `/usr/local/share/doc/upanel/` | root:root | 0755 | 本机文档：README、VERSION 与包里全部 `docs/*.md`（安装、访问、使用、恢复、支持矩阵、已知限制、发布说明） |
 | `/etc/upanel/` | root:root | 0755 | 配置目录本身 |
 | `/etc/upanel/upanel.json` | root:upanel-web | 0640 | 配置：Web 能读、不能改 |
 | `/etc/upanel/agent.key` | root:root | 0600 | 代理秘密密钥，**必须离线备份** |
@@ -247,20 +263,29 @@ ls -l /run/upanel/agent.sock
 
 ### 升级
 
-**0.1 不提供在线更新**（更新与回滚在 1.0 的 P11 才实现，见 README「1.0 尚未实现的功能」）。
-手动升级请按下面的顺序，任何一步失败都停下来：
+**面板不做自己的在线更新**：没有“检查更新并自动升级面板”的入口，升级是换包重跑安装器。
+发布包自带 `SHA256SUMS`（包内）与 `dist/SHA256SUMS`（覆盖两个架构的 tar.gz），
+校验通过再动手，顺序见 [RELEASE_NOTES.md](RELEASE_NOTES.md) 第 4、5 节。
+手动升级请按下面的顺序，任何一步失败都停下来。
+
+升级前必须先备份，而备份必须在**服务停止**时做：SQLite 的 `-wal` 与 `-shm` 是活的，服务在跑
+的时候主库文件可能还是旧的（最新提交还在 `-wal` 里）。只拷主库、或者不停服务直接拷，都能得到
+一份“看起来有、恢复后少几条”的备份——那比没有备份更糟，因为没人会去重新准备一份。
+
+安装器第 9 步已经替你做这件事（库里已有数据时才做）：它调同目录的 `backup-state.sh`，
+停服务 → 拷两个库（含 `-wal`/`-shm`）与 `/etc/upanel`（含 `agent.key`）→ 起回服务 → 写
+`MANIFEST.sha256`，然后才动二进制与迁移。**这一步失败就停下**，没有备份不往下动数据库。
 
 ```sh
-# 1) 备份：配置、面板库、代理库（WAL 与 shm 必须跟主库一起拷，所以先停服务）
-sudo systemctl stop upanel-web upanel-agent
-B=/root/upanel-backup-$(date +%F)
-sudo mkdir -p "$B/web-db" "$B/agent-db"
-sudo cp -a /etc/upanel "$B/etc-upanel"
-sudo cp -a /var/lib/upanel/upanel.db* "$B/web-db/"
-sudo cp -a /var/lib/upanel-agent/agent.db* "$B/agent-db/"
+# 1) 备份（安装器会自动做；这一步是手工重做或提前做）
+sudo sh deploy/scripts/backup-state.sh --to /root/upanel-backup-$(date +%F)
+#    → 备份目录里有 etc-upanel/、panel-db/、agent-db/ 与 MANIFEST.sha256
+#    ← 没有 sqlite3 时脚本会明说“数据库副本的完整性未校验”，只给了 sha256 一致的证明
 
-# 2) 校验新包 → 解包 → 重跑安装脚本（会替换二进制并执行迁移）
+# 2) 校验新包 → 解包 → 重跑安装脚本（替换二进制、跑迁移；第 9 步会再备份一次）
 sudo sh upanel-<新版本>-linux-amd64/deploy/scripts/install.sh --source upanel-<新版本>-linux-amd64
+#    备份放到别处：加 --backup-dir /root/upanel-bak-<版本>
+#    确实不要备份：加 --no-backup（迁移只向前，出问题时没有回退点）
 
 # 3) 确认
 sudo -u upanel-web upanelctl check-config --config /etc/upanel/upanel.json
@@ -268,7 +293,16 @@ curl -sS --cacert /etc/upanel/tls/panel.pem https://127.0.0.1:9443/api/v1/health
 ```
 
 数据库迁移**只向前**：`upanelctl migrate` 在发现“库里的 schema 比二进制新”时会拒绝运行，
-所以用旧二进制回退既要换回程序、也要恢复上面第 1 步的数据库备份。0.1 不声称支持自动降级。
+所以用旧二进制回退既要换回程序、也要恢复上面第 1 步的数据库备份。1.0 不声称支持自动降级。
+
+`backup-state.sh` 三个要点：
+
+- **两个库一起拷**：面板库（账号、审计、任务、计划、告警规则）与代理库（秘密密文、共享定义、
+  部署记录、证书台账）少了任何一个，恢复出来的面板与代理会对不上。
+- **`agent.key` 在 `/etc/upanel` 里**：丢了它，库里保存的秘密（共享口令、证书私钥引用）永久解不开。
+  所以配置与密钥跟数据库在同一份备份里，不分开。
+- **默认目录带时间戳**（`/var/backups/upanel/<UTC 时间>`），重复跑不会覆盖上一份；`--to` 指向一个
+  已存在且非空的目录时会**拒绝执行**，而不是把两份备份混在一起。
 
 ### 卸载
 
@@ -276,7 +310,14 @@ curl -sS --cacert /etc/upanel/tls/panel.pem https://127.0.0.1:9443/api/v1/health
 sudo sh deploy/scripts/uninstall.sh                 # 停服务、删程序与单元，保留配置与数据
 sudo sh deploy/scripts/uninstall.sh --purge-config  # 另删 /etc/upanel（含代理密钥，会二次确认）
 sudo sh deploy/scripts/uninstall.sh --purge-data    # 另删两个数据库与 /etc/ssl/upanel
+sudo sh deploy/scripts/uninstall.sh --purge-data --backup-dir /root/upanel-final
 ```
+
+带了 `--purge-config` 或 `--purge-data` 时，卸载器**默认先在删除之前备份**（调同一个
+`backup-state.sh`，默认目录 `/var/backups/upanel/uninstall-<UTC 时间>`）。要删的东西是“这台面板
+的全部身份”，删掉之后没有任何自动恢复路径；不想要备份必须显式写 `--no-backup`。同目录里找不到
+`backup-state.sh`（比如只拷了 `uninstall.sh` 出来）时，卸载器会**中止**并说明原因，而不是默默跳过
+备份。
 
 卸载脚本先列出“将要删除的路径”再动手，`/srv/upanel`（站点与应用数据）**永远不会自动删除**；
 要清空它必须再加 `--yes-delete-srv` 并再次输入 `yes`。系统账号默认保留，`--purge-accounts` 才删；
@@ -288,5 +329,8 @@ sudo sh deploy/scripts/uninstall.sh --purge-data    # 另删两个数据库与 /
 ## 8. 下一步
 
 - 怎么打开面板、怎么核对证书、怎么换成受信任证书、怎么让它对管理网可达：见 [ACCESS.md](ACCESS.md)。
+- 装完第一次登录、界面怎么用、常见任务怎么做：见 [USER_GUIDE.md](USER_GUIDE.md)。
 - 密码忘了、证书过期、代理连不上、数据库损坏、fstab 写坏、开机起不来：见 [RECOVERY.md](RECOVERY.md)。
+- 装完之前想先确认“我这套环境到底行不行”（发行版、架构、文件系统、备份后端、浏览器）：
+  见 [SUPPORT_MATRIX.md](SUPPORT_MATRIX.md)；哪些没验证、哪些不做：见 [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md)。
 - 只想在本机（Windows/macOS 或一台不打算改的机器）先看看界面：见 [LOCAL_START.md](LOCAL_START.md)。

@@ -1,0 +1,31 @@
+# 24.04 boot 相位那条 FAIL（开机到 Web 可用 152s > 120s）的归因探针
+# 做法：purge 之后重装同一份包，再重启一次，读 systemd 的时间戳与 blame。
+# 注意：这是一次**额外**的重启，不是验收相位本身；它只用来回答"谁慢"。
+
+## 探针这次重启
+btime=1793116580   (2026-10-27 15:56:20 UTC)
+upanel-web.service InactiveExitTimestamp=15:57:50   → btime+90s   （systemd 把它排队）
+upanel-web.service ExecMainStartTimestamp=15:57:57
+upanel-web.service ActiveEnterTimestamp=15:57:57    → btime+97s   （Type=simple：active ≈ 进程被拉起）
+upanel-web 自身耗时（blame）= 6.255s（含 ExecStartPre check-config）
+upanel-agent 自身耗时（blame）= 9.021s，@btime+60.5s 起来
+
+systemd-analyze: kernel 17.345s + userspace 2min11.206s = 2min28.552s
+blame 前几名: snapd.seeded 42.817s / snapd 39.457s / cloud-init 16.345s / cloud-init-local 9.746s
+
+critical-chain upanel-web.service:
+  upanel-web.service +6.255s
+  └─ upanel-agent.service @1min 540ms +9.021s
+     └─ basic.target @56.604s
+
+## 验收那次 boot 相位的读数
+boot_to_web_seconds=152（btime→ActiveEnterTimestamp）
+
+## 结论
+两次重启的差值（152s vs 97s）全在客户机引导一侧：kernel 17—22s、cloud-init 与 snapd 播种
+在单线程 TCG 下要 1—2 分钟，且**首次装完那一轮还会更长**。面板自身只占 6.3s（占 152s 的 4%）。
+`After=network-online.target` 在这台机器上只等了 2.1s，不是瓶颈。
+
+因此这条 FAIL 的定性：**判据在单线程 TCG 上不成立，不是产品没在合理时间内起来**。
+判据本身不改（120s 对裸机是合理上限），这条红保留在 RESULT-boot 里；
+"开机到可用"在真实硬件上的读数记为**未验证**，列进 P16.4 的支持矩阵与已知限制。

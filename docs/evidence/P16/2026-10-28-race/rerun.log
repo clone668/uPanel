@@ -1,0 +1,119 @@
+== [api] 开始 2026-10-28T14:44:46Z -race -count=1 -timeout=0 ./internal/api ==
+== [auth] 开始 2026-10-28T14:44:46Z -race -count=1 -timeout=0 ./internal/auth ==
+== [agent] 开始 2026-10-28T14:44:46Z -race -count=1 -timeout=0 ./internal/agent ==
+== [auth] 结束 2026-10-28T18:08:40Z rc=1 ==
+--- FAIL: TestDefaultPasswordParamsTiming (107.46s)
+    password_test.go:173: 单次 Argon2id 校验耗时 54.256401348s
+    password_test.go:178: 校验耗时 54.256401348s 过长，需重新基准
+FAIL
+FAIL	upanel/internal/auth	11767.531s
+FAIL
+== [auth] WARNING: DATA RACE 条数: 0
+== [auth] FAIL 用例数: 1
+== [auth] 包级结果: FAIL	upanel/internal/auth	11767.531s 
+== [agent] 结束 2026-10-28T20:01:22Z rc=1 ==
+2026/10/28 18:02:32 http: TLS handshake error from 127.0.0.1:45264: EOF
+--- FAIL: TestWebhookSelfSignedCertIsRejected (6.04s)
+    notify_test.go:407: 证书问题不该重试，实际 {Accepted:false Status:0 Detail:请求失败：Post "https://127.0.0.1:37557": net/http: TLS handshake timeout Retryable:true}
+--- FAIL: TestOperationExpiredPreflightRejected (32.25s)
+    operations_test.go:459: 状态码 = 201，期望 409；响应 {"data":{"operation_id":"op_65787069726564000000000000000000","action":"acceptance.ping","preflight_ref":"pf_36a616f816a530a801c465f6c95bc4ec","stage":"accepted","step":"","progress_percent":null,"cancellable":true,"cancellation_requested":false,"target":{"display_name":"验收测试对象（ping）","identity_fingerprint":"939b961dc5b35ceaa95dc961df142b3c"},"result":{},"error":{},"created_at":"2026-10-28T18:12:20Z","updated_at":"2026-10-28T18:12:20Z","duplicate":false},"request_id":"rid-operation"}
+FAIL
+FAIL	upanel/internal/agent	16579.372s
+FAIL
+== [agent] WARNING: DATA RACE 条数: 0
+== [agent] FAIL 用例数: 2
+== [agent] 包级结果: FAIL	upanel/internal/agent	16579.372s 
+== [api] 结束 2026-10-28T23:25:54Z rc=0 ==
+ok  	upanel/internal/api	28929.178s
+== [api] WARNING: DATA RACE 条数: 0
+== [api] FAIL 用例数: 0
+== [api] 包级结果: ok  	upanel/internal/api	28929.178s 
+== [ctl] 开始 2026-10-28T23:25:54Z -race -count=1 -timeout=0 ./cmd/upanelctl ==
+== [ctl] 结束 2026-10-28T23:31:26Z rc=0 ==
+ok  	upanel/cmd/upanelctl	310.760s
+== [ctl] WARNING: DATA RACE 条数: 0
+== [ctl] FAIL 用例数: 0
+== [ctl] 包级结果: ok  	upanel/cmd/upanelctl	310.760s 
+== [journal] 开始 2026-10-28T23:31:26Z -race -count=1 -timeout=0 ./internal/journal ==
+== [journal] 结束 2026-10-28T23:32:03Z rc=0 ==
+ok  	upanel/internal/journal	27.336s
+== [journal] WARNING: DATA RACE 条数: 0
+== [journal] FAIL 用例数: 0
+== [journal] 包级结果: ok  	upanel/internal/journal	27.336s 
+== [backup] 开始 2026-10-28T23:32:03Z -race -count=1 -timeout=0 ./internal/backup ==
+== [backup] 结束 2026-10-28T23:32:58Z rc=0 ==
+ok  	upanel/internal/backup	11.673s
+== [backup] WARNING: DATA RACE 条数: 0
+== [backup] FAIL 用例数: 0
+== [backup] 包级结果: ok  	upanel/internal/backup	11.673s 
+== [storage] 开始 2026-10-28T23:32:58Z -race -count=1 -timeout=0 ./internal/storage ==
+== [storage] 结束 2026-10-28T23:34:04Z rc=0 ==
+ok  	upanel/internal/storage	17.025s
+== [storage] WARNING: DATA RACE 条数: 0
+== [storage] FAIL 用例数: 0
+== [storage] 包级结果: ok  	upanel/internal/storage	17.025s 
+== [cap5race] 开始 2026-10-28T23:34:04Z -race -count=5 -run TestOSCapacityReaderNetworkTimeoutQuarantines -v ./internal/storage/ ==
+== [cap5race] 结束 2026-10-28T23:34:16Z rc=0 ==
+=== RUN   TestOSCapacityReaderNetworkTimeoutQuarantines
+--- PASS: TestOSCapacityReaderNetworkTimeoutQuarantines (0.03s)
+=== RUN   TestOSCapacityReaderNetworkTimeoutQuarantines
+--- PASS: TestOSCapacityReaderNetworkTimeoutQuarantines (0.02s)
+=== RUN   TestOSCapacityReaderNetworkTimeoutQuarantines
+--- PASS: TestOSCapacityReaderNetworkTimeoutQuarantines (0.02s)
+=== RUN   TestOSCapacityReaderNetworkTimeoutQuarantines
+--- PASS: TestOSCapacityReaderNetworkTimeoutQuarantines (0.02s)
+=== RUN   TestOSCapacityReaderNetworkTimeoutQuarantines
+--- PASS: TestOSCapacityReaderNetworkTimeoutQuarantines (0.02s)
+PASS
+ok  	upanel/internal/storage	1.689s
+== [cap5race] WARNING: DATA RACE 条数: 0
+== [cap5race] FAIL 用例数: 0
+== [cap5race] 包级结果: ok  	upanel/internal/storage	1.689s 
+== [cap5norace] 开始 2026-10-28T23:34:16Z -count=5 -run TestOSCapacityReaderNetworkTimeoutQuarantines -v ./internal/storage/ ==
+== [cap5norace] 结束 2026-10-28T23:46:51Z rc=0 ==
+=== RUN   TestOSCapacityReaderNetworkTimeoutQuarantines
+--- PASS: TestOSCapacityReaderNetworkTimeoutQuarantines (0.03s)
+=== RUN   TestOSCapacityReaderNetworkTimeoutQuarantines
+--- PASS: TestOSCapacityReaderNetworkTimeoutQuarantines (0.02s)
+=== RUN   TestOSCapacityReaderNetworkTimeoutQuarantines
+--- PASS: TestOSCapacityReaderNetworkTimeoutQuarantines (0.02s)
+=== RUN   TestOSCapacityReaderNetworkTimeoutQuarantines
+--- PASS: TestOSCapacityReaderNetworkTimeoutQuarantines (0.02s)
+=== RUN   TestOSCapacityReaderNetworkTimeoutQuarantines
+--- PASS: TestOSCapacityReaderNetworkTimeoutQuarantines (0.02s)
+PASS
+ok  	upanel/internal/storage	0.352s
+== [cap5norace] WARNING: DATA RACE 条数: 0
+== [cap5norace] FAIL 用例数: 0
+== [cap5norace] 包级结果: ok  	upanel/internal/storage	0.352s 
+== [sshrace] 开始 2026-10-28T23:46:51Z -race -count=1 -run TestDialRetriesOnceWhenHandshakeStalls -v ./internal/backup/ ==
+== [sshrace] 结束 2026-10-28T23:47:04Z rc=0 ==
+=== RUN   TestDialRetriesOnceWhenHandshakeStalls
+--- PASS: TestDialRetriesOnceWhenHandshakeStalls (1.25s)
+PASS
+ok  	upanel/internal/backup	2.750s
+== [sshrace] WARNING: DATA RACE 条数: 0
+== [sshrace] FAIL 用例数: 0
+== [sshrace] 包级结果: ok  	upanel/internal/backup	2.750s 
+== [sshnorace] 开始 2026-10-28T23:47:04Z -count=1 -run TestDialRetriesOnceWhenHandshakeStalls -v ./internal/backup/ ==
+== [sshnorace] 结束 2026-10-28T23:47:33Z rc=0 ==
+=== RUN   TestDialRetriesOnceWhenHandshakeStalls
+--- PASS: TestDialRetriesOnceWhenHandshakeStalls (0.98s)
+PASS
+ok  	upanel/internal/backup	1.196s
+== [sshnorace] WARNING: DATA RACE 条数: 0
+== [sshnorace] FAIL 用例数: 0
+== [sshnorace] 包级结果: ok  	upanel/internal/backup	1.196s 
+== [timing] 开始 2026-10-28T23:47:33Z -count=1 -run TestDefaultPasswordParamsTiming -v ./internal/auth/ ==
+== [timing] 结束 2026-10-28T23:47:55Z rc=1 ==
+=== RUN   TestDefaultPasswordParamsTiming
+    password_test.go:173: 单次 Argon2id 校验耗时 3.061838022s
+    password_test.go:178: 校验耗时 3.061838022s 过长，需重新基准
+--- FAIL: TestDefaultPasswordParamsTiming (6.07s)
+FAIL
+FAIL	upanel/internal/auth	6.422s
+FAIL
+== [timing] WARNING: DATA RACE 条数: 0
+== [timing] FAIL 用例数: 1
+== [timing] 包级结果: FAIL	upanel/internal/auth	6.422s 
+== 全部补跑完成 2026-10-28T23:47:55Z ==

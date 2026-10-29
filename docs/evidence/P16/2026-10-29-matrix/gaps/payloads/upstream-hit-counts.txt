@@ -1,0 +1,4 @@
+  0 /var/tmp/upanel-accept-p16-4/logs/canary.log
+ 17 /var/tmp/upanel-accept-p16-4/logs/redir-hits.log
+ 17 /var/tmp/upanel-accept-p16-4/logs/meta-hits.log
+ 34 total

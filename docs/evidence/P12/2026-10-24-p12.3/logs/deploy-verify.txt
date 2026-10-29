@@ -1,0 +1,19 @@
+# P12.3 交付二进制部署核对（2026-10-25T03:41Z 部署，04:16Z 复核）
+# 本地构建：VERSION=0.0.0-dev COMMIT=8e52b36 BUILD_DATE=2026-10-25T03:40:00Z sh scripts/build-linux.sh（连跑两次逐字节相同）
+# 部署方式：install -m 755 逐文件覆盖；下面是两台 VM 上的现行哈希与版本戳
+
+=== 2404 (ssh port 2222)
+5ce3c24aab878a7c495e033cb61f473261a53d1a1ea1a04fcd11c215577f40ce  /var/tmp/upanel-bin/upanel-web
+2bee85c4088038c831c93259779918a9c9a207f8a8b3e7b18fb1f49eecfce50b  /var/tmp/upanel-bin/upanel-agent
+123ae7beb06ffc9a04e54805f6ebd9b0cfc7a7c69c06634649f8e89abeb6b5c9  /var/tmp/upanel-bin/upanelctl
+upanel-agent 0.0.0-dev (commit 8e52b36, built 2026-10-25T03:40:00Z, go1.27.3)
+1f74ba99a0d4085901ec764032f364c044498e862598267f1f3044068d1533a4  /var/tmp/upanel-p123-tests/p12-3-recovery-acceptance.sh
+767b9844676a7f570c195b4de1a2e1768bb1f50b5aa7219963c016c1c9d6a837  /var/tmp/upanel-p123-tests/json_helper.py
+
+=== 2204 (ssh port 2223)
+5ce3c24aab878a7c495e033cb61f473261a53d1a1ea1a04fcd11c215577f40ce  /var/tmp/upanel-bin/upanel-web
+2bee85c4088038c831c93259779918a9c9a207f8a8b3e7b18fb1f49eecfce50b  /var/tmp/upanel-bin/upanel-agent
+123ae7beb06ffc9a04e54805f6ebd9b0cfc7a7c69c06634649f8e89abeb6b5c9  /var/tmp/upanel-bin/upanelctl
+upanel-agent 0.0.0-dev (commit 8e52b36, built 2026-10-25T03:40:00Z, go1.27.3)
+1f74ba99a0d4085901ec764032f364c044498e862598267f1f3044068d1533a4  /var/tmp/upanel-p123-tests/p12-3-recovery-acceptance.sh
+767b9844676a7f570c195b4de1a2e1768bb1f50b5aa7219963c016c1c9d6a837  /var/tmp/upanel-p123-tests/json_helper.py

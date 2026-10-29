@@ -1,0 +1,18 @@
+Warning: Permanently added '[127.0.0.1]:2222' (ED25519) to the list of known hosts.
+STAMP 2026-10-28T05:55:57Z purge 开始（--purge-data --purge-config：删前必须备份）
+PASS  带清除的卸载退出码 0
+PASS  多出一份删除前的备份
+PASS  找到那份备份的路径
+PASS  输出里点名了备份路径
+PASS  备份有 MANIFEST
+PASS  备份里有 agent.key（删了也能解秘密）
+PASS  备份里 agent.key 与原来逐字相同
+PASS  备份里的面板库 integrity_check = ok
+PASS  备份里的代理库 integrity_check = ok
+PASS  备份里能查到标记账号（库是可用的，不只是能打开）
+PASS  --purge 之后 /etc/upanel 已删除
+PASS  --purge 之后 /var/lib/upanel 已删除
+PASS  --purge 之后 /var/lib/upanel-agent 已删除
+PASS  /srv/upanel 仍然保留（--yes-delete-srv 才动它）
+
+==== purge: PASS=14 FAIL=0 NOT RUN=0 ====

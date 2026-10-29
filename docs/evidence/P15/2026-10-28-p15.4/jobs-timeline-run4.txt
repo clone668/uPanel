@@ -1,0 +1,12 @@
+# 第四次跑（最终交付字节 3f3b40c1…daf0）的代理侧时间线，UTC
+# 取自 upanel-agent journal（-o cat）；只保留预检/受理/完成三类事件
+
+2026-10-28T05:40:48.954726377Z 已生成预检计划 deployment.apply ref=pf_63cc1c17d35d2ee55c870852759108e4
+2026-10-28T05:40:53.618751274Z 已接受操作 deployment.apply
+2026-10-28T05:41:51.546066664Z 操作完成 deployment.apply outcome=verified
+2026-10-28T05:42:03.684822456Z 已生成预检计划 deployment.update ref=pf_ecf706d034cfa1cd34be5795ea5807b1
+2026-10-28T05:42:03.980332218Z 已接受操作 deployment.update
+2026-10-28T05:43:05.90662935Z 操作完成 deployment.update outcome=verified
+2026-10-28T05:43:17.124040956Z 已生成预检计划 deployment.remove ref=pf_0dcfec8ecc1a4faf0943ff78f107e693
+2026-10-28T05:43:17.365650317Z 已接受操作 deployment.remove
+2026-10-28T05:43:28.910523454Z 操作完成 deployment.remove outcome=verified

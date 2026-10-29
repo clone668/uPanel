@@ -1,0 +1,21 @@
+== 0. 前置、版本与独立故障卷 ==
+PASS  full-target-is-tmpfs
+PASS  p12-2-prerequisite-loaded
+PASS  agent-started
+PASS  web-started
+PASS  web-not-root
+PASS  login-admin
+PASS  login-cookie-expiry-recorded
+PASS  capabilities-200
+PASS  capabilities-restore
+PASS  capabilities-verify
+PASS  capabilities-prune
+
+== 1. 96 MiB 真实快照：本地与 SFTP ==
+PASS  policy-recovery-create
+PASS  policy-network-create
+PASS  recovery-baseline-reauth
+PASS  recovery-baseline-preflight-200
+PASS  recovery-baseline-preflight-allowed
+PASS  recovery-baseline-submit-202
+Terminated

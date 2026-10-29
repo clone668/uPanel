@@ -1,0 +1,7 @@
+2026-10-25T08:09:00+00:00 upanel-2404 systemd[1]: Starting upanel-sch_5044acf8df45e38e3934bb08dadeb010.service - uPanel 计划任务：p12-4 不重叠 ae06b65e...
+2026-10-25T08:09:01+00:00 upanel-2404 upanelctl[536156]: 计划 sch_5044acf8df45e38e3934bb08dadeb010 已在时间槽 2026-10-25T08:09:00Z 触发 script.run，操作 op_9bc164479f11e6f1ade3c07fbb575766
+2026-10-25T08:09:01+00:00 upanel-2404 upanelctl[536156]: 等待操作 op_9bc164479f11e6f1ade3c07fbb575766 跑到终态（最多 2m30s）
+2026-10-25T08:10:16+00:00 upanel-2404 upanelctl[536156]: 操作 op_9bc164479f11e6f1ade3c07fbb575766 成功
+2026-10-25T08:10:16+00:00 upanel-2404 systemd[1]: upanel-sch_5044acf8df45e38e3934bb08dadeb010.service: Deactivated successfully.
+2026-10-25T08:10:17+00:00 upanel-2404 systemd[1]: Finished upanel-sch_5044acf8df45e38e3934bb08dadeb010.service - uPanel 计划任务：p12-4 不重叠 ae06b65e.
+2026-10-25T08:10:17+00:00 upanel-2404 systemd[1]: upanel-sch_5044acf8df45e38e3934bb08dadeb010.service: Consumed 1.185s CPU time, 2.9M memory peak, 0B memory swap peak.

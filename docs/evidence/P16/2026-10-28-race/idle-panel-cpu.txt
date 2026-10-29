@@ -1,0 +1,131 @@
+# 补跑期间发现的环境污染物：空闲的 upanel-web 一直在吃 CPU
+
+这份文件只记"测到了什么"，不记"为什么"。原因见最后一节（诊断被**推迟到补跑之后**做，用 SIGQUIT 抓
+goroutine 栈，避免在补跑的计时判据实验里再引入新的负载）。
+
+## 怎么撞上的
+
+补跑（`race-rerun.sh`，14:44:46Z 启动）走到 15:21Z 时我去看负载，`uptime` 是
+`load average: 12.59, 11.78, 11.96`，而当时真正在跑的只有三个 `go test`。`ps` 一列 CPU 时间就露馅了：
+
+```
+Wed Oct 28 15:21:34 UTC 2026
+ 15:21:34 up  6:41,  3 users,  load average: 12.59, 11.78, 11.96
+   995   23985 37.5 02:30:02 upanel-web
+```
+
+`pid 995` 是**上一轮 P16.2 页面链路验收装机时装上的** `upanel-web`（这台 VM 的系统盘没有重建过），
+`ActiveEnterTimestamp=Wed 2026-10-28 08:41:49 UTC` —— 从开机起就一直在跑，`etimes=23985` 秒（6 小时 40 分）
+里累计吃了 **02:30:02 = 9002 秒 CPU**。
+
+## 读数
+
+### 1. 全生命周期平均值
+
+`(utime+stime) / 墙钟 = 9002 / 23985 = **37.5% 个核**`，期间**没有任何人访问面板**。
+
+### 2. 两次 10 秒定点采样（`/proc/995/stat` 的 utime+stime，100 ticks = 1 秒）
+
+| 采样 | 窗口 | ticks 增量 | 折合 |
+|---|---|---|---|
+| 第一次 | 15:21:34 → 15:21:44 | 459 | **46% 个核** |
+| 第二次 | 15:22:0x → 15:22:1x | 257 | **26% 个核** |
+
+两次都不是 0，抖动很大（这本身说明它不是一条恒定速率的工作，而是"某条路走得不顺"）。
+
+### 3. 按线程拆（第二次采样的同一窗口）
+
+```
+tid 5526 ticks+101        ← 一个线程基本占满一个核
+tid 1082 ticks+85
+tid 1081 ticks+45
+tid 1023 ticks+24         ← 主线程，wchan=hrtimer_nanosleep
+tid 1026 ticks+2
+tid 995/1080/1025/1024 ticks+0
+```
+
+9 个线程，其中**一条**在 10 秒里烧掉 101 ticks（≈ 一整个核）。不动的线程 wchan 是
+`futex_wait_queue` / `ep_poll`，主线程在 `hrtimer_nanosleep`（正常，它在按时轮询）。
+
+### 4. 它不写日志
+
+`journalctl -u upanel-web --since -60s | wc -l` → **0 行**。所以不是"刷日志把自己刷死"，
+日志级别也用不着背这个锅。
+
+## 对本次补跑的影响，以及我做了什么
+
+这台客户机只有 **2 条 TCG vCPU**，被一个空闲进程常年吃掉 0.25—0.46 个核，等于给每一项读数都
+凭空加了一份背景负载。最要命的是**补跑最后那三个计时判据实验**（`cap5race`/`cap5norace` 的 5 毫秒
+墙钟上界、`sshrace`/`sshnorace` 的 600 毫秒握手预算、`timing` 的 1 秒上界）——它们本来就贴着边界，
+再多半个核的噪声就分不清"检测器开销"和"环境抖动"。
+
+所以 **15:23:35Z 我停掉了 `upanel-web` 与 `upanel-agent`**（两者都不是 `go test` 的依赖）：
+
+```
+Wed Oct 28 15:23:35 UTC 2026
++ sudo -n systemctl stop upanel-web
++ sudo -n systemctl stop upanel-agent
+inactive
+inactive
+无 upanel 进程
+```
+
+三条并行大包（agent/api/auth）从 14:44:46Z 跑到 15:23:35Z 这一段是**带着这个负载**跑的；之后是干净的。
+补跑启动时没有记录"面板在跑"，这是我的方法缺陷——本轮如实记在这里，下一轮起跑前必须先确认
+`systemctl is-active upanel-web upanel-agent` 都是 `inactive`。
+
+**这不改变任何一个 pass/fail**：少一份负载只会让通过更容易，不会把通过变成失败。它只影响**墙钟读数**，
+而墙钟读数本来就不进判据（`-timeout=0`，不设上限）。
+
+## 诊断（2026-10-29T00:16Z 补做，用 SIGQUIT 抓 goroutine 栈）
+
+补跑结束后重新起了 `upanel-agent` + `upanel-web`，静置 60 秒再采样，这次更高：
+
+```
+空闲 60 秒后 10 秒采样：ticks 5301 -> 6163 = 862/1000 个核     ← 0.86 个核，而且是个刚起来 60 秒的新进程
+```
+
+`kill -QUIT 93295` 抓栈（Go 在 SIGQUIT 时打印全部 goroutine 后退出，systemd 随即又拉了一个新的，
+那条也一并停掉了）。整份 dump 存在 `panic-dump.txt`（`panic-dump-raw.txt` 是 journald 原样输出）。
+
+**唯一一条 `runnable` 的 goroutine，从底到顶：**
+
+```
+upanel/internal/metrics.(*Recorder).Run            recorder.go:227
+  → (*Recorder).Pass                               recorder.go:241
+    → (*Recorder).aggregate                        recorder.go:317
+      → (*Recorder).aggregateOne                   recorder.go:342
+        → store.(*DB).PendingMetricBuckets         metricstore.go:227
+          → database/sql.(*DB).QueryContext
+            → modernc.org/sqlite
+```
+
+启动日志对得上：`历史监控开始采集 interval=2s filesystem_interval=30s raw_retention=24h`。
+所以烧 CPU 的是**历史监控的聚合回合**：每 2 秒一次 `Pass`（采一份系统快照、采文件系统、把
+raw 桶聚合成 minute/hour、裁剪过期数据、压行数上限），在这台模拟机上**一回合要花掉约 1.7 秒 CPU**。
+
+### 这不是缺陷，但有一处值得记
+
+读了实现，三处都站得住：
+
+* `Recorder.Run` 用的是 `time.NewTicker` + `select`，**这一回合没跑完时下一次 tick 直接被丢掉**，
+  不会堆积成雪崩，也不会越跑越慢——这就是为什么它烧 CPU 却不涨 goroutine、不刷日志。
+* 聚合只取一批：`PendingMetricBuckets` 带 `LIMIT ?`（默认 500），不是"一次算完所有欠账"。
+* 查询有索引兜着：`idx_metric_samples_prune ON metric_samples (resolution, ts)`（`migrations/0011`），
+  `NOT EXISTS` 子查询走的是这条索引，不是全表扫。
+
+**所以"面板空转吃一个核"是这台机器慢的结果，不是产品在空转**：采集周期 2 秒，而在这台
+20—50 倍慢的模拟机上，一个回合就要 1.7 秒。
+
+### 这里有一条本轮**没有**读数的事
+
+真机上"一个 2 秒周期的采集回合占多少 CPU"，**这一轮没有测**（未验证）。所以：
+不能把 0.86 个核说成产品的常态开销，也不能反过来说"真机上肯定是毫秒级"——那是推断，不是读数。
+要结这一条，得在真机（KVM 或裸机）上对一个空闲面板做同样的采样。
+
+### 对验收纪律的结论
+
+* 跑 `-race` 之前必须 `systemctl is-active upanel-web upanel-agent` 两个 `inactive`，
+  否则贴边界的墙钟读数全是噪声（`TEST_ENVIRONMENT.md` §8.15 已加这一条）。
+* 这一条**只登记，不修**：它不是缺陷，而且真要动采集周期就得改字节、两台 VM 七相位全重跑（Q510）。
+

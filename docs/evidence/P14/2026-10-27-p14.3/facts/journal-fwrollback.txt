@@ -1,0 +1,17 @@
+Oct 26 19:12:34 upanel-2204 systemd[1]: Starting uPanel firewall rollback (frb_695fe87aa232cb87fa6310eef902d7b9)...
+Oct 26 19:12:45 upanel-2204 upanel-agent[162295]: 防火墙回滚 frb_695fe87aa232cb87fa6310eef902d7b9 已处理
+Oct 26 19:12:45 upanel-2204 systemd[1]: upanel-fwrollback@frb_695fe87aa232cb87fa6310eef902d7b9.service: Deactivated successfully.
+Oct 26 19:12:45 upanel-2204 systemd[1]: Finished uPanel firewall rollback (frb_695fe87aa232cb87fa6310eef902d7b9).
+Oct 26 19:12:45 upanel-2204 systemd[1]: upanel-fwrollback@frb_695fe87aa232cb87fa6310eef902d7b9.service: Consumed 6.635s CPU time.
+Oct 26 19:10:33 upanel-2204 systemd[1]: Started uPanel firewall rollback timer (frb_695fe87aa232cb87fa6310eef902d7b9).
+Oct 26 19:12:41 upanel-2204 systemd[1]: upanel-fwrollback@frb_695fe87aa232cb87fa6310eef902d7b9.timer: Deactivated successfully.
+Oct 26 19:12:41 upanel-2204 systemd[1]: Stopped uPanel firewall rollback timer (frb_695fe87aa232cb87fa6310eef902d7b9).
+○ upanel-fwrollback@frb_695fe87aa232cb87fa6310eef902d7b9.service - uPanel firewall rollback (frb_695fe87aa232cb87fa6310eef902d7b9)
+     Loaded: loaded (/etc/systemd/system/upanel-fwrollback@.service; static)
+     Active: inactive (dead)
+
+Oct 26 19:12:34 upanel-2204 systemd[1]: Starting uPanel firewall rollback (frb_695fe87aa232cb87fa6310eef902d7b9)...
+Oct 26 19:12:45 upanel-2204 upanel-agent[162295]: 防火墙回滚 frb_695fe87aa232cb87fa6310eef902d7b9 已处理
+Oct 26 19:12:45 upanel-2204 systemd[1]: upanel-fwrollback@frb_695fe87aa232cb87fa6310eef902d7b9.service: Deactivated successfully.
+Oct 26 19:12:45 upanel-2204 systemd[1]: Finished uPanel firewall rollback (frb_695fe87aa232cb87fa6310eef902d7b9).
+Oct 26 19:12:45 upanel-2204 systemd[1]: upanel-fwrollback@frb_695fe87aa232cb87fa6310eef902d7b9.service: Consumed 6.635s CPU time.

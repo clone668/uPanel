@@ -1,0 +1,35 @@
+== node/npm ==
+v22.23.3
+10.9.9
+
+== npx vitest run ==
+ ✓ src/components/panels.test.ts (20 tests) 53ms
+ ✓ src/stores/mode.test.ts (5 tests) 6ms
+ ✓ src/ui/tokens.test.ts (6 tests) 6ms
+
+ Test Files  66 passed (66)
+      Tests  1219 passed (1219)
+   Start at  22:13:55
+   Duration  5.66s (import 61%, transform 26%, tests 11%, worker 1%)
+
+    Isolate  66 workers spawned · ~422ms startup each (spawn + environment, per file)
+             at least ~1.43s faster with isolate: false — reuses workers across files instead of one per file
+
+
+== npx vue-tsc --noEmit ==
+exit=0
+
+== npx eslint . ==
+exit=0
+
+== npm run build ==
+dist/assets/AlertsView-DKEJ1wzu.js             138.73 kB │ gzip: 41.36 kB
+dist/assets/Button-ku7vN8Up.js                 142.52 kB │ gzip: 51.30 kB
+dist/assets/index-CPy4E4hi.js                  177.18 kB │ gzip: 54.86 kB
+dist/assets/TerminalView-CTS8Uy0K.js           347.46 kB │ gzip: 89.70 kB
+
+[32m✓ built in 1.26s[39m
+
+== dist ==
+assets
+index.html

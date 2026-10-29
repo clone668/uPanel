@@ -1,0 +1,1 @@
+{"data":{"id":"pol_c06bad53f6d7342092f301225f99c5d3","name":"p12-2 不存在源","repository_id":"rep_a04d91b54468de609e886080a18f1087","sources":[{"kind":"root","root_id":"root1","relative_path":"data/no-such-dir"}],"consistency_mode":"files_only","app_ids":[],"retention":{},"version":1},"request_id":"98cc2da0aa8e032d2184190b7dbd2bf8"}

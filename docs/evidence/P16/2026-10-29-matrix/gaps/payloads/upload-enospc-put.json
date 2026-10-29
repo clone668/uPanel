@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "files: 空间不足: 磁盘空间不足，暂存已删除"
+  },
+  "request_id": "f1941e76e491966dfa3f44110bc53c6c"
+}

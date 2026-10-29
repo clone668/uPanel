@@ -1,0 +1,28 @@
+Warning: Permanently added '[127.0.0.1]:2222' (ED25519) to the list of known hosts.
+STAMP 2026-10-28T05:48:21Z measure 开始
+PASS  读到 Web 进程的 RSS（KiB）
+PASS  读到代理进程的 RSS（KiB）
+NOTE  RSS: web=289396KiB agent=27224KiB
+PASS  延迟样本数（health）
+NOTE  延迟 health: p50=0.0519s p95=0.0707s max=0.086472s
+PASS  延迟 p95（health）不超过 2s
+PASS  延迟样本数（summary）
+NOTE  延迟 summary: p50=0.0757s p95=0.0982s max=0.107772s
+PASS  延迟 p95（summary）不超过 2s
+PASS  超过 1 MiB 的请求体被拒（413）
+PASS  日志 limit=5000 越界被拒（400）
+PASS  日志 limit=1000 接受
+PASS  单页条数不超过 1000
+PASS  单页消息总量不超过 1 MiB
+NOTE  日志单页：76 条 / 21035 字节
+PASS  第 5 条并发事件流被限流（429）
+curl: (28) Operation timed out after 3001 milliseconds with 13 bytes received
+PASS  流断开后名额被释放（又能开一条）
+NOTE  两库目录合计 1542520 字节；60 秒空闲后见 /var/tmp/upanel-accept-p16-2/facts/growth-after.txt
+PASS  60 秒空闲里日志没有失控增长（< 500 行）
+NOTE  journal 行数：155 → 155
+NOT RUN  上传 2 GiB 上限: P06 已有该限额读数；本轮不造 2 GiB 文件
+NOT RUN  文本编辑 1 MiB 上限: 属 P06 范围
+NOT RUN  浏览器完成主要用户流程: VM 内没有浏览器；Playwright 隧道属另一份工件
+
+==== measure: PASS=14 FAIL=0 NOT RUN=3 ====

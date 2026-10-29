@@ -1,0 +1,6 @@
+--- FAIL: TestDefaultPasswordParamsTiming (107.46s)
+    password_test.go:173: 单次 Argon2id 校验耗时 54.256401348s
+    password_test.go:178: 校验耗时 54.256401348s 过长，需重新基准
+FAIL
+FAIL	upanel/internal/auth	11767.531s
+FAIL

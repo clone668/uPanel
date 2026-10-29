@@ -1,0 +1,8 @@
+2026/10/28 18:02:32 http: TLS handshake error from 127.0.0.1:45264: EOF
+--- FAIL: TestWebhookSelfSignedCertIsRejected (6.04s)
+    notify_test.go:407: 证书问题不该重试，实际 {Accepted:false Status:0 Detail:请求失败：Post "https://127.0.0.1:37557": net/http: TLS handshake timeout Retryable:true}
+--- FAIL: TestOperationExpiredPreflightRejected (32.25s)
+    operations_test.go:459: 状态码 = 201，期望 409；响应 {"data":{"operation_id":"op_65787069726564000000000000000000","action":"acceptance.ping","preflight_ref":"pf_36a616f816a530a801c465f6c95bc4ec","stage":"accepted","step":"","progress_percent":null,"cancellable":true,"cancellation_requested":false,"target":{"display_name":"验收测试对象（ping）","identity_fingerprint":"939b961dc5b35ceaa95dc961df142b3c"},"result":{},"error":{},"created_at":"2026-10-28T18:12:20Z","updated_at":"2026-10-28T18:12:20Z","duplicate":false},"request_id":"rid-operation"}
+FAIL
+FAIL	upanel/internal/agent	16579.372s
+FAIL

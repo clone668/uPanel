@@ -1,0 +1,119 @@
+== 0. 环境与起点 ==
+      系统：Ubuntu 24.04.5 LTS
+      内核：6.8.0-147-generic
+PASS  以 root 运行
+PASS  Web 运行身份存在（upanel-web）
+PASS  依赖命令可用 python3
+PASS  依赖命令可用 curl
+PASS  依赖命令可用 runuser
+PASS  依赖命令可用 mount
+PASS  依赖命令可用 umount
+PASS  依赖命令可用 df
+PASS  依赖命令可用 dd
+PASS  依赖命令可用 sha256sum
+      停掉并将在收尾还原的单元： agent web
+PASS  代理单元已停（否则 socket 被占）
+PASS  Web 单元已停
+PASS  端口 19490 空闲
+
+== 1. ENOSPC 现场：一块 128m 的 tmpfs 当可写根 ==
+PASS  tmpfs 已挂到 /var/tmp/upanel-accept-p16-4/small
+PASS  tmpfs 容量是 128 MiB 上下（131072 KiB 附近）
+      可用：131072 KiB；声明要在写入阶段才撞 ENOSPC，所以根必须比 64 MiB 余量大
+
+== 2. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19490 启动
+      runuser 外壳 pid=9600 uid=0（这个外壳本身是 root，不算数）
+PASS  监听 19490 的 Web 进程不是 root（pid=9605 uid=999 user=upanel-web）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+
+== 3. APP-02：302 到底怎么记、有没有跟着跳 ==
+PASS  金丝雀在 19493 监听
+PASS  302→金丝雀 上游在 19491 监听
+PASS  302→云元数据 上游在 19492 监听
+      发现状态：partial（来源：systemd=error/local_listen=ok/docker=ok）
+PASS  发现结果不是 error（至少本机监听这一路读到了）
+PASS  发现状态在 ok/partial 之内（partial 的来由写在上一条 note 里）
+PASS  发现里有 302→金丝雀 的候选
+PASS  发现里有 302→云元数据 的候选
+PASS  建应用（302→金丝雀）
+PASS  建应用（302→云元数据）
+PASS  302→金丝雀 探出了结论
+      http_state=ok status_code=302 address=127.0.0.1
+PASS  302 的 http_state 是 ok（不是 error）
+PASS  记录的 status_code 是 302
+PASS  金丝雀**一次都没被请求**（没跟随重定向）
+PASS  上游确实被探过一次（302 不是编出来的）
+PASS  302→云元数据 探出了结论
+      http_state=ok status_code=302
+PASS  指向 169.254.169.254 的 302 也照样只记 302
+PASS  指向元数据的 302 不算错误
+PASS  元数据上游被探过一次
+PASS  健康记录里的地址没有被换成 169.254.169.254
+PASS  健康记录里没有金丝雀的内容
+
+== 4. FILE-02 之一：写的时候真的撞 ENOSPC ==
+PASS  声明 8 MiB 上传（声明时确实放得下）
+PASS  拿到 upload_id
+      声明时 tmpfs 可用：131064 KiB（声明 8388608 字节）
+      填充后可用：512 KiB
+PASS  现场造好了：剩余空间小于要传的 8 MiB
+      PUT 返回 413：VALIDATION_ERROR / files: 空间不足: 磁盘空间不足，暂存已删除
+PASS  写时空间不足是 413（不是 500）
+PASS  错误码是 VALIDATION_ERROR
+PASS  错误消息说清楚是空间不足
+PASS  目标文件没有被这次失败的上传改写
+PASS  暂存里没有残留的 .part
+PASS  上传记录留着（failed，不是假装没发生）
+PASS  上传视图 state=failed
+PASS  state
+PASS  失败之后 received_bytes 归零
+PASS  代理日志记了这次 ENOSPC（不是静默失败）
+      日志原文：{"time":"2026-10-29T02:37:56.318573226Z","level":"WARN","msg":"上传失败，暂存已删除","program":"upanel-agent","upload_id":"up_b1a5a893dc8ff6bbabb0bb067f30b054","root_id":"small","path":"exis
+      清掉填充文件，tmpfs 现在可用 131064 KiB
+
+== 5. FILE-02 之二：断流 ==
+PASS  声明 8 MiB 上传（大根）
+      upload_id=up_5ee5ffaa2f5812426959f063ef46b07c
+      被掐断的 PUT：http_code=100 curl 退出码=28
+PASS  客户端不是正常收尾（退出码非 0）
+PASS  掐断之后这条上传进 failed
+PASS  state
+PASS  断流的暂存被清掉
+PASS  目标文件不存在
+
+== 6. FILE-02 之三：2 GiB 真的推一遍（流式有界） ==
+      生成 2 GiB 载荷（全零，落盘不压缩）
+PASS  载荷大小是 2 GiB
+      上传前代理 RSS：27664 KiB
+PASS  声明 2 GiB 上传
+      upload_id=up_f5b786264304d5884b9bd036752be2d7
+      PUT 2 GiB 用了 292 秒，返回 200（curl 退出码 0）
+PASS  2 GiB 上传收完
+PASS  received_bytes 等于 2 GiB
+      峰值 RSS：28740 KiB（上传前 27664，上传后 28280）
+PASS  流式有界：峰值 RSS 28740 KiB 远小于 2 GiB 的 1/4（524288 KiB）
+PASS  提交落位预检
+PASS  落位任务成功
+PASS  落位 outcome 是 verified
+PASS  落位后大小是 2 GiB
+PASS  落位后 sha256 与载荷一致
+PASS  2 GiB 这条上传的记录随落位消失
+PASS  落位后大根里没有残留的 .part
+PASS  落位后查这条上传是 404
+PASS  声明超过 max_upload_bytes 是 413
+PASS  超限的错误码是 VALIDATION_ERROR
+PASS  超限不留暂存
+
+== 7. 收尾 ==
+PASS  收尾后大根里没有 2 GiB 残留
+PASS  rm 之后空间回来了（大根可用 > 20 GiB）
+
+=========================== 汇总 ===========================
+PASS 80 / FAIL 0 / NOT RUN 0
+NOT RUN 不等于通过；DISK-02 的 LVM/RAID 根盘不在本脚本覆盖范围内。

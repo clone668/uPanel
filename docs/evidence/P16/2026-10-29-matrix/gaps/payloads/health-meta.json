@@ -1,0 +1,20 @@
+{
+  "data": {
+    "app_id": "app_51e36c7ed563fe0d35536ce8d02a4511",
+    "enabled": true,
+    "http_state": "ok",
+    "checked_at": "2026-10-29T02:37:11Z",
+    "status_code": 302,
+    "duration_ms": 12,
+    "target_id": "local_python3-19492",
+    "scheme": "http",
+    "port": 19492,
+    "path": "/",
+    "address": "127.0.0.1",
+    "url": "http://127.0.0.1:19492/",
+    "last_error": "",
+    "expected_status_codes": [],
+    "note": ""
+  },
+  "request_id": "f70c79f3df7f26c9c1b26626406f8727"
+}

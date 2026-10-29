@@ -1,0 +1,4 @@
+=== RUN   TestDialRetriesOnceWhenHandshakeStalls
+--- PASS: TestDialRetriesOnceWhenHandshakeStalls (1.25s)
+PASS
+ok  	upanel/internal/backup	2.750s

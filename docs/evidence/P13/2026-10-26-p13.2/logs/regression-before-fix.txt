@@ -1,0 +1,7 @@
+--- FAIL: TestAlertSilenceRoundTrip (0.43s)
+    alerts_test.go:335: 初始状态不该有静默窗口: {Active:false StartsAt:0x1c8b2da9ee50 EndsAt:0x1c8b2da9ee60 Reason: UpdatedAt:2026-10-26T06:06:39Z UpdatedBy:}
+--- FAIL: TestAlertEventNullableTimesAreJSONNull (0.39s)
+    alerts_test.go:466: 未恢复事件的 resolved_at 应为 JSON null，实际 ""
+FAIL
+FAIL	upanel/internal/api	6.019s
+FAIL

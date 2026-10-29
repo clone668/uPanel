@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_ERROR","message":"计划里的域名（other.example.test）与证书记录 crt_53815fde2a1942d1093c6b7342fe4ef0 的域名（p125a-3d6ab1.example.test）不一致：续期按域名决定续哪张证书，这两个不能不一样"},"request_id":"87643c8cd85e991c1970b46ac65bb9b4"}

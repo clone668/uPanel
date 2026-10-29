@@ -1,0 +1,13 @@
+-- 夹具那一行：
+458:		p.ExpiresAt = time.Now().UTC().Add(-time.Minute)
+-- 产品 .go 里有没有这条改动（应该为空）：
+== 第七轮开始 2026-10-29T00:14:03Z ==
+=== RUN   TestOperationExpiredPreflightRejected
+--- PASS: TestOperationExpiredPreflightRejected (15.78s)
+=== RUN   TestOperationExpiredPreflightRejected
+--- PASS: TestOperationExpiredPreflightRejected (14.27s)
+=== RUN   TestOperationExpiredPreflightRejected
+--- PASS: TestOperationExpiredPreflightRejected (13.79s)
+PASS
+ok  	upanel/internal/agent	45.581s
+== 第七轮完成 2026-10-29T00:15:02Z ==

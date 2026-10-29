@@ -1,0 +1,163 @@
+
+[1/13] 校验发布包
+      OK   包内文件与 SHA256SUMS 一致
+
+[2/13] 探测系统
+      OK   系统 Ubuntu 22.04.5 LTS
+      OK   systemd 249
+      OK   发布包二进制可在本机执行（x86_64）
+      OK   端口 9443 由已安装的 upanel-web（pid 1725）占用：这是重跑，继续
+      OK   磁盘剩余 37570 MiB（/usr 与 /var 取小）
+      OK   内存 3911 MiB
+
+[3/13] 依赖检查（事实来自 upanelctl host-caps，不擅自安装）
+      OK   日志与终端审计：journalctl 249
+      注意 反向代理：缺 nginx（对应软件包 nginx）
+      注意 证书签发：缺 certbot（对应软件包 certbot）
+      注意 文件共享：缺 samba（对应软件包 samba）
+      注意 容器：缺 docker（对应软件包 docker.io）
+      注意 磁盘健康：缺 smartctl（对应软件包 smartmontools）
+      OK   依赖清单来自 /var/tmp/upanel-accept-p16-2/pkgbad/bin/upanelctl host-caps（与面板里那一页是同一份事实）
+      OK   面板证书与证书模块：openssl 已安装
+      OK   安装期健康检查：curl 已安装
+      注意 缺失清单： 反向代理=nginx 证书签发=certbot 文件共享=samba 容器=docker.io 磁盘健康=smartmontools
+      注意 面板照常启动并在相关页面显示“依赖未安装”；要装就重跑并加：--install-deps 反向代理=nginx 证书签发=certbot 文件共享=samba 容器=docker.io 磁盘健康=smartmontools
+
+[4/13] 系统账号
+      OK   upanel-web 已存在（保留现有设置）
+      OK   upanel-shell 已存在（保留现有设置）
+
+[5/13] 目录与权限
+      OK   /etc/upanel 0755 root:root（配置 0640 root:upanel-web：能读不能改）
+      OK   /etc/upanel/tls 0750 root:upanel-web
+      OK   /var/lib/upanel 0750 upanel-web；/var/lib/upanel-agent 0700 root；/var/lib/upanel-shell 0700 upanel-shell
+      OK   /srv/upanel 0755 root；/etc/ssl/upanel 0700 root；/var/www/upanel-acme 0755 root
+
+[6/13] 面板 HTTPS 证书
+      OK   沿用已存在的面板证书（换证书：替换这两个文件后 systemctl restart upanel-web）
+      证书指纹 sha256: 4bf9a5b4022d777fede59483b65d804f892a33206356aa26f30544a16436fc22
+      有效期至:        Jan 29 14:29:38 2029 GMT
+      浏览器第一次连接会提示“不受信任”：核对上面这串指纹后再接受。
+
+[7/13] 配置文件
+      OK   /etc/upanel/upanel.json 已存在（保留；要覆盖请加 --write-config，会先备份）
+      配置来源: /etc/upanel/upanel.json
+      运行模式: production
+      Web 监听: 127.0.0.1:9443（仅回环: true）
+      面板 HTTPS: 已启用（upanel-2204，到期 2029-01-29T14:29:38Z）
+        证书指纹 sha256: 4bf9a5b4022d777fede59483b65d804f892a33206356aa26f30544a16436fc22
+        证书域名: localhost, upanel-2204
+        注意: 面板证书是自签名的：浏览器会提示不受信任，请按安装说明核对指纹后再接受，或换成受信任证书
+      代理 socket: /run/upanel/agent.sock
+      数据库: /var/lib/upanel/upanel.db（busy_timeout=5000ms）
+      日志: level=info format=json
+      平台: linux/amd64（production 可用: true）
+      OK   upanelctl check-config 通过
+      OK   配置里已启用面板 TLS（监听 127.0.0.1:9443）
+
+[8/13] 代理秘密密钥
+      OK   /etc/upanel/agent.key 已存在（保留：覆盖会让已保存的秘密永久解不开）
+
+[9/13] 升级前备份（两数据库 + 配置与密钥）
+      
+      [1/7] 前置检查
+            OK   已创建 /var/tmp/upanel-accept-p16-2/backup-failup（0700）
+            OK   备份目录 /var/tmp/upanel-accept-p16-2/backup-failup
+      
+      [2/7] 读生效路径（配置是唯一裁判）
+            OK   面板数据库 /var/lib/upanel/upanel.db
+            OK   代理数据库 /var/lib/upanel-agent/agent.db
+      
+      [3/7] 停服务（WAL 与主库必须一起静止）
+            OK   已停 upanel-agent.service（备份结束后会起回来）
+            OK   已停 upanel-web.service（备份结束后会起回来）
+      
+      [4/7] 拷配置、证书与代理密钥
+            OK   已拷 /etc/upanel（含 agent.key，已收紧为仅 root 可读）
+      
+      [5/7] 拷面板库与代理库（主库 + -wal + -shm）
+            OK   面板数据库：1 个文件 → /var/tmp/upanel-accept-p16-2/backup-failup/panel-db
+            OK   代理数据库：1 个文件 → /var/tmp/upanel-accept-p16-2/backup-failup/agent-db
+      
+      [6/7] 起回原本在跑的服务
+            OK   upanel-agent.service 已恢复运行
+            OK   upanel-web.service 已恢复运行
+      
+      [7/7] 校验备份
+            OK   已写 MANIFEST.sha256（6 个文件）
+            注意 机器上没有 sqlite3：数据库副本的完整性未校验（只有 sha256 一致的证明）
+      
+      ==== 备份完成 ====
+      备份目录:   /var/tmp/upanel-accept-p16-2/backup-failup
+      面板数据库: /var/lib/upanel/upanel.db
+      代理数据库: /var/lib/upanel-agent/agent.db
+      清单:       /var/tmp/upanel-accept-p16-2/backup-failup/MANIFEST.sha256（6 个文件）
+      
+      这份备份里有两个东西不能分开用：
+        1) etc-upanel/agent.key  丢了，库里保存的秘密（共享口令、证书私钥引用）永久解不开；
+        2) 两个数据库           少了任何一个，恢复出来的面板与代理会对不上。
+      
+      整份拷走再删原件：
+        tar -C /var/tmp/upanel-accept-p16-2 -czf /root/upanel-backup-backup-failup.tar.gz backup-failup
+      
+      恢复（在服务停止的前提下）：
+        systemctl stop upanel-web upanel-agent
+        install -d -m 0755 -o root -g root /etc/upanel
+        cp -a /var/tmp/upanel-accept-p16-2/backup-failup/etc-upanel/. /etc/upanel/
+        systemctl start upanel-agent upanel-web      # 让代理先建 socket
+        # 面板库要按原属主放回（root 建出来的文件 Web 进程写不进去）：
+        #   install -o upanel-web -g upanel-web -m 0640 <副本> /var/lib/upanel/upanel.db
+        # 代理库：install -o root -g root -m 0600 <副本> /var/lib/upanel-agent/agent.db
+        # 详细步骤与判断依据见 docs/RECOVERY.md
+      OK   备份在 /var/tmp/upanel-accept-p16-2/backup-failup（两个库 + /etc/upanel；整份拷走再升级）
+
+[10/13] 安装二进制并迁移数据库
+      OK   upanel-web、upanelctl → /usr/local/bin；upanel-agent → /usr/local/lib/upanel
+      OK   9 份文档已装到 /usr/local/share/doc/upanel
+time=2026-10-27T14:36:27.421Z level=INFO msg=数据库已打开 path=/var/lib/upanel/upanel.db journal_mode=wal foreign_keys=true busy_timeout_ms=5000
+      数据库: /var/lib/upanel/upanel.db
+      schema 版本: 14（执行前 14）
+      本次应用: 无（schema 已是最新）
+      OK   数据库已迁移（/var/lib/upanel/upanel.db，属主 upanel-web）
+
+[11/13] 第一个管理员
+      OK   数据库里已有账号，跳过创建（重置密码见 /usr/local/share/doc/upanel/RECOVERY.md）
+
+[12/13] systemd 单元
+/lib/systemd/system/snapd.service:23: Unknown key name 'RestartMode' in section 'Service', ignoring.
+      OK   单元文件通过 systemd-analyze verify
+      OK   两个单元已 enable 并启动
+
+[13/13] 健康检查
+      OK   https 健康检查通过：{"data":{"status":"ok"},"request_id":"b0c1b9a46584b0b3fd7940f7d313fd16"}
+      OK   端口 9443 上服务的正是安装的那张证书
+      OK   Web 进程 uid=997（不是 root）
+      注意 代理 socket 不存在：{"data":{"status":"ok"},"request_id":"b0c1b9a46584b0b3fd7940f7d313fd16"} 仍可能正常，但系统功能会报 AGENT_UNAVAILABLE
+
+==== 安装完成 ====
+升级前备份:    /var/tmp/upanel-accept-p16-2/backup-failup（两个库 + /etc/upanel，整份拷走再清理）
+面板监听:      127.0.0.1:9443（https）
+访问地址:      https://127.0.0.1:9443
+证书指纹:      4bf9a5b4022d777fede59483b65d804f892a33206356aa26f30544a16436fc22（有效期至 Jan 29 14:29:38 2029 GMT）
+管理员账号:    (已存在的账号)
+配置文件:      /etc/upanel/upanel.json
+Web 数据库:    /var/lib/upanel/upanel.db（属主 upanel-web）
+代理数据库:    /var/lib/upanel-agent/agent.db（root 0700）
+代理密钥:      /etc/upanel/agent.key（root 0600，必须离线备份）
+
+只监听回环地址时，从自己的电脑建 SSH 隧道再开浏览器：
+  ssh -N -L 9443:127.0.0.1:9443 你的用户@这台主机
+  然后访问 https://127.0.0.1:9443
+
+要改成对管理网直接可达（会改变暴露面，先读 docs/ACCESS.md 与 docs/INSTALL.md）：
+  1) 改 /etc/upanel/upanel.json 里的 web.listen_address（例如 192.0.2.10:9443）
+  2) 同时设置 web.allowed_origins（非回环监听必须显式给 https:// 源，否则拒绝启动）
+  3) systemctl restart upanel-web
+
+日常检查：
+  upanelctl check-config --config /etc/upanel/upanel.json
+  systemctl status upanel-web upanel-agent
+  journalctl -u upanel-web -u upanel-agent -f
+
+忘了管理员密码、证书过期、代理连不上、数据库损坏、fstab 写错：见
+  /usr/local/share/doc/upanel/RECOVERY.md（安装包里同 docs/RECOVERY.md）

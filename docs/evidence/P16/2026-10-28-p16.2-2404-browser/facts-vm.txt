@@ -1,0 +1,59 @@
+# 24.04 那一台：页面链路在最终交付字节上的读数（2026-10-28）
+# 生成于宿主时钟（UTC）。系统盘从基底镜像重建，不是接着上一轮跑脏的盘。
+
+== 基底镜像校验（24.04）==
+04e8f2461a16a44e78a370284471f29616cdd9baf1893df25807b71f985b6c94 *ubuntu-24.04-server-cloudimg-amd64.img   # 与 images/SHA256SUMS 一致
+
+== 重建动作（docs/TEST_ENVIRONMENT.md 第 4 节）==
+rm -f system.qcow2
+qemu-img create -f qcow2 -F qcow2 -b ../images/ubuntu-24.04-server-cloudimg-amd64.img system.qcow2 40G
+
+== 启动参数（launch-vm.ps1）==
+-Name upanel-2404 -SshPort 2222 -SeedPort 8899 -Accel tcg -MemoryMB 4096 -Cpus 2
+（-Accel tcg → -accel tcg,thread=multi）
+
+== 客机现场（装包之前）==
+  up 3 minutes
+  2026-10-28 07:23:49
+  status: done
+  2
+  3915 MB
+  Ubuntu 24.04.5 LTS
+  6.8.0-147-generic
+  systemd 255 (255.4-1ubuntu8.18)
+  docker：absent
+  /etc/upanel：不存在
+  upanelctl：absent
+
+== 装完之后 ==
+1.0.0
+commit: 8e52b36-dirty
+build_date: 2026-10-28T05:23:36Z
+arch: amd64
+upanelctl 1.0.0 (commit 8e52b36-dirty, built 2026-10-28T05:23:36Z, go1.27.3)
+0
+
+== 面板自身（装好之后）==
+sha256 Fingerprint=C5:42:D8:2D:2E:FF:7C:EB:A1:59:CB:D9:07:61:4B:79:F2:0E:B8:B7:21:AD:1D:5A:75:9A:91:5F:BD:03:0D:1A
+subject=CN = upanel-2404
+notBefore=Oct 28 07:29:44 2026 GMT
+notAfter=Jan 30 07:29:44 2029 GMT
+LISTEN 0      4096       127.0.0.1:9443      0.0.0.0:*          
+root     upanel-agent
+upanel-+ upanel-web
+up 13 minutes
+
+== 容器运行时（这一轮补装，装之前 absent）==
+  Docker version 29.1.3, build 29.1.3-0ubuntu3~24.04.2
+  Docker Compose version 2.40.3+ds1-0ubuntu1~24.04.1
+  ii  docker-compose-v2 2.40.3+ds1-0ubuntu1~24.04.1 amd64        tool for running multi-container applications on Docker
+  ii  docker.io         29.1.3-0ubuntu3~24.04.2     amd64        Linux container runtime
+
+== 两条链路跑完之后（收尾现场）==
+docker ps -a：0 个容器
+docker compose ls：0 个项目
+/etc/upanel/deploy：0 个文件
+upanel-deploy 单元：0 个
+会话校验失败计数：0
+panic 计数：0
+active active 

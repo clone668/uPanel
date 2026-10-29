@@ -1,0 +1,16 @@
+● upanel-deploy-webapp.service - uPanel 受管理部署：webapp
+     Loaded: loaded (/etc/systemd/system/upanel-deploy-webapp.service; enabled; vendor preset: enabled)
+     Active: active (exited) since Tue 2026-10-27 11:46:46 UTC; 3s ago
+       Docs: file:/usr/local/share/doc/upanel/DEPLOY.md
+    Process: 1382 ExecStart=/usr/bin/docker compose -p webapp -f /etc/upanel/deploy/webapp.compose.yaml up -d --remove-orphans --no-build (code=exited, status=0/SUCCESS)
+   Main PID: 1382 (code=exited, status=0/SUCCESS)
+        CPU: 2.484s
+
+Oct 27 11:46:39 upanel-2204 systemd[1]: Starting uPanel 受管理部署：webapp...
+Oct 27 11:46:42 upanel-2204 docker[1397]:  Network webapp_default  Creating
+Oct 27 11:46:42 upanel-2204 docker[1397]:  Network webapp_default  Created
+Oct 27 11:46:42 upanel-2204 docker[1397]:  Container webapp-webapp-1  Creating
+Oct 27 11:46:43 upanel-2204 docker[1397]:  Container webapp-webapp-1  Created
+Oct 27 11:46:43 upanel-2204 docker[1397]:  Container webapp-webapp-1  Starting
+Oct 27 11:46:46 upanel-2204 docker[1397]:  Container webapp-webapp-1  Started
+Oct 27 11:46:46 upanel-2204 systemd[1]: Finished uPanel 受管理部署：webapp.

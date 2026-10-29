@@ -1,0 +1,193 @@
+== 0. 环境
+STAMP 2026-10-26T19:06:48Z start
+PASS  验收脚本以 root 运行
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  python3 可用
+PASS  JSON 助手在同目录
+PASS  runuser 可用
+PASS  ufw 存在（/usr/sbin/ufw）
+NOTE  ufw 版本：ufw 0.36.1
+PASS  ufw.service 在 systemd 里
+PASS  起点 ufw 不处于启用状态，且没有面板规则
+NOTE  起点的默认策略：DEFAULT_INPUT_POLICY="DROP" DEFAULT_OUTPUT_POLICY="ACCEPT" DEFAULT_FORWARD_POLICY="DROP" 
+PASS  起点读得到默认策略（否则下面的比对是空的）
+PASS  服务账号 upanel-web 存在
+NOTE  看门狗 systemd timer 定在 2026-10-26 19:10:14
+NOTE  看门狗已武装：systemd timer 定在 2026-10-26 19:10:14，sleep 子壳 +215s
+
+== 1. 装配（先不带写开关）
+PASS  代理密钥文件已存在（沿用上一轮）
+PASS  代理启动（无 -firewall-writes）
+PASS  init-admin 退出码
+
+== 2. 写路径默认关闭（两个开关是分开的）
+PASS  Web 启动在 127.0.0.1:19474
+PASS  管理员登录 200
+PASS  拿到 CSRF 令牌
+PASS  建 viewer 201/200
+PASS  viewer 登录 200
+PASS  写开关关闭时 GET /firewall/config 是 400
+PASS  关闭时的错误码是 VALIDATION_ERROR
+PASS  关闭时代理说的是「未登记的查询」
+PASS  写开关关闭时 firewall.apply 预检 400
+PASS  关闭时命中的是 firewall.apply 这一条
+PASS  apply 报的是「未登记的动作」
+PASS  写开关关闭时 firewall.confirm 预检 400
+PASS  写开关关闭时 firewall.rollback 预检 400
+PASS  关闭期间 ufw 仍不启用
+PASS  关闭期间没有写出任何面板规则
+PASS  关闭期间没有回滚记录目录
+
+== 3. 打开写路径（-firewall-writes，**不带** -network-writes）
+PASS  代理以 -firewall-writes 启动
+PASS  Web 启动在 127.0.0.1:19474
+PASS  GET /firewall/config 200
+PASS  管理器判成 ufw
+PASS  ufw 装了
+PASS  ufw 现在没启用
+PASS  这台机器可改防火墙
+PASS  面板还没管任何规则
+PASS  没有待确认记录
+PASS  给了 config_hash
+PASS  未登录 GET /firewall/config 是 401
+PASS  viewer GET /firewall/config 是 403
+
+== 4. 预检判决（都不许改动机器）
+PASS  坏指纹的预检 200
+PASS  坏指纹 allowed=false
+PASS  坏指纹命中 FIREWALL_CONFIG_CHANGED
+PASS  端口越界在解码就被拒（400）
+PASS  端口越界报 VALIDATION_ERROR
+PASS  端口越界点名了范围
+PASS  标识形状越界在解码就被拒（400）
+PASS  标识形状越界报 VALIDATION_ERROR
+PASS  动作越界在解码就被拒（400）
+PASS  动作越界报 VALIDATION_ERROR
+PASS  动作越界点名了闭集
+PASS  IPv6 来源被拒
+PASS  IPv6 来源报 VALIDATION_ERROR
+PASS  没有待确认记录时 confirm 预检 200
+PASS  没有待确认记录时 confirm 被拦
+PASS  命中 FIREWALL_NO_PENDING_ROLLBACK
+PASS  rollback 也命中 FIREWALL_NO_PENDING_ROLLBACK
+PASS  缺 SSH 放行的预检 200
+PASS  缺 SSH 放行时 allowed=false
+PASS  命中 FIREWALL_MANAGEMENT_PATH
+PASS  阻塞项说清了是 SSH
+PASS  停用状态下缺 SSH 放行不拦
+PASS  预检全程没有改动 ufw 的规则
+PASS  预检全程 ufw 仍不启用
+
+== 5. 第一次真改：启用 + 22/tcp + 8443/tcp
+PASS  apply 预检 allowed
+PASS  apply 预检给了 RECONFIGURE 短语
+PASS  apply 任务 succeeded
+PASS  apply 结果 outcome=verified
+PASS  读回来 ufw 是启用状态
+PASS  内核事实：ufw 现在 active
+PASS  现场有面板的 ssh 规则
+PASS  现场有面板的 web 规则
+PASS  ssh 规则的写法带 comment
+PASS  默认策略一动没动
+PASS  回滚窗口是 120 秒
+PASS  结果里给了回滚标识
+PASS  回滚标识的形状是 frb_ + 32 位十六进制
+PASS  回滚记录落盘
+PASS  记录状态是 pending
+PASS  记录里的到期时刻与结果一致
+PASS  记录是 root 0600
+PASS  timer 已武装
+PASS  timer 真的会开火（NextElapse 不是 infinity）
+PASS  timer 有下一次触发时刻
+PASS  模板里的二进制就是本次验收用的那一份
+PASS  模板跑的是代理二进制的 fwrollback 子命令
+PASS  这一轮的 timer 写的是 120 秒窗口
+PASS  这一轮的 timer 指向自己的 service
+NOTE  user.rules 里没有明文 comment：与 Q460 的实测一致（ufw 存成十六进制）
+PASS  confirm 任务 succeeded
+PASS  confirm 结果 outcome=verified
+PASS  记录变成 confirmed
+PASS  timer 已经停掉
+PASS  timer 单元文件被删掉
+PASS  确认之后没有待确认记录
+PASS  再确认一次命中 FIREWALL_NO_PENDING_ROLLBACK
+
+== 6. 加缺删多；管理员手写的规则一条都不动
+PASS  手工加了一条没有 comment 的放行
+PASS  swap 任务 succeeded
+PASS  swap 结果 outcome=verified
+PASS  upanel:db 加上了
+PASS  upanel:web 被删掉了
+PASS  upanel:ssh 还在
+PASS  手写的那条规则原样还在
+PASS  token 不符时 confirm 被拦
+PASS  命中 FIREWALL_TOKEN_MISMATCH
+PASS  已有 pending 时 apply 被拦
+PASS  命中 FIREWALL_ROLLBACK_PENDING
+PASS  确认 swap 之后记录是 confirmed
+PASS  手写规则被验收自己清掉（不是产品删的）
+
+== 7. 独立回滚：不确认 → 停掉 Web 与代理 → 到期自己退回去
+PASS  回滚用例的 apply succeeded
+PASS  回滚用例的结果 outcome=verified
+NOTE  回滚用例：token=frb_695fe87aa232cb87fa6310eef902d7b9 deadline=2026-10-26T19:12:26Z（T0+99s）
+PASS  改完之后 db 那条不见了
+PASS  改完之后 web 那条在了
+PASS  timer 已武装
+STAMP 2026-10-26T19:10:51Z services-stopped
+PASS  Web 与代理都已停掉（端口不通）
+STAMP 2026-10-26T19:11:47Z t-plus-60
+PASS  60 秒时 web 那条还在（窗口没被提前咬掉）
+PASS  60 秒时 timer 仍武装
+STAMP 2026-10-26T19:12:42Z after-deadline
+NOTE  规则在 deadline 之后 14s 退回来（T0+113s）
+PASS  回滚发生在 deadline 之后（没有提前咬掉窗口）
+PASS  回滚发生在 deadline+45s 之内
+PASS  退回之后 web 那条不在了
+PASS  退回之后 db 那条回来了
+PASS  退回之后 ufw 仍是启用状态（退回的是规则集，不是把防火墙关掉）
+PASS  记录变成 rolled_back
+PASS  timer 已经结束
+PASS  回滚单元是被 systemd 启动的
+PASS  journal 里有那个回滚单元自己的输出
+PASS  回滚进程就是代理二进制（journal 里的进程标识）
+PASS  回滚单元正常结束
+PASS  回滚单元没有失败
+PASS  回滚单元没有报失败状态
+PASS  看门狗没有动手（产品自己退回来的）
+PASS  看门狗 sleep-shell 醒来时 22/tcp 有放行（not-needed）
+PASS  看门狗 systemd-timer 醒来时 22/tcp 有放行（not-needed）
+STAMP 2026-10-26T19:12:46Z phase7-done
+
+== 8. 恢复之后：重新起服务，现场干净
+PASS  代理重新启动
+PASS  Web 启动在 127.0.0.1:19474
+PASS  恢复后登录 200
+PASS  恢复后 GET /firewall/config 200
+PASS  恢复后没有待确认记录
+PASS  恢复后读回的规则集是退回后的那一份
+PASS  没有残留的 timer 单元文件
+PASS  没有残留的 fwrollback timer
+PASS  日志里没有 panic
+PASS  被拒的防火墙请求留下了 failure 审计（1 条）
+PASS  成功提交的任务留下了 success 审计（5 条）
+
+== 9. 用产品撤干净：{enabled:false, rules:[]}
+PASS  撤干净的任务 succeeded
+PASS  撤干净的结果 outcome=verified
+PASS  ufw 回到不启用
+PASS  一条面板规则都不剩
+PASS  撤干净的记录确认掉
+PASS  最后没有残留的 pending 记录
+PASS  默认策略到最后也没被改过
+NOT RUN  浏览器里的渲染与交互: VM 内没有 Playwright（Q21），由 SSR 渲染测试 web/src/components/firewall-write.test.ts 覆盖
+NOT RUN  回滚自己失败（记录 state=failed）: 真机上造它等于把机器弄坏在两条看门狗之外，风险不对等；单测覆盖
+NOT RUN  ufw 根本没装的机器（FIREWALL_UNSUPPORTED）: 卸载 ufw 会连 VM 自己的转发规则一起带走；单测覆盖判决形状
+NOT RUN  IPv6 规则、应用配置、端口区间、按接口限定: 这一版明确不支持，返回 FIREWALL_DEFINITION_INVALID/FIREWALL_UNSUPPORTED；形状由单测覆盖
+
+== 结果
+PASS 153 / FAIL 0 / NOT RUN 4
+NOT RUN 明细: | 浏览器里的渲染与交互 | 回滚自己失败（记录 state=failed） | ufw 根本没装的机器（FIREWALL_UNSUPPORTED） | IPv6 规则、应用配置、端口区间、按接口限定
+STAMP 2026-10-26T19:13:56Z done

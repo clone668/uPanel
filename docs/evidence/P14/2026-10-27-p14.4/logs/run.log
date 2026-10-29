@@ -1,0 +1,177 @@
+== 0. 环境与起点 ==
+PASS  二进制存在：/tmp/upanel-bin/upanel-agent
+PASS  二进制存在：/tmp/upanel-bin/upanel-web
+PASS  二进制存在：/tmp/upanel-bin/upanelctl
+PASS  夹具：有 exportfs
+PASS  夹具：有 showmount
+PASS  夹具：有 mount.nfs
+PASS  夹具：有 mountpoint
+PASS  夹具：有 findmnt
+PASS  夹具：有 python3
+PASS  夹具：有 sgdisk
+PASS  夹具：有 losetup
+PASS  夹具：有 blkid
+PASS  夹具：有 nfs-server.service
+PASS  夹具：nfs-server 在运行
+PASS  承载 / 的设备是 /dev/sda1（整盘 sda）
+PASS  一次性盘 /dev/sdb 可用（8.0G）
+NOTE  起点留档：/var/tmp/upanel-accept-p14-4/logs/exports-initial.txt、/var/tmp/upanel-accept-p14-4/logs/exports.d-initial（收尾时放回）
+NOTE  清空 /etc/exports（内容已留档）
+NOTE  摘掉上一轮留下的 upanel fstab 块（原文留在 /var/tmp/upanel-accept-p14-4/logs/fstab-initial.txt）
+PASS  起点：实际导出表是空的
+PASS  起点：没有 /etc/exports.d/upanel.exports
+PASS  起点：没有开机依赖 drop-in
+PASS  一次性盘 /dev/sdb 清成空白
+
+== 1. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19479 启动
+PASS  监听 19479 的 Web 进程不是 root（pid=181414 uid=997）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+PASS  页面在 /shares 上有入口（SPA 返回 index.html）
+
+== 2. 夹具：一块卷 ==
+PASS  初始化分区表任务终态
+PASS  建分区任务终态
+PASS  格式化任务终态
+PASS  独立证据：blkid 读出的类型是 ext4
+PASS  导入任务终态
+PASS  挂载任务终态
+PASS  独立证据：卷真的挂上了
+
+== 3. 能力报告：NFS 那一路是现场探出来的 ==
+PASS  共享列表可读
+PASS  capability.nfs.status 是 available
+PASS  capability.nfs.exports_file 指向面板独占的那一份
+PASS  capability.nfs 报出了 exportfs 的路径（执行层要的就是它）
+PASS  capability.nfs.service_state 是 active
+PASS  此刻没有面板写的导出
+
+== 4. 应用读写导出：写文件 + 读回实际导出表 ==
+PASS  应用预检允许
+PASS  预检没有阻塞项
+PASS  预检告警里说清了'此刻还没进导出表'
+PASS  应用任务终态
+PASS  结果 verified（读回比对通过才可能）
+PASS  拿到共享标识
+PASS  observed exports_file = written
+PASS  observed reload = done
+PASS  observed service = active
+PASS  observed served = True
+PASS  observed directory_mode = 0777
+PASS  独立证据：托管导出文件存在
+PASS  独立证据：文件里那一行带 upanel 认领标记
+PASS  独立证据：行里有身份网段
+PASS  独立证据：行里是 rw
+PASS  独立证据：行里没有 no_root_squash / async / insecure / *
+PASS  独立证据：目录权限是 0777
+PASS  独立证据（核心）：exportfs -v 的实际导出表里有这个路径
+PASS  独立证据：实际导出表里带 root_squash
+PASS  独立证据：实际导出表里带 no_subtree_check
+PASS  开机依赖 drop-in 写好了
+PASS  随机启动之前先要求卷就位（drop-in 里点名了挂载路径）
+
+== 5. 真实客户端：NFSv3 挂载、先 findmnt、再读写 ==
+PASS  客户端挂载的退出码是 0
+PASS  核心：findmnt 确认它真的挂上了（不是静默写本地）
+PASS  挂的是 nfs，源就是服务端路径
+PASS  客户端写文件成功（走的是挂载点）
+PASS  核心：从**服务端路径**读回的内容与写入一致（数据真的过了 NFS）
+PASS  核心：root_squash 生效——root 写进去的文件落盘属主是 nobody
+PASS  核心：组也 squash 成了 nogroup
+PASS  root_squash=false 被预检拒（NFS_OPTIONS_INVALID）
+PASS  拒绝码是 NFS_OPTIONS_INVALID
+PASS  0.0.0.0/0 被预检拒（NFS_OPEN_TO_WORLD）
+PASS  空网段被预检拒（SHARE_NO_CIDRS）
+PASS  幂等重放任务终态
+PASS  幂等重放：文件没重写
+PASS  幂等重放：没有刷表（内容没变）
+PASS  幂等重放仍然是 verified
+
+== 6. 网段是唯一的访问控制：名单外连不上 ==
+PASS  改成名单外网段的任务终态
+PASS  独立证据：文件里现在是名单外那个网段
+PASS  独立证据：实际导出表里也是它
+PASS  起点：名单外的挂载点已经卸掉
+PASS  核心：名单外的客户端挂不上（挂载非 0 退出）
+PASS  核心：名单外确实没挂上（findmnt 为空）
+PASS  改回本机网段的任务终态
+PASS  核心：改回来又能挂上
+PASS  核心：findmnt 确认挂上了
+
+== 7. 只读共享：导出行 ro + 目录 0755，客户端写不进去 ==
+PASS  只读导出预检允许
+PASS  只读导出任务终态
+PASS  只读导出结果 verified
+PASS  拿到只读共享的标识
+PASS  只读目录权限是 0755
+PASS  独立证据：文件里那一行是 ro
+PASS  独立证据：实际导出表里是 ro
+PASS  两条导出都在托管文件里
+PASS  服务端放一个只读文件
+PASS  只读共享挂载退出码是 0
+PASS  findmnt 确认只读共享挂上了
+PASS  客户端读得到服务端放进去的文件
+/tmp/p14-4-acceptance.sh: 879: cannot create /mnt/nfs-media-ro/probe-write.txt: Read-only file system
+PASS  核心：只读共享上客户端写不进去（内核拒绝）
+PASS  拒绝是内核的只读错误，不是别的原因
+PASS  只读共享目录里没有多出写入的文件
+PASS  只读共享的客户端挂载已经卸干净
+
+== 8. 同路径冲突：预检就拦下，不是等 exportfs 报 duplicated ==
+PASS  同目录的第二个导出被拦下
+PASS  阻塞码是 EXPORT_PATH_CONFLICT
+PASS  被拦下时实际导出表没被动
+
+== 9. 卷依赖：卸载被拒、掉线撤销、挂回来不自动复活 ==
+PASS  有启用导出时，面板拒绝卸载这块卷
+PASS  拒绝的理由是 VOLUME_IN_USE_BY_SHARE
+PASS  客户端挂载已卸掉（否则卷也卸不掉）
+PASS  只读共享的客户端挂载也已卸掉
+PASS  独立证据：卷从挂载树里摘掉了
+NOTE  等撤销用了 13 秒
+PASS  运行时撤销记录出现了
+PASS  撤销记录里写着当时的卷状态
+PASS  config_applied 跟着变成假
+PASS  独立证据（核心）：托管导出文件里已经没有这个路径
+PASS  独立证据（核心）：实际导出表里也没有了
+PASS  卷掉线后客户端挂不上
+PASS  独立证据：卷又挂上了
+PASS  卷挂回来之后仍然是撤销状态（不自动恢复）
+PASS  卷挂回来之后导出表里依然没有它（撤销只减不增）
+PASS  重新应用任务终态
+PASS  重新应用结果 verified
+PASS  重新应用之后撤销记录被清掉
+PASS  独立证据：实际导出表里又有它了
+PASS  重新应用之后客户端又能挂上
+PASS  核心：findmnt 确认真的挂上了
+PASS  客户端读得到之前写进去的文件
+NOTE  NFSv4 的尝试结果记在 /var/tmp/upanel-accept-p14-4/facts/mount-v4.txt（不作为通过项）
+
+== 10. 撤干净：导出行没了，卷里的文件一个不少 ==
+PASS  客户端挂载都卸掉了
+PASS  停用只读导出的任务终态
+PASS  独立证据：文件里不再有 ro 那一行
+PASS  独立证据：实际导出表里也没有了
+PASS  独立证据：目录与文件还在
+PASS  删除读写导出的任务终态
+PASS  独立证据：实际导出表里一条面板的导出都不剩
+PASS  独立证据：文件里一条 upanel 行都不剩
+PASS  独立证据：卷里的文件数与删除前一致
+PASS  独立证据：内容哈希没变
+PASS  独立证据：没人动的 /etc/exports 哈希没变
+PASS  收尾只剩一条共享
+PASS  收尾那一条是 media-ro、已停用、没在配置里
+
+== 11. 结论 ==
+NOT RUN  从另一台机器挂进来: VM 里只有本机；网段限制用'改名单'在本机验过，跨机器链路没跑过
+NOT RUN  Windows / macOS 的 NFS 客户端: 没有这两种测试机；地址形态由 web 侧断言（web/src/api/shares.test.ts）
+NOT RUN  NFSv4 直挂: 面板不假设 v4（fsid=0 假根会挡）；脚本只跑 vers=3,proto=tcp，v4 结果只记录
+NOT RUN  两条导出并发写托管文件: 锁行为由 internal/shares/exports_test.go 覆盖；真机并发会把冲突变成时序问题
+NOT RUN  kerberos（sec=krb5*）: 这一版固定 sec=sys，没有这一层
+NOT RUN  设备级掉线（拔盘 / I\O 错误之后 statfs 报错）: 这台 VM 是 -monitor none 起的，跑的时候没法把 sdb 拔掉；验过的是“挂载点从命名空间里消失之后面板做什么”（lazy umount）
+PASS=141 FAIL=0 NOT RUN=6

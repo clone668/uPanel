@@ -1,0 +1,4 @@
+PHASE=boot
+PASS=13 FAIL=1 NOT RUN=0
+FAILED_NAMES= | 开机到 Web 可用不超过 120s
+NOTRUN_NAMES= (none)

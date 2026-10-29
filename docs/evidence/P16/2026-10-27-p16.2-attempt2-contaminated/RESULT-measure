@@ -1,0 +1,4 @@
+PHASE=measure
+PASS=11 FAIL=3 NOT RUN=3
+FAILED_NAMES= | 日志 limit=1000 接受 | 单页条数不超过 1000 | 单页消息总量不超过 1 MiB
+NOTRUN_NAMES= | 上传 2 GiB 上限 | 文本编辑 1 MiB 上限 | 浏览器完成主要用户流程

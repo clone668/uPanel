@@ -1,0 +1,30 @@
+== date ==
+2026-10-27T04:39:02Z
+
+== go version ==
+go version go1.27.3 windows/amd64
+
+== gofmt -l internal cmd ==
+(above: files needing format; empty = clean)
+
+== go vet ==
+vet rc=0
+
+== go build ==
+build ok
+
+== web typecheck ==
+typecheck ok
+
+== web lint ==
+lint ok
+
+ Test Files  57 passed (57)
+      Tests  1116 passed (1116)
+
+== go test -count=1 (P14.5 相关五个包) ==
+ok  	upanel/internal/accounts	0.971s
+ok  	upanel/internal/agent	42.382s
+ok  	upanel/internal/agentstore	6.057s
+ok  	upanel/internal/api	157.354s
+ok  	upanel/internal/shares	1.469s

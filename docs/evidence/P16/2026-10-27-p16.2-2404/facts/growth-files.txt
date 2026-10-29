@@ -1,0 +1,14 @@
+## before
+4096	/var/lib/upanel-agent/agent.db
+32768	/var/lib/upanel-agent/agent.db-shm
+593312	/var/lib/upanel-agent/agent.db-wal
+364544	/var/lib/upanel/upanel.db
+32768	/var/lib/upanel/upanel.db-shm
+490312	/var/lib/upanel/upanel.db-wal
+## after
+4096	/var/lib/upanel-agent/agent.db
+32768	/var/lib/upanel-agent/agent.db-shm
+593312	/var/lib/upanel-agent/agent.db-wal
+364544	/var/lib/upanel/upanel.db
+32768	/var/lib/upanel/upanel.db-shm
+877592	/var/lib/upanel/upanel.db-wal

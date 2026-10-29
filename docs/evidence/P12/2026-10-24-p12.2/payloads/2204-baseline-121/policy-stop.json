@@ -1,0 +1,1 @@
+{"data":{"id":"pol_81b96f27637406ad07a8019a24dff403","name":"p12-2 停机备份","repository_id":"rep_a04d91b54468de609e886080a18f1087","sources":[{"kind":"root","root_id":"root1","relative_path":"data"}],"consistency_mode":"stop_managed_apps","app_ids":["app_804055fbfd720e3d283f4752cbc50873"],"retention":{"keep_last":3},"version":1},"request_id":"ab2fee4b2c8d4a857a361ca7b4b75517"}

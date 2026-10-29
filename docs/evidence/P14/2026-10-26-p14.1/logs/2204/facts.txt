@@ -1,0 +1,42 @@
+collected_at(interfaces) = 2026-10-26T12:51:58Z
+iface ens4   kind=ethernet phys=True  state=up       mtu=1500 carrier=True addrs=['10.0.2.15/24(ipv4)', 'fec0::5054:ff:fe12:3456/64(ipv6)', 'fe80::5054:ff:fe12:3456/64(ipv6)']
+iface lo     kind=loopback phys=False state=unknown  mtu=65536 carrier=True addrs=['127.0.0.1/8(ipv4)', '::1/128(ipv6)']
+capability backend=netplan-networkd editable=True target='ens4' reasons=[]
+routes=8 default=[('ipv4', '0.0.0.0/0', '10.0.2.2', 'ens4'), ('ipv6', '::/0', 'fe80::2', 'ens4')]
+gateways=[('ipv4', '10.0.2.2', 'ens4'), ('ipv6', 'fe80::2', 'ens4')]
+listeners=33 truncated=False
+  listen tcp  0.0.0.0         22    pid=737    proc=sshd           unit=ssh.service wildcard=True loopback=False
+  listen tcp  ::              22    pid=737    proc=sshd           unit=ssh.service wildcard=True loopback=False
+  listen tcp  127.0.0.53      53    pid=635    proc=systemd-resolve unit=systemd-resolved.service wildcard=False loopback=True
+  listen udp  127.0.0.53      53    pid=635    proc=systemd-resolve unit=systemd-resolved.service wildcard=False loopback=True
+  listen udp  10.0.2.15       68    pid=633    proc=systemd-network unit=systemd-networkd.service wildcard=False loopback=False
+  listen tcp  0.0.0.0         111   pid=1      proc=systemd        unit=init.scope wildcard=True loopback=False
+  listen tcp  ::              111   pid=1      proc=systemd        unit=init.scope wildcard=True loopback=False
+  listen udp  0.0.0.0         111   pid=1      proc=systemd        unit=init.scope wildcard=True loopback=False
+  listen udp  ::              111   pid=1      proc=systemd        unit=init.scope wildcard=True loopback=False
+  listen udp  127.0.0.1       858   pid=682    proc=rpc.statd      unit=rpc-statd.service wildcard=False loopback=True
+  listen tcp  0.0.0.0         2049  pid=0      proc=               unit= wildcard=True loopback=False
+  listen tcp  ::              2049  pid=0      proc=               unit= wildcard=True loopback=False
+  listen tcp  127.0.0.1       19471 pid=129560 proc=upanel-web     unit=session-1189.scope wildcard=False loopback=True
+  listen tcp  0.0.0.0         33871 pid=706    proc=rpc.mountd     unit=nfs-mountd.service wildcard=True loopback=False
+  listen udp  ::              34832 pid=706    proc=rpc.mountd     unit=nfs-mountd.service wildcard=True loopback=False
+  listen tcp  ::              34967 pid=0      proc=               unit= wildcard=True loopback=False
+  listen tcp  ::              38383 pid=682    proc=rpc.statd      unit=rpc-statd.service wildcard=True loopback=False
+  listen tcp  0.0.0.0         38953 pid=0      proc=               unit= wildcard=True loopback=False
+  listen udp  0.0.0.0         39087 pid=706    proc=rpc.mountd     unit=nfs-mountd.service wildcard=True loopback=False
+  listen tcp  0.0.0.0         40359 pid=706    proc=rpc.mountd     unit=nfs-mountd.service wildcard=True loopback=False
+  listen udp  ::              45363 pid=682    proc=rpc.statd      unit=rpc-statd.service wildcard=True loopback=False
+  listen udp  0.0.0.0         46288 pid=706    proc=rpc.mountd     unit=nfs-mountd.service wildcard=True loopback=False
+  listen udp  ::              48601 pid=706    proc=rpc.mountd     unit=nfs-mountd.service wildcard=True loopback=False
+  listen udp  0.0.0.0         49332 pid=682    proc=rpc.statd      unit=rpc-statd.service wildcard=True loopback=False
+  listen tcp  0.0.0.0         49915 pid=682    proc=rpc.statd      unit=rpc-statd.service wildcard=True loopback=False
+  listen tcp  ::              51003 pid=706    proc=rpc.mountd     unit=nfs-mountd.service wildcard=True loopback=False
+  listen tcp  0.0.0.0         51089 pid=706    proc=rpc.mountd     unit=nfs-mountd.service wildcard=True loopback=False
+  listen tcp  ::              51901 pid=706    proc=rpc.mountd     unit=nfs-mountd.service wildcard=True loopback=False
+  listen udp  0.0.0.0         52720 pid=706    proc=rpc.mountd     unit=nfs-mountd.service wildcard=True loopback=False
+  listen udp  ::              54423 pid=706    proc=rpc.mountd     unit=nfs-mountd.service wildcard=True loopback=False
+  listen udp  ::              54699 pid=0      proc=               unit= wildcard=True loopback=False
+  listen tcp  ::              57055 pid=706    proc=rpc.mountd     unit=nfs-mountd.service wildcard=True loopback=False
+  listen udp  0.0.0.0         59864 pid=0      proc=               unit= wildcard=True loopback=False
+firewall manager=ufw installed=True enabled=False editable=True rules=0 defaults=None/None/None logging=None
+firewall manager_reasons=['发现 ufw，且没有别的防火墙管理器在'] reasons=[] issues=[]

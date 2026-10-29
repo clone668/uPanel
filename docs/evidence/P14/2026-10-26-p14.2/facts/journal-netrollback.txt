@@ -1,0 +1,17 @@
+Oct 26 15:03:32 upanel-2204 systemd[1]: Starting uPanel network rollback (nrb_bfc428392a1c733a9df5087e53b57f90)...
+Oct 26 15:03:41 upanel-2204 upanel-agent[148818]: 回滚 nrb_bfc428392a1c733a9df5087e53b57f90 已处理
+Oct 26 15:03:41 upanel-2204 systemd[1]: upanel-netrollback@nrb_bfc428392a1c733a9df5087e53b57f90.service: Deactivated successfully.
+Oct 26 15:03:41 upanel-2204 systemd[1]: Finished uPanel network rollback (nrb_bfc428392a1c733a9df5087e53b57f90).
+Oct 26 15:03:41 upanel-2204 systemd[1]: upanel-netrollback@nrb_bfc428392a1c733a9df5087e53b57f90.service: Consumed 3.013s CPU time.
+Oct 26 15:01:16 upanel-2204 systemd[1]: Started uPanel network rollback timer (nrb_bfc428392a1c733a9df5087e53b57f90).
+Oct 26 15:03:38 upanel-2204 systemd[1]: upanel-netrollback@nrb_bfc428392a1c733a9df5087e53b57f90.timer: Deactivated successfully.
+Oct 26 15:03:38 upanel-2204 systemd[1]: Stopped uPanel network rollback timer (nrb_bfc428392a1c733a9df5087e53b57f90).
+○ upanel-netrollback@nrb_bfc428392a1c733a9df5087e53b57f90.service - uPanel network rollback (nrb_bfc428392a1c733a9df5087e53b57f90)
+     Loaded: loaded (/etc/systemd/system/upanel-netrollback@.service; static)
+     Active: inactive (dead)
+
+Oct 26 15:03:32 upanel-2204 systemd[1]: Starting uPanel network rollback (nrb_bfc428392a1c733a9df5087e53b57f90)...
+Oct 26 15:03:41 upanel-2204 upanel-agent[148818]: 回滚 nrb_bfc428392a1c733a9df5087e53b57f90 已处理
+Oct 26 15:03:41 upanel-2204 systemd[1]: upanel-netrollback@nrb_bfc428392a1c733a9df5087e53b57f90.service: Deactivated successfully.
+Oct 26 15:03:41 upanel-2204 systemd[1]: Finished uPanel network rollback (nrb_bfc428392a1c733a9df5087e53b57f90).
+Oct 26 15:03:41 upanel-2204 systemd[1]: upanel-netrollback@nrb_bfc428392a1c733a9df5087e53b57f90.service: Consumed 3.013s CPU time.

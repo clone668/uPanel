@@ -1,0 +1,128 @@
+== 0. 前置、版本与独立故障卷 ==
+PASS  full-target-is-tmpfs
+PASS  p12-2-prerequisite-loaded
+PASS  agent-started
+PASS  web-started
+PASS  web-not-root
+PASS  login-admin
+PASS  capabilities-200
+PASS  capabilities-restore
+PASS  capabilities-verify
+PASS  capabilities-prune
+
+== 1. 96 MiB 真实快照：本地与 SFTP ==
+PASS  policy-recovery-create
+PASS  policy-network-create
+PASS  recovery-baseline-reauth
+PASS  recovery-baseline-preflight-200
+PASS  recovery-baseline-preflight-allowed
+PASS  recovery-baseline-submit-202
+PASS  recovery-baseline-succeeded
+PASS  recovery-snapshot-64hex
+PASS  network-baseline-reauth
+PASS  network-baseline-preflight-200
+PASS  network-baseline-preflight-allowed
+PASS  network-baseline-submit-202
+PASS  network-baseline-succeeded
+PASS  network-snapshot-64hex
+
+== 2. 恢复到新目录、默认覆盖保护与结构/抽样验证 ==
+PASS  restore-new-reauth
+PASS  restore-new-preflight-200
+PASS  restore-new-preflight-allowed
+PASS  restore-new-submit-202
+PASS  restore-new-succeeded
+PASS  restore-new-hash
+PASS  restore-new-outside-unchanged
+PASS  restore-new-published
+PASS  restore-new-verified
+PASS  restore-nonempty-preflight-200
+PASS  restore-nonempty-blocked
+PASS  restore-nonempty-blocker
+PASS  restore-caller-apps-400
+PASS  verify-structure-preflight
+PASS  verify-structure-submit
+PASS  verify-structure-succeeded
+PASS  verify-structure-not-restore-proof
+PASS  structure-check-no-verification-time
+PASS  verify-sample-preflight
+PASS  verify-sample-submit
+PASS  verify-sample-succeeded
+PASS  verify-sample-files
+PASS  sample-restore-persisted
+
+== 3. 覆盖恢复：真停/拉起应用、整目录替换 ==
+PASS  overwrite-app-started
+PASS  restore-overwrite-reauth
+PASS  restore-overwrite-preflight-200
+PASS  restore-overwrite-preflight-allowed
+PASS  restore-overwrite-submit-202
+PASS  overwrite-apps-expanded
+PASS  overwrite-confirmation
+PASS  restore-overwrite-succeeded
+PASS  overwrite-stale-removed
+PASS  overwrite-restored-hash
+PASS  overwrite-app-active
+PASS  overwrite-app-really-restarted
+PASS  overwrite-apps-restored
+
+== 4. 恢复写满独立 tmpfs：失败且不发布 ==
+PASS  restore-enospc-reauth
+PASS  restore-enospc-preflight-200
+PASS  restore-enospc-preflight-allowed
+PASS  restore-enospc-submit-202
+PASS  enospc-restic-restore-observed
+PASS  enospc-filler-really-hit-limit
+PASS  enospc-volume-zero-available
+PASS  restore-enospc-failed
+PASS  enospc-original-content-preserved
+PASS  enospc-new-tree-not-published
+PASS  enospc-app-still-recovered
+
+== 5. SFTP 恢复中断：失败且原目录不变 ==
+PASS  restore-network-cut-reauth
+PASS  restore-network-cut-preflight-200
+PASS  restore-network-cut-preflight-allowed
+PASS  restore-network-cut-submit-202
+PASS  network-restore-ssh-killed
+PASS  restore-network-cut-failed
+PASS  network-original-content-preserved
+PASS  network-new-tree-not-published
+PASS  network-app-still-recovered
+PASS  network-snapshot-still-readable
+
+== 6. 显式保留清理：冻结集合、过期拒绝、只删本策略 ==
+FAIL  prune-second-reauth: 期望 '200'，实际 '401'
+FAIL  prune-second-preflight-200: 期望 '200'，实际 '401'
+FAIL  prune-second-preflight-allowed: 期望 'True'，实际 'ERR:KeyError:'data''
+FAIL  prune-second-submit-202: 期望 '202'，实际 '401'
+FAIL  prune-second-succeeded: 期望 'succeeded'，实际 'no-job-id'
+FAIL  prune-preflight-200: 期望 '200'，实际 '401'
+FAIL  prune-preflight-allowed: 期望 'True'，实际 'ERR:KeyError:'data''
+FAIL  prune-preflight-names-old: 期望包含 '1ab2d6c456033d53891d2954621da717297603bacd4e5f7036183f9dd506bb75'，实际 'ERR:KeyError:'data''
+FAIL  prune-third-reauth: 期望 '200'，实际 '401'
+FAIL  prune-third-preflight-200: 期望 '200'，实际 '401'
+FAIL  prune-third-preflight-allowed: 期望 'True'，实际 'ERR:KeyError:'data''
+FAIL  prune-third-submit-202: 期望 '202'，实际 '401'
+FAIL  prune-third-succeeded: 期望 'succeeded'，实际 'no-job-id'
+FAIL  prune-stale-submit-409: 期望 '409'，实际 '401'
+FAIL  prune-stale-code: 期望 'PREFLIGHT_STALE'，实际 'UNAUTHENTICATED'
+FAIL  prune-stale-deleted-nothing-old: 期望 'True'，实际 'ERR:KeyError:'data''
+FAIL  prune-stale-deleted-nothing-second: 期望 'True'，实际 'ERR:KeyError:'data''
+FAIL  prune-success-reauth: 期望 '200'，实际 '401'
+FAIL  prune-success-preflight-200: 期望 '200'，实际 '401'
+FAIL  prune-confirmation-delete: 期望包含 'DELETE'，实际 'ERR:KeyError:'data''
+FAIL  prune-success-submit-202: 期望 '202'，实际 '401'
+FAIL  prune-success-succeeded: 期望 'succeeded'，实际 'no-job-id'
+FAIL  prune-readback-verified: 期望 'True'，实际 'ERR:KeyError:'observed_state''
+FAIL  prune-old-deleted: 期望 'False'，实际 'ERR:KeyError:'data''
+FAIL  prune-second-deleted: 期望 'False'，实际 'ERR:KeyError:'data''
+FAIL  prune-newest-kept: 期望 'True'，实际 'ERR:KeyError:'data''
+FAIL  prune-other-policy-kept: 期望 'True'，实际 'ERR:KeyError:'data''
+FAIL  network-repository-list-after-prune: 期望 '200'，实际 '401'
+FAIL  network-repository-untouched-by-local-prune: 期望 'True'，实际 'ERR:KeyError:'data''
+
+== 结果 ==
+PASS=81 FAIL=29 NOT RUN=0
+失败项： | prune-second-reauth | prune-second-preflight-200 | prune-second-preflight-allowed | prune-second-submit-202 | prune-second-succeeded | prune-preflight-200 | prune-preflight-allowed | prune-preflight-names-old | prune-third-reauth | prune-third-preflight-200 | prune-third-preflight-allowed | prune-third-submit-202 | prune-third-succeeded | prune-stale-submit-409 | prune-stale-code | prune-stale-deleted-nothing-old | prune-stale-deleted-nothing-second | prune-success-reauth | prune-success-preflight-200 | prune-confirmation-delete | prune-success-submit-202 | prune-success-succeeded | prune-readback-verified | prune-old-deleted | prune-second-deleted | prune-newest-kept | prune-other-policy-kept | network-repository-list-after-prune | network-repository-untouched-by-local-prune
+EXIT=1

@@ -1,0 +1,19 @@
+Warning: Permanently added '[127.0.0.1]:2222' (ED25519) to the list of known hosts.
+STAMP 2026-10-27T15:46:07Z boot 开始（重启之后）
+PASS  upanel-web 开机自启并 active
+PASS  upanel-agent 开机自启并 active
+PASS  两个单元都还是 enabled
+PASS  重启后代理 socket 又在了
+PASS  重启后健康检查 200
+PASS  重启后还是那张证书
+NOTE  开机到 Web active：152s（btime→ActiveEnterTimestamp）
+FAIL  开机到 Web 可用不超过 120s: 152s
+PASS  重启后管理员仍能登录（库没坏）
+PASS  重启后标记账号还在
+PASS  重启后配置没有被改写
+PASS  重启后代理密钥没有被改写
+PASS  重启后能力探测仍可用
+PASS  重启后 host_caps 仍是探完的
+PASS  重启后系统概览 200（代理链路通）
+
+==== boot: PASS=13 FAIL=1 NOT RUN=0 ====

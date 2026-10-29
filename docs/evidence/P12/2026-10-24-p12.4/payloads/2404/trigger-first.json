@@ -1,0 +1,10 @@
+{
+  "schedule_id": "sch_7dd1c07a0d7c0bc91a778a6d3988346c",
+  "trigger_id": "trg_d0f268ea00e77ee1a090161e8d928f73",
+  "operation_id": "op_c3dfcfe37064b647432b51c1da14d039",
+  "slot_at": "2026-10-25T08:05:00Z",
+  "action": "script.run",
+  "outcome": "triggered",
+  "max_runtime_seconds": 120,
+  "duplicate": false
+}

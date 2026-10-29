@@ -1,0 +1,231 @@
+== 0. 环境与起点 ==
+PASS  二进制存在：/var/tmp/upanel-bin/upanel-agent
+PASS  二进制存在：/var/tmp/upanel-bin/upanel-web
+PASS  二进制存在：/var/tmp/upanel-bin/upanelctl
+PASS  夹具：有 python3
+PASS  夹具：有 curl
+PASS  夹具：有 ss
+PASS  夹具：有 runuser
+PASS  夹具：有 systemctl
+PASS  夹具：有 docker
+PASS  夹具：有 findmnt
+PASS  夹具：有 blkid
+PASS  夹具：有 sgdisk
+PASS  夹具：docker compose 可用（2.40.3+ds1-0ubuntu1~22.04.1）
+PASS  夹具：docker 守护进程 active
+PASS  夹具：镜像 traefik/whoami:v1.10.3 已在本地
+PASS  夹具盘 /dev/sdd（4 GiB，不是系统盘）
+STAMP 2026-10-27T11:40:59Z 起点
+
+== 1. 配置与启动（代理 root、Web 非 root） ==
+PASS  代理密钥文件已存在（沿用）
+PASS  代理以 root 启动并创建 socket
+PASS  代理进程 uid=0
+PASS  init-admin 退出码
+PASS  Web 在 http://127.0.0.1:19491 启动
+PASS  监听 19491 的 Web 进程不是 root（pid=2692 uid=997）
+PASS  管理员登录
+PASS  拿到 CSRF 令牌
+
+== 2. 能力登记：两条部署动作真的在代理的登记表里 ==
+PASS  capabilities 可读
+PASS  登记表里有 deployment.apply
+PASS  登记表里有 deployment.remove
+PASS  没有 deployment.* 的查询冒充动作
+
+== 3. 卷夹具：一次性空盘 → GPT → 分区 → ext4 → 导入 → 挂载 ==
+PASS  初始化 GPT（sdd）任务终态
+PASS  初始化 GPT（sdd）结果是 verified
+PASS  初始化 GPT（sdd）带 verified_at
+PASS  盘上确实有 GPT（blkid 独立读取）
+PASS  建 2 GiB 分区（sdd）任务终态
+PASS  建 2 GiB 分区（sdd）结果是 verified
+PASS  建 2 GiB 分区（sdd）带 verified_at
+PASS  格式化为 ext4（sdd1）任务终态
+PASS  格式化为 ext4（sdd1）结果是 verified
+PASS  格式化为 ext4（sdd1）带 verified_at
+PASS  夹具分区 /dev/sdd1 存在
+PASS  独立工具读到文件系统 UUID
+PASS  独立工具读到 ext4
+PASS  导入卷（sdd1 → slug=p15data）任务终态
+PASS  导入卷（sdd1 → slug=p15data）结果是 verified
+PASS  导入卷（sdd1 → slug=p15data）带 verified_at
+PASS  卷标识是 vol_ 形状
+PASS  导入写进 fstab 的 UUID 与盘上一致（blkid 读回）
+PASS  导入没有把卷挂上
+PASS  卷的挂载点由 slug 派生
+PASS  挂载卷任务终态
+PASS  挂载卷结果是 verified
+PASS  挂载卷带 verified_at
+PASS  挂载结果里的挂载点
+PASS  挂载结果里的 UUID 与盘上一致
+PASS  挂载点真的挂着
+PASS  挂的是这块盘（findmnt 的 UUID）
+PASS  systemd 认得这个 mount unit
+PASS  采集器看到卷挂上了（部署预检读的是它的快照）
+PASS  marker 落在卷上（不是系统盘）
+
+== 4. 文件根登记 + 重启代理（根必须来自卷里的目录） ==
+PASS  配置权限仍是 0644
+PASS  代理带着文件根重启
+PASS  文件根查询返回 200
+PASS  文件根 deploydata 可用
+PASS  文件根指向卷里的目录
+PASS  文件根所在挂载点就是卷
+
+== 5. 部署：定义 → 渲染 → 单元 → 容器（四条硬读数） ==
+STAMP 2026-10-27T11:42:43Z §5 部署开始
+PASS  预检 deployment.apply 状态码
+PASS  预检允许
+PASS  预检没有阻塞项
+PASS  目标显示名
+PASS  身份指纹由部署标识派生
+PASS  影响里有写单元
+PASS  影响里有写配置
+PASS  影响里有拉容器
+PASS  锁住 compose 项目
+PASS  锁住宿主端口
+PASS  锁住依赖卷
+PASS  部署需要再认证
+PASS  部署没有确认短语（短语是关机类动作的事）
+PASS  部署前线上没有这个单元在跑
+PASS  部署前配置目录不存在
+PASS  再认证
+PASS  提交被受理
+PASS  部署任务终态
+PASS  部署结果是 verified
+PASS  部署带 verified_at
+PASS  部署标识由名字派生
+PASS  配置摘要是 sha256: 形状
+PASS  这条任务写出了两份文件
+PASS  第一次不是幂等重放
+PASS  首次部署走 start 而不是 restart
+PASS  回读：单元 enabled
+PASS  回读：单元 active
+PASS  容器核对执行过
+PASS  项目下有 1 个容器在跑
+NOTE  部署现场已落盘：facts/diag/（docker ps -a、compose ps、单元状态、journal、events）
+PASS  单元文件存在：/etc/systemd/system/upanel-deploy-webapp.service
+PASS  单元文件权限
+PASS  单元文件属主
+PASS  单元里有 Type=oneshot
+PASS  单元里有 RemainAfterExit=yes
+PASS  单元要求 docker.service
+PASS  单元要开机自启
+PASS  单元逐卷 BindsTo 挂载单元
+PASS  单元在挂载单元之后启动
+PASS  单元声明 RequiresMountsFor
+PASS  ExecStart 只有一条 compose up
+PASS  单元里没有 shell（没有 sh -c）
+PASS  渲染配置存在：/etc/upanel/deploy/webapp.compose.yaml
+PASS  配置目录权限（root 独占）
+PASS  配置文件权限（里面有秘密）
+PASS  配置文件属主
+PASS  配置里 restart 是字符串 "no"
+PASS  配置里宿主端口
+PASS  配置里绑定地址
+PASS  配置里镜像
+PASS  配置里挂载源是卷里的目录
+PASS  配置里关掉自动建目录
+PASS  配置里环境变量
+NOTE  配置文件 sha256=a6ef80e65198fd1222ebdf68f31e6f813966ad4b5867a43d701e01e757536b23（产品报的摘要另算一份，见 job 的 config_digest）
+PASS  is-enabled 是 enabled
+PASS  is-active 是 active
+PASS  is-active 是 active（mount unit）
+PASS  compose 项目里有容器
+PASS  容器在跑
+PASS  容器没在重启循环里
+PASS  容器 restart 策略是 no（运行时读回）
+PASS  容器内存上限
+PASS  容器 CPU 上限（NanoCpus）
+PASS  容器的绑定源就是卷里的目录
+PASS  compose 项目名就是部署名
+PASS  宿主端口 18087 上的容器真的在应答 HTTP 200
+PASS  应答来自 whoami（看见 Host 头）
+NOT RUN  容器里读到的 marker: whoami 是 scratch 镜像，容器内没有 cat/sh；挂载由 docker inspect 的 Source 与 findmnt 交叉核对
+
+== 6. 幂等重放：同一份定义再 apply 一次，不重写、不重启 ==
+STAMP 2026-10-27T11:43:31Z §6 重放开始
+PASS  重放预检状态码
+PASS  重放被允许（同内容不是“更新”）
+PASS  重放的锁与新建一致
+PASS  重放需要再认证
+PASS  再认证
+PASS  重放提交被受理
+PASS  重放任务终态
+PASS  重放结果是 verified
+PASS  重放带 verified_at
+PASS  重放没有重写文件
+PASS  重放被标成幂等
+PASS  重放没有重启单元
+PASS  重放后单元仍是 active
+PASS  重放后容器数还是 1
+PASS  单元文件 mtime 没变
+PASS  配置 mtime 没变
+PASS  配置字节没变
+PASS  容器 ID 没变
+PASS  容器没有被重启（StartedAt 没变）
+PASS  容器还在跑
+
+== 7. apply 只创建：换定义与带 deployment_id 都被判决层拦住 ==
+PASS  带 deployment_id 的预检状态码
+PASS  带 deployment_id 的预检不允许
+PASS  阻塞码是 update_not_implemented
+PASS  阻塞理由指向 P15.3
+PASS  换定义的预检状态码
+PASS  换定义的预检不允许
+PASS  阻塞码是 deployment_exists
+PASS  被拒的预检没有改动磁盘上的配置
+PASS  被拒的预检没有改动单元
+PASS  容器还在跑（没有被“更新”拆掉）
+
+== 8. 停止与卷依赖：卷卸下之后这个单元起不来 ==
+STAMP 2026-10-27T11:44:03Z §8 停止与卷依赖开始
+PASS  stop 之后单元不再 active
+PASS  stop 之后 enabled 仍是 enabled
+PASS  stop 之后项目里没有运行中的容器
+PASS  stop 之后 marker 还在
+PASS  stop 之后卷还挂着
+PASS  stop 之后 compose ps 是空的
+PASS  卸载卷任务终态
+PASS  卸载卷结果是 verified
+PASS  卸载卷带 verified_at
+PASS  卸载后挂载点为空
+PASS  mount unit 不再 active
+PASS  采集器也看到卷卸下了（预检读的是它的快照）
+PASS  mount unit 被 mask（故障注入）
+PASS  依赖起不来时 systemctl start 失败（BindsTo 生效）
+PASS  被挡住的单元不是 active
+PASS  被挡住时项目里没有容器
+PASS  被挡住时卷仍然没挂上（没有替我们建目录）
+PASS  被挡住时 marker 不在系统盘上
+PASS  卷没挂上时预检不允许
+PASS  阻塞码是 volume_not_ready
+PASS  阻塞理由说清了“没有挂载”
+PASS  mount unit 解除 mask
+PASS  重新挂载卷任务终态
+PASS  重新挂载卷结果是 verified
+PASS  重新挂载卷带 verified_at
+PASS  采集器看到卷挂回来了
+PASS  卷挂回来之后 systemctl start 成功
+PASS  单元回到 active
+PASS  容器回来了
+PASS  HTTP 200 回来了
+PASS  数据还是那一份
+NOT RUN  运行中卷失联 → systemd 自动停单元: 容器把那块卷 bind 进了自己的 mount namespace，内核里的是 busy；产品拒绝、强行 umount -l 造出的现场不能当读数
+
+== 9. 准备重启验证：单元停掉、卷卸下、留一张 state.env ==
+PASS  重启前单元已停
+PASS  重启前卸下卷任务终态
+PASS  重启前卸下卷结果是 verified
+PASS  重启前卸下卷带 verified_at
+PASS  重启前挂载点为空
+PASS  重启前系统盘上的同名目录里没有文件
+NOTE  系统盘视角：/srv/upanel/volumes/p15data/appdata 不存在
+PASS  mount unit 被 mask（故障注入，重启段末尾恢复）
+PASS  mask 之后单元仍然 enabled（挡它的只能是依赖）
+PASS  state.env 写好（重启段读它）
+STAMP 2026-10-27T11:45:05Z main 段结束
+
+== 10. 重启这台 VM（REBOOT=1） ==
+NOTE  重启后跑：sudo BIN_DIR=/var/tmp/upanel-bin PHASE=boot sh /var/tmp/p15-2-acceptance.sh

@@ -1,0 +1,45 @@
+==== 将要执行 ====
+1) 停止并禁用 upanel-web.service、upanel-agent.service
+2) 删除下面这些路径：
+     /etc/systemd/system/upanel-web.service
+     /etc/systemd/system/upanel-agent.service
+     /usr/local/lib/upanel
+     /usr/local/bin/upanel-web
+     /usr/local/bin/upanelctl
+     /usr/local/share/doc/upanel
+3) systemctl daemon-reload
+
+==== 默认保留（需要显式参数才删）====
+     /etc/upanel（配置、面板证书、代理密钥）
+     /var/lib/upanel（面板数据库：账号、审计、任务记录）
+     /var/lib/upanel-agent（代理数据库）
+     /etc/ssl/upanel（签发与导入的证书）
+     /srv/upanel（站点与应用数据 —— 永远不会自动删除）
+     系统账号 upanel-web、upanel-shell
+     /var/www/upanel-acme（ACME 校验目录，留着无影响）
+
+
+==== 执行 ====
+      删除 /etc/systemd/system/upanel-web.service
+      删除 /etc/systemd/system/upanel-agent.service
+      删除 /usr/local/lib/upanel
+      删除 /usr/local/bin/upanel-web
+      删除 /usr/local/bin/upanelctl
+      删除 /usr/local/share/doc/upanel
+
+==== 卸载完成 ====
+上面列出的路径已删除。仍然保留的：
+  /srv/upanel         站点与应用数据（除非用了 --yes-delete-srv）
+  /var/www/upanel-acme     ACME 校验目录
+  /etc/upanel         配置、面板证书、代理密钥
+  /var/lib/upanel    面板数据库（账号、审计、任务记录）
+  /var/lib/upanel-agent    代理数据库
+  /etc/ssl/upanel    签发与导入的证书
+  系统账号 upanel-web、upanel-shell
+如果要重新安装：把发布包解开，再次执行
+  sudo sh deploy/scripts/install.sh --source .
+安装器是幂等的：已存在的账号、目录、证书、配置、密钥都会沿用。
+
+如果这次把面板删得干净到想恢复数据，只能从删除前的备份里恢复
+（安装器与卸载器都会在动数据库之前备份；手工备份用 deploy/scripts/backup-state.sh，
+见 docs/RECOVERY.md 与 docs/LOCAL_START.md）。

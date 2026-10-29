@@ -1,0 +1,3 @@
+boot_to_web_seconds=75
+upanel_own_seconds=upanel-agent.service=6.160s upanel-web.service=5.021s 
+systemd_analyze=Startup finished in 11.119s (kernel) + 1min 31.826s (userspace) = 1min 42.945s  graphical.target reached after 1min 18.243s in userspace. 

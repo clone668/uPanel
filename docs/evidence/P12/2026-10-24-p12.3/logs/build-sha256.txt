@@ -1,0 +1,36 @@
+# P12.3 最终产物指纹（交付版：2026-10-25T03:40:00Z 构建）
+#
+# 构建命令（唯一入口，见 scripts/build-linux.sh 的复现说明）：
+#   VERSION=0.0.0-dev COMMIT=8e52b36 BUILD_DATE=2026-10-25T03:40:00Z sh scripts/build-linux.sh
+# 同一条命令连跑两次，三个产物逐字节相同（本轮实测，两次 sha256sum 完全一致）。
+#
+# 部署：两台 VM 用同一组二进制，`install -m 755` 逐文件覆盖，部署后逐文件核哈希并与本地
+# 比对，输出见 logs/deploy-verify.txt（upanel-agent 0.0.0-dev commit 8e52b36
+# built 2026-10-25T03:40:00Z go1.27.3，两台相同）。
+#
+# 上行路径是 VM 上的部署位置；本地同名产物在 bin/linux-amd64/ 下，哈希相同。
+5ce3c24aab878a7c495e033cb61f473261a53d1a1ea1a04fcd11c215577f40ce  /var/tmp/upanel-bin/upanel-web
+2bee85c4088038c831c93259779918a9c9a207f8a8b3e7b18fb1f49eecfce50b  /var/tmp/upanel-bin/upanel-agent
+123ae7beb06ffc9a04e54805f6ebd9b0cfc7a7c69c06634649f8e89abeb6b5c9  /var/tmp/upanel-bin/upanelctl
+# 验收脚本与它的 JSON 辅助进程（脚本从仓库目录运行，不在 BIN_DIR 里）：
+1f74ba99a0d4085901ec764032f364c044498e862598267f1f3044068d1533a4  tests/integration/p12-3-recovery-acceptance.sh
+767b9844676a7f570c195b4de1a2e1768bb1f50b5aa7219963c016c1c9d6a837  tests/integration/json_helper.py
+# Linux 专属用例的测试二进制（`//go:build linux` 的用例在 Windows 上不参与编译，
+# 所以交叉编译后推到两台 VM 上跑，跑完删除；命令见 logs/{2404,2204}-linux-tests.txt 的头两行）：
+#   GOOS=linux GOARCH=amd64 go test -c -buildvcs=false -trimpath -o bin/linux-amd64/backup.test ./internal/backup
+2175f4900af2fef29d7e2be8996b3d4ff8096cb70f7f8b577d8221ba3df5d2bc  /tmp/backup.test
+#
+# 版本说明（同一个 commit，三版二进制；前两版都不作为交付证据）：
+#   第一版 03:05:00Z：源码里 internal/backup/restic.go 有一段注释没过 gofmt，作废（Q364）。
+#   第二版 03:10:00Z：全树 gofmt 清零后重建；24.04 跑出 PASS 116 / FAIL 1，唯一的红是
+#                     enospc-no-space-reported——补原因的逻辑只认 `error:` 前缀，而
+#                     `restic restore` 的逐条错误是 `ignoring error for ...`（Q363）。
+#   交付版 03:40:00Z：修好 Q363 后的这一版 → 24.04 PASS 117 / FAIL 0 / NOT RUN 0。
+#   第一版之前还试过四组常见构建参数想让哈希与更早那次部署对上——对不上，因为那次构建的
+#   BUILD_DATE 不是固定值。结论就是 Q364：不固定 BUILD_DATE，就没有"同一个二进制"这句话。
+#
+# 验收脚本只引用 BIN_DIR 下的 upanel-agent 与 upanel-web（grep 可验）；upanelctl 同批部署
+# 并核哈希，用来证明整棵树被整批替换，不代表脚本覆盖了它。
+#
+# 常规单元测试（`go test`）不产出上机二进制，只有上面那个 backup.test 是例外：`//go:build linux`
+# 的用例在 Windows 宿主上不参与编译，必须推到 Linux 上才跑得起来。

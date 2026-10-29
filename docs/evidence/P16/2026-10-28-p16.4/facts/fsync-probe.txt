@@ -1,0 +1,49 @@
+=== RUN   TestRealMachineAtomicWriteSyncsDir
+    fsync_real_test.go:97: 真机写路径通过：/var/tmp/upanel-fsync-probe（目录 fsync + 原子写 + 覆盖写，权限 0600）
+--- PASS: TestRealMachineAtomicWriteSyncsDir (0.13s)
+PASS
+-----STRACE-----
+4583  openat(AT_FDCWD</var/tmp>, "/var/tmp/upanel-fsync-probe", O_RDONLY|O_CLOEXEC) = 3</var/tmp/upanel-fsync-probe>
+4580  fsync(3</var/tmp/upanel-fsync-probe>) = 0
+4583  openat(AT_FDCWD</var/tmp>, "/var/tmp/upanel-fsync-probe/90-upanel-probe.yaml.upanel-tmp", O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0600) = 3</var/tmp/upanel-fsync-probe/90-upanel-probe.yaml.upanel-tmp>
+4583  fsync(3</var/tmp/upanel-fsync-probe/90-upanel-probe.yaml.upanel-tmp>) = 0
+4580  renameat(AT_FDCWD</var/tmp>, "/var/tmp/upanel-fsync-probe/90-upanel-probe.yaml.upanel-tmp", AT_FDCWD</var/tmp>, "/var/tmp/upanel-fsync-probe/90-upanel-probe.yaml" <unfinished ...>
+4580  openat(AT_FDCWD</var/tmp>, "/var/tmp/upanel-fsync-probe", O_RDONLY|O_CLOEXEC) = 3</var/tmp/upanel-fsync-probe>
+4580  fsync(3</var/tmp/upanel-fsync-probe>) = 0
+4580  openat(AT_FDCWD</var/tmp>, "/var/tmp/upanel-fsync-probe/90-upanel-probe.yaml", O_RDONLY|O_CLOEXEC) = 3</var/tmp/upanel-fsync-probe/90-upanel-probe.yaml>
+4580  openat(AT_FDCWD</var/tmp>, "/var/tmp/upanel-fsync-probe", O_RDONLY|O_CLOEXEC|O_DIRECTORY) = 3</var/tmp/upanel-fsync-probe>
+4583  openat(AT_FDCWD</var/tmp>, "/var/tmp/upanel-fsync-probe/90-upanel-probe.yaml.upanel-tmp", O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0600) = 3</var/tmp/upanel-fsync-probe/90-upanel-probe.yaml.upanel-tmp>
+4583  fsync(3</var/tmp/upanel-fsync-probe/90-upanel-probe.yaml.upanel-tmp>) = 0
+4583  renameat(AT_FDCWD</var/tmp>, "/var/tmp/upanel-fsync-probe/90-upanel-probe.yaml.upanel-tmp", AT_FDCWD</var/tmp>, "/var/tmp/upanel-fsync-probe/90-upanel-probe.yaml") = 0
+4583  openat(AT_FDCWD</var/tmp>, "/var/tmp/upanel-fsync-probe", O_RDONLY|O_CLOEXEC) = 3</var/tmp/upanel-fsync-probe>
+4583  fsync(3</var/tmp/upanel-fsync-probe>) = 0
+4583  openat(AT_FDCWD</var/tmp>, "/var/tmp/upanel-fsync-probe/90-upanel-probe.yaml", O_RDONLY|O_CLOEXEC) = 3</var/tmp/upanel-fsync-probe/90-upanel-probe.yaml>
+4580  unlinkat(AT_FDCWD</var/tmp>, "/var/tmp/upanel-fsync-probe", 0 <unfinished ...>
+4580  unlinkat(AT_FDCWD</var/tmp>, "/var/tmp/upanel-fsync-probe", AT_REMOVEDIR) = -1 ENOTEMPTY (Directory not empty)
+4580  unlinkat(3</var/tmp>, "upanel-fsync-probe", 0) = -1 EISDIR (Is a directory)
+4580  openat(3</var/tmp>, "upanel-fsync-probe", O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_DIRECTORY) = 6</var/tmp/upanel-fsync-probe>
+4580  unlinkat(6</var/tmp/upanel-fsync-probe>, "90-upanel-probe.yaml", 0) = 0
+4580  unlinkat(3</var/tmp>, "upanel-fsync-probe", AT_REMOVEDIR) = 0
+-----META-----
+Linux 5.15.0-198-generic x86_64
+PRETTY_NAME="Ubuntu 22.04.5 LTS"
+/dev/sda1      ext4  40458684 1924156  38518144   5% /
+fstype=ext2/ext3 blocks=10114671 bsize=4096
+2
+               total        used        free      shared  buff/cache   available
+Mem:            3911         179        3295           0         437        3507
+8c28b861ab6e3177265b3dee8a421f62763f984dc64ab1a2cdd8ecbfffe46ef2  /var/tmp/p164probe.test
+== 探针构建（宿主，Windows → linux/amd64）
+命令：GOOS=linux GOARCH=amd64 go test -c -o /tmp/p164probe.test ./internal/network
+宿主二进制 sha256：8c28b861ab6e3177265b3dee8a421f62763f984dc64ab1a2cdd8ecbfffe46ef2
+大小：7988795
+源码 sha256：64cbcc795cb10455384ccbca0da7793d6b59722824a464de2924f88f1c3b9598
+
+== 客户机侧命令
+sudo chmod 755 /var/tmp/p164probe.test
+sudo strace -f -y -e trace=openat,fsync,fdatasync,rename,renameat,renameat2,mkdirat,unlink,unlinkat -o /var/tmp/fsync-path.strace env UPANEL_REAL_FS_DIR=/var/tmp/upanel-fsync-probe ./p164probe.test -test.run TestRealMachine -test.v
+
+== 它证明什么 / 不证明什么
+证明：在真机 ext4 上，rename 之后 openat(目录,O_RDONLY)+fsync(目录fd) 返回 0（Q505 修的就是这一步），
+      内容逐字节一致、权限 0600、覆盖写走同一条路径、不留 .upanel-tmp。
+不证明：掉电语义。拔电源后的“长度对内容全零”场景仍 NOT RUN（见 KNOWN_LIMITATIONS A）。

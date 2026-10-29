@@ -1,0 +1,2 @@
+NAME              IMAGE                    COMMAND     SERVICE   CREATED         STATUS         PORTS
+webapp-webapp-1   traefik/whoami:v1.10.3   "/whoami"   webapp    5 seconds ago   Up 4 seconds   127.0.0.1:18087->80/tcp

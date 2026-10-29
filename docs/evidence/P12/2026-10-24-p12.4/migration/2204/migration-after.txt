@@ -1,0 +1,21 @@
+db: /var/tmp/upanel-accept-p12-2/agent/agent.db
+user_version: 0
+applied: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+tables: ['backup_policies', 'backup_repositories', 'backup_restore_verifications', 'managed_accounts', 'managed_resources', 'operation_events', 'operations', 'preflight_plans', 'schedule_triggers', 'schedules', 'schema_migrations', 'scripts', 'secrets', 'shares']
+schedules rows: 0
+scripts rows: 6
+schedule_triggers rows: 9
+managed_accounts rows: 0
+operations rows: 63
+scripts(name,interpreter,version,content_bytes):
+  p12-4 探针UTC 5c198d83         /bin/sh    v1   449B
+  p12-4 探针UTC 8edab69b         /bin/sh    v1   449B
+  p12-4 超时 5c198d83            /bin/sh    v1   38B
+  p12-4 超时 8edab69b            /bin/sh    v1   38B
+  p12-4 长跑 5c198d83            /bin/sh    v1   34B
+  p12-4 长跑 8edab69b            /bin/sh    v1   34B
+schedules(id,name,kind,enabled,agent_timer_ref):
+schedule_triggers: 9 rows, 9 行属于已删除的计划（历史留存）
+  latest: ('2026-10-25T08:20:00Z', 'script.run', 'triggered', '')
+  latest: ('2026-10-25T08:19:00Z', 'script.run', 'triggered', '')
+  latest: ('2026-10-25T08:18:00Z', '', 'blocked', 'SCHEDULE_DISABLED: 计划任务已停用')

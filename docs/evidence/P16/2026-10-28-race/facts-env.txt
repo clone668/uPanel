@@ -1,0 +1,48 @@
+# 竞态检测（go test -race）的真机读数 · 环境与字节（2026-10-28）
+# 生成于宿主（Git Bash）。所有时间戳 UTC，除注明"本地"的。
+
+== 为什么在 VM 里跑，不在宿主 ==
+宿主是 Windows：go env CGO_ENABLED=0、没有 C 编译器（command -v gcc → 无），
+`-race` 需要 cgo，宿主上根本起不来；就算装上 mingw 跑起来，也只会跑 windows 构建标签下的代码，
+而产品要发的 linux 二进制里那些 `_linux.go` 才是要查竞态的地方。所以这一次在验收 VM 里跑。
+
+== 源码与字节的一致性（Q510 口径）==
+- 源码取自工作树（`8e52b36-dirty`），打成 /tmp/upanel-src.tar.gz（3.3 MB，含 go.mod/go.sum/cmd/internal/api/migrations/deploy/scripts）。
+- 交付包 `3f3b40c1…daf0` 的 build_date 是 2026-10-28T05:23:36Z（本地 13:23:36）。
+- 构建之后**没有任何 .go 被改过**（可复核）：`find cmd internal api migrations -name '*.go' -newermt '2026-10-28 13:23:36'` → 空。
+  最近的三处 .go 修改是 13:19（internal/api/auth.go、auth_test.go）与 12:02（internal/network/fsync_real_test.go），
+  都在构建之前。所以这次 -race 跑的就是出包那份源码；本轮与上一轮都只改 .md。
+
+== 规模（宿主与 VM 两边一致）==
+- `go list ./...` → 54 个包；其中带 `_test.go` 的 51 个（宿主计数，VM 里 `go list ./... | wc -l` 也是 54）。
+- 对照：P04.3 那次 `-race`（22.04，KVM）日志里只有 24 个包、20 个 `ok`。
+  模块从 P05 长到 P16 翻了一倍多，所以本轮别拿"19 包 ok"当基准去比。
+
+== 机器 ==
+  Ubuntu 24.04.5 LTS
+  6.8.0-147-generic
+  systemd 255 (255.4-1ubuntu8.18)
+  2
+  3915 MB
+  gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+  go version go1.27.3 linux/amd64
+  1
+  gcc
+  linux
+  amd64
+  up 8 minutes
+
+== 全量之后改动过的 .go 文件（截至补跑启动时）==
+`find cmd internal api migrations -name '*.go' -newermt '2026-10-28 13:23:36'`（13:23:36 = 交付包的构建时刻，本地）→ 只有四个，全是 _test.go：
+
+  18:37 internal/agent/scriptaction_test.go      ← Q519①：轮询加锁
+  20:06 cmd/upanelctl/main_test.go               ← Q517：删掉那条产品从不满足的断言
+  22:26 internal/backup/retention_test.go        ← Q518：真实目录描述符
+  22:26 internal/journal/journal_test.go         ← Q519②：轮询加锁
+
+非 _test.go 的改动：**0 个**（`... ! -name '*_test.go'` → 空）。所以产品代码与交付包
+`3f3b40c1…daf0` 仍是同一份，本轮所有改动都不进产品二进制。
+
+== 补跑用的源码树 ==
+/tmp/upanel-src       = 全量那一轮用的树（tarball 9fcc148e…586e）
+/tmp/upanel-src-fix   = 上面这棵树 + 四处测试修正（tarball d1eb81d2…5e6d），补跑用这棵

@@ -1,0 +1,1 @@
+{"error":{"code":"DEPENDENCY_BLOCKED","message":"策略 p12-2 停机缺失 要求备份前停掉的应用里有 app_22222222222222222222222222222222（应用已不存在）：解析不出运行对象，这次备份不能按 stop_managed_apps 跑。请先修好应用绑定，或把这条应用从策略里去掉"},"request_id":"8f01624e84e0923fac2f8703fd3f66ec"}

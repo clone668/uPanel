@@ -1,0 +1,5 @@
+panel_db_bytes=364544
+agent_db_bytes=4096
+web_data_bytes=883480
+agent_data_bytes=634272
+journal_lines=155

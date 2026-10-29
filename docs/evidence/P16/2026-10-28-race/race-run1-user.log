@@ -1,0 +1,863 @@
+== go version ==
+go version go1.27.3 linux/amd64
+== go env ==
+linux
+amd64
+1
+gcc
+/tmp/gomodcache
+== 包数 ==
+go: downloading golang.org/x/term v0.47.0
+go: downloading github.com/gorilla/websocket v1.5.3
+go: downloading github.com/gin-gonic/gin v1.12.0
+go: downloading golang.org/x/crypto v0.58.0
+go: downloading golang.org/x/sys v0.49.0
+go: downloading github.com/pkg/sftp v1.13.9
+go: downloading modernc.org/sqlite v1.60.1
+go: downloading github.com/goccy/go-yaml v1.19.2
+go: downloading golang.org/x/net v0.60.0
+go: downloading github.com/creack/pty v1.1.24
+go: downloading github.com/gin-contrib/sse v1.1.0
+go: downloading github.com/mattn/go-isatty v0.0.24
+go: downloading github.com/quic-go/quic-go v0.59.0
+go: downloading github.com/kr/fs v0.1.0
+go: downloading golang.org/x/text v0.43.0
+go: downloading github.com/go-playground/validator/v10 v10.30.1
+go: downloading github.com/pelletier/go-toml/v2 v2.2.4
+go: downloading github.com/ugorji/go/codec v1.3.1
+go: downloading go.mongodb.org/mongo-driver/v2 v2.5.0
+go: downloading google.golang.org/protobuf v1.36.10
+go: downloading github.com/quic-go/qpack v0.6.0
+go: downloading github.com/gabriel-vasile/mimetype v1.4.12
+go: downloading github.com/go-playground/universal-translator v0.18.1
+go: downloading github.com/leodido/go-urn v1.4.0
+go: downloading modernc.org/libc v1.77.1
+go: downloading github.com/go-playground/locales v0.14.1
+go: downloading github.com/dustin/go-humanize v1.0.1
+go: downloading github.com/google/uuid v1.6.0
+go: downloading modernc.org/mathutil v1.7.1
+go: downloading modernc.org/memory v1.12.1
+go: downloading github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec
+54
+== 依赖预热 2026-10-28T08:51:12Z ==
+== go test -race 开始 2026-10-28T08:53:10Z ==
+--- FAIL: TestRefusesToStartWithoutRootOrLinux (0.03s)
+    main_test.go:37: 退出码 = 2，期望 1（拒绝启动）
+FAIL
+FAIL	upanel/cmd/upanel-agent	2.801s
+ok  	upanel/cmd/upanel-web	35.724s
+--- FAIL: TestMigrateFreshDatabaseThenIdempotent (0.03s)
+    main_test.go:226: 首次迁移退出码 = 1，stderr = "配置错误: 读取配置文件失败 /etc/upanel/upanel.json: open /etc/upanel/upanel.json: permission denied\n"
+--- FAIL: TestMigrateTextOutput (0.08s)
+    main_test.go:300: 退出码 = 1，stderr = "配置错误: 读取配置文件失败 /etc/upanel/upanel.json: open /etc/upanel/upanel.json: permission denied\n"
+--- FAIL: TestMigrateRejectsUnusablePaths (0.07s)
+    --- FAIL: TestMigrateRejectsUnusablePaths/相对路径 (0.01s)
+        main_test.go:346: stderr = "配置错误: 读取配置文件失败 /etc/upanel/upanel.json: open /etc/upanel/upanel.json: permission denied\n"
+    --- FAIL: TestMigrateRejectsUnusablePaths/目录不存在 (0.01s)
+        main_test.go:346: stderr = "配置错误: 读取配置文件失败 /etc/upanel/upanel.json: open /etc/upanel/upanel.json: permission denied\n"
+--- FAIL: TestMigrateRefusesDatabaseAheadOfBinary (0.02s)
+    main_test.go:359: 准备数据库失败: 1 "配置错误: 读取配置文件失败 /etc/upanel/upanel.json: open /etc/upanel/upanel.json: permission denied\n"
+--- FAIL: TestInitAdminCreatesFirstAdmin (0.05s)
+    main_test.go:425: 退出码 = 1，stderr = "配置错误: 读取配置文件失败 /etc/upanel/upanel.json: open /etc/upanel/upanel.json: permission denied\n"
+--- FAIL: TestInitAdminRejectsMismatchedOrWeakPassword (0.04s)
+    main_test.go:480: 两行不一致时退出码 = 1，stderr = "配置错误: 读取配置文件失败 /etc/upanel/upanel.json: open /etc/upanel/upanel.json: permission denied\n"
+--- FAIL: TestInitAdminJSON (0.08s)
+    main_test.go:518: 退出码 = 1，stderr = "配置错误: 读取配置文件失败 /etc/upanel/upanel.json: open /etc/upanel/upanel.json: permission denied\n"
+--- FAIL: TestInitAdminRejectsBadUsername (0.08s)
+    main_test.go:546: 退出码 = 1，期望 2（stderr="配置错误: 读取配置文件失败 /etc/upanel/upanel.json: open /etc/upanel/upanel.json: permission denied\n"）
+--- FAIL: TestCheckConfigPrintsTLSFingerprint (0.65s)
+    main_test.go:641: 开了 TLS 时推导出来的允许源必须是 https: "配置来源: /tmp/TestCheckConfigPrintsTLSFingerprint3167988994/001/upanel.json\n运行模式: production\nWeb 监听: 127.0.0.1:19443（仅回环: true）\n面板 HTTPS: 已启用（upanel.test，到期 2027-01-26T10:15:54Z）\n  证书指纹 sha256: 31930c81f4dfac959bb531abd679d46aa14f44e65eff0a213a92ff7c1b28bfda\n  证书域名: upanel.test\n  注意: 面板证书是自签名的：浏览器会提示不受信任，请按安装说明核对指纹后再接受，或换成受信任证书\n代理 socket: /run/upanel/agent.sock\n数据库: /var/lib/upanel/upanel.db（busy_timeout=5000ms）\n日志: level=info format=json\n平台: linux/amd64（production 可用: true）\n"
+--- FAIL: TestResetPasswordChangesPasswordAndRevokesSessions (0.03s)
+    main_test.go:679: init-admin 退出码 = 1，stderr = "配置错误: 读取配置文件失败 /etc/upanel/upanel.json: open /etc/upanel/upanel.json: permission denied\n"
+--- FAIL: TestResetPasswordRejectsUnknownUserAndMismatch (0.05s)
+    main_test.go:739: init-admin 退出码 = 1，stderr = "配置错误: 读取配置文件失败 /etc/upanel/upanel.json: open /etc/upanel/upanel.json: permission denied\n"
+--- FAIL: TestTotpResetClearsStateAndRevokesSessions (0.04s)
+    totpreset_test.go:25: init-admin 退出码 = 1，stderr = "配置错误: 读取配置文件失败 /etc/upanel/upanel.json: open /etc/upanel/upanel.json: permission denied\n"
+--- FAIL: TestTotpResetTextOutputWarnsWhenAgentNotDestroyed (0.03s)
+    totpreset_test.go:114: init-admin 退出码 = 1，stderr = "配置错误: 读取配置文件失败 /etc/upanel/upanel.json: open /etc/upanel/upanel.json: permission denied\n"
+--- FAIL: TestTotpResetRejectsNothingToReset (0.03s)
+    totpreset_test.go:165: init-admin 退出码 = 1，stderr = "配置错误: 读取配置文件失败 /etc/upanel/upanel.json: open /etc/upanel/upanel.json: permission denied\n"
+FAIL
+FAIL	upanel/cmd/upanelctl	21.097s
+ok  	upanel/internal/accounts	5.253s
+--- FAIL: TestAptPackagesQueryParamsStrict (0.16s)
+    aptquery_test.go:85: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestAptPackagesQueryParamsStrict1771462957/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestAptPackagesQueryParamsStrict1771462957/002`）
+--- FAIL: TestPowerStateQueryParamsStrict (0.06s)
+    aptquery_test.go:108: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPowerStateQueryParamsStrict2905002754/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPowerStateQueryParamsStrict2905002754/002`）
+--- FAIL: TestAptPackagesQueryReturnsFacts (0.03s)
+    aptquery_test.go:141: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestAptPackagesQueryReturnsFacts2881954604/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestAptPackagesQueryReturnsFacts2881954604/002`）
+--- FAIL: TestPowerStateQueryReturnsFacts (0.03s)
+    aptquery_test.go:190: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPowerStateQueryReturnsFacts2920839374/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPowerStateQueryReturnsFacts2920839374/002`）
+--- FAIL: TestBackupMirrorRouteHidesWithoutWiring (0.08s)
+    backuprepo_test.go:154: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestBackupMirrorRouteHidesWithoutWiring2227490155/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestBackupMirrorRouteHidesWithoutWiring2227490155/002`）
+--- FAIL: TestBackupMirrorCreateAndRead (0.05s)
+    backuprepo_test.go:163: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestBackupMirrorCreateAndRead837560196/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestBackupMirrorCreateAndRead837560196/002`）
+--- FAIL: TestBackupMirrorRejectsInvalidDefinition (0.04s)
+    backuprepo_test.go:207: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestBackupMirrorRejectsInvalidDefinition3640367364/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestBackupMirrorRejectsInvalidDefinition3640367364/002`）
+--- FAIL: TestBackupMirrorRejectsPathTraversal (0.05s)
+    backuprepo_test.go:228: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestBackupMirrorRejectsPathTraversal1777210826/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestBackupMirrorRejectsPathTraversal1777210826/002`）
+--- FAIL: TestBackupMirrorPatchVersionConflict (0.04s)
+    backuprepo_test.go:242: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestBackupMirrorPatchVersionConflict2131766369/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestBackupMirrorPatchVersionConflict2131766369/002`）
+--- FAIL: TestBackupMirrorDeleteIsIdempotent (0.03s)
+    backuprepo_test.go:291: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestBackupMirrorDeleteIsIdempotent3916998965/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestBackupMirrorDeleteIsIdempotent3916998965/002`）
+--- FAIL: TestBackupMirrorRejectsBadID (0.07s)
+    backuprepo_test.go:317: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestBackupMirrorRejectsBadID300678291/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestBackupMirrorRejectsBadID300678291/002`）
+--- FAIL: TestBackupMirrorDeniesRoot (0.04s)
+    backuprepo_test.go:325: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestBackupMirrorDeniesRoot3865337328/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestBackupMirrorDeniesRoot3865337328/002`）
+--- FAIL: TestContainersListQueryReturnsItems (0.11s)
+    containers_test.go:225: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestContainersListQueryReturnsItems4111066801/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestContainersListQueryReturnsItems4111066801/002`）
+--- FAIL: TestContainersListQueryRejectsParams (0.05s)
+    containers_test.go:260: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestContainersListQueryRejectsParams2388829090/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestContainersListQueryRejectsParams2388829090/002`）
+--- FAIL: TestContainersGetQueryRejectsNonID (0.04s)
+    containers_test.go:271: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestContainersGetQueryRejectsNonID659174311/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestContainersGetQueryRejectsNonID659174311/002`）
+--- FAIL: TestContainersGetQueryNotFoundIs404 (0.03s)
+    containers_test.go:295: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestContainersGetQueryNotFoundIs404557376619/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestContainersGetQueryNotFoundIs404557376619/002`）
+--- FAIL: TestContainersLogsQueryValidatesTail (0.08s)
+    containers_test.go:310: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestContainersLogsQueryValidatesTail771607673/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestContainersLogsQueryValidatesTail771607673/002`）
+--- FAIL: TestContainersLogsQueryFillsDefaults (0.04s)
+    containers_test.go:326: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestContainersLogsQueryFillsDefaults3236820987/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestContainersLogsQueryFillsDefaults3236820987/002`）
+--- FAIL: TestContainerControlPreflightAllowsNormal (0.03s)
+    containers_test.go:341: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestContainerControlPreflightAllowsNormal961089443/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestContainerControlPreflightAllowsNormal961089443/002`）
+--- FAIL: TestContainerControlPreflightRefusesPrivileged (0.05s)
+    containers_test.go:380: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestContainerControlPreflightRefusesPrivileged3686942818/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestContainerControlPreflightRefusesPrivileged3686942818/002`）
+--- FAIL: TestContainerControlDecodeRejects (0.04s)
+    containers_test.go:406: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestContainerControlDecodeRejects313303577/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestContainerControlDecodeRejects313303577/002`）
+--- FAIL: TestContainerControlExecuteVerifies (0.04s)
+    containers_test.go:426: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestContainerControlExecuteVerifies809752986/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestContainerControlExecuteVerifies809752986/002`）
+--- FAIL: TestContainerControlExecuteStaleState (0.06s)
+    containers_test.go:474: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestContainerControlExecuteStaleState2864132573/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestContainerControlExecuteStaleState2864132573/002`）
+--- FAIL: TestContainerControlExecuteRefusesWhenRiskAppears (0.07s)
+    containers_test.go:514: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestContainerControlExecuteRefusesWhenRiskAppears591122778/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestContainerControlExecuteRefusesWhenRiskAppears591122778/002`）
+--- FAIL: TestContainerControlExecuteUnverifiedIsUnknown (0.06s)
+    containers_test.go:547: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestContainerControlExecuteUnverifiedIsUnknown3652269898/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestContainerControlExecuteUnverifiedIsUnknown3652269898/002`）
+--- FAIL: TestContainerStreamPurposeRejectedWithoutSource (0.05s)
+    containers_test.go:571: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestContainerStreamPurposeRejectedWithoutSource170308830/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestContainerStreamPurposeRejectedWithoutSource170308830/002`）
+--- FAIL: TestContainerControlPreflightDockerUnavailableIsBlocked (0.07s)
+    containers_test.go:591: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestContainerControlPreflightDockerUnavailableIsBlocked375342083/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestContainerControlPreflightDockerUnavailableIsBlocked375342083/002`）
+--- FAIL: TestDeploymentsListQuery (0.03s)
+    deployquery_test.go:102: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestDeploymentsListQuery1784222424/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestDeploymentsListQuery1784222424/002`）
+--- FAIL: TestDeploymentsListQueryRejectsParams (0.05s)
+    deployquery_test.go:126: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestDeploymentsListQueryRejectsParams2976702062/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestDeploymentsListQueryRejectsParams2976702062/002`）
+--- FAIL: TestDeploymentsGetQuery (0.04s)
+    deployquery_test.go:142: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestDeploymentsGetQuery2542871420/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestDeploymentsGetQuery2542871420/002`）
+--- FAIL: TestDeploymentsGetQueryInternalErrorIs500 (0.04s)
+    deployquery_test.go:198: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestDeploymentsGetQueryInternalErrorIs5003242747973/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestDeploymentsGetQueryInternalErrorIs5003242747973/002`）
+--- FAIL: TestFilesQueriesAbsentWithoutSource (0.04s)
+    files_test.go:112: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFilesQueriesAbsentWithoutSource2716144586/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFilesQueriesAbsentWithoutSource2716144586/002`）
+--- FAIL: TestFilesRootsQueryOK (0.04s)
+    files_test.go:129: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFilesRootsQueryOK133570679/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFilesRootsQueryOK133570679/002`）
+--- FAIL: TestFilesListDecodesParams (0.04s)
+    files_test.go:143: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFilesListDecodesParams1421644558/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFilesListDecodesParams1421644558/002`）
+--- FAIL: TestFilesQueriesRejectUnknownFields (0.05s)
+    files_test.go:157: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFilesQueriesRejectUnknownFields2847789039/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFilesQueriesRejectUnknownFields2847789039/002`）
+--- FAIL: TestFilesQueriesRejectBadPaths (0.07s)
+    files_test.go:172: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFilesQueriesRejectBadPaths4172463363/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFilesQueriesRejectBadPaths4172463363/002`）
+--- FAIL: TestFilesVerdictsPassThrough (0.55s)
+    --- FAIL: TestFilesVerdictsPassThrough/越界 (0.08s)
+        files_test.go:208: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFilesVerdictsPassThrough越界97112141/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFilesVerdictsPassThrough越界97112141/002`）
+    --- FAIL: TestFilesVerdictsPassThrough/硬链接 (0.06s)
+        files_test.go:208: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFilesVerdictsPassThrough硬链接119036280/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFilesVerdictsPassThrough硬链接119036280/002`）
+    --- FAIL: TestFilesVerdictsPassThrough/不存在 (0.06s)
+        files_test.go:208: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFilesVerdictsPassThrough不存在3173258636/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFilesVerdictsPassThrough不存在3173258636/002`）
+    --- FAIL: TestFilesVerdictsPassThrough/根不可用 (0.04s)
+        files_test.go:208: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFilesVerdictsPassThrough根不可用3266397486/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFilesVerdictsPassThrough根不可用3266397486/002`）
+    --- FAIL: TestFilesVerdictsPassThrough/版本冲突 (0.07s)
+        files_test.go:208: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFilesVerdictsPassThrough版本冲突950122963/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFilesVerdictsPassThrough版本冲突950122963/002`）
+    --- FAIL: TestFilesVerdictsPassThrough/不是文本 (0.06s)
+        files_test.go:208: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFilesVerdictsPassThrough不是文本3957094048/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFilesVerdictsPassThrough不是文本3957094048/002`）
+    --- FAIL: TestFilesVerdictsPassThrough/太大 (0.06s)
+        files_test.go:208: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFilesVerdictsPassThrough太大4120907844/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFilesVerdictsPassThrough太大4120907844/002`）
+    --- FAIL: TestFilesVerdictsPassThrough/平台不支持 (0.05s)
+        files_test.go:208: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFilesVerdictsPassThrough平台不支持1824333899/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFilesVerdictsPassThrough平台不支持1824333899/002`）
+--- FAIL: TestFilesRealFailuresStay500 (0.05s)
+    files_test.go:223: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFilesRealFailuresStay5001363643431/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFilesRealFailuresStay5001363643431/002`）
+--- FAIL: TestFilesDownloadStream (0.09s)
+    files_test.go:279: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFilesDownloadStream3680000471/003 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFilesDownloadStream3680000471/003`）
+--- FAIL: TestFilesDownloadStreamRejected (0.08s)
+    files_test.go:319: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFilesDownloadStreamRejected2212590362/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFilesDownloadStreamRejected2212590362/002`）
+--- FAIL: TestFilesDownloadPermitSingleUse (0.05s)
+    files_test.go:342: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFilesDownloadPermitSingleUse1440745791/003 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFilesDownloadPermitSingleUse1440745791/003`）
+--- FAIL: TestFilesDownloadParamsRejectedAtCreate (0.03s)
+    files_test.go:358: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFilesDownloadParamsRejectedAtCreate1409526105/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFilesDownloadParamsRejectedAtCreate1409526105/002`）
+--- FAIL: TestFileActionsRegisteredTogether (0.02s)
+    filesaction_test.go:233: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFileActionsRegisteredTogether1900383635/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFileActionsRegisteredTogether1900383635/001`）
+--- FAIL: TestFileActionsAbsentWithoutWriter (0.05s)
+    filesaction_test.go:249: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFileActionsAbsentWithoutWriter1195852132/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFileActionsAbsentWithoutWriter1195852132/001`）
+--- FAIL: TestFileActionsRejectUnknownFields (0.08s)
+    filesaction_test.go:265: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFileActionsRejectUnknownFields3412153753/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFileActionsRejectUnknownFields3412153753/001`）
+--- FAIL: TestFileWriteTextParamsLimit (0.07s)
+    filesaction_test.go:290: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFileWriteTextParamsLimit2568663599/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFileWriteTextParamsLimit2568663599/001`）
+--- FAIL: TestFileActionPolicies (0.06s)
+    filesaction_test.go:330: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFileActionPolicies1172867007/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFileActionPolicies1172867007/001`）
+--- FAIL: TestFileActionPreflightBlockers (0.07s)
+    filesaction_test.go:648: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFileActionPreflightBlockers2989461696/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFileActionPreflightBlockers2989461696/001`）
+--- FAIL: TestFileMkdirRunsAndVerifies (0.02s)
+    filesaction_test.go:701: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFileMkdirRunsAndVerifies3963952436/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFileMkdirRunsAndVerifies3963952436/001`）
+--- FAIL: TestFileWriteTextRejectionKeepsVerdict (0.06s)
+    filesaction_test.go:752: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFileWriteTextRejectionKeepsVerdict1657433583/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFileWriteTextRejectionKeepsVerdict1657433583/001`）
+--- FAIL: TestNginxStateQueryReturnsFacts (0.11s)
+    nginxquery_test.go:80: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestNginxStateQueryReturnsFacts177322709/003 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestNginxStateQueryReturnsFacts177322709/003`）
+--- FAIL: TestNginxStateQueryFreshBypassesCache (0.07s)
+    nginxquery_test.go:132: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestNginxStateQueryFreshBypassesCache2691893963/003 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestNginxStateQueryFreshBypassesCache2691893963/003`）
+--- FAIL: TestNginxStateQueryRejectsUnknownParams (0.05s)
+    nginxquery_test.go:171: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestNginxStateQueryRejectsUnknownParams3993825063/003 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestNginxStateQueryRejectsUnknownParams3993825063/003`）
+--- FAIL: TestDeliverRejectsBadRequests (0.03s)
+    notify_test.go:231: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestDeliverRejectsBadRequests973546132/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestDeliverRejectsBadRequests973546132/002`）
+--- FAIL: TestDeliverRejectsNonNotificationSecret (0.04s)
+    notify_test.go:268: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestDeliverRejectsNonNotificationSecret1717479233/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestDeliverRejectsNonNotificationSecret1717479233/002`）
+--- FAIL: TestDeliverNotificationSecretUnavailable (0.01s)
+    notify_test.go:306: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestDeliverNotificationSecretUnavailable304733823/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestDeliverNotificationSecretUnavailable304733823/002`）
+--- FAIL: TestDeliverReportsSMTPFailureAsResult (0.01s)
+    notify_test.go:346: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestDeliverReportsSMTPFailureAsResult3557947283/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestDeliverReportsSMTPFailureAsResult3557947283/002`）
+--- FAIL: TestDeliverRejectsWrongPeer (0.01s)
+    notify_test.go:381: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestDeliverRejectsWrongPeer1331024141/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestDeliverRejectsWrongPeer1331024141/002`）
+2026/10/28 10:24:16 http: TLS handshake error from 127.0.0.1:56248: EOF
+--- FAIL: TestWebhookSelfSignedCertIsRejected (8.17s)
+    notify_test.go:407: 证书问题不该重试，实际 {Accepted:false Status:0 Detail:请求失败：Post "https://127.0.0.1:37703": net/http: TLS handshake timeout Retryable:true}
+--- FAIL: TestListScheduledOperationsReturnsOnlyScheduler (0.02s)
+    operationlist_test.go:111: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestListScheduledOperationsReturnsOnlyScheduler564278697/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestListScheduledOperationsReturnsOnlyScheduler564278697/001`）
+--- FAIL: TestListScheduledOperationsActorGate (0.02s)
+    operationlist_test.go:148: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestListScheduledOperationsActorGate4242521439/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestListScheduledOperationsActorGate4242521439/001`）
+--- FAIL: TestListScheduledOperationsParamShape (0.02s)
+    operationlist_test.go:162: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestListScheduledOperationsParamShape732863077/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestListScheduledOperationsParamShape732863077/001`）
+--- FAIL: TestListScheduledOperationsSinceFilters (0.03s)
+    operationlist_test.go:187: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestListScheduledOperationsSinceFilters3596961638/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestListScheduledOperationsSinceFilters3596961638/001`）
+--- FAIL: TestListScheduledOperationsRejectsOtherMethods (0.02s)
+    operationlist_test.go:211: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestListScheduledOperationsRejectsOtherMethods1850004656/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestListScheduledOperationsRejectsOtherMethods1850004656/001`）
+--- FAIL: TestListScheduledOperationsRejectsRoot (0.02s)
+    operationlist_test.go:224: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestListScheduledOperationsRejectsRoot3508496258/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestListScheduledOperationsRejectsRoot3508496258/001`）
+--- FAIL: TestOperationSubmitRunsOnceAndRecordsResult (0.02s)
+    operations_test.go:264: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestOperationSubmitRunsOnceAndRecordsResult945189851/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestOperationSubmitRunsOnceAndRecordsResult945189851/001`）
+--- FAIL: TestOperationTenSubmissionsExecuteOnce (0.02s)
+    operations_test.go:323: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestOperationTenSubmissionsExecuteOnce1348528632/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestOperationTenSubmissionsExecuteOnce1348528632/001`）
+--- FAIL: TestOperationSameIDDifferentRequestIsConflict (0.02s)
+    operations_test.go:355: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestOperationSameIDDifferentRequestIsConflict3439222651/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestOperationSameIDDifferentRequestIsConflict3439222651/001`）
+--- FAIL: TestOperationWrongPhraseRejected (0.03s)
+    operations_test.go:377: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestOperationWrongPhraseRejected1742437896/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestOperationWrongPhraseRejected1742437896/001`）
+--- FAIL: TestOperationRequiresReauth (0.02s)
+    operations_test.go:395: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestOperationRequiresReauth924434504/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestOperationRequiresReauth924434504/001`）
+--- FAIL: TestOperationSessionMismatchInvalidatesPreflight (0.02s)
+    operations_test.go:421: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestOperationSessionMismatchInvalidatesPreflight99821686/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestOperationSessionMismatchInvalidatesPreflight99821686/001`）
+--- FAIL: TestOperationForeignPreflightForbidden (0.01s)
+    operations_test.go:435: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestOperationForeignPreflightForbidden328318767/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestOperationForeignPreflightForbidden328318767/001`）
+--- FAIL: TestOperationExpiredPreflightRejected (0.01s)
+    operations_test.go:450: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestOperationExpiredPreflightRejected1513955526/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestOperationExpiredPreflightRejected1513955526/001`）
+--- FAIL: TestOperationStaleStateVersionRejected (0.01s)
+    operations_test.go:468: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestOperationStaleStateVersionRejected4019963199/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestOperationStaleStateVersionRejected4019963199/001`）
+--- FAIL: TestOperationIdentityChangeRejected (0.03s)
+    operations_test.go:485: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestOperationIdentityChangeRejected694906156/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestOperationIdentityChangeRejected694906156/001`）
+--- FAIL: TestOperationCancelNonCancellableRefused (0.02s)
+    operations_test.go:501: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestOperationCancelNonCancellableRefused2888269231/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestOperationCancelNonCancellableRefused2888269231/001`）
+--- FAIL: TestOperationCancelCancellableAction (0.02s)
+    operations_test.go:520: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestOperationCancelCancellableAction2778471752/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestOperationCancelCancellableAction2778471752/001`）
+--- FAIL: TestOperationExecutionFailureRecorded (0.03s)
+    operations_test.go:550: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestOperationExecutionFailureRecorded2613152676/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestOperationExecutionFailureRecorded2613152676/001`）
+--- FAIL: TestOperationFailureReasonReachesErrorMessage (0.02s)
+    operations_test.go:589: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestOperationFailureReasonReachesErrorMessage315555404/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestOperationFailureReasonReachesErrorMessage315555404/001`）
+--- FAIL: TestOperationRevalidateBudgetTurnsIntoResourceBusy (0.03s)
+    operations_test.go:630: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestOperationRevalidateBudgetTurnsIntoResourceBusy383956257/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestOperationRevalidateBudgetTurnsIntoResourceBusy383956257/001`）
+--- FAIL: TestRevalidateRejectionLogsBlockerReason (0.02s)
+    operations_test.go:675: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestRevalidateRejectionLogsBlockerReason2371761133/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestRevalidateRejectionLogsBlockerReason2371761133/001`）
+--- FAIL: TestReconcileMarksUnfinishedOperationsInterrupted (0.01s)
+    operations_test.go:698: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestReconcileMarksUnfinishedOperationsInterrupted4026873476/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestReconcileMarksUnfinishedOperationsInterrupted4026873476/001`）
+--- FAIL: TestPreflightBudgetTurnsIntoResourceBusy (0.04s)
+    packageaction_test.go:578: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightBudgetTurnsIntoResourceBusy663684217/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightBudgetTurnsIntoResourceBusy663684217/002`）
+--- FAIL: TestGateRejectsRequestWithoutPeerIdentity (0.02s)
+    peers_test.go:39: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestGateRejectsRequestWithoutPeerIdentity2201630052/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestGateRejectsRequestWithoutPeerIdentity2201630052/002`）
+--- FAIL: TestGateDeniesRootOnNormalRoutes (0.02s)
+    peers_test.go:54: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestGateDeniesRootOnNormalRoutes3268919007/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestGateDeniesRootOnNormalRoutes3268919007/002`）
+--- FAIL: TestGateDeniesOtherUIDs (0.02s)
+    peers_test.go:74: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestGateDeniesOtherUIDs1598807079/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestGateDeniesOtherUIDs1598807079/002`）
+--- FAIL: TestGateAllowsWebUID (0.02s)
+    peers_test.go:93: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestGateAllowsWebUID2225452343/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestGateAllowsWebUID2225452343/002`）
+--- FAIL: TestGateRootOnlyRouting (0.02s)
+    peers_test.go:108: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestGateRootOnlyRouting1116793860/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestGateRootOnlyRouting1116793860/002`）
+--- FAIL: TestAgentclientTalksToRealAgent (0.03s)
+    preflight_e2e_test.go:24: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestAgentclientTalksToRealAgent2096699655/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestAgentclientTalksToRealAgent2096699655/001`）
+--- FAIL: TestPreflightCreatesBoundPlan (0.02s)
+    preflight_test.go:140: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightCreatesBoundPlan2016083442/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightCreatesBoundPlan2016083442/001`）
+--- FAIL: TestPreflightStoresNoPlaintextPhrase (0.03s)
+    preflight_test.go:230: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightStoresNoPlaintextPhrase2333281763/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightStoresNoPlaintextPhrase2333281763/001`）
+--- FAIL: TestPreflightWithoutPhrasePolicyHasNoPhrase (0.02s)
+    preflight_test.go:255: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightWithoutPhrasePolicyHasNoPhrase652563658/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightWithoutPhrasePolicyHasNoPhrase652563658/001`）
+--- FAIL: TestPreflightParamsHashIsCanonical (0.01s)
+    preflight_test.go:273: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightParamsHashIsCanonical3219748231/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightParamsHashIsCanonical3219748231/001`）
+--- FAIL: TestPreflightLocksNormalized (0.04s)
+    preflight_test.go:323: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightLocksNormalized1139599616/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightLocksNormalized1139599616/001`）
+--- FAIL: TestPreflightRejectsInvalidRequests (0.01s)
+    preflight_test.go:348: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightRejectsInvalidRequests3237753628/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightRejectsInvalidRequests3237753628/001`）
+--- FAIL: TestPreflightRequiresPostAndJSON (0.01s)
+    preflight_test.go:396: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightRequiresPostAndJSON3485011585/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightRequiresPostAndJSON3485011585/001`）
+--- FAIL: TestPreflightRejectsOversizedBody (0.01s)
+    preflight_test.go:420: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightRejectsOversizedBody969095388/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightRejectsOversizedBody969095388/001`）
+--- FAIL: TestPreflightDeniedForOtherUIDs (0.01s)
+    preflight_test.go:430: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightDeniedForOtherUIDs1276875978/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightDeniedForOtherUIDs1276875978/001`）
+--- FAIL: TestPreflightWithoutPlannerIsNotImplemented (0.02s)
+    preflight_test.go:451: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightWithoutPlannerIsNotImplemented2630328199/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightWithoutPlannerIsNotImplemented2630328199/001`）
+--- FAIL: TestPreflightRejectsInconsistentPlan (0.14s)
+    --- FAIL: TestPreflightRejectsInconsistentPlan/拒绝却没有阻塞项 (0.01s)
+        preflight_test.go:513: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightRejectsInconsistentPlan拒绝却没有阻塞项1372769368/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightRejectsInconsistentPlan拒绝却没有阻塞项1372769368/001`）
+    --- FAIL: TestPreflightRejectsInconsistentPlan/缺少目标身份指纹 (0.03s)
+        preflight_test.go:513: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightRejectsInconsistentPlan缺少目标身份指纹2270850580/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightRejectsInconsistentPlan缺少目标身份指纹2270850580/001`）
+    --- FAIL: TestPreflightRejectsInconsistentPlan/缺少状态版本 (0.02s)
+        preflight_test.go:513: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightRejectsInconsistentPlan缺少状态版本2325222482/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightRejectsInconsistentPlan缺少状态版本2325222482/001`）
+    --- FAIL: TestPreflightRejectsInconsistentPlan/缺少规范化参数 (0.03s)
+        preflight_test.go:513: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightRejectsInconsistentPlan缺少规范化参数3791401682/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightRejectsInconsistentPlan缺少规范化参数3791401682/001`）
+    --- FAIL: TestPreflightRejectsInconsistentPlan/阻塞项缺_code (0.02s)
+        preflight_test.go:513: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightRejectsInconsistentPlan阻塞项缺_code2237738344/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightRejectsInconsistentPlan阻塞项缺_code2237738344/001`）
+--- FAIL: TestPreflightPlannerErrorIsInternal (0.02s)
+    preflight_test.go:545: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightPlannerErrorIsInternal3861255714/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightPlannerErrorIsInternal3861255714/001`）
+--- FAIL: TestPreflightBlockedPlanIsStoredWithBlockers (0.01s)
+    preflight_test.go:576: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightBlockedPlanIsStoredWithBlockers1836246005/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightBlockedPlanIsStoredWithBlockers1836246005/001`）
+--- FAIL: TestPreflightSweepsExpiredPlans (0.04s)
+    preflight_test.go:602: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightSweepsExpiredPlans413846424/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightSweepsExpiredPlans413846424/001`）
+--- FAIL: TestProcessesListQueryReturnsSnapshot (0.04s)
+    processes_test.go:117: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestProcessesListQueryReturnsSnapshot303911227/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestProcessesListQueryReturnsSnapshot303911227/002`）
+--- FAIL: TestProcessesListQueryRejectsParams (0.05s)
+    processes_test.go:146: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestProcessesListQueryRejectsParams1217060259/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestProcessesListQueryRejectsParams1217060259/002`）
+--- FAIL: TestProcessSignalDecode (0.02s)
+    processes_test.go:156: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestProcessSignalDecode116770901/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestProcessSignalDecode116770901/001`）
+--- FAIL: TestProcessSignalPolicyDependsOnSignal (0.03s)
+    processes_test.go:191: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestProcessSignalPolicyDependsOnSignal1825929398/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestProcessSignalPolicyDependsOnSignal1825929398/001`）
+--- FAIL: TestProcessSignalPreflightMapsAssessment (0.03s)
+    processes_test.go:230: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestProcessSignalPreflightMapsAssessment630987824/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestProcessSignalPreflightMapsAssessment630987824/001`）
+--- FAIL: TestProcessSignalTERMExecutesWithoutPhrase (0.03s)
+    processes_test.go:271: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestProcessSignalTERMExecutesWithoutPhrase586895496/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestProcessSignalTERMExecutesWithoutPhrase586895496/001`）
+--- FAIL: TestProcessSignalKILLRequiresPhraseAndReauth (0.02s)
+    processes_test.go:319: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestProcessSignalKILLRequiresPhraseAndReauth1530130079/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestProcessSignalKILLRequiresPhraseAndReauth1530130079/001`）
+--- FAIL: TestProcessSignalBlockedPreflightCannotExecute (0.02s)
+    processes_test.go:380: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestProcessSignalBlockedPreflightCannotExecute298921321/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestProcessSignalBlockedPreflightCannotExecute298921321/001`）
+--- FAIL: TestProcessSignalReusedPIDInvalidatesPreflight (0.03s)
+    processes_test.go:401: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestProcessSignalReusedPIDInvalidatesPreflight583819520/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestProcessSignalReusedPIDInvalidatesPreflight583819520/001`）
+--- FAIL: TestProcessSignalExecutionFailure (0.03s)
+    processes_test.go:431: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestProcessSignalExecutionFailure919040224/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestProcessSignalExecutionFailure919040224/001`）
+--- FAIL: TestProcessSignalSurfacesAssessmentError (0.03s)
+    processes_test.go:462: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestProcessSignalSurfacesAssessmentError1175991331/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestProcessSignalSurfacesAssessmentError1175991331/001`）
+--- FAIL: TestQueriesRejectsUnknownQuery (0.02s)
+    queries_test.go:60: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestQueriesRejectsUnknownQuery2941014496/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestQueriesRejectsUnknownQuery2941014496/002`）
+--- FAIL: TestQueriesRejectsCommandStyleInput (0.02s)
+    queries_test.go:81: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestQueriesRejectsCommandStyleInput1283697008/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestQueriesRejectsCommandStyleInput1283697008/002`）
+--- FAIL: TestQueriesRejectsBadEnvelope (0.03s)
+    queries_test.go:90: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestQueriesRejectsBadEnvelope3414836830/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestQueriesRejectsBadEnvelope3414836830/002`）
+--- FAIL: TestQueriesRejectsUnknownParams (0.03s)
+    queries_test.go:108: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestQueriesRejectsUnknownParams3745505830/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestQueriesRejectsUnknownParams3745505830/002`）
+--- FAIL: TestQueriesRejectsOversizeBody (0.02s)
+    queries_test.go:116: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestQueriesRejectsOversizeBody3350938557/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestQueriesRejectsOversizeBody3350938557/002`）
+--- FAIL: TestQueriesRejectsNonJSONContentType (0.02s)
+    queries_test.go:125: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestQueriesRejectsNonJSONContentType1100392895/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestQueriesRejectsNonJSONContentType1100392895/002`）
+--- FAIL: TestQueriesRequiresPost (0.05s)
+    queries_test.go:135: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestQueriesRequiresPost133024241/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestQueriesRequiresPost133024241/002`）
+--- FAIL: TestQueriesRunsRegisteredQuery (0.03s)
+    queries_test.go:147: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestQueriesRunsRegisteredQuery787260936/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestQueriesRunsRegisteredQuery787260936/002`）
+--- FAIL: TestQueriesReportsRunFailure (0.05s)
+    queries_test.go:167: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestQueriesReportsRunFailure2489868869/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestQueriesReportsRunFailure2489868869/002`）
+--- FAIL: TestCapabilitiesListsRegisteredQueriesStably (0.02s)
+    queries_test.go:190: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestCapabilitiesListsRegisteredQueriesStably1388449806/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestCapabilitiesListsRegisteredQueriesStably1388449806/002`）
+--- FAIL: TestSchedulesListRoute (0.02s)
+    scheduleservice_test.go:87: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestSchedulesListRoute1743529578/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestSchedulesListRoute1743529578/001`）
+--- FAIL: TestScheduleDetailRoute (0.03s)
+    scheduleservice_test.go:134: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestScheduleDetailRoute2587718591/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestScheduleDetailRoute2587718591/001`）
+--- FAIL: TestScheduleDetailNotFound (0.02s)
+    scheduleservice_test.go:156: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestScheduleDetailNotFound3283293144/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestScheduleDetailNotFound3283293144/001`）
+--- FAIL: TestSchedulesListRejectsWrite (0.02s)
+    scheduleservice_test.go:171: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestSchedulesListRejectsWrite4245432817/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestSchedulesListRejectsWrite4245432817/001`）
+--- FAIL: TestScriptsListHidesContent (0.01s)
+    scheduleservice_test.go:187: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestScriptsListHidesContent845630671/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestScriptsListHidesContent845630671/001`）
+--- FAIL: TestScriptDetailHasContent (0.02s)
+    scheduleservice_test.go:213: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestScriptDetailHasContent4072220441/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestScriptDetailHasContent4072220441/001`）
+--- FAIL: TestScriptsNotFound (0.03s)
+    scheduleservice_test.go:231: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestScriptsNotFound1061075767/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestScriptsNotFound1061075767/001`）
+--- FAIL: TestMirrorRoutesHiddenWithoutWiring (0.05s)
+    scheduleservice_test.go:248: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestMirrorRoutesHiddenWithoutWiring1159683471/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestMirrorRoutesHiddenWithoutWiring1159683471/001`）
+--- FAIL: TestTriggerRejectsWebPeer (0.04s)
+    scheduletrigger_test.go:221: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTriggerRejectsWebPeer840478498/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTriggerRejectsWebPeer840478498/001`）
+--- FAIL: TestTriggerRequiresPost (0.01s)
+    scheduletrigger_test.go:232: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTriggerRequiresPost568196302/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTriggerRequiresPost568196302/001`）
+--- FAIL: TestTriggerDecodeStrict (0.01s)
+    scheduletrigger_test.go:245: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTriggerDecodeStrict1461914236/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTriggerDecodeStrict1461914236/001`）
+--- FAIL: TestTriggerRejectsMismatchedSlot (0.01s)
+    scheduletrigger_test.go:267: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTriggerRejectsMismatchedSlot3480745101/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTriggerRejectsMismatchedSlot3480745101/001`）
+--- FAIL: TestTriggerBlockedIsRecorded (0.02s)
+    scheduletrigger_test.go:284: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTriggerBlockedIsRecorded1843824947/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTriggerBlockedIsRecorded1843824947/001`）
+--- FAIL: TestTriggerRejectsPhraseAction (0.02s)
+    scheduletrigger_test.go:307: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTriggerRejectsPhraseAction1786633138/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTriggerRejectsPhraseAction1786633138/001`）
+--- FAIL: TestTriggerRejectsUnknownAction (0.02s)
+    scheduletrigger_test.go:327: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTriggerRejectsUnknownAction2403332164/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTriggerRejectsUnknownAction2403332164/001`）
+--- FAIL: TestTriggerAcceptedCreatesSystemOperation (0.04s)
+    scheduletrigger_test.go:340: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTriggerAcceptedCreatesSystemOperation1939193154/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTriggerAcceptedCreatesSystemOperation1939193154/001`）
+--- FAIL: TestTriggerReplayReturnsExisting (0.01s)
+    scheduletrigger_test.go:382: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTriggerReplayReturnsExisting4090125990/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTriggerReplayReturnsExisting4090125990/001`）
+--- FAIL: TestTriggerClaimedWithoutOperationIsNotAGate (0.01s)
+    scheduletrigger_test.go:406: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTriggerClaimedWithoutOperationIsNotAGate273290308/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTriggerClaimedWithoutOperationIsNotAGate273290308/001`）
+--- FAIL: TestTriggerOperationConflict (0.01s)
+    scheduletrigger_test.go:420: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTriggerOperationConflict3259711837/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTriggerOperationConflict3259711837/001`）
+--- FAIL: TestTriggerNotFoundWithoutService (0.02s)
+    scheduletrigger_test.go:441: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTriggerNotFoundWithoutService1038793812/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTriggerNotFoundWithoutService1038793812/001`）
+--- FAIL: TestTriggerRunReadsOnlyOwnSchedule (0.03s)
+    scheduletrigger_test.go:465: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTriggerRunReadsOnlyOwnSchedule2258917604/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTriggerRunReadsOnlyOwnSchedule2258917604/001`）
+--- FAIL: TestTriggerRunRejectsBadRequests (0.06s)
+    scheduletrigger_test.go:503: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTriggerRunRejectsBadRequests676486898/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTriggerRunRejectsBadRequests676486898/001`）
+--- FAIL: TestTriggerRunNotFoundWithoutService (0.04s)
+    scheduletrigger_test.go:526: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTriggerRunNotFoundWithoutService671907269/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTriggerRunNotFoundWithoutService671907269/001`）
+==================
+WARNING: DATA RACE
+Write at 0x00c0003bfe08 by goroutine 434:
+  upanel/internal/agent.(*fakeScripts).Run()
+      /tmp/upanel-src/internal/agent/scriptaction_test.go:97 +0x164
+  upanel/internal/agent.newScriptRunAction.func3()
+      /tmp/upanel-src/internal/agent/scriptaction.go:224 +0x415
+  upanel/internal/agent.TestScriptRunCancelReachesRunner.func1()
+      /tmp/upanel-src/internal/agent/scriptaction_test.go:396 +0x12d
+
+Previous read at 0x00c0003bfe08 by goroutine 433:
+  upanel/internal/agent.TestScriptRunCancelReachesRunner()
+      /tmp/upanel-src/internal/agent/scriptaction_test.go:403 +0x767
+  testing.tRunner()
+      /usr/local/go/src/testing/testing.go:2195 +0x21c
+  testing.(*T).Run.gowrap1()
+      /usr/local/go/src/testing/testing.go:2260 +0x38
+
+Goroutine 434 (running) created at:
+  upanel/internal/agent.TestScriptRunCancelReachesRunner()
+      /tmp/upanel-src/internal/agent/scriptaction_test.go:395 +0x72a
+  testing.tRunner()
+      /usr/local/go/src/testing/testing.go:2195 +0x21c
+  testing.(*T).Run.gowrap1()
+      /usr/local/go/src/testing/testing.go:2260 +0x38
+
+Goroutine 433 (running) created at:
+  testing.(*T).Run()
+      /usr/local/go/src/testing/testing.go:2260 +0xb12
+  testing.runTests.func1()
+      /usr/local/go/src/testing/testing.go:2744 +0x84
+  testing.tRunner()
+      /usr/local/go/src/testing/testing.go:2195 +0x21c
+  testing.runTests()
+      /usr/local/go/src/testing/testing.go:2742 +0x9e9
+  testing.(*M).Run()
+      /usr/local/go/src/testing/testing.go:2602 +0xf44
+  main.main()
+      _testmain.go:1002 +0x164
+==================
+--- FAIL: TestScriptRunCancelReachesRunner (0.09s)
+    testing.go:1867: race detected during execution of test
+--- FAIL: TestPostSecretReturnsRefWithoutPlaintext (0.02s)
+    secrets_test.go:48: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPostSecretReturnsRefWithoutPlaintext1449257619/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPostSecretReturnsRefWithoutPlaintext1449257619/001`）
+--- FAIL: TestPostSecretWithReferenceIsPersistent (0.02s)
+    secrets_test.go:103: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPostSecretWithReferenceIsPersistent201374990/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPostSecretWithReferenceIsPersistent201374990/001`）
+--- FAIL: TestPostSecretRejectsGetAndNoReadRoute (0.01s)
+    secrets_test.go:125: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPostSecretRejectsGetAndNoReadRoute3141485863/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPostSecretRejectsGetAndNoReadRoute3141485863/001`）
+--- FAIL: TestPostSecretValidatesInput (0.02s)
+    secrets_test.go:153: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPostSecretValidatesInput1698912275/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPostSecretValidatesInput1698912275/001`）
+--- FAIL: TestPostSecretEnforcesSizeLimits (0.03s)
+    secrets_test.go:184: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPostSecretEnforcesSizeLimits1074918777/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPostSecretEnforcesSizeLimits1074918777/001`）
+--- FAIL: TestPostSecretRequiresJSONContentType (0.02s)
+    secrets_test.go:202: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPostSecretRequiresJSONContentType1055924334/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPostSecretRequiresJSONContentType1055924334/001`）
+--- FAIL: TestPostSecretDeniedForOtherUIDs (0.03s)
+    secrets_test.go:213: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPostSecretDeniedForOtherUIDs1637141984/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPostSecretDeniedForOtherUIDs1637141984/001`）
+--- FAIL: TestSweepExpiredSecrets (0.02s)
+    secrets_test.go:256: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestSweepExpiredSecrets2345931805/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestSweepExpiredSecrets2345931805/001`）
+--- FAIL: TestSecretsRouteRejectsOtherMethods (0.02s)
+    secrets_test.go:311: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestSecretsRouteRejectsOtherMethods3263385015/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestSecretsRouteRejectsOtherMethods3263385015/001`）
+--- FAIL: TestCapabilitiesShape (0.03s)
+    server_test.go:87: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestCapabilitiesShape1119873879/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestCapabilitiesShape1119873879/002`）
+--- FAIL: TestCapabilitiesRejectsPost (0.03s)
+    server_test.go:145: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestCapabilitiesRejectsPost2393125882/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestCapabilitiesRejectsPost2393125882/002`）
+--- FAIL: TestUnknownAgentPathIs404 (0.03s)
+    server_test.go:157: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestUnknownAgentPathIs4042093627217/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestUnknownAgentPathIs4042093627217/002`）
+--- FAIL: TestNewRejectsInvalidOptions (0.04s)
+    server_test.go:202: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestNewRejectsInvalidOptions657963471/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestNewRejectsInvalidOptions657963471/001`）
+--- FAIL: TestPrepareSocketPathRefusesNonSocket (0.09s)
+    server_test.go:226: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPrepareSocketPathRefusesNonSocket981175775/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPrepareSocketPathRefusesNonSocket981175775/002`）
+--- FAIL: TestPrepareSocketPathRequiresExistingDir (0.05s)
+    server_test.go:274: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPrepareSocketPathRequiresExistingDir3180683234/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPrepareSocketPathRequiresExistingDir3180683234/002`）
+--- FAIL: TestPrepareSocketPathRefusesLiveSocket (0.06s)
+    server_test.go:320: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPrepareSocketPathRefusesLiveSocket2433377041/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPrepareSocketPathRefusesLiveSocket2433377041/002`）
+--- FAIL: TestPrepareSocketPathReplacesStaleSocket (0.03s)
+    server_test.go:360: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPrepareSocketPathReplacesStaleSocket1595180007/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPrepareSocketPathReplacesStaleSocket1595180007/002`）
+--- FAIL: TestCapabilitiesReportsHostCaps (0.03s)
+    server_test.go:385: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestCapabilitiesReportsHostCaps647824348/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestCapabilitiesReportsHostCaps647824348/002`）
+--- FAIL: TestServicesListQueryReturnsSnapshot (0.04s)
+    services_test.go:130: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestServicesListQueryReturnsSnapshot2810150776/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestServicesListQueryReturnsSnapshot2810150776/002`）
+--- FAIL: TestServicesListQueryRejectsParams (0.03s)
+    services_test.go:158: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestServicesListQueryRejectsParams3724310403/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestServicesListQueryRejectsParams3724310403/002`）
+--- FAIL: TestServicesUnitQuery (0.03s)
+    services_test.go:170: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestServicesUnitQuery3492480867/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestServicesUnitQuery3492480867/002`）
+--- FAIL: TestServicesUnitQueryRejectsBadNames (0.03s)
+    services_test.go:201: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestServicesUnitQueryRejectsBadNames4292984735/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestServicesUnitQueryRejectsBadNames4292984735/002`）
+--- FAIL: TestServiceControlDecode (0.02s)
+    services_test.go:222: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestServiceControlDecode2224037071/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestServiceControlDecode2224037071/001`）
+--- FAIL: TestServiceControlPreflightMapsAssessment (0.03s)
+    services_test.go:263: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestServiceControlPreflightMapsAssessment1266875858/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestServiceControlPreflightMapsAssessment1266875858/001`）
+--- FAIL: TestServiceControlExecutesAndVerifies (0.03s)
+    services_test.go:334: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestServiceControlExecutesAndVerifies476367690/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestServiceControlExecutesAndVerifies476367690/001`）
+--- FAIL: TestServiceControlExecutionFailure (0.02s)
+    services_test.go:382: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestServiceControlExecutionFailure3690593752/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestServiceControlExecutionFailure3690593752/001`）
+--- FAIL: TestServiceControlBlockedPreflightCannotExecute (0.03s)
+    services_test.go:424: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestServiceControlBlockedPreflightCannotExecute1160703031/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestServiceControlBlockedPreflightCannotExecute1160703031/001`）
+--- FAIL: TestServiceControlRejectsUnknownAction (0.03s)
+    services_test.go:442: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestServiceControlRejectsUnknownAction972478400/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestServiceControlRejectsUnknownAction972478400/001`）
+--- FAIL: TestServiceControlSurfacesAssessmentError (0.02s)
+    services_test.go:455: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestServiceControlSurfacesAssessmentError2712728653/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestServiceControlSurfacesAssessmentError2712728653/001`）
+--- FAIL: TestShareCapabilityQuery (0.02s)
+    sharequery_test.go:107: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestShareCapabilityQuery1780498243/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestShareCapabilityQuery1780498243/002`）
+--- FAIL: TestShareListQuery (0.03s)
+    sharequery_test.go:135: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestShareListQuery2682558326/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestShareListQuery2682558326/002`）
+--- FAIL: TestShareListQueryEmptyIsArray (0.04s)
+    sharequery_test.go:172: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestShareListQueryEmptyIsArray1808542379/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestShareListQueryEmptyIsArray1808542379/002`）
+--- FAIL: TestShareAccountsQueryHidesSecretRef (0.12s)
+    sharequery_test.go:200: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestShareAccountsQueryHidesSecretRef310401736/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestShareAccountsQueryHidesSecretRef310401736/002`）
+--- FAIL: TestShareConnectionsQuery (0.06s)
+    sharequery_test.go:222: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestShareConnectionsQuery2505553027/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestShareConnectionsQuery2505553027/002`）
+--- FAIL: TestShareConnectionsQueryRejectsBadID (0.04s)
+    sharequery_test.go:256: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestShareConnectionsQueryRejectsBadID420650506/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestShareConnectionsQueryRejectsBadID420650506/002`）
+--- FAIL: TestShareConnectionsQueryNotFoundIs404 (0.03s)
+    sharequery_test.go:281: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestShareConnectionsQueryNotFoundIs4041261156416/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestShareConnectionsQueryNotFoundIs4041261156416/002`）
+--- FAIL: TestShareQueriesRejectBadParams (0.03s)
+    sharequery_test.go:292: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestShareQueriesRejectBadParams4032765298/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestShareQueriesRejectBadParams4032765298/002`）
+--- FAIL: TestShareListQueryStoreErrorIsError (0.04s)
+    sharequery_test.go:311: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestShareListQueryStoreErrorIsError1612616793/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestShareListQueryStoreErrorIsError1612616793/002`）
+--- FAIL: TestStoragePlanMapping (0.03s)
+    storageaction_test.go:294: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestStoragePlanMapping381345129/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestStoragePlanMapping381345129/001`）
+--- FAIL: TestStoragePlanFailureIsNotBlocked (0.03s)
+    storageaction_test.go:344: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestStoragePlanFailureIsNotBlocked1601628388/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestStoragePlanFailureIsNotBlocked1601628388/001`）
+--- FAIL: TestStorageSubmitWithoutExecutorIs501 (0.03s)
+    storageaction_test.go:384: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestStorageSubmitWithoutExecutorIs5012344883518/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestStorageSubmitWithoutExecutorIs5012344883518/001`）
+--- FAIL: TestStorageExecuteHandsTargetToWriter (0.04s)
+    storageaction_test.go:425: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestStorageExecuteHandsTargetToWriter2754416253/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestStorageExecuteHandsTargetToWriter2754416253/001`）
+--- FAIL: TestStorageExecuteRejectionKeepsCode (0.05s)
+    storageaction_test.go:485: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestStorageExecuteRejectionKeepsCode2154896851/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestStorageExecuteRejectionKeepsCode2154896851/001`）
+--- FAIL: TestStorageCapabilitiesListExecutableStorageActions (0.05s)
+    storageaction_test.go:514: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestStorageCapabilitiesListExecutableStorageActions418352414/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestStorageCapabilitiesListExecutableStorageActions418352414/002`）
+--- FAIL: TestStoragePreflightForMissingDeviceIsNot500 (0.02s)
+    storageaction_test.go:622: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestStoragePreflightForMissingDeviceIsNot5003376538797/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestStoragePreflightForMissingDeviceIsNot5003376538797/001`）
+--- FAIL: TestStorageTopologyQueryReturnsSnapshot (0.02s)
+    storagequery_test.go:45: 定位夹具目录 storage-2404 失败：试过 /tmp/go-build2379773655/b435/fixtures/storage-2404、/tmp/go-build2379773655/fixtures/storage-2404、/tmp/tests/fixtures/storage-2404、/tmp/upanel-src/internal/agent/tests/fixtures/storage-2404、/tmp/upanel-src/internal/tests/fixtures/storage-2404、/tmp/upanel-src/tests/fixtures/storage-2404、/tmp/tests/fixtures/storage-2404、/tests/fixtures/storage-2404（可用 UPANEL_FIXTURES 指向 tests/fixtures）
+--- FAIL: TestStorageTopologyQueryRejectsParams (0.01s)
+    storagequery_test.go:113: 定位夹具目录 storage-2404 失败：试过 /tmp/go-build2379773655/b435/fixtures/storage-2404、/tmp/go-build2379773655/fixtures/storage-2404、/tmp/tests/fixtures/storage-2404、/tmp/upanel-src/internal/agent/tests/fixtures/storage-2404、/tmp/upanel-src/internal/tests/fixtures/storage-2404、/tmp/upanel-src/tests/fixtures/storage-2404、/tmp/tests/fixtures/storage-2404、/tests/fixtures/storage-2404（可用 UPANEL_FIXTURES 指向 tests/fixtures）
+--- FAIL: TestCapabilitiesListsStorageTopology (0.02s)
+    storagequery_test.go:134: 读取夹具 stat-cpu-2404.txt 失败：试过 /tmp/go-build2379773655/b435/fixtures/stat-cpu-2404.txt、/tmp/go-build2379773655/fixtures/stat-cpu-2404.txt、/tmp/tests/fixtures/stat-cpu-2404.txt、/tmp/upanel-src/internal/agent/tests/fixtures/stat-cpu-2404.txt、/tmp/upanel-src/internal/tests/fixtures/stat-cpu-2404.txt、/tmp/upanel-src/tests/fixtures/stat-cpu-2404.txt、/tmp/tests/fixtures/stat-cpu-2404.txt、/tests/fixtures/stat-cpu-2404.txt（可用 UPANEL_FIXTURES 指向 tests/fixtures）
+--- FAIL: TestStorageQueryNotRegisteredWithoutCollector (0.02s)
+    storagequery_test.go:191: 读取夹具 stat-cpu-2404.txt 失败：试过 /tmp/go-build2379773655/b435/fixtures/stat-cpu-2404.txt、/tmp/go-build2379773655/fixtures/stat-cpu-2404.txt、/tmp/tests/fixtures/stat-cpu-2404.txt、/tmp/upanel-src/internal/agent/tests/fixtures/stat-cpu-2404.txt、/tmp/upanel-src/internal/tests/fixtures/stat-cpu-2404.txt、/tmp/upanel-src/tests/fixtures/stat-cpu-2404.txt、/tmp/tests/fixtures/stat-cpu-2404.txt、/tests/fixtures/stat-cpu-2404.txt（可用 UPANEL_FIXTURES 指向 tests/fixtures）
+--- FAIL: TestLogsQueryRejectsUnknownFields (0.09s)
+    streams_test.go:121: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestLogsQueryRejectsUnknownFields2129479257/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestLogsQueryRejectsUnknownFields2129479257/002`）
+--- FAIL: TestLogsQueryBadParamsAre400 (0.01s)
+    streams_test.go:136: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestLogsQueryBadParamsAre4002735537331/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestLogsQueryBadParamsAre4002735537331/002`）
+--- FAIL: TestLogsQueryParamErrorsFromQueryAre400 (0.01s)
+    streams_test.go:167: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestLogsQueryParamErrorsFromQueryAre4001854443073/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestLogsQueryParamErrorsFromQueryAre4001854443073/002`）
+--- FAIL: TestLogsQueryInternalErrorsStay500 (0.01s)
+    streams_test.go:197: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestLogsQueryInternalErrorsStay5001227226597/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestLogsQueryInternalErrorsStay5001227226597/002`）
+--- FAIL: TestStreamLogsFlushesHeadersBeforeFirstEntry (0.03s)
+    streams_test.go:212: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestStreamLogsFlushesHeadersBeforeFirstEntry1972834807/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestStreamLogsFlushesHeadersBeforeFirstEntry1972834807/002`）
+--- FAIL: TestLogsQueryReturnsPage (0.05s)
+    streams_test.go:262: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestLogsQueryReturnsPage3599443501/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestLogsQueryReturnsPage3599443501/002`）
+--- FAIL: TestStreamsRejectUnregisteredPurpose (0.03s)
+    streams_test.go:284: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestStreamsRejectUnregisteredPurpose2891713319/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestStreamsRejectUnregisteredPurpose2891713319/002`）
+--- FAIL: TestStreamsRequireLogs (0.02s)
+    streams_test.go:295: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestStreamsRequireLogs3668936633/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestStreamsRequireLogs3668936633/002`）
+--- FAIL: TestStreamsRejectBadParams (0.01s)
+    streams_test.go:305: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestStreamsRejectBadParams442813299/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestStreamsRejectBadParams442813299/002`）
+--- FAIL: TestStreamPermitIsSingleUse (0.01s)
+    streams_test.go:339: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestStreamPermitIsSingleUse3727209425/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestStreamPermitIsSingleUse3727209425/002`）
+--- FAIL: TestStreamPermitExpires (0.01s)
+    streams_test.go:354: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestStreamPermitExpires1513309860/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestStreamPermitExpires1513309860/002`）
+--- FAIL: TestStreamLogsWritesNDJSON (0.01s)
+    streams_test.go:381: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestStreamLogsWritesNDJSON1237096951/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestStreamLogsWritesNDJSON1237096951/002`）
+--- FAIL: TestStreamLogsReportsError (0.02s)
+    streams_test.go:427: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestStreamLogsReportsError3722090852/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestStreamLogsReportsError3722090852/002`）
+--- FAIL: TestStreamsRejectOtherMethods (0.03s)
+    streams_test.go:443: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestStreamsRejectOtherMethods3863214900/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestStreamsRejectOtherMethods3863214900/002`）
+--- FAIL: TestStreamsRequireWebUID (0.03s)
+    streams_test.go:457: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestStreamsRequireWebUID973427643/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestStreamsRequireWebUID973427643/002`）
+--- FAIL: TestSystemSummaryQueryReturnsSnapshot (0.01s)
+    systemquery_test.go:49: 读取夹具 stat-cpu-2404.txt 失败：试过 /tmp/go-build2379773655/b435/fixtures/stat-cpu-2404.txt、/tmp/go-build2379773655/fixtures/stat-cpu-2404.txt、/tmp/tests/fixtures/stat-cpu-2404.txt、/tmp/upanel-src/internal/agent/tests/fixtures/stat-cpu-2404.txt、/tmp/upanel-src/internal/tests/fixtures/stat-cpu-2404.txt、/tmp/upanel-src/tests/fixtures/stat-cpu-2404.txt、/tmp/tests/fixtures/stat-cpu-2404.txt、/tests/fixtures/stat-cpu-2404.txt（可用 UPANEL_FIXTURES 指向 tests/fixtures）
+--- FAIL: TestSystemSummaryQueryRejectsParams (0.01s)
+    systemquery_test.go:100: 读取夹具 stat-cpu-2404.txt 失败：试过 /tmp/go-build2379773655/b435/fixtures/stat-cpu-2404.txt、/tmp/go-build2379773655/fixtures/stat-cpu-2404.txt、/tmp/tests/fixtures/stat-cpu-2404.txt、/tmp/upanel-src/internal/agent/tests/fixtures/stat-cpu-2404.txt、/tmp/upanel-src/internal/tests/fixtures/stat-cpu-2404.txt、/tmp/upanel-src/tests/fixtures/stat-cpu-2404.txt、/tmp/tests/fixtures/stat-cpu-2404.txt、/tests/fixtures/stat-cpu-2404.txt（可用 UPANEL_FIXTURES 指向 tests/fixtures）
+--- FAIL: TestCapabilitiesListsSystemSummary (0.04s)
+    systemquery_test.go:119: 读取夹具 stat-cpu-2404.txt 失败：试过 /tmp/go-build2379773655/b435/fixtures/stat-cpu-2404.txt、/tmp/go-build2379773655/fixtures/stat-cpu-2404.txt、/tmp/tests/fixtures/stat-cpu-2404.txt、/tmp/upanel-src/internal/agent/tests/fixtures/stat-cpu-2404.txt、/tmp/upanel-src/internal/tests/fixtures/stat-cpu-2404.txt、/tmp/upanel-src/tests/fixtures/stat-cpu-2404.txt、/tmp/tests/fixtures/stat-cpu-2404.txt、/tests/fixtures/stat-cpu-2404.txt（可用 UPANEL_FIXTURES 指向 tests/fixtures）
+--- FAIL: TestTotpEnrollCreatesTemporarySeedAndShowsItOnlyInTheURI (0.06s)
+    totp_test.go:92: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTotpEnrollCreatesTemporarySeedAndShowsItOnlyInTheURI2318705585/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTotpEnrollCreatesTemporarySeedAndShowsItOnlyInTheURI2318705585/001`）
+--- FAIL: TestTotpEnrollValidatesItsInput (0.02s)
+    totp_test.go:177: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTotpEnrollValidatesItsInput3136444494/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTotpEnrollValidatesItsInput3136444494/001`）
+--- FAIL: TestTotpConfirmTurnsTheSeedPersistentAndVerifyThenAccepts (0.02s)
+    totp_test.go:201: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTotpConfirmTurnsTheSeedPersistentAndVerifyThenAccepts1233679833/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTotpConfirmTurnsTheSeedPersistentAndVerifyThenAccepts1233679833/001`）
+--- FAIL: TestTotpConfirmWithWrongCodeLeavesTheSeedTemporary (0.03s)
+    totp_test.go:262: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTotpConfirmWithWrongCodeLeavesTheSeedTemporary4167468225/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTotpConfirmWithWrongCodeLeavesTheSeedTemporary4167468225/001`）
+--- FAIL: TestTotpRejectsAnotherUsersSeed (0.02s)
+    totp_test.go:288: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTotpRejectsAnotherUsersSeed1634940477/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTotpRejectsAnotherUsersSeed1634940477/001`）
+--- FAIL: TestTotpRejectsRefsThatAreNotSeeds (0.02s)
+    totp_test.go:319: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTotpRejectsRefsThatAreNotSeeds221971763/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTotpRejectsRefsThatAreNotSeeds221971763/001`）
+--- FAIL: TestTotpVerifyAfterExpiryAsksForANewEnrollment (0.03s)
+    totp_test.go:349: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTotpVerifyAfterExpiryAsksForANewEnrollment510290402/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTotpVerifyAfterExpiryAsksForANewEnrollment510290402/001`）
+--- FAIL: TestTotpDisableDestroysTheSeedAndIsIdempotent (0.03s)
+    totp_test.go:371: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTotpDisableDestroysTheSeedAndIsIdempotent71934819/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTotpDisableDestroysTheSeedAndIsIdempotent71934819/001`）
+--- FAIL: TestTotpRoutesAreAbsentWhenNotWired (0.04s)
+    totp_test.go:416: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTotpRoutesAreAbsentWhenNotWired4151913505/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTotpRoutesAreAbsentWhenNotWired4151913505/002`）
+--- FAIL: TestTotpEnforcesMethodContentTypeAndPeer (0.03s)
+    totp_test.go:431: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTotpEnforcesMethodContentTypeAndPeer649760364/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTotpEnforcesMethodContentTypeAndPeer649760364/001`）
+--- FAIL: TestTotpVerifyRejectsEmptyCode (0.03s)
+    totp_test.go:463: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTotpVerifyRejectsEmptyCode3977784315/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTotpVerifyRejectsEmptyCode3977784315/001`）
+--- FAIL: TestUploadEndpointsAbsentWithoutWriter (0.03s)
+    uploads_test.go:83: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestUploadEndpointsAbsentWithoutWriter523089509/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestUploadEndpointsAbsentWithoutWriter523089509/002`）
+--- FAIL: TestCreateUploadDecodesStrictly (0.03s)
+    uploads_test.go:106: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestCreateUploadDecodesStrictly1736310325/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestCreateUploadDecodesStrictly1736310325/002`）
+--- FAIL: TestCreateUploadOK (0.02s)
+    uploads_test.go:134: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestCreateUploadOK4244332453/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestCreateUploadOK4244332453/002`）
+--- FAIL: TestCreateUploadMapsVerdicts (0.01s)
+    uploads_test.go:171: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestCreateUploadMapsVerdicts145757003/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestCreateUploadMapsVerdicts145757003/002`）
+--- FAIL: TestUploadByIDRoutes (0.04s)
+    uploads_test.go:189: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestUploadByIDRoutes3464554612/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestUploadByIDRoutes3464554612/002`）
+--- FAIL: TestUploadContentStreamsBody (0.02s)
+    uploads_test.go:229: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestUploadContentStreamsBody1418754488/002 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestUploadContentStreamsBody1418754488/002`）
+--- FAIL: TestVolumePlanMapping (0.02s)
+    volumeaction_test.go:264: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestVolumePlanMapping1747461298/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestVolumePlanMapping1747461298/001`）
+--- FAIL: TestVolumePlanFailureIsNotBlocked (0.02s)
+    volumeaction_test.go:306: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestVolumePlanFailureIsNotBlocked704080137/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestVolumePlanFailureIsNotBlocked704080137/001`）
+--- FAIL: TestVolumeExecuteHandsTargetToWriter (0.01s)
+    volumeaction_test.go:341: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestVolumeExecuteHandsTargetToWriter3331101942/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestVolumeExecuteHandsTargetToWriter3331101942/001`）
+--- FAIL: TestVolumesQueryReturnsRegisteredVolumes (0.01s)
+    volumequery_test.go:110: 定位夹具目录 storage-2404 失败：试过 /tmp/go-build2379773655/b435/fixtures/storage-2404、/tmp/go-build2379773655/fixtures/storage-2404、/tmp/tests/fixtures/storage-2404、/tmp/upanel-src/internal/agent/tests/fixtures/storage-2404、/tmp/upanel-src/internal/tests/fixtures/storage-2404、/tmp/upanel-src/tests/fixtures/storage-2404、/tmp/tests/fixtures/storage-2404、/tests/fixtures/storage-2404（可用 UPANEL_FIXTURES 指向 tests/fixtures）
+--- FAIL: TestVolumeBlockersQueryRejectsBadID (0.01s)
+    volumequery_test.go:157: 定位夹具目录 storage-2404 失败：试过 /tmp/go-build2379773655/b435/fixtures/storage-2404、/tmp/go-build2379773655/fixtures/storage-2404、/tmp/tests/fixtures/storage-2404、/tmp/upanel-src/internal/agent/tests/fixtures/storage-2404、/tmp/upanel-src/internal/tests/fixtures/storage-2404、/tmp/upanel-src/tests/fixtures/storage-2404、/tmp/tests/fixtures/storage-2404、/tests/fixtures/storage-2404（可用 UPANEL_FIXTURES 指向 tests/fixtures）
+--- FAIL: TestVolumeBlockersQueryReturnsEmptyLists (0.01s)
+    volumequery_test.go:185: 定位夹具目录 storage-2404 失败：试过 /tmp/go-build2379773655/b435/fixtures/storage-2404、/tmp/go-build2379773655/fixtures/storage-2404、/tmp/tests/fixtures/storage-2404、/tmp/upanel-src/internal/agent/tests/fixtures/storage-2404、/tmp/upanel-src/internal/tests/fixtures/storage-2404、/tmp/upanel-src/tests/fixtures/storage-2404、/tmp/tests/fixtures/storage-2404、/tests/fixtures/storage-2404（可用 UPANEL_FIXTURES 指向 tests/fixtures）
+--- FAIL: TestVolumeQueriesNotRegisteredWithoutVolumeDeps (0.01s)
+    volumequery_test.go:234: 定位夹具目录 storage-2404 失败：试过 /tmp/go-build2379773655/b435/fixtures/storage-2404、/tmp/go-build2379773655/fixtures/storage-2404、/tmp/tests/fixtures/storage-2404、/tmp/upanel-src/internal/agent/tests/fixtures/storage-2404、/tmp/upanel-src/internal/tests/fixtures/storage-2404、/tmp/upanel-src/tests/fixtures/storage-2404、/tmp/tests/fixtures/storage-2404、/tests/fixtures/storage-2404（可用 UPANEL_FIXTURES 指向 tests/fixtures）
+--- FAIL: TestVolumeQueriesRegisteredWhenCapable (0.01s)
+    volumequery_test.go:259: 定位夹具目录 storage-2404 失败：试过 /tmp/go-build2379773655/b435/fixtures/storage-2404、/tmp/go-build2379773655/fixtures/storage-2404、/tmp/tests/fixtures/storage-2404、/tmp/upanel-src/internal/agent/tests/fixtures/storage-2404、/tmp/upanel-src/internal/tests/fixtures/storage-2404、/tmp/upanel-src/tests/fixtures/storage-2404、/tmp/tests/fixtures/storage-2404、/tests/fixtures/storage-2404（可用 UPANEL_FIXTURES 指向 tests/fixtures）
+FAIL
+FAIL	upanel/internal/agent	29.617s
+ok  	upanel/internal/agentclient	12.100s
+--- FAIL: TestGenerateKeyFileThenLoad (0.20s)
+    keyring_test.go:62: 生成密钥失败: agentstore: 本机秘密密钥不可用: 目录 /tmp/TestGenerateKeyFileThenLoad229045306/001/keys 的属主必须是 root，实际为 1000
+--- FAIL: TestGenerateKeyFileNeverOverwrites (0.04s)
+    keyring_test.go:100: 首次生成失败: agentstore: 本机秘密密钥不可用: 目录 /tmp/TestGenerateKeyFileNeverOverwrites3654964927/001 的属主必须是 root，实际为 1000
+--- FAIL: TestMigration0013RebuildsSharesAndKeepsRows (0.03s)
+    migrations_test.go:85: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestMigration0013RebuildsSharesAndKeepsRows1213416863/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestMigration0013RebuildsSharesAndKeepsRows1213416863/001`）
+--- FAIL: TestMigration0014RebuildsAccountsAndAddsKeyTables (0.04s)
+    migrations_test.go:194: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestMigration0014RebuildsAccountsAndAddsKeyTables3193650038/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestMigration0014RebuildsAccountsAndAddsKeyTables3193650038/001`）
+--- FAIL: TestListByActorFiltersAndOrders (0.03s)
+    operationlist_test.go:67: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestListByActorFiltersAndOrders580366557/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestListByActorFiltersAndOrders580366557/001`）
+--- FAIL: TestListByActorRejectsBadParams (0.03s)
+    operationlist_test.go:119: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestListByActorRejectsBadParams3172202978/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestListByActorRejectsBadParams3172202978/001`）
+--- FAIL: TestAcceptConsumesPreflightExactlyOnce (0.03s)
+    operations_test.go:99: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestAcceptConsumesPreflightExactlyOnce3463692066/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestAcceptConsumesPreflightExactlyOnce3463692066/001`）
+--- FAIL: TestAcceptReplayReturnsExistingOperation (0.02s)
+    operations_test.go:129: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestAcceptReplayReturnsExistingOperation3607988985/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestAcceptReplayReturnsExistingOperation3607988985/001`）
+--- FAIL: TestAcceptRejectsSameIDWithDifferentRequest (0.03s)
+    operations_test.go:159: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestAcceptRejectsSameIDWithDifferentRequest562124483/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestAcceptRejectsSameIDWithDifferentRequest562124483/001`）
+--- FAIL: TestAcceptRejectsExpiredPreflight (0.02s)
+    operations_test.go:173: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestAcceptRejectsExpiredPreflight4090668570/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestAcceptRejectsExpiredPreflight4090668570/001`）
+--- FAIL: TestOperationLifecycleWritesEvents (0.02s)
+    operations_test.go:201: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestOperationLifecycleWritesEvents1438474159/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestOperationLifecycleWritesEvents1438474159/001`）
+--- FAIL: TestFinishRollsBackStageWhenEventWriteFails (0.03s)
+    operations_test.go:268: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestFinishRollsBackStageWhenEventWriteFails404916692/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestFinishRollsBackStageWhenEventWriteFails404916692/001`）
+--- FAIL: TestStageChangeAndEventAreAtomic (0.03s)
+    operations_test.go:331: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestStageChangeAndEventAreAtomic1182097841/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestStageChangeAndEventAreAtomic1182097841/001`）
+--- FAIL: TestOperationTerminalStageIsFinalInDatabase (0.03s)
+    operations_test.go:464: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestOperationTerminalStageIsFinalInDatabase3298027870/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestOperationTerminalStageIsFinalInDatabase3298027870/001`）
+--- FAIL: TestRequestCancelSemantics (0.02s)
+    operations_test.go:483: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestRequestCancelSemantics3184719465/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestRequestCancelSemantics3184719465/001`）
+--- FAIL: TestOperationEventsAreAppendOnly (0.03s)
+    operations_test.go:525: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestOperationEventsAreAppendOnly1176309446/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestOperationEventsAreAppendOnly1176309446/001`）
+--- FAIL: TestOperationValidationRejectsBadRecords (0.04s)
+    operations_test.go:540: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestOperationValidationRejectsBadRecords1348981650/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestOperationValidationRejectsBadRecords1348981650/001`）
+--- FAIL: TestGetMissingOperation (0.04s)
+    operations_test.go:567: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestGetMissingOperation3988080869/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestGetMissingOperation3988080869/001`）
+--- FAIL: TestListUnfinished (0.01s)
+    operations_test.go:577: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestListUnfinished1058255359/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestListUnfinished1058255359/001`）
+--- FAIL: TestPreflightPlanRoundTrip (0.01s)
+    plans_test.go:68: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightPlanRoundTrip4154410499/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightPlanRoundTrip4154410499/001`）
+--- FAIL: TestPreflightPlanStartsUnused (0.04s)
+    plans_test.go:108: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightPlanStartsUnused2672919910/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightPlanStartsUnused2672919910/001`）
+--- FAIL: TestPreflightPlanRejectsUsedFlagReset (0.03s)
+    plans_test.go:127: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightPlanRejectsUsedFlagReset1826905763/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightPlanRejectsUsedFlagReset1826905763/001`）
+--- FAIL: TestPreflightPlanDBChecksBindings (0.02s)
+    plans_test.go:146: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightPlanDBChecksBindings2913722024/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightPlanDBChecksBindings2913722024/001`）
+--- FAIL: TestPreflightPlanValidation (0.03s)
+    plans_test.go:173: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightPlanValidation4176469390/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightPlanValidation4176469390/001`）
+--- FAIL: TestPreflightPlanDuplicateRejected (0.01s)
+    plans_test.go:208: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPreflightPlanDuplicateRejected885456555/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPreflightPlanDuplicateRejected885456555/001`）
+--- FAIL: TestGetPreflightPlanMissing (0.03s)
+    plans_test.go:220: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestGetPreflightPlanMissing3447373160/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestGetPreflightPlanMissing3447373160/001`）
+--- FAIL: TestDeleteExpiredKeepsUsedPlans (0.02s)
+    plans_test.go:236: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestDeleteExpiredKeepsUsedPlans1616184920/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestDeleteExpiredKeepsUsedPlans1616184920/001`）
+--- FAIL: TestPolicyStoreRoundTrip (0.01s)
+    policystore_test.go:60: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPolicyStoreRoundTrip3703808175/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPolicyStoreRoundTrip3703808175/001`）
+--- FAIL: TestPolicyStoreNameUnique (0.01s)
+    policystore_test.go:106: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPolicyStoreNameUnique105190817/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPolicyStoreNameUnique105190817/001`）
+--- FAIL: TestPolicyStoreVersionConflict (0.01s)
+    policystore_test.go:123: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPolicyStoreVersionConflict3796288617/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPolicyStoreVersionConflict3796288617/001`）
+--- FAIL: TestPolicyStoreDeleteKeepsRepository (0.02s)
+    policystore_test.go:156: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPolicyStoreDeleteKeepsRepository726946698/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPolicyStoreDeleteKeepsRepository726946698/001`）
+--- FAIL: TestPoliciesForRepository (0.02s)
+    policystore_test.go:198: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPoliciesForRepository529516655/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPoliciesForRepository529516655/001`）
+--- FAIL: TestResourceSaveGetRoundTrip (0.05s)
+    resources_test.go:65: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestResourceSaveGetRoundTrip3025478780/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestResourceSaveGetRoundTrip3025478780/001`）
+--- FAIL: TestResourceGetMissingIsNotAnError (0.04s)
+    resources_test.go:105: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestResourceGetMissingIsNotAnError3288990914/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestResourceGetMissingIsNotAnError3288990914/001`）
+--- FAIL: TestResourceSaveIsUpsert (0.03s)
+    resources_test.go:120: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestResourceSaveIsUpsert6432992/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestResourceSaveIsUpsert6432992/001`）
+--- FAIL: TestResourceRejectsDuplicateSlugAndUUID (0.05s)
+    resources_test.go:152: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestResourceRejectsDuplicateSlugAndUUID386942809/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestResourceRejectsDuplicateSlugAndUUID386942809/001`）
+--- FAIL: TestResourceDeleteIsIdempotent (0.08s)
+    resources_test.go:192: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestResourceDeleteIsIdempotent2610872982/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestResourceDeleteIsIdempotent2610872982/001`）
+--- FAIL: TestResourceListReturnsAllSorted (0.03s)
+    resources_test.go:213: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestResourceListReturnsAllSorted2221339665/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestResourceListReturnsAllSorted2221339665/001`）
+--- FAIL: TestResourceRejectsInvalidRecords (0.06s)
+    resources_test.go:241: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestResourceRejectsInvalidRecords2099967044/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestResourceRejectsInvalidRecords2099967044/001`）
+--- FAIL: TestScheduleStoreRoundTrip (0.05s)
+    schedulestore_test.go:54: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestScheduleStoreRoundTrip3561722709/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestScheduleStoreRoundTrip3561722709/001`）
+--- FAIL: TestScheduleStoreRejectsDuplicateNameAndTarget (0.06s)
+    schedulestore_test.go:95: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestScheduleStoreRejectsDuplicateNameAndTarget1071365037/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestScheduleStoreRejectsDuplicateNameAndTarget1071365037/001`）
+--- FAIL: TestScheduleStoreVersionConflicts (0.03s)
+    schedulestore_test.go:120: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestScheduleStoreVersionConflicts442400102/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestScheduleStoreVersionConflicts442400102/001`）
+--- FAIL: TestScheduleTriggerSlotIsUnique (0.03s)
+    schedulestore_test.go:156: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestScheduleTriggerSlotIsUnique1550016509/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestScheduleTriggerSlotIsUnique1550016509/001`）
+--- FAIL: TestScheduleDeleteKeepsTriggers (0.07s)
+    schedulestore_test.go:219: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestScheduleDeleteKeepsTriggers3762457297/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestScheduleDeleteKeepsTriggers3762457297/001`）
+--- FAIL: TestTriggerRecordsAreAppendOnly (0.03s)
+    schedulestore_test.go:248: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTriggerRecordsAreAppendOnly4244019516/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTriggerRecordsAreAppendOnly4244019516/001`）
+--- FAIL: TestScriptStoreRoundTrip (0.03s)
+    schedulestore_test.go:282: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestScriptStoreRoundTrip1624005249/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestScriptStoreRoundTrip1624005249/001`）
+--- FAIL: TestPutTemporarySecretAndResolve (0.04s)
+    secrets_test.go:38: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPutTemporarySecretAndResolve2987658224/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPutTemporarySecretAndResolve2987658224/001`）
+--- FAIL: TestCiphertextNeverLeaksPlaintextToDisk (0.03s)
+    secrets_test.go:88: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestCiphertextNeverLeaksPlaintextToDisk1812609865/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestCiphertextNeverLeaksPlaintextToDisk1812609865/001`）
+--- FAIL: TestPutRejectsInvalidInput (0.01s)
+    secrets_test.go:116: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPutRejectsInvalidInput3342950002/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPutRejectsInvalidInput3342950002/001`）
+--- FAIL: TestPutWithReferenceIsPersistent (0.01s)
+    secrets_test.go:150: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestPutWithReferenceIsPersistent3843214839/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestPutWithReferenceIsPersistent3843214839/001`）
+--- FAIL: TestDestroyExpiredTemporary (0.01s)
+    secrets_test.go:189: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestDestroyExpiredTemporary1242317173/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestDestroyExpiredTemporary1242317173/001`）
+--- FAIL: TestResolveExpiredTemporaryBeforeSweep (0.02s)
+    secrets_test.go:242: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestResolveExpiredTemporaryBeforeSweep1567491696/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestResolveExpiredTemporaryBeforeSweep1567491696/001`）
+--- FAIL: TestReferencePromotesTemporarySecret (0.01s)
+    secrets_test.go:262: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestReferencePromotesTemporarySecret2059749020/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestReferencePromotesTemporarySecret2059749020/001`）
+--- FAIL: TestReferenceRejectsBadInput (0.01s)
+    secrets_test.go:308: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestReferenceRejectsBadInput2459344525/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestReferenceRejectsBadInput2459344525/001`）
+--- FAIL: TestTempSecretsHaveIndependentNonces (0.01s)
+    secrets_test.go:330: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestTempSecretsHaveIndependentNonces149470674/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestTempSecretsHaveIndependentNonces149470674/001`）
+--- FAIL: TestNewSecretsValidatesArguments (0.01s)
+    secrets_test.go:355: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestNewSecretsValidatesArguments140257729/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestNewSecretsValidatesArguments140257729/001`）
+--- FAIL: TestSaveShareRoundTrip (0.03s)
+    sharestore_test.go:105: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestSaveShareRoundTrip3512055463/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestSaveShareRoundTrip3512055463/001`）
+--- FAIL: TestSaveShareRoundTripsNFSDefinition (0.03s)
+    sharestore_test.go:150: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestSaveShareRoundTripsNFSDefinition111726963/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestSaveShareRoundTripsNFSDefinition111726963/001`）
+--- FAIL: TestSaveShareRoundTripsRuntimeRevocation (0.05s)
+    sharestore_test.go:186: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestSaveShareRoundTripsRuntimeRevocation2476351229/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestSaveShareRoundTripsRuntimeRevocation2476351229/001`）
+--- FAIL: TestScanShareRejectsBadRuntimeRevocationJSON (0.02s)
+    sharestore_test.go:265: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestScanShareRejectsBadRuntimeRevocationJSON3512000801/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestScanShareRejectsBadRuntimeRevocationJSON3512000801/001`）
+--- FAIL: TestSaveShareByNameAndUpdate (0.01s)
+    sharestore_test.go:284: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestSaveShareByNameAndUpdate895126679/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestSaveShareByNameAndUpdate895126679/001`）
+--- FAIL: TestSaveShareRejectsDuplicateName (0.03s)
+    sharestore_test.go:315: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestSaveShareRejectsDuplicateName190891180/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestSaveShareRejectsDuplicateName190891180/001`）
+--- FAIL: TestSaveShareRequiresExistingVolume (0.04s)
+    sharestore_test.go:331: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestSaveShareRequiresExistingVolume1664807183/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestSaveShareRequiresExistingVolume1664807183/001`）
+--- FAIL: TestDeleteVolumeBlockedByShare (0.05s)
+    sharestore_test.go:343: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestDeleteVolumeBlockedByShare4067513933/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestDeleteVolumeBlockedByShare4067513933/001`）
+--- FAIL: TestDeleteShareIdempotent (0.07s)
+    sharestore_test.go:362: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestDeleteShareIdempotent3260664351/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestDeleteShareIdempotent3260664351/001`）
+--- FAIL: TestSaveShareValidatesShape (0.03s)
+    sharestore_test.go:369: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestSaveShareValidatesShape2284312273/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestSaveShareValidatesShape2284312273/001`）
+--- FAIL: TestSaveAccountRoundTrip (0.04s)
+    sharestore_test.go:393: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestSaveAccountRoundTrip2817104194/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestSaveAccountRoundTrip2817104194/001`）
+--- FAIL: TestSaveAccountRejectsDuplicateNameAndBadShape (0.06s)
+    sharestore_test.go:418: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestSaveAccountRejectsDuplicateNameAndBadShape3449645135/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestSaveAccountRejectsDuplicateNameAndBadShape3449645135/001`）
+--- FAIL: TestDeleteAccountIdempotent (0.04s)
+    sharestore_test.go:446: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestDeleteAccountIdempotent620515232/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestDeleteAccountIdempotent620515232/001`）
+--- FAIL: TestScanShareDetectsColumnDrift (0.03s)
+    sharestore_test.go:463: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestScanShareDetectsColumnDrift813511473/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestScanShareDetectsColumnDrift813511473/001`）
+--- FAIL: TestBackupVerificationStorePersistsPerSnapshot (0.04s)
+    verificationstore_test.go:13: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestBackupVerificationStorePersistsPerSnapshot566311843/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestBackupVerificationStorePersistsPerSnapshot566311843/001`）
+--- FAIL: TestBackupVerificationStoreRejectsEmptyEvidence (0.03s)
+    verificationstore_test.go:48: 打开代理数据库失败: agentstore: 代理数据目录不可用: 目录 /tmp/TestBackupVerificationStoreRejectsEmptyEvidence159450718/001 的属主必须是 root，实际为 1000（应执行 `install -d -o root -g root -m 0700 /tmp/TestBackupVerificationStoreRejectsEmptyEvidence159450718/001`）
+FAIL
+FAIL	upanel/internal/agentstore	5.325s
+ok  	upanel/internal/alerts	126.980s
+panic: test timed out after 10m0s
+	running tests:
+		TestAccountSSHKeysShape (1m4s)
+
+goroutine 201 [running]:
+testing.(*M).startAlarm.func1()
+	/usr/local/go/src/testing/testing.go:2961 +0x605
+created by time.goFunc
+	/usr/local/go/src/time/sleep.go:182 +0x45
+
+goroutine 1 [chan receive, 2 minutes]:
+testing.(*T).Run(0xc0000dc488, {0x1d9b752, 0x17}, 0x29f88b0)
+	/usr/local/go/src/testing/testing.go:2268 +0xb3e
+testing.runTests.func1(0xc0000dc488)
+	/usr/local/go/src/testing/testing.go:2744 +0x85
+testing.tRunner(0xc0000dc488, 0xc0003dfa40)
+	/usr/local/go/src/testing/testing.go:2195 +0x21d
+testing.runTests({0x1d865a6, 0x6}, {0x1d95e56, 0x13}, 0xc0000ae390, {0x2aa84f0, 0x18f, 0x18f}, {0xc2b0920ac431f840, 0x8c5a6c079e, ...})
+	/usr/local/go/src/testing/testing.go:2742 +0x9ea
+testing.(*M).Run(0xc000293680)
+	/usr/local/go/src/testing/testing.go:2602 +0xf45
+main.main()
+	_testmain.go:842 +0x165
+
+goroutine 189 [sync.WaitGroup.Wait]:
+sync.runtime_SemacquireWaitGroup(0x49389f?, 0x30?)
+	/usr/local/go/src/runtime/sema.go:114 +0x2e
+sync.(*WaitGroup).Wait(0xc000464030)
+	/usr/local/go/src/sync/waitgroup.go:206 +0xc5
+golang.org/x/crypto/argon2.processBlocks({0xc0004fe000, 0x20000, 0x20000}, 0x3, 0x20000, 0x2, 0x2)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/argon2.go:239 +0x175
+golang.org/x/crypto/argon2.deriveKey(0x2, {0xc0001871c8, 0xf, 0x20}, {0xc0004f35c0, 0x10, 0x10}, {0x0, 0x0, 0x0}, ...)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/argon2.go:119 +0x22c
+golang.org/x/crypto/argon2.IDKey(...)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/argon2.go:102
+upanel/internal/auth.HashPasswordWith({0x20000, 0x3, 0x2, 0x10, 0x20}, {0x1d90c29, 0xf})
+	/tmp/upanel-src/internal/auth/password.go:126 +0x49d
+upanel/internal/auth.(*Service).CreateUser(0xc0004e8880, {0x29f4ae0, 0x2ad1dc0}, {{0x1d8566a, 0x5}, {0x1d8566a, 0x5}, {0x1d90c29, 0xf}, {0x1d8566a, ...}})
+	/tmp/upanel-src/internal/auth/users.go:157 +0x2f7
+upanel/internal/api.seedTestUser(0xc00021c908, 0xc0004e8880, {0x1d8566a, 0x5}, {0x1d90c29, 0xf})
+	/tmp/upanel-src/internal/api/testsupport_test.go:191 +0x17e
+upanel/internal/api.accountsFixture(0xc00021c908, {0x29f2c68, 0xc0000bc300})
+	/tmp/upanel-src/internal/api/accounts_test.go:157 +0x85a
+upanel/internal/api.TestAccountSSHKeysShape(0xc00021c908)
+	/tmp/upanel-src/internal/api/accounts_test.go:228 +0x4e
+testing.tRunner(0xc00021c908, 0x29f88b0)
+	/usr/local/go/src/testing/testing.go:2195 +0x21d
+created by testing.(*T).Run in goroutine 1
+	/usr/local/go/src/testing/testing.go:2260 +0xb13
+
+goroutine 177 [select, 2 minutes]:
+database/sql.(*DB).connectionOpener(0xc00043e1a0, {0x29f4cd8, 0xc0000d23c0})
+	/usr/local/go/src/database/sql/sql.go:1266 +0xed
+created by database/sql.OpenDB in goroutine 189
+	/usr/local/go/src/database/sql/sql.go:846 +0x287
+
+goroutine 223 [runnable]:
+golang.org/x/crypto/argon2.blamkaGeneric(0xc0000cd278, 0xc0000cd280, 0xc0000cd288, 0xc0000cd290, 0xc0000cd298, 0xc0000cd2a0, 0xc0000cd2a8, 0xc0000cd2b0, 0xc0000cd2b8, 0xc0000cd2c0, ...)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/blamka_generic.go:49 +0x205
+golang.org/x/crypto/argon2.processBlockSSE(0xc002114400, 0xc002114000, 0xc00835cc00, 0x1)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/blamka_amd64.go:31 +0x245
+golang.org/x/crypto/argon2.processBlockXOR(...)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/blamka_amd64.go:59
+golang.org/x/crypto/argon2.processBlocks.func1(0x1, 0x1, 0x0, 0xc000464030)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/argon2.go:226 +0x270
+created by golang.org/x/crypto/argon2.processBlocks in goroutine 189
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/argon2.go:237 +0x1d4
+
+goroutine 224 [runnable]:
+golang.org/x/crypto/argon2.blamkaGeneric(0xc0000caf18, 0xc0000caf20, 0xc0000caf98, 0xc0000cafa0, 0xc0000cb018, 0xc0000cb020, 0xc0000cb098, 0xc0000cb0a0, 0xc0000cb118, 0xc0000cb120, ...)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/blamka_generic.go:45 +0x8f8
+golang.org/x/crypto/argon2.processBlockSSE(0xc006060400, 0xc006060000, 0xc002862000, 0x1)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/blamka_amd64.go:39 +0x317
+golang.org/x/crypto/argon2.processBlockXOR(...)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/blamka_amd64.go:59
+golang.org/x/crypto/argon2.processBlocks.func1(0x1, 0x1, 0x1, 0xc000464030)
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/argon2.go:226 +0x270
+created by golang.org/x/crypto/argon2.processBlocks in goroutine 189
+	/tmp/gomodcache/golang.org/x/crypto@v0.58.0/argon2/argon2.go:237 +0x1d4
+FAIL	upanel/internal/api	605.230s
+ok  	upanel/internal/apphealth	86.632s
+ok  	upanel/internal/appruntime	4.236s
+ok  	upanel/internal/apps	427.513s
+Terminated
+== go test -race 结束 2026-10-28T10:39:50Z rc=143 ==
+== DATA RACE 计数 ==

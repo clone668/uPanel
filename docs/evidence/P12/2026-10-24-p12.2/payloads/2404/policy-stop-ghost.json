@@ -1,0 +1,1 @@
+{"data":{"id":"pol_7d255549110c5653378e286486d0b4d8","name":"p12-2 停机缺失","repository_id":"rep_8861aabf1b6f39b86896c9f437db0b63","sources":[{"kind":"root","root_id":"root1","relative_path":"data"}],"consistency_mode":"stop_managed_apps","app_ids":["app_22222222222222222222222222222222"],"retention":{},"version":1},"request_id":"e8eebc2e34c28a2bb85745d4ff47324e"}

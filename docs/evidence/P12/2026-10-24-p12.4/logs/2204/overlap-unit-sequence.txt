@@ -1,0 +1,6 @@
+2026-10-25T08:20:03+0000 upanel-2204 systemd[1]: Starting uPanel 计划任务：p12-4 不重叠 8edab69b...
+2026-10-25T08:20:03+0000 upanel-2204 upanelctl[80666]: 计划 sch_2d3e1b92369f8ed434d8790611352977 已在时间槽 2026-10-25T08:20:00Z 触发 script.run，操作 op_ea4217aacdce8f1b5d1bed3d890a787b
+2026-10-25T08:20:03+0000 upanel-2204 upanelctl[80666]: 等待操作 op_ea4217aacdce8f1b5d1bed3d890a787b 跑到终态（最多 2m30s）
+2026-10-25T08:21:20+0000 upanel-2204 upanelctl[80666]: 操作 op_ea4217aacdce8f1b5d1bed3d890a787b 成功
+2026-10-25T08:21:20+0000 upanel-2204 systemd[1]: upanel-sch_2d3e1b92369f8ed434d8790611352977.service: Deactivated successfully.
+2026-10-25T08:21:20+0000 upanel-2204 systemd[1]: Finished uPanel 计划任务：p12-4 不重叠 8edab69b.

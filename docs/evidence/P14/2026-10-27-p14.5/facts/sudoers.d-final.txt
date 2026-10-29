@@ -1,0 +1,5 @@
+total 16
+drwxr-x---   2 root root 4096 Oct 27 04:36 .
+drwxr-xr-x 100 root root 4096 Oct 27 04:38 ..
+-r--r-----   1 root root  139 Oct 27 04:38 90-cloud-init-users
+-r--r-----   1 root root 1096 Oct 27 04:38 README

@@ -1,0 +1,6 @@
+-rw------- 1 root       root  294912 Oct 27 08:26 /var/lib/upanel-agent/agent.db
+-rw------- 1 root       root   32768 Oct 27 08:28 /var/lib/upanel-agent/agent.db-shm
+-rw------- 1 root       root  111272 Oct 27 08:28 /var/lib/upanel-agent/agent.db-wal
+-rw------- 1 upanel-web root  364544 Oct 27 08:23 /var/tmp/upanel-accept-p14-6/webdata/upanel.db
+-rw------- 1 upanel-web root   32768 Oct 27 08:28 /var/tmp/upanel-accept-p14-6/webdata/upanel.db-shm
+-rw------- 1 upanel-web root 3073552 Oct 27 08:28 /var/tmp/upanel-accept-p14-6/webdata/upanel.db-wal

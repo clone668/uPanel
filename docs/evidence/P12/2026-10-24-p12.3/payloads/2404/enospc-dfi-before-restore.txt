@@ -1,0 +1,2 @@
+Filesystem     Inodes IUsed IFree IUse% Mounted on
+tmpfs              32    29     3   91% /var/tmp/upanel-accept-p12-2/full-restore-target

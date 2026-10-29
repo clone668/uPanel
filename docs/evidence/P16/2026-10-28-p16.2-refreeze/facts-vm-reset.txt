@@ -1,0 +1,19 @@
+# 这一轮换了系统盘：从 cloud image 重建，不是在上轮跑脏的盘上接着跑
+# 生成于宿主时钟（UTC）。重建前先用 SHA256SUMS 核对基底镜像，避免"从坏底重建"。
+
+== 基底镜像校验 ==
+012d81fade7e8ff4428fc35dfeee711d66d1f47d5ea9c5c8ced96a85b959835c *ubuntu-22.04-server-cloudimg-amd64.img   # 与 images/SHA256SUMS-22.04 一致
+04e8f2461a16a44e78a370284471f29616cdd9baf1893df25807b71f985b6c94 *ubuntu-24.04-server-cloudimg-amd64.img   # 与 images/SHA256SUMS 一致
+
+== 22.04 重建动作（docs/TEST_ENVIRONMENT.md 第 4 节的文件级重建）==
+rm -f system.qcow2 data-a.qcow2 data-b.qcow2 data-c.qcow2
+qemu-img create -f qcow2 -F qcow2 -b ../images/ubuntu-22.04-server-cloudimg-amd64.img system.qcow2 40G
+qemu-img create -f qcow2 data-a.qcow2 8G
+qemu-img create -f qcow2 data-b.qcow2 4G
+qemu-img create -f qcow2 data-c.qcow2 4G
+
+== 重建后、跑之前的客机现场 ==
+up 5 min / cloud-init status: done / 2 vCPU / 3911 MB / 39G 盘用 1.7G
+/etc/upanel /var/lib/upanel /usr/local/share/upanel /opt/upanel：none
+docker：absent      upanelctl：absent
+Ubuntu 22.04.5 LTS

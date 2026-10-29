@@ -1,0 +1,161 @@
+== 0. 这台机器上的 restic / systemd 现场 ==
+      restic：restic 0.16.4 compiled with go1.22.2 on linux/amd64
+      systemd：systemd 255 (255.4-1ubuntu8.18)
+PASS  env-records-versions
+
+== 1. 启动代理（root）与 Web（非 root） ==
+PASS  agent-key-present
+PASS  agent-started
+PASS  agent-runs-as-root
+PASS  agent-logs-backup-run-enabled
+PASS  capabilities-200
+PASS  capabilities-has-backup-run
+PASS  capabilities-has-snapshots
+PASS  init-admin
+PASS  web-started
+PASS  web-not-root
+PASS  login-admin
+PASS  create-viewer
+PASS  login-viewer
+
+== 2. 秘密与仓库定义（仓库写操作要再认证） ==
+PASS  secret-repo-password
+PASS  secret-ref-shape
+PASS  repo-create-requires-reauth
+PASS  reauth-admin
+PASS  repo-create-201
+PASS  repo-id-shape
+PASS  repo-create-viewer-forbidden
+PASS  repo-list-viewer-forbidden
+PASS  repo-list-200
+PASS  repo-list-state-query
+PASS  repo-local-rejects-sftp-fields
+PASS  init-preflight-201
+PASS  init-preflight-allowed
+PASS  init-run-succeeded
+PASS  init-repo-id-64hex
+PASS  independent-repo-id-matches
+
+== 3. 策略：CRUD、版本令牌、口径闭集 ==
+PASS  policy-create-201
+PASS  policy-id-shape
+PASS  policy-create-viewer-forbidden
+PASS  policy-duplicate-name-400
+PASS  policy-stop-apps-required
+PASS  policy-files-only-rejects-apps
+PASS  policy-patch-missing-version-400
+PASS  policy-patch-stale-version-409
+PASS  policy-patch-200
+PASS  policy-patch-version-bumped
+PASS  policy-delete-200
+PASS  policy-delete-envelope-empty
+PASS  repo-survives-policy-delete
+PASS  policy-mirror-denies-root
+
+== 4. backup.run 的参数与预检（不真跑的那些） ==
+PASS  run-stale-preflight-201
+PASS  run-stale-version-blocked
+PASS  run-unknown-policy-blocked
+PASS  run-caller-apps-400
+PASS  run-missing-source-blocked
+
+== 5. 真跑一次 files_only 备份，并用 restic 独立恢复核对 ==
+      源哈希：02a315911cfb53c283b3b9fbb38b9235fd29a1d15d810374685e8d8d343293d6  /var/tmp/upanel-accept-p12-2/data-root/data/a.txt bd6b9a993db4c2a893b74dae77f46a00c138bd7a14104671ea432f27de1682cb  /var/tmp/upanel-accept-p12-2/data-root/data/sub/b.txt 6efc142181d7c26ea4b7dc8e4bcf98d7acfa06cebc1423f9986bc435e387c798  /var/tmp/upanel-accept-p12-2/data-root/data/blob.bin 
+PASS  reauth-before-run
+PASS  run-files-preflight-200
+PASS  run-files-preflight-allowed
+PASS  run-files-warns-consistency
+PASS  run-files-apps-empty
+PASS  run-files-submit-202
+PASS  run-files-job-succeeded
+PASS  run-files-snapshot-64hex
+PASS  run-files-verified-by-stats
+PASS  run-files-consistency-label
+PASS  snapshot-visible-to-independent-restic
+PASS  independent-restore-has-files
+PASS  independent-restore-hashes-match
+
+== 6. 快照列表与详情 ==
+PASS  snapshots-list-200
+PASS  snapshots-list-registered
+PASS  snapshots-list-size-not-included
+PASS  snapshots-list-has-our-snapshot
+PASS  snapshots-list-has-no-size
+PASS  snapshots-filtered-200
+PASS  snapshots-filtered-count
+PASS  snapshot-detail-200
+PASS  snapshot-detail-found
+PASS  snapshot-detail-size-positive
+PASS  snapshot-detail-restore-unverified
+PASS  snapshots-unregistered-200
+PASS  snapshots-unregistered-flag
+PASS  snapshot-missing-200-found-false
+PASS  snapshot-missing-found-false
+PASS  snapshot-detail-requires-repository
+PASS  snapshots-list-requires-repository
+PASS  snapshots-viewer-forbidden
+
+== 7. 停受管理应用：真的停过、真的拉起来 ==
+PASS  test-app-started
+      启动时间（备份前）：Sat 2026-10-24 08:54:10 UTC
+PASS  app-create-201
+PASS  app-id-shape
+PASS  policy-stop-create-201
+PASS  run-stop-missing-app-blocked
+PASS  run-stop-extra-app-not-allowed
+PASS  run-stop-ghost-422
+PASS  run-stop-ghost-names-app
+PASS  reauth-before-stop-run
+PASS  run-stop-preflight-200
+PASS  run-stop-preflight-allowed
+PASS  run-stop-apps-expanded
+PASS  run-stop-shows-stop-impact
+PASS  run-stop-submit-202
+PASS  run-stop-job-succeeded
+PASS  run-stop-observed-stop
+PASS  run-stop-observed-start
+PASS  run-stop-app-active-after
+      启动时间（备份后）：Sat 2026-10-24 08:54:38 UTC
+PASS  run-stop-app-really-restarted
+PASS  run-stop-apps-restored-flag
+
+== 8. 面板 SQLite 在线备份：WAL 里已提交的行必须在副本里 ==
+PASS  panel-wal-present-before-backup
+      备份前 -wal 大小：1198952 字节
+PASS  policy-panel-create-201
+PASS  run-panel-preflight-allowed
+PASS  run-panel-succeeded
+PASS  run-panel-integrity-ok
+PASS  run-panel-copy-size-positive
+PASS  run-panel-snapshot-64hex
+PASS  panel-copy-cleaned-up
+      快照里的面板库副本路径：/var/tmp/upanel-accept-p12-2/panel-copies/pol_a3c1be30db6d692ceffdaec0a0f1f03d/upanel.db
+PASS  panel-copy-present-in-snapshot
+      取回的副本：integrity=ok users=2 audits=26
+PASS  panel-restored-integrity-ok
+PASS  panel-restored-has-admin
+PASS  panel-restored-has-audit
+
+== 9. 仓库没初始化时不能备份；代理停掉整组 503 ==
+PASS  secret-second-password
+PASS  repo-uninit-create-201
+PASS  run-uninitialized-repo-blocked
+PASS  repos-agent-down-503
+PASS  repos-agent-down-code
+PASS  policies-agent-down-503
+PASS  snapshots-agent-down-503
+
+== 10. NOT RUN 与证据卫生 ==
+NOT RUN  sftp-backup-run：本轮运行用本地仓库；SFTP 的建库/拨号在 P12.1 已验，上传链路的运行证据待补
+NOT RUN  network-cut-mid-run：要真的掐断 SSH 连接，本轮未做
+NOT RUN  disk-full-during-backup：要填满文件系统（会连 apt/journal 一起弄坏），本轮未做
+NOT RUN  product-restore-api：产品恢复接口是 P12.3；本脚本的 restore 是 restic 独立核对
+NOT RUN  retention-prune：retention 本阶段只登记不执行，清理是 P12.3 的 backup.prune
+NOT RUN  cancel-mid-run：中途取消与代理重启对账本轮未造
+NOT RUN  browser-ui：VM 上没有浏览器；备份 UI 属 P12.5
+PASS  no-secret-in-logs
+PASS  no-secret-in-logs
+
+==================================================
+PASS=121 FAIL=0 NOT RUN=7
+证据目录：/var/tmp/upanel-accept-p12-2

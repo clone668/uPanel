@@ -1,0 +1,1 @@
+{"data":{"script":{"id":"scr_dd95db9a497ea3740afbbe015f1a75f0","name":"p125 探针 3d6ab1","content_hash":"47087e13e562ec15991126f32c76ec0b81a90ddcfecbe02ac59c6d52e95858d3","interpreter":"/bin/sh","version":1,"created_at":"2026-10-25T18:58:43Z","updated_at":"2026-10-25T18:58:43Z","content":"#!/bin/sh\necho p125-probe\n"}},"request_id":"2beaad666b40fe9c965084eb442220ae"}

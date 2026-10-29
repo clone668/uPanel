@@ -1,0 +1,222 @@
+== 0. 环境
+STAMP 2026-10-26T14:58:14Z start
+PASS  验收脚本以 root 运行
+PASS  二进制存在且可执行 upanel-agent
+PASS  二进制存在且可执行 upanel-web
+PASS  二进制存在且可执行 upanelctl
+PASS  python3 可用
+PASS  JSON 助手在同目录
+PASS  runuser 可用
+PASS  netplan 可用
+PASS  服务账号 upanel-web 存在
+PASS  服务组 upanel-web 存在
+PASS  openssl 可用（自签面板证书）
+PASS  找到一张物理以太网卡（ens4）
+PASS  当前地址 10.0.2.15/24
+PASS  当前默认网关 10.0.2.2
+
+== 1. 装配（先不带写开关）
+PASS  生成自签面板证书（SAN 含 127.0.0.1、10.0.2.15、10.99.99.99）
+PASS  代理密钥文件已存在（沿用上一轮）
+PASS  代理启动（无 -network-writes）
+PASS  init-admin 退出码
+
+== 2. 写路径默认关闭（Q452 的真机证明）
+PASS  Web 绑在 127.0.0.1:19473
+PASS  管理员登录 200
+PASS  拿到 CSRF 令牌
+PASS  建 viewer 201/200
+PASS  viewer 登录 200
+PASS  写开关关闭时 GET /network/config 是 400
+PASS  关闭时的错误码是 VALIDATION_ERROR
+PASS  关闭时代理说的是「未登记的查询」
+PASS  写开关关闭时 network.apply 预检 400
+PASS  关闭时命中的是 network.apply 这一条
+PASS  写开关关闭时 network.confirm 预检 400
+PASS  关闭时命中的是 network.confirm 这一条
+PASS  写开关关闭时 network.rollback 预检 400
+PASS  关闭时命中的是 network.rollback 这一条
+PASS  回滚这一条也报了「未登记的动作」
+PASS  关闭期间没有写出任何面板文件
+PASS  关闭期间没有回滚记录目录
+
+== 3. 打开写路径（-network-writes）
+PASS  代理以 -network-writes 启动
+PASS  Web 绑在 127.0.0.1:19473
+PASS  GET /network/config 200
+PASS  入口状态指向这张网卡
+PASS  后端是 netplan-networkd
+PASS  这台机器可改
+PASS  给了 config_hash
+PASS  读到了当前模式
+PASS  没有待确认记录
+PASS  没有不支持项
+PASS  未登录 GET /network/config 是 401
+PASS  viewer GET /network/config 是 403
+PASS  viewer 预检 network.apply 是 403
+
+== 4. 预检的判决（坏指纹 / 禁用地址段 / 没有待确认记录）
+PASS  坏指纹预检 200
+PASS  坏指纹 allowed=false
+PASS  坏指纹的阻塞项是 CONFIG_CHANGED
+PASS  回环地址预检 400
+PASS  理由点名 127.0.0.0/8
+PASS  dhcp 却带 ipv4 对象被拒（400）
+PASS  理由说清 ipv4 必须是 null
+PASS  没有待确认记录时 confirm 预检 200
+PASS  没有待确认记录时 allowed=false
+PASS  阻塞项是 NO_PENDING_ROLLBACK
+
+== 5. 复杂 netplan → unsupported（不 apply，只写文件让产品读）
+PASS  复杂 netplan 时 GET /network/config 仍 200
+PASS  unsupported 不是 null
+PASS  unsupported 点名了那个文件
+PASS  复杂 netplan 预检 200
+PASS  复杂 netplan allowed=false
+PASS  复杂 netplan 的阻塞项是 UNSUPPORTED
+PASS  阻塞项点名桥接文件
+PASS  allowed=false 的预检不许提交（409）
+PASS  被拒的提交是 DEPENDENCY_BLOCKED
+PASS  被拒的提交没有落下任务
+PASS  删掉桥接配置后 unsupported 清空
+
+== 6. 同址静态改写：确认语义（连通性活着）
+PASS  同址改写：再认证 200
+PASS  同址改写：预检 200
+PASS  同址改写：allowed=true
+PASS  同址改写：给了 RECONFIGURE 短语
+PASS  同址改写：拿到了 job_id
+PASS  同址改写：任务 succeeded
+PASS  同址改写：outcome=verified
+PASS  同址改写：给了回滚标识
+PASS  回滚标识是 nrb_ 开头
+PASS  同址改写：给了到期时刻
+PASS  窗口是 120 秒
+PASS  现场读回的地址就是候选地址
+PASS  回滚记录已落盘（nrb_79053eab3069fde6f77e4dfc01557def.json）
+PASS  记录的 state 是 pending
+PASS  记录的候选地址
+PASS  记录的网卡
+PASS  记录是 root 0600
+PASS  timer 已武装并处于 active
+PASS  timer 单元文件已写出
+PASS  面板文件已写出（/etc/netplan/90-upanel-ens4.yaml）
+PASS  面板文件是 0600
+PASS  面板文件里是那个地址
+PASS  自称 arrived_on 的确认被拒（400）
+PASS  拒绝理由点名只有两个字段
+PASS  自称被拒之后 timer 还在
+PASS  从旧地址确认：预检 200
+PASS  从旧地址确认被拒
+PASS  理由是 CONFIRM_WRONG_ADDRESS
+PASS  理由里点名到达地址 127.0.0.1
+PASS  理由里点名候选地址
+PASS  被拒之后 timer 还在
+PASS  被拒之后记录仍是 pending
+PASS  Web 绑在 10.0.2.15:19473
+PASS  从新地址登录 200
+PASS  从新地址确认：再认证 200
+PASS  从新地址确认：预检 200
+PASS  从新地址确认：allowed=true
+PASS  从新地址确认：任务 succeeded
+PASS  从新地址确认：outcome=verified
+PASS  记录变 confirmed
+PASS  确认后 timer 已停
+PASS  确认后 timer 单元文件已删
+PASS  面板文件还在（确认=保留）
+PASS  第二次确认 allowed=false
+PASS  第二次确认是 NO_PENDING_ROLLBACK
+PASS  改回 DHCP：allowed=true
+PASS  改回 DHCP：任务 succeeded
+PASS  改回 DHCP：outcome=verified
+PASS  DHCP 记录里没有候选地址（DHCP 拿到的地址是随机的，不能做凭据）
+PASS  DHCP 记录的 mode 是 dhcp
+PASS  DHCP 确认：allowed=true（没有候选地址就不比地址）
+PASS  DHCP 确认：任务 succeeded
+PASS  DHCP 确认后记录 confirmed
+PASS  DHCP 后拿到 DHCP 地址
+PASS  DHCP 后默认网关在
+
+== 7. 断连重连：不可达地址 → 停 Web 与代理 → 120 秒自动恢复
+STAMP 2026-10-26T15:00:48Z phase7-start
+PASS  Web 绑在 127.0.0.1:19473
+PASS  阶段 7 登录 200
+PASS  阶段 7 开始时没有待确认记录
+NOTE  看门狗 systemd timer 定在 2026-10-26 15:04:19（绝对时刻），下一次触发：Mon 2026-10-26 15:04:19 UTC
+NOTE  看门狗已武装：systemd timer 定在 2026-10-26 15:04:19，sleep 子壳 +215s
+PASS  不可达改写：预检 allowed=true
+PASS  不可达改写：预检给了回滚影响说明
+PASS  不可达改写：影响说明里写了 120 秒与自动退回
+PASS  不可达改写：任务 succeeded
+PASS  不可达改写：outcome=verified（内核里确实换成了那个地址）
+PASS  现场地址已换成不可达地址
+PASS  原来的 DHCP 地址已经不在
+PASS  默认路由跟着没了
+PASS  timer 在跑
+NOTE  timer 的下一次触发：2d 20h 1min 12.140184s
+PASS  timer 真的排上了下一次触发（不是 infinity）
+PASS  timer 的下一次触发不是空值
+PASS  记录里是那个候选地址
+PASS  记录的 state 是 pending
+PASS  窗口是 120 秒（记录自己的 applied_at → deadline）
+PASS  任务返回时窗口还开着（不然窗口在被用到之前就到期了）
+PASS  不可达改动上从回环确认：预检 200
+PASS  不可达改动上从回环确认被拒
+PASS  理由仍是 CONFIRM_WRONG_ADDRESS
+PASS  理由里点名的是那个不可达地址
+PASS  被拒之后 timer 仍在
+STAMP 2026-10-26T15:01:39Z stop-services
+PASS  Web 进程已停（端口关闭）
+PASS  代理 socket 已消失
+PASS  代理进程已不在
+PASS  停掉之后 timer 仍在跑（这才是独立回滚）
+NOTE  从这一刻起，除了 systemd timer 没有任何 upanel 进程在跑
+PASS  60 秒时仍停在不可达地址（窗口没被提前咬掉）
+PASS  60 秒时 timer 仍 active
+PASS  60 秒时记录仍是 pending
+STAMP 2026-10-26T15:02:02Z mid-window
+NOTE  地址在 deadline 之后 28s 回来（T0+158s）
+PASS  回滚发生在 deadline 之后（没有提前咬掉窗口）
+PASS  回滚发生在 deadline+45s 之内（没有等到 120 秒窗口之外）
+STAMP 2026-10-26T15:03:40Z after-deadline
+PASS  到期后地址不再是那个不可达地址
+PASS  到期后回到了 slirp 网段（DHCP 拿到了地址）
+PASS  到期后默认网关回来了
+PASS  记录变成 rolled_back
+PASS  timer 已经结束
+PASS  退回之后面板文件是 DHCP 版本
+PASS  退回之后面板文件里没有那个不可达地址
+PASS  回滚单元是被 systemd 启动的（不是别的进程顺手做的）
+PASS  journal 里有那个回滚单元自己的输出
+PASS  回滚进程就是代理二进制（journal 里的进程标识）
+PASS  模板里 ExecStart 跑的是代理二进制的 netrollback 子命令
+PASS  模板里的二进制路径就是本次验收用的那一份
+PASS  回滚单元正常结束
+PASS  回滚单元没有失败
+PASS  回滚单元没有报失败状态
+PASS  看门狗没有动手（产品自己回来的）
+PASS  看门狗 sleep-shell 醒来时网络已经在（not-needed）
+PASS  看门狗 systemd-timer 醒来时网络已经在（not-needed）
+STAMP 2026-10-26T15:04:54Z phase7-done
+
+== 8. 恢复之后：重新起服务，现场干净
+PASS  代理重新启动
+PASS  Web 绑在 127.0.0.1:19473
+PASS  恢复后登录 200
+PASS  恢复后 GET /network/config 200
+PASS  恢复后没有待确认记录
+PASS  恢复后模式是 dhcp
+PASS  恢复后读回的地址是本机地址
+PASS  没有残留的 timer 单元文件
+PASS  没有残留的 netrollback timer
+PASS  日志里没有 panic
+PASS  被拒的网络请求留下了 failure 审计（1 条）
+PASS  成功提交的任务留下了 success 审计（5 条）
+NOT RUN  浏览器里的渲染与断线重连交互: VM 内没有 Playwright（Q21），由 SSR 渲染测试与宿主 web-smoke 覆盖
+NOT RUN  网卡被改名/拔掉（NETWORK_TARGET_CHANGED 的另一半）: 改网卡名要重启，会把 timer 语义一起冲掉
+NOT RUN  回滚自己失败（failed 分支）: 真机上造它等于把机器弄坏到看门狗之外，风险不对等；单测覆盖判决形状
+
+== 结果
+PASS 186 / FAIL 0 / NOT RUN 3
+NOT RUN 明细: | 浏览器里的渲染与断线重连交互 | 网卡被改名/拔掉（NETWORK_TARGET_CHANGED 的另一半） | 回滚自己失败（failed 分支）
+STAMP 2026-10-26T15:05:11Z done
