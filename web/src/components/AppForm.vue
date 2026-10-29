@@ -408,7 +408,7 @@ function onSubmit(): void {
 }
 
 .form__label {
-  font-size: 13px;
+  font-size: var(--fs-md);
   font-weight: 600;
 }
 
@@ -419,7 +419,7 @@ function onSubmit(): void {
 
 .form__hint {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   line-height: 1.6;
   opacity: 0.78;
 }

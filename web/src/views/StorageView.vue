@@ -193,35 +193,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.storage {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  max-width: 1200px;
-}
-
-.storage__head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.storage__title {
-  margin: 0;
-  font-size: 20px;
-}
-
-.storage__line {
-  margin: 0;
-  line-height: 1.7;
-}
-
-.storage__meta {
-  font-size: 13px;
-  opacity: 0.8;
-  word-break: break-all;
-}
 
 .storage__grid {
   display: grid;
@@ -243,7 +214,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 6px;
   padding: 10px 12px;
-  border: 1px solid rgba(128, 128, 128, 0.2);
-  border-radius: 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
 }
 </style>

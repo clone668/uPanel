@@ -1,0 +1,192 @@
+/* 页面骨架：23 个视图共用的“页头 / 说明行 / 卡片网格 / 分栏”。
+ *
+ * 为什么用「类名后缀」选择器而不是给每页写一遍：
+ *   这套样板在 17 个视图里被复制了 17 遍，只有前缀不同（.storage__head、.apps__head、
+ *   .net__head …），里面的声明一模一样（flex + gap + 20px 标题 + 13px 灰说明）。
+ *   复制就一定会漂移：改版时总有几页忘了改，于是“同一件事两种灰”。集中到这里之后，
+ *   视图里那段样板被删掉（本轮的 73 条），改版只改这一处。
+ *
+ * 为什么每条写成 `[class$='__head'], [class*='__head ']` 两个选择器：
+ *   要认“后缀”，不能用 `*=`——`jobs__heading` 也会命中 `__head`，一个二级标题就会被
+ *   当成页头加条横线。`$=` 只认末尾，但 `class="deploy__line deploy__muted"` 这种
+ *   带修饰类的写法末尾不是 `__line`，所以补一条“后面还有空格”的匹配。两条合起来
+ *   才是“这个词是独立的一个类”。
+ *
+ * 边界：只认后缀，不认前缀——新增视图只要按 `<页>__head` / `<页>__title` /
+ *   `<页>__meta` 命名就自动吃到这套骨架；命名不合的页面保持自己的样式，不会被误伤。
+ *
+ * 颜色与圆角全部来自 tokens.css；这个文件里不出现任何写死的色值。
+ */
+
+/* ---------------------------------------------------------------- 页容器 */
+/* 一页 = 一列内容，间距统一 16px。视图里原来的 `max-width:1200px` 删掉了：
+   窗口本身就是边界，页内再套一层会在大屏上留出一条死白。
+   只认**页根**（窗口内容区的直接子元素）：UPanel 自己也是 <section>，
+   写成后代选择器会给每块面板的表头和内容之间塞进一条 16px 白带。
+   `__body` 是 DeskWindow 的内容槽——桌面上的应用都在这层里面。 */
+.win__body > section,
+.win__body > main,
+.win__body > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  min-width: 0;
+  padding: 18px 20px 24px;
+}
+
+/* ---------------------------------------------------------------- 页头 */
+/* 页题 + 状态标签 + 操作按钮排成一行，折行时不互相挤压；下面那条发丝线是
+   全站统一的“页头结束”信号。 */
+.win [class$='__head'],
+.win [class*='__head '],
+.win [class$='__header'],
+.win [class*='__header '] {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--rule);
+}
+
+/* 页题只认“页头的直接子元素”：`.title` 这个后缀在卡片里也用（.share__title、
+   .app__title），全局放开会把卡片标题一起放大成 20px。 */
+.win [class$='__head'] > h1,
+.win [class$='__header'] > h1,
+.win [class$='__head'] > [class$='__title'],
+.win [class$='__header'] > [class$='__title'] {
+  margin: 0;
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: var(--lh-tight);
+  overflow-wrap: anywhere;
+}
+
+/* 标题和紧跟的状态标签之间留一点气口。 */
+.win [class$='__head'] > h1,
+.win [class$='__head'] > [class$='__title'],
+.win [class$='__header'] > h1 {
+  margin-right: var(--sp-1);
+}
+
+/* 页头里的返回链接：小字，不做成按钮。 */
+.win [class$='__head'] > a,
+.win [class$='__header'] > a {
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+
+.win [class$='__head'] > a:hover,
+.win [class$='__header'] > a:hover {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ---------------------------------------------------------------- 说明行 */
+/* 说明是“读一次就够”的信息：小一号、次要色、限宽 78ch 以免一行太长。 */
+.win [class$='__meta'],
+.win [class*='__meta '],
+.win [class$='__subtitle'],
+.win [class*='__subtitle '],
+.win [class$='__hint'],
+.win [class*='__hint '],
+.win [class$='__line'],
+.win [class*='__line '],
+.win [class$='__desc'] {
+  margin: 0;
+  max-width: 78ch;
+  font-size: var(--fs-sm);
+  line-height: 1.65;
+  color: var(--ink-3);
+}
+
+/* 页头里的说明独占一行（flex 里占满 basis 就换行了）。 */
+.win [class$='__head'] > [class$='__meta'],
+.win [class$='__head'] > [class$='__subtitle'],
+.win [class$='__header'] > [class$='__subtitle'] {
+  flex: 1 0 100%;
+  margin-top: var(--sp-1);
+}
+
+/* ---------------------------------------------------------------- 卡片网格 */
+/* 自适应列：320px 起，能塞几列塞几列；窄屏自然落成一列。 */
+.win [class$='__grid'] {
+  display: grid;
+  gap: var(--sp-3);
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  align-items: start;
+}
+
+/* ---------------------------------------------------------------- 分栏 */
+/* 主栏 + 侧栏：侧栏 280–340，主栏吃掉剩下的；窄了自动落成一列。 */
+@media (min-width: 1100px) {
+  .win [class$='__split'] {
+    display: grid;
+    gap: var(--sp-4);
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  }
+}
+
+/* ---------------------------------------------------------------- 行内工具条 */
+/* 一排按钮/筛选器，折行不错位。只吃“没有自己定布局”的那种（视图里带
+   display:flex 的同名规则已经删掉，剩下的由这里统一）。 */
+.win [class$='__toolbar'],
+.win [class$='__filters'] {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+/* ---------------------------------------------------------------- 读数行 */
+/* “键：值”成对出现的地方（采集时间、指纹、路径），值一律等宽。 */
+.win dl[class$='__kv'] {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px var(--sp-3);
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.win dl[class$='__kv'] dt {
+  color: var(--ink-3);
+}
+
+.win dl[class$='__kv'] dd {
+  margin: 0;
+  word-break: break-all;
+}
+
+/* ---------------------------------------------------------------- 窄屏 */
+@media (max-width: 760px) {
+  .win [class$='__head'],
+  .win [class*='__head '],
+  .win [class$='__header'] {
+    align-items: flex-start;
+  }
+
+  .win [class$='__grid'] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------------------------------------------------------------- 指标格子 */
+/* 一排指标（已安装 731 / 可升级 9 / 安全更新 1…）：等宽、左端对齐页头，
+   不能各自由内容撑宽——那会让三块牌子参差不齐。 */
+.win [class$='__tiles'] {
+  display: grid;
+  gap: var(--sp-3);
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+/* 页头里的筛选控件与操作按钮推到右边：左边是“这是哪一页”，右边是“能做什么”。
+   按钮也一起推：标题后面紧跟一个按钮时，它悬在中间既不像页头也不像页尾。 */
+.win [class$='__head'] > .n-button,
+.win [class$='__header'] > .n-button,
+.win [class$='__head'] > .n-checkbox,
+.win [class$='__head'] > .n-select {
+  margin-left: auto;
+}

@@ -9,6 +9,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  BACKUP_PREFLIGHT_TIMEOUT_MS,
+  BACKUP_SUBMIT_TIMEOUT_MS,
   canSubmitPreflight,
   confirmationMatches,
   createPreflight,
@@ -23,6 +25,8 @@ import {
   PACKAGE_SUBMIT_TIMEOUT_MS,
   PREFLIGHT_TIMEOUT_MS,
   SUBMIT_TIMEOUT_MS,
+  NETWORK_PREFLIGHT_TIMEOUT_MS,
+  NETWORK_SUBMIT_TIMEOUT_MS,
   type PreflightData,
 } from './preflights'
 
@@ -232,5 +236,70 @@ describe('提交超时', () => {
       timeoutMs: submitTimeoutFor('package.install'),
     })
     expect(timeout).toHaveBeenCalledWith(PACKAGE_SUBMIT_TIMEOUT_MS)
+  })
+})
+
+// 备份动作的超时分层（P12.5）。
+//
+// 备份的预检真的去碰现场：仓库通不通、口令对不对、空间够不够、快照还在不在。
+// SFTP 上一轮握手就要几十秒，代理给预检的预算是 90 秒、给写的是 100 秒。
+// 前端还用 20 秒的话，屏幕上会是"请求超时"，而代理正在回答——和 P11.2 那次
+// 软件包的动作是同一个缺陷。
+describe('备份动作的超时', () => {
+  it('backup.* 的预检与提交都放在代理那一段预算（90 秒）之上', () => {
+    expect(BACKUP_PREFLIGHT_TIMEOUT_MS).toBeGreaterThan(90_000)
+    expect(BACKUP_SUBMIT_TIMEOUT_MS).toBeGreaterThan(90_000)
+    expect(preflightTimeoutFor('backup.run')).toBe(BACKUP_PREFLIGHT_TIMEOUT_MS)
+    expect(preflightTimeoutFor('backup.prune')).toBe(BACKUP_PREFLIGHT_TIMEOUT_MS)
+    expect(submitTimeoutFor('backup.restore')).toBe(BACKUP_SUBMIT_TIMEOUT_MS)
+    // 不是备份的动作不该被这条规则顺手放宽。
+    expect(preflightTimeoutFor('files.delete')).toBe(PREFLIGHT_TIMEOUT_MS)
+    expect(submitTimeoutFor('schedule.apply')).toBe(SUBMIT_TIMEOUT_MS)
+  })
+
+  it('备份预检真的用了这个超时', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout')
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(
+      JSON.stringify({ data: {}, request_id: 'rid' }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ))))
+
+    await createPreflight('backup.run', { backup_policy_id: 'pol_x', version: 1 })
+    expect(timeout).toHaveBeenCalledWith(BACKUP_PREFLIGHT_TIMEOUT_MS)
+  })
+})
+
+// 网络写动作的超时分层（P14.2）。
+//
+// 代理给网络写动作的预检预算是 20 秒（要读 /etc/netplan、跑几次 ip、读 /run 里的
+// 渲染产物），前端必须比它宽，否则屏幕上出现的是自己的"请求超时"，而不是代理那句
+// "预检超时"。提交那一段还要留出网络本身在抖的余量：确认就发生在浏览器刚从新地址
+// 连上来的时刻。
+describe('网络写动作的超时', () => {
+  it('network.* 预检与提交都不低于 20 秒的代理预算，且比默认宽', () => {
+    expect(NETWORK_PREFLIGHT_TIMEOUT_MS).toBeGreaterThan(20_000)
+    expect(NETWORK_SUBMIT_TIMEOUT_MS).toBeGreaterThan(20_000)
+    expect(preflightTimeoutFor('network.apply')).toBe(NETWORK_PREFLIGHT_TIMEOUT_MS)
+    expect(preflightTimeoutFor('network.confirm')).toBe(NETWORK_PREFLIGHT_TIMEOUT_MS)
+    expect(submitTimeoutFor('network.apply')).toBe(NETWORK_SUBMIT_TIMEOUT_MS)
+    expect(submitTimeoutFor('network.rollback')).toBe(NETWORK_SUBMIT_TIMEOUT_MS)
+    // 网络写之外的动作不该被顺手放宽。
+    expect(preflightTimeoutFor('service.control')).toBe(PREFLIGHT_TIMEOUT_MS)
+    expect(submitTimeoutFor('service.control')).toBe(SUBMIT_TIMEOUT_MS)
+  })
+
+  it('网络写的预检真的用了这个超时', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout')
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(
+      JSON.stringify({ data: {}, request_id: 'rid' }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ))))
+
+    await createPreflight('network.apply', { interface_id: 'ens4' })
+    expect(timeout).toHaveBeenCalledWith(NETWORK_PREFLIGHT_TIMEOUT_MS)
+
+    timeout.mockClear()
+    await createPreflight('network.confirm', { interface_id: 'ens4', token: 'nrb_x' })
+    expect(timeout).toHaveBeenCalledWith(NETWORK_PREFLIGHT_TIMEOUT_MS)
   })
 })

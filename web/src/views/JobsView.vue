@@ -16,7 +16,6 @@ import {
   NCard,
   NEmpty,
   NProgress,
-  NSpace,
   NTable,
   NTag,
   NText,
@@ -313,21 +312,25 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="jobs">
-    <NCard title="任务中心" size="small">
-      <template #header-extra>
-        <NSpace align="center" :size="8">
-          <NTag v-if="!session.isAdmin" size="small" type="info">viewer：只读</NTag>
-          <NButton size="small" secondary :loading="phase === 'loading'" @click="loadJobs()">
-            刷新
-          </NButton>
-        </NSpace>
-      </template>
+    <!-- 页名是页头，不是卡片标题：否则整页看起来没有标题、
+         而且"任务中心"会被读成一块面板的名字。 -->
+    <header class="jobs__head">
+      <h1 class="jobs__title">任务中心</h1>
+      <NTag v-if="!session.isAdmin" size="small" type="info">viewer：只读</NTag>
+      <NButton size="small" secondary :loading="phase === 'loading'" @click="loadJobs()">
+        刷新
+      </NButton>
+      <!-- 说明包一层：页头是 flex 行，<p> 的 flex-basis:100% 会被 max-width 夹住，
+           结果并排贴在“刷新”右边。包一层才能真正换行。 -->
+      <div class="jobs__lead">
+        <p class="jobs__meta">
+          任务由预检后的动作提交产生。这里显示真实的任务状态、事件流与脱敏日志；
+          没有任务时列表为空，不显示演示数据。
+        </p>
+      </div>
+    </header>
 
-      <p class="jobs__lead">
-        任务由预检后的动作提交产生。这里显示真实的任务状态、事件流与脱敏日志；
-        没有任务时列表为空，不显示演示数据。
-      </p>
-
+    <NCard size="small">
       <StatePanel v-if="phase === 'loading'" state="loading" title="正在读取任务列表" />
       <ApiErrorPanel v-else-if="phase === 'error' && listError" :error="listError" @retry="loadJobs" />
       <NEmpty v-else-if="jobs.length === 0" description="暂无任务：提交一个动作后，任务会出现在这里" />
@@ -460,19 +463,11 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.jobs {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  max-width: 1100px;
+.jobs__lead {
+  flex: 1 0 100%;
+  min-width: 0;
 }
 
-.jobs__lead {
-  margin: 0 0 12px;
-  line-height: 1.7;
-  font-size: 13px;
-  opacity: 0.85;
-}
 
 .jobs__detail {
   display: flex;
@@ -492,16 +487,11 @@ onBeforeUnmount(() => {
 .jobs__label {
   min-width: 56px;
   opacity: 0.7;
-  font-size: 13px;
+  font-size: var(--fs-md);
 }
 
 .jobs__progress {
   max-width: 320px;
-}
-
-.jobs__meta {
-  font-size: 12px;
-  opacity: 0.75;
 }
 
 
@@ -530,15 +520,15 @@ onBeforeUnmount(() => {
 
 .jobs__heading {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--fs-lg);
 }
 
 .jobs__pre {
   margin: 0;
   padding: 10px 12px;
-  background: rgba(127, 127, 127, 0.1);
-  border-radius: 6px;
-  font-size: 12px;
+  background: var(--surface-2);
+  border-radius: var(--r-2);
+  font-size: var(--fs-sm);
   max-height: 240px;
   overflow: auto;
 }
@@ -555,13 +545,13 @@ onBeforeUnmount(() => {
 }
 
 .jobs__log-meta {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   opacity: 0.65;
   margin-right: 8px;
 }
 
 .jobs__log-body {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   word-break: break-all;
 }
 </style>

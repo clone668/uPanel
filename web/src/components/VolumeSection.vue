@@ -109,7 +109,7 @@ function onVolumeChanged(): void {
 }
 
 .volsection__meta {
-  font-size: 13px;
+  font-size: var(--fs-md);
   opacity: 0.8;
 }
 </style>

@@ -146,13 +146,6 @@ const indexLine = computed(() => {
   return `索引更新于 ${formatTimestamp(at)}（${formatAge(at)}）`
 })
 
-const powerLine = computed(() => {
-  const view = power.value
-  if (!view) return ''
-  const boot = view.boot_id === '' ? '本次启动标识未知' : `本次启动 ${view.boot_id.slice(0, 8)}…`
-  return `${boot} · 读取于 ${formatTimestamp(view.collected_at)}`
-})
-
 const hasNext = computed(() => (list.value?.next_cursor ?? null) !== null)
 
 function entryKey(row: PackageEntry): string {
@@ -533,7 +526,6 @@ onMounted(() => {
           涉及的包（{{ power.reboot_required_packages.length }} 个，来自 <code>/run/reboot-required.pkgs</code>）：
           <span class="updates__suites">{{ power.reboot_required_packages.join('、') }}</span>
         </p>
-        <p v-if="power" class="updates__line updates__meta">{{ powerLine }}</p>
       </NCard>
 
       <!-- 电源动作（P11.3）：重启 / 关机。有倒计时、可取消、受理不是发生。 -->
@@ -697,35 +689,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.updates {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  max-width: 1200px;
-}
-
-.updates__head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.updates__title {
-  margin: 0;
-  font-size: 20px;
-}
-
-.updates__line {
-  margin: 0;
-  line-height: 1.7;
-}
-
-.updates__meta {
-  font-size: 13px;
-  opacity: 0.8;
-  word-break: break-all;
-}
 
 .updates__alert-line {
   margin: 0 0 4px;
@@ -738,20 +701,8 @@ onMounted(() => {
   line-height: 1.6;
 }
 
-.updates__tiles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
 .updates__group {
   margin-top: 12px;
-}
-
-.updates__subtitle {
-  margin: 0 0 6px;
-  font-size: 14px;
-  font-weight: 600;
 }
 
 .updates__rows {
@@ -768,7 +719,7 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: 10px;
   align-items: baseline;
-  font-size: 13px;
+  font-size: var(--fs-md);
 }
 
 .updates__name {
@@ -782,7 +733,7 @@ onMounted(() => {
 }
 
 .updates__suites {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   opacity: 0.7;
   word-break: break-all;
 }
@@ -797,8 +748,8 @@ onMounted(() => {
 
 .updates__select {
   padding: 2px 6px;
-  border: 1px solid #d0d3d9;
-  border-radius: 4px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
   background: transparent;
   font: inherit;
 }
@@ -813,7 +764,7 @@ onMounted(() => {
 .updates__table {
   display: flex;
   flex-direction: column;
-  font-size: 13px;
+  font-size: var(--fs-md);
   overflow-x: auto;
 }
 
@@ -825,21 +776,21 @@ onMounted(() => {
   gap: 10px;
   align-items: center;
   padding: 6px 4px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.16);
+  border-bottom: 1px solid var(--rule);
 }
 
 .updates__row--head {
   font-weight: 600;
   opacity: 0.75;
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 .updates__row[data-relation='newer'] {
-  background: rgba(208, 139, 0, 0.06);
+  background: var(--warn-soft);
 }
 
 .updates__row[data-relation='older'] {
-  background: rgba(64, 128, 255, 0.05);
+  background: var(--accent-soft);
 }
 
 .updates__tag {
@@ -847,8 +798,8 @@ onMounted(() => {
 }
 
 .updates__warn {
-  color: #d03050;
-  font-size: 13px;
+  color: var(--bad);
+  font-size: var(--fs-md);
   word-break: break-all;
 }
 </style>

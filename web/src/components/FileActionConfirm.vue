@@ -154,8 +154,8 @@ const needsReauth = computed(
   flex-direction: column;
   gap: 8px;
   padding: 12px 14px;
-  border: 1px solid rgba(128, 128, 128, 0.3);
-  border-radius: 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
 }
 
 .confirm__line {
@@ -164,12 +164,12 @@ const needsReauth = computed(
 }
 
 .confirm__muted {
-  font-size: 13px;
+  font-size: var(--fs-md);
   opacity: 0.78;
 }
 
 .confirm__warn {
-  color: #d03050;
+  color: var(--bad);
 }
 
 .confirm__block {

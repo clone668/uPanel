@@ -43,6 +43,8 @@ import { useSessionStore } from '@/stores/session'
 import { summarizeStorageJob, type JobOutcomeSummary } from '@/utils/jobresult'
 import { formatTimestamp } from '@/utils/format'
 
+import SecondFactorField from './SecondFactorField.vue'
+
 const props = defineProps<{
   show: boolean
   /** 动作名（storage.* 下的九个之一）。 */
@@ -95,6 +97,8 @@ const preflight = ref<PreflightData | null>(null)
 const actionError = ref<string | null>(null)
 const phrase = ref('')
 const password = ref('')
+// 启用了二次验证的账号还要在这一步带上验证码：/auth/reauth 是同一个两步入口。
+const reauthCode = ref('')
 const jobId = ref('')
 const jobSnapshot = ref<JobDTO | null>(null)
 const jobStatus = ref<JobStatus | null>(null)
@@ -190,6 +194,7 @@ function reset(): void {
   actionError.value = null
   phrase.value = ''
   password.value = ''
+  reauthCode.value = ''
   jobId.value = ''
   jobSnapshot.value = null
   jobStatus.value = null
@@ -235,9 +240,10 @@ async function submit(): Promise<void> {
   try {
     // 再认证是独立的一步：密码只发给 /auth/reauth，绝不进任务请求。
     if (reauthNotice.value && password.value !== '') {
-      await reauthPassword(password.value)
+      await reauthPassword(password.value, reauthCode.value === '' ? undefined : reauthCode.value)
       await session.restore()
       password.value = ''
+      reauthCode.value = ''
     }
     const submitted = await submitJob({
       preflightId: current.preflight_id,
@@ -442,6 +448,13 @@ onBeforeUnmount(() => {
             :disabled="busy"
             data-testid="storage-reauth"
           />
+          <SecondFactorField
+            :show="session.totpEnabled"
+            :model-value="reauthCode"
+            :disabled="busy"
+            testid="storage-reauth-code"
+            @update:model-value="(value: string) => (reauthCode = value)"
+          />
         </div>
 
         <div v-if="phraseNeeded" class="dialog__block">
@@ -541,7 +554,7 @@ onBeforeUnmount(() => {
 
 .dialog__muted {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-md);
   opacity: 0.8;
   word-break: break-all;
 }
@@ -549,7 +562,7 @@ onBeforeUnmount(() => {
 .dialog__warn {
   margin: 0;
   line-height: 1.7;
-  color: #d03050;
+  color: var(--bad);
 }
 
 .dialog__block {

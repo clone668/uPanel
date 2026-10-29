@@ -27,6 +27,12 @@ export const useSessionStore = defineStore('session', () => {
   const expiresAt = ref<string | null>(null)
   const reauthExpiresAt = ref<string | null>(null)
   const status = ref<SessionStatus>('unknown')
+  /**
+   * 当前账号是否启用了二次验证（P14.6）。只用于界面：决定再认证表单里要不要
+   * 多一个验证码输入框。判定永远在服务端——这里为 false 时不带码，被
+   * 401 + totp_required 拒掉之后仍然要能把码补上。
+   */
+  const totpEnabled = ref(false)
 
   const isAuthenticated = computed(() => status.value === 'authenticated')
   const role = computed<Role | null>(() => user.value?.role ?? null)
@@ -37,11 +43,13 @@ export const useSessionStore = defineStore('session', () => {
     csrf_token: string
     expires_at: string
     reauth_expires_at?: string | null
+    totp_enabled?: boolean
   }): void {
     user.value = data.user
     csrfToken.value = data.csrf_token
     expiresAt.value = data.expires_at
     reauthExpiresAt.value = data.reauth_expires_at ?? null
+    totpEnabled.value = data.totp_enabled === true
     status.value = 'authenticated'
   }
 
@@ -50,6 +58,7 @@ export const useSessionStore = defineStore('session', () => {
     csrfToken.value = null
     expiresAt.value = null
     reauthExpiresAt.value = null
+    totpEnabled.value = false
     status.value = 'anonymous'
   }
 
@@ -73,9 +82,14 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
-  /** 登录。失败时保持未登录状态，由页面展示错误。 */
-  async function signIn(username: string, password: string): Promise<void> {
-    const result = await loginRequest(username, password)
+  /**
+   * 登录。失败时保持未登录状态，由页面展示错误。
+   *
+   * totp 为空表示"这次没带验证码"：启用了二次验证的账号会拿到 401 +
+   * totp_required，页面据此亮出验证码输入框再调一次。
+   */
+  async function signIn(username: string, password: string, totp?: string): Promise<void> {
+    const result = await loginRequest(username, password, totp)
     applySession(result.data)
   }
 
@@ -97,6 +111,7 @@ export const useSessionStore = defineStore('session', () => {
     expiresAt,
     reauthExpiresAt,
     status,
+    totpEnabled,
     isAuthenticated,
     role,
     isAdmin,

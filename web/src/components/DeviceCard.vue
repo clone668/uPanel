@@ -116,9 +116,9 @@ const deviceLink = computed(() => `/storage/devices/${props.device.id}`)
   flex-direction: column;
   gap: 8px;
   padding: 14px 16px;
-  border: 1px solid rgba(128, 128, 128, 0.25);
-  border-radius: 10px;
-  background: rgba(127, 127, 127, 0.04);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
 }
 
 .device-card__head {
@@ -140,7 +140,7 @@ const deviceLink = computed(() => `/storage/devices/${props.device.id}`)
 }
 
 .device-card__muted {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   opacity: 0.75;
 }
 

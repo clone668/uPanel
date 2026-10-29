@@ -1,0 +1,156 @@
+/* 基础层：重置 + 全局排版 + 两个通用工具类。
+ *
+ * 这里只放“每一页都吃到”的东西。组件的样式仍然写在各自 SFC 的 scoped 样式里，
+ * 但只允许用 tokens.css 里的变量，不再出现写死的 #d03050 / rgba(128,128,128,.25)。
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  /* 手机刘海屏：内容不钻到安全区外，桌面端这两个值就是 0。 */
+  padding-left: max(0px, env(safe-area-inset-left));
+  padding-right: max(0px, env(safe-area-inset-right));
+  background: var(--desk);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  line-height: var(--lh-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  line-height: var(--lh-tight);
+  font-weight: 600;
+}
+
+code,
+kbd,
+samp {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+/* 键盘焦点必须看得见：鼠标点击不画，Tab 走位才画。 */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 数字/标识用等宽：轮询刷新时宽度不跳，列不会左右抖。 */
+.u-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.u-mono {
+  font-family: var(--font-mono);
+}
+
+/* 只给读屏用的文字（状态说明不能只靠颜色，颜色本身不发音）。 */
+.u-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 滚动条：细、贴合主题，不抢视线。Firefox 走 scrollbar-*，WebKit 走伪元素。 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--rule-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 6px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-3);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---- 表格：23 个视图里一半是表，所以给一套类，别再各自写一遍 ---- */
+.u-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.u-table th {
+  text-align: left;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+  padding: 7px var(--sp-3);
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+
+.u-table td {
+  padding: 7px var(--sp-3);
+  border-bottom: 1px solid var(--rule);
+  vertical-align: middle;
+}
+
+.u-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.u-table tbody tr:hover td {
+  background: var(--surface-2);
+}
+
+.u-table .u-num,
+.u-table th.u-num {
+  text-align: right;
+}
+
+/* 横向滚动只在真的放不下时出现，包一层就够。 */
+.u-table-wrap {
+  overflow-x: auto;
+}

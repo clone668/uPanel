@@ -34,18 +34,22 @@ const memory = computed(() => formatBytes(props.unit.memory_bytes))
   <article class="service-card" :data-unit="unit.unit" :data-active="unit.active_state">
     <header class="service-card__head">
       <RouterLink class="service-card__name" :to="detailLink">{{ unit.unit }}</RouterLink>
-      <NTag size="small" :type="activeStateType(unit.active_state)">
-        {{ activeStateLabel(unit.active_state) }}
-      </NTag>
-      <NTag size="small" type="default">{{ enablementLabel(unit.enablement) }}</NTag>
-      <NTag v-if="unit.protection.protected" size="small" type="warning">
-        受保护：{{ protectionCategoryLabel(unit.protection.category) }}
-      </NTag>
-      <NTag v-if="unit.load_state !== 'loaded'" size="small" :type="loadStateType(unit.load_state)">
-        {{ loadStateLabel(unit.load_state) }}
-      </NTag>
-      <NTag v-if="unit.template" size="small" type="info">模板单元</NTag>
-      <NTag v-if="attention" size="small" type="error">需要注意</NTag>
+      <!-- 标签整体靠右：名称左对齐、读数右对齐，换行时也是“右边那一簇继续换”。
+           逐个散在标题行里时，名称后面会拖出一条空白，看起来像漏了什么。 -->
+      <span class="service-card__tags">
+        <NTag size="small" :type="activeStateType(unit.active_state)">
+          {{ activeStateLabel(unit.active_state) }}
+        </NTag>
+        <NTag size="small" type="default">{{ enablementLabel(unit.enablement) }}</NTag>
+        <NTag v-if="unit.protection.protected" size="small" type="warning">
+          受保护：{{ protectionCategoryLabel(unit.protection.category) }}
+        </NTag>
+        <NTag v-if="unit.load_state !== 'loaded'" size="small" :type="loadStateType(unit.load_state)">
+          {{ loadStateLabel(unit.load_state) }}
+        </NTag>
+        <NTag v-if="unit.template" size="small" type="info">模板单元</NTag>
+        <NTag v-if="attention" size="small" type="error">需要注意</NTag>
+      </span>
     </header>
 
     <p class="service-card__line">
@@ -71,32 +75,43 @@ const memory = computed(() => formatBytes(props.unit.memory_bytes))
   flex-direction: column;
   gap: 6px;
   padding: 12px 14px;
-  border: 1px solid rgba(128, 128, 128, 0.25);
-  border-radius: 10px;
-  background: rgba(127, 127, 127, 0.04);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
 }
 
+/* 名称一行、标签一行，都左对齐：并排时卡片宽度一变标签就换行，
+   右对齐还会在名称后面留一大片空白。竖排是可预期的。 */
 .service-card__head {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
 }
 
 .service-card__name {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--fs-md);
+  font-weight: 600;
   text-decoration: none;
   word-break: break-all;
+  min-width: 0;
+}
+
+.service-card__tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .service-card__line {
   margin: 0;
   line-height: 1.6;
+  color: var(--ink-2);
 }
 
 .service-card__muted {
-  font-size: 12px;
-  opacity: 0.78;
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
 }
 </style>

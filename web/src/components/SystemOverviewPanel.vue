@@ -4,13 +4,16 @@
 // 每个采集段独立判断：status 不是 ok 的段不画数字，改画状态面板并附带服务端给的
 // error 原话。这样“这台机器没有某个数据源”和“真的 0%”永远分得开
 // （CONTRACTS 第 6.1 节：三种 status 都不是零值）。
+//
+// 版式：五段用发丝线隔开，不再一段一个卡片。外层已经是一块面板（UPanel），
+// 面板里再套五张带阴影的卡会把眼睛从数字上拽走——这里只留标题与格子。
 
 import { computed } from 'vue'
-import { NCard, NTag } from 'naive-ui'
 
 import { SYSTEM_SECTION_LABELS, type SystemSummary } from '@/api/system'
 import StatePanel from '@/components/StatePanel.vue'
 import StatTile from '@/components/StatTile.vue'
+import UTag from '@/ui/UTag.vue'
 import {
   UNKNOWN_TEXT,
   formatBytes,
@@ -66,13 +69,14 @@ const cpuModel = computed(() => cpu.value.model ?? '未读到型号')
 <template>
   <div class="system" data-testid="system-overview">
     <p class="system__sample">
-      {{ sampleLine }}
-      <NTag v-if="summary.stale" size="small" type="warning">这份快照已陈旧</NTag>
-      <NTag v-if="summary.degraded" size="small" type="warning">有采集段不可用</NTag>
+      <span>{{ sampleLine }}</span>
+      <UTag v-if="summary.stale" tone="warn" :mono="false">这份快照已陈旧</UTag>
+      <UTag v-if="summary.degraded" tone="warn" :mono="false">有采集段不可用</UTag>
     </p>
 
     <!-- 主机 -->
-    <NCard title="主机" size="small">
+    <section class="system__sec">
+      <h3 class="system__h">{{ SYSTEM_SECTION_LABELS.host }}</h3>
       <StatePanel
         v-if="hostState"
         :state="hostState"
@@ -88,10 +92,11 @@ const cpuModel = computed(() => cpu.value.model ?? '未读到型号')
         </div>
         <p v-if="host.source" class="system__meta">数据来源：{{ host.source }}</p>
       </template>
-    </NCard>
+    </section>
 
     <!-- CPU -->
-    <NCard title="CPU" size="small">
+    <section class="system__sec">
+      <h3 class="system__h">{{ SYSTEM_SECTION_LABELS.cpu }}</h3>
       <StatePanel
         v-if="cpuState"
         :state="cpuState"
@@ -115,14 +120,15 @@ const cpuModel = computed(() => cpu.value.model ?? '未读到型号')
         <ul v-if="perCpu.length > 0" class="system__cores">
           <li v-for="core in perCpu" :key="core.index" class="system__core">
             <span class="system__core-label">cpu{{ core.index }}</span>
-            <span>{{ formatPercent(core.usage_percent, 1) }}</span>
+            <span class="system__core-value">{{ formatPercent(core.usage_percent, 1) }}</span>
           </li>
         </ul>
       </template>
-    </NCard>
+    </section>
 
     <!-- 内存 -->
-    <NCard title="内存" size="small">
+    <section class="system__sec">
+      <h3 class="system__h">{{ SYSTEM_SECTION_LABELS.memory }}</h3>
       <StatePanel
         v-if="memoryState"
         :state="memoryState"
@@ -145,10 +151,11 @@ const cpuModel = computed(() => cpu.value.model ?? '未读到型号')
           />
         </div>
       </template>
-    </NCard>
+    </section>
 
     <!-- 负载 -->
-    <NCard title="负载" size="small">
+    <section class="system__sec">
+      <h3 class="system__h">{{ SYSTEM_SECTION_LABELS.load }}</h3>
       <StatePanel
         v-if="loadState"
         :state="loadState"
@@ -164,10 +171,11 @@ const cpuModel = computed(() => cpu.value.model ?? '未读到型号')
           :value="`${load.runnable ?? UNKNOWN_TEXT} / ${load.threads ?? UNKNOWN_TEXT}`"
         />
       </div>
-    </NCard>
+    </section>
 
     <!-- 网络 -->
-    <NCard title="网络" size="small">
+    <section class="system__sec">
+      <h3 class="system__h">{{ SYSTEM_SECTION_LABELS.network }}</h3>
       <StatePanel
         v-if="networkState"
         :state="networkState"
@@ -179,8 +187,8 @@ const cpuModel = computed(() => cpu.value.model ?? '未读到型号')
         <ul v-else class="system__ifaces">
           <li v-for="iface in interfaces" :key="iface.name" class="system__iface">
             <p class="system__iface-head">
-              <strong>{{ iface.name }}</strong>
-              <NTag v-if="iface.loopback" size="small" type="info">回环</NTag>
+              <strong class="system__iface-name">{{ iface.name }}</strong>
+              <UTag v-if="iface.loopback" tone="neutral" :mono="false">回环</UTag>
               <span class="system__meta">状态：{{ iface.oper_state ?? UNKNOWN_TEXT }}</span>
             </p>
             <p class="system__meta">
@@ -195,7 +203,7 @@ const cpuModel = computed(() => cpu.value.model ?? '未读到型号')
           </li>
         </ul>
       </template>
-    </NCard>
+    </section>
   </div>
 </template>
 
@@ -203,72 +211,110 @@ const cpuModel = computed(() => cpu.value.model ?? '未读到型号')
 .system {
   display: flex;
   flex-direction: column;
-  gap: 16px;
 }
 
 .system__sample {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
-  margin: 0;
-  font-size: 13px;
-  opacity: 0.85;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+/* 五段之间只隔一条发丝线：段与段是同一个面板里的内容，不是五张卡。 */
+.system__sec {
+  padding: var(--sp-3) 0;
+  border-top: 1px solid var(--rule);
+}
+
+.system__sec:first-of-type {
+  border-top: 0;
+  padding-top: var(--sp-2);
+}
+
+.system__h {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink);
 }
 
 .system__grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .system__meta {
   margin: 6px 0 0;
-  font-size: 12px;
-  opacity: 0.75;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  word-break: break-all;
 }
 
 .system__cores {
-  margin: 10px 0 0;
-  padding: 0;
-  list-style: none;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
 }
 
 .system__core {
   display: flex;
   gap: 6px;
-  padding: 4px 8px;
-  border: 1px solid rgba(128, 128, 128, 0.25);
-  border-radius: 6px;
-  font-size: 12px;
+  padding: 2px 7px;
+  font-size: var(--fs-xs);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-1);
 }
 
 .system__core-label {
-  opacity: 0.7;
+  color: var(--ink-3);
+}
+
+.system__core-value {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
 }
 
 .system__ifaces {
+  display: flex;
+  flex-direction: column;
   margin: 0;
   padding: 0;
   list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
 }
 
+/* 网卡：一行一张，行与行之间发丝线，不再每个网卡一个圆角盒子。 */
 .system__iface {
-  padding: 10px 12px;
-  border: 1px solid rgba(128, 128, 128, 0.2);
-  border-radius: 8px;
+  padding: var(--sp-2) 0;
+  border-top: 1px solid var(--rule);
+}
+
+.system__iface:first-child {
+  padding-top: 0;
+  border-top: 0;
 }
 
 .system__iface-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
   margin: 0;
+}
+
+.system__iface-name {
+  font-family: var(--font-mono);
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+.system__iface .system__meta {
+  margin: 3px 0 0;
 }
 </style>

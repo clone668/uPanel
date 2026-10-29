@@ -35,6 +35,12 @@ const props = withDefaults(
     requestId?: string | undefined
     /** 是否显示“重试”。只在真的可以重试时打开。 */
     retryable?: boolean
+    /**
+     * 紧凑版：给窄面板（概览右侧那几栏）用。
+     * 大号的 NResult 插图在 320px 宽的栏里会占掉半屏，把真正要读的原因挤到折线以下；
+     * 紧凑版只留“状态 / 标题 / 原因 / 错误码”，文案与大号版逐字相同。
+     */
+    compact?: boolean
   }>(),
   {
     title: undefined,
@@ -43,6 +49,7 @@ const props = withDefaults(
     code: undefined,
     requestId: undefined,
     retryable: false,
+    compact: false,
   },
 )
 
@@ -104,56 +111,89 @@ const view = computed<Presentation>(() => {
 
 // 状态标签总是可见，避免“只有颜色变了”。
 const showSpinner = computed(() => props.state === 'loading')
+
+// 紧凑版里，“状态：请求失败”下一行又写“请求失败”是纯噪音：
+// 只有两个词真的不一样（例如“部分数据可用 / 部分数据不可用”）时才各写一行。
+const compactLabelDiffers = computed(() => view.value.label !== view.value.title)
 </script>
 
 <template>
-  <div class="state-panel" :data-state="state">
-    <p class="state-panel__label">状态：{{ view.label }}</p>
+  <div class="state-panel" :class="{ 'state-panel--compact': compact }" :data-state="state">
+    <p v-if="!compact || compactLabelDiffers" class="state-panel__label">
+      状态：{{ view.label }}
+    </p>
 
-    <div v-if="showSpinner" class="state-panel__spinner">
-      <NSpin size="medium" />
-      <span class="state-panel__spin-text">{{ view.title }}</span>
-    </div>
+    <!-- 紧凑版：同样的文案，去掉插图与转圈，只留能读清的那几行。 -->
+    <template v-if="compact">
+      <p class="state-panel__compact-title">{{ view.title }}</p>
+      <p class="state-panel__compact-desc">{{ view.description }}</p>
+      <p v-if="missing.length > 0" class="state-panel__compact-desc">
+        缺失项：{{ missing.join('、') }}
+      </p>
+      <p v-if="code" class="state-panel__meta">错误码：<code>{{ code }}</code></p>
+      <p v-if="requestId" class="state-panel__meta">request_id：<code>{{ requestId }}</code></p>
+      <NButton
+        v-if="retryable"
+        size="small"
+        secondary
+        type="primary"
+        @click="emit('retry')"
+      >
+        重试
+      </NButton>
+    </template>
 
-    <NEmpty v-else-if="state === 'empty'" :description="view.description" />
+    <template v-else>
+      <div v-if="showSpinner" class="state-panel__spinner">
+        <NSpin size="medium" />
+        <span class="state-panel__spin-text">{{ view.title }}</span>
+      </div>
 
-    <NResult
-      v-else-if="state === 'error'"
-      status="error"
-      :title="view.title"
-      :description="view.description"
-    />
+      <NEmpty v-else-if="state === 'empty'">
+        <!-- 标题必须落地：页面给空状态起的名字（“这台机器上还没有受管部署”）
+             才是用户看到的第一句话，只留 NEmpty 的默认“暂无数据”等于把它丢了。 -->
+        <p class="state-panel__empty-title">{{ view.title }}</p>
+        <p class="state-panel__empty-desc">{{ view.description }}</p>
+      </NEmpty>
 
-    <NResult
-      v-else-if="state === 'forbidden'"
-      status="403"
-      :title="view.title"
-      :description="view.description"
-    />
+      <NResult
+        v-else-if="state === 'error'"
+        status="error"
+        :title="view.title"
+        :description="view.description"
+      />
 
-    <NResult
-      v-else-if="state === 'dependency_missing'"
-      status="warning"
-      :title="view.title"
-      :description="view.description"
-    />
+      <NResult
+        v-else-if="state === 'forbidden'"
+        status="403"
+        :title="view.title"
+        :description="view.description"
+      />
 
-    <NResult
-      v-else-if="state === 'unsupported'"
-      status="info"
-      :title="view.title"
-      :description="view.description"
-    />
+      <NResult
+        v-else-if="state === 'dependency_missing'"
+        status="warning"
+        :title="view.title"
+        :description="view.description"
+      />
 
-    <NAlert v-else type="warning" :title="view.title">
-      {{ view.description }}
-      <span v-if="missing.length > 0">缺失项：{{ missing.join('、') }}</span>
-    </NAlert>
+      <NResult
+        v-else-if="state === 'unsupported'"
+        status="info"
+        :title="view.title"
+        :description="view.description"
+      />
 
-    <p v-if="code" class="state-panel__meta">错误码：<code>{{ code }}</code></p>
-    <p v-if="requestId" class="state-panel__meta">request_id：<code>{{ requestId }}</code></p>
+      <NAlert v-else type="warning" :title="view.title">
+        {{ view.description }}
+        <span v-if="missing.length > 0">缺失项：{{ missing.join('、') }}</span>
+      </NAlert>
 
-    <NButton v-if="retryable" secondary type="primary" @click="emit('retry')">重试</NButton>
+      <p v-if="code" class="state-panel__meta">错误码：<code>{{ code }}</code></p>
+      <p v-if="requestId" class="state-panel__meta">request_id：<code>{{ requestId }}</code></p>
+
+      <NButton v-if="retryable" secondary type="primary" @click="emit('retry')">重试</NButton>
+    </template>
   </div>
 </template>
 
@@ -168,8 +208,8 @@ const showSpinner = computed(() => props.state === 'loading')
 
 .state-panel__label {
   margin: 0;
-  font-size: 13px;
-  color: var(--n-text-color-3, #666);
+  font-size: var(--fs-md);
+  color: var(--n-text-color-3, var(--ink-2));
 }
 
 .state-panel__spinner {
@@ -178,13 +218,50 @@ const showSpinner = computed(() => props.state === 'loading')
   gap: 12px;
 }
 
+.state-panel__empty-title {
+  margin: 0 0 6px;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+
+.state-panel__empty-desc {
+  margin: 0;
+  font-size: var(--fs-md);
+  color: var(--n-text-color-3, var(--ink-2));
+}
+
 .state-panel__spin-text {
-  font-size: 14px;
+  font-size: var(--fs-lg);
 }
 
 .state-panel__meta {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-md);
   word-break: break-all;
+}
+
+/* 紧凑版：窄面板里只留几行字，不再给插图留出半屏。 */
+.state-panel--compact {
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.state-panel__compact-title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.state-panel__compact-desc {
+  margin: 0;
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  color: var(--ink-2);
+  word-break: break-word;
+}
+
+.state-panel--compact .state-panel__label {
+  font-size: var(--fs-xs);
 }
 </style>

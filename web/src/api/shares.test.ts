@@ -18,6 +18,7 @@ import {
   capabilityAvailable,
   clientHints,
   clientHintsUsable,
+  nfsCapabilityAvailable,
   shareNoticeLabel,
   summarizeShareState,
   SHARE_ACCESS_LABELS,
@@ -69,6 +70,19 @@ function capability(overrides: Partial<ShareCapability> = {}): ShareCapability {
     managed_config_present: true,
     managed_config_hash: 'b'.repeat(64),
     managed_shares: ['data'],
+    nfs: {
+      status: 'blocked',
+      reason: '这台机器上没有 exportfs',
+      exports_dir: '/etc/exports.d',
+      exports_file: '/etc/exports.d/upanel.exports',
+      exports_dir_ready: false,
+      exports_present: false,
+      exported_paths: [],
+      main_exports_readable: true,
+      service_state: 'unknown',
+      config_write: 'unsupported',
+      notices: [],
+    },
     collected_at: '2026-10-22T08:00:00Z',
     ...overrides,
   }
@@ -322,5 +336,161 @@ describe('与真机脚本钉住的命令', () => {
 
   it('smbclient 那一行就是脚本执行的那一行', () => {
     expect(cli?.commands[0]).toBe(VM_SMBCLIENT_LINE)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// NFS 导出（P14.4）。
+//
+// SMB 与 NFS 的客户端说明**不能共用**：一边的访问控制是账号 + ACL，另一边是网段 +
+// root_squash。这几条盯住 NFS 说明里的三个具体风险：
+//   1. 命令里出现账号或密码——NFS 根本没有这一层，写出来就是误导；
+//   2. 直接让人 mount 而不让先 `findmnt`——挂载失败时客户端会**静默写本地目录**；
+//   3. 地址里编一个面板并不知道的绝对路径——记录里没有卷挂载点，能给的是问出真路径的命令。
+// ---------------------------------------------------------------------------
+
+/** 一份 NFS 导出记录（默认读写、点名一个网段）。 */
+function nfsRecord(overrides: Partial<ShareRecord['definition']> = {}): ShareRecord {
+  return record({
+    definition: {
+      name: 'media',
+      protocol: 'nfs',
+      volume_id: 'vol_0123456789abcdef0123456789abcdef',
+      relative_path: 'team/docs',
+      enabled: true,
+      read_only: false,
+      allowed_cidrs: ['10.0.2.0/24'],
+      smb_users: [],
+      nfs_options: { root_squash: true, sync: true },
+      ...overrides,
+    },
+  })
+}
+
+describe('NFS 能力报告', () => {
+  it('NFS 可用与否只看 nfs.status，与 Samba 那一路互不影响', () => {
+    expect(nfsCapabilityAvailable(capability({ nfs: { ...capability().nfs, status: 'available' } }))).toBe(true)
+    // Samba 可用不代表 NFS 可用：两套工具、两个服务。
+    expect(nfsCapabilityAvailable(capability())).toBe(false)
+    expect(nfsCapabilityAvailable(null)).toBe(false)
+    expect(nfsCapabilityAvailable(undefined)).toBe(false)
+  })
+
+  it('缺少 nfs 字段的旧载荷不会崩，按不可用处理', () => {
+    const legacy = { ...capability() } as Partial<ShareCapability>
+    delete legacy.nfs
+    expect(nfsCapabilityAvailable(legacy as ShareCapability)).toBe(false)
+  })
+})
+
+describe('NFS 客户端说明', () => {
+  const hints = clientHints(nfsRecord(), 'panel.example')
+  const byKind = (kind: string) => {
+    const found = hints.find((h) => h.kind === kind)
+    if (!found) throw new Error(`没有 ${kind} 这一条`)
+    return found
+  }
+
+  it('三种客户端都是 NFS 那一套，没有一条 SMB 的痕迹', () => {
+    expect(hints.map((h) => h.kind)).toEqual(['linux-nfs-mount', 'macos-nfs', 'windows-nfs'])
+    const text = hints.flatMap((h) => [h.address, ...h.commands, ...h.notes]).join('\n')
+    for (const smbOnly of ['mount.cifs', 'smbclient', 'credentials=', 'password=', 'smb://']) {
+      expect(text).not.toContain(smbOnly)
+    }
+  })
+
+  it('导出目录不编绝对路径：给 showmount 让人问出真路径', () => {
+    const linux = byKind('linux-nfs-mount')
+    expect(linux.commands[0]).toBe('showmount -e panel.example')
+    expect(linux.notes.join('\n')).toContain('showmount -e')
+    // 记录里没有卷挂载点，所以地址里是占位符而不是一个像模像样的 /srv/...
+    expect(linux.address).toBe('panel.example:<卷挂载点>/team/docs')
+    expect(linux.address).not.toContain('/srv/')
+  })
+
+  it('挂载之后先 findmnt：不然静默写本地盘', () => {
+    const linux = byKind('linux-nfs-mount')
+    const mountIdx = linux.commands.findIndex((c) => c.startsWith('sudo mount -t nfs'))
+    const findmntIdx = linux.commands.findIndex((c) => c.startsWith('findmnt'))
+    expect(mountIdx).toBeGreaterThanOrEqual(0)
+    expect(findmntIdx).toBeGreaterThan(mountIdx)
+    expect(linux.notes.join('\n')).toContain('静默')
+  })
+
+  it('只读/读写分别说出导出行与目录权限，两者都对得上', () => {
+    const rw = clientHints(nfsRecord(), 'panel.example')[0]!.notes.join('\n')
+    expect(rw).toContain('0777')
+    expect(rw).toContain('rw')
+
+    const ro = clientHints(nfsRecord({ read_only: true }), 'panel.example')[0]!.notes.join('\n')
+    expect(ro).toContain('0755')
+    expect(ro).toContain('ro')
+  })
+
+  it('root_squash 那条固定说法在每一条说明里（客户端 root 会被 squash）', () => {
+    for (const hint of hints) {
+      const text = hint.notes.join('\n')
+      expect(text).toContain('root_squash')
+      expect(text).toContain('nobody')
+    }
+    expect(hints[0]!.notes.join('\n')).toContain('root_squash=true、sync=true')
+  })
+
+  it('来源网段原样列出，并说明 NFS 没有账号这一层', () => {
+    const text = byKind('windows-nfs').notes.join('\n')
+    expect(text).toContain('10.0.2.0/24')
+    expect(text).toContain('没有账号')
+  })
+
+  it('没写进托管导出文件时第一条就说不通', () => {
+    const notApplied = clientHints({ ...nfsRecord(), config_applied: false }, 'panel.example')[0]!
+    expect(notApplied.notes[0]).toContain('不在托管导出文件里')
+    // 被运行时撤销同理：卷掉线之后句子不能还是“去连吧”。
+    const revoked = clientHints(
+      {
+        ...nfsRecord(),
+        config_applied: false,
+        runtime_revoked: {
+          at: '2026-10-22T09:00:00Z',
+          volume_id: 'vol_0123456789abcdef0123456789abcdef',
+          volume_name: '数据卷',
+          volume_state: 'unmounted',
+          reason: '卷「数据卷」已不在挂载状态',
+        },
+      },
+      'panel.example',
+    )[0]!
+    expect(revoked.notes[0]).toContain('不在托管导出文件里')
+  })
+
+  it('Windows 那条给的是 UNC 形状的地址', () => {
+    expect(byKind('windows-nfs').address).toBe(String.raw`\\panel.example<卷挂载点>\team\docs`)
+  })
+
+  it('说明可用性与 SMB 用同一条判据（卷挂载、已应用、未撤销）', () => {
+    expect(clientHintsUsable(nfsRecord(), null)).toBe(true)
+    expect(clientHintsUsable({ ...nfsRecord(), config_applied: false }, null)).toBe(false)
+    expect(clientHintsUsable(nfsRecord(), { id: 'v', name: 'v', state: 'unmounted' })).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 与真机脚本互相钉住的 NFS 命令。
+//
+// 导出目录在脚本里是 `showmount -e` 问出来的真路径，所以**只有挂载选项那一截**
+// 能逐字钉住：`tests/integration/p14-4-acceptance.sh` 用的是同一个字符串。
+// ---------------------------------------------------------------------------
+export const VM_NFS_MOUNT_OPTS = 'vers=3,proto=tcp'
+
+describe('与真机脚本钉住的 NFS 命令', () => {
+  const linux = clientHints(nfsRecord(), '127.0.0.1').find((h) => h.kind === 'linux-nfs-mount')!
+
+  it('挂载行用的选项就是脚本里用的那串', () => {
+    const mountLine = linux.commands.find((c) => c.startsWith('sudo mount -t nfs'))
+    expect(mountLine).toBe(`sudo mount -t nfs -o ${VM_NFS_MOUNT_OPTS} 127.0.0.1:<卷挂载点>/team/docs /mnt/media`)
+  })
+
+  it('脚本先确认挂上了再动手（findmnt 那一行也在）', () => {
+    expect(linux.commands).toContain('findmnt -T /mnt/media')
   })
 })

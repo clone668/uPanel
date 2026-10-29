@@ -206,9 +206,9 @@ function onPrimary(): void {
   flex-direction: column;
   gap: 6px;
   padding: 12px 14px;
-  border: 1px solid rgba(128, 128, 128, 0.25);
-  border-radius: 10px;
-  background: rgba(127, 127, 127, 0.04);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
 }
 
 .app-card__head {
@@ -224,15 +224,15 @@ function onPrimary(): void {
   justify-content: center;
   width: 26px;
   height: 26px;
-  border-radius: 7px;
-  background: rgba(127, 127, 127, 0.16);
-  font-size: 15px;
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  font-size: var(--fs-lg);
   line-height: 1;
 }
 
 .app-card__name {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--fs-lg);
   font-weight: 700;
   word-break: break-all;
 }
@@ -244,7 +244,7 @@ function onPrimary(): void {
 }
 
 .app-card__muted {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   opacity: 0.78;
 }
 

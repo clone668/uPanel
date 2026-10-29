@@ -9,8 +9,13 @@ import { describe, expect, it } from 'vitest'
 import type { JobStatus } from '@/api/jobs'
 import {
   checkedViaLabel,
+  summarizeAccountJob,
+  summarizeBackupJob,
+  summarizeDeploymentJob,
+  summarizeNetworkJob,
   summarizePackageJob,
   summarizePowerJob,
+  summarizeScheduleJob,
   summarizeShareJob,
   summarizeStorageJob,
 } from './jobresult'
@@ -614,5 +619,624 @@ describe('电源任务的结果翻译（P11.3）', () => {
     )
     expect(failed.ok).toBe(false)
     expect(failed.lines).toEqual(['systemctl: 交互认证被拒绝'])
+  })
+})
+
+// 备份动作的结果翻译（P12.5）。
+//
+// 备份这一块最容易骗人的地方是"成功"两个字：
+//   - backup.run 的 verified 说的是"写完读回来对得上"，不是"这份数据能恢复"；
+//   - backup.verify 不勾抽样恢复时，什么都没证明；
+//   - 恢复的 published 只说明目录发布出去了，不说明业务回来了。
+// 所以这里断言的不是"有没有输出"，而是**这几句话有没有被说出来**。
+describe('备份动作的结果翻译', () => {
+  function backupJob(observed: Record<string, unknown>, extra: Record<string, unknown> = {}): SummaryInput {
+    return job({ result: { ...extra, observed_state: observed } })
+  }
+
+  it('run 成功说清"备份成功不等于恢复已验证"，并带上 restic 统计与来源', () => {
+    const summary = summarizeBackupJob(
+      backupJob(
+        {
+          snapshot_id: 'abcdef0123',
+          verified_by: 'restic check --read-data-subset',
+          files_new: 12,
+          files_changed: 3,
+          total_files_processed: 15,
+          data_added: 4096,
+          sources: [
+            { source: 'root1:srv/www', path: '/srv/www', exists: true },
+            { source: 'root1:srv/gone', path: '/srv/gone', exists: false },
+          ],
+          panel_database: { size_bytes: 8192, schema_version: 7, integrity: 'ok' },
+          apps_restored: true,
+        },
+        // outcome 在 result 顶层（代理的 marshalResult 就是这么包的），不在 observed_state 里。
+        { outcome: 'verified' },
+      ),
+    )
+    const text = summary.lines.join('\n')
+    expect(summary.ok).toBe(true)
+    expect(summary.headline).toContain('备份成功不等于恢复已验证')
+    expect(text).toContain('执行后读回来核对过')
+    expect(text).toContain('快照：abcdef0123')
+    expect(text).toContain('核验方式：restic check --read-data-subset')
+    expect(text).toContain('新增 12 个文件')
+    expect(text).toContain('已包含在这份快照里')
+    expect(text).toContain('执行时读不到')
+    expect(text).toContain('面板数据库副本')
+    expect(text).toContain('都已按原状态拉起')
+  })
+
+  it('outcome 是 unknown 时说"读回来的结果对不上"，不粉饰', () => {
+    const summary = summarizeBackupJob(
+      backupJob({ verify_error: '快照索引损坏' }, { outcome: 'unknown' }),
+    )
+    const text = summary.lines.join('\n')
+    expect(text).toContain('读回来的结果对不上')
+    expect(text).toContain('读回核对没通过：快照索引损坏')
+  })
+
+  it('有应用没能拉起时逐条报，不汇总成一句"部分失败"', () => {
+    const summary = summarizeBackupJob(
+      backupJob({
+        apps_restored: false,
+        apps: [
+          { object: 'app_web', operation: 'start', done: true, verified: true },
+          { object: 'app_db', operation: 'start', done: false, verified: false, note: '依赖未就绪' },
+        ],
+      }),
+    )
+    const text = summary.lines.join('\n')
+    expect(text).toContain('有应用没能按原状态拉起')
+    expect(text).toContain('app_web：start，已执行，读回核对通过')
+    expect(text).toContain('app_db：start，没执行，读回核对不一致（依赖未就绪）')
+  })
+
+  it('verify 不勾抽样时说清"什么都没证明"', () => {
+    const summary = summarizeBackupJob(
+      backupJob({ snapshot_id: 'abcdef0123', checked: 'structure', sample_restore: false }),
+    )
+    const text = summary.lines.join('\n')
+    expect(text).toContain('核对范围：structure')
+    expect(text).toContain('没有抽文件真恢复')
+  })
+
+  it('verify 勾了抽样但没通过时说"不要指望它"', () => {
+    const summary = summarizeBackupJob(backupJob({ sample_restore: true, restore_verified: false }))
+    expect(summary.lines.join('\n')).toContain('读不回来')
+  })
+
+  it('恢复的 published 只说目录发布，不冒充业务恢复', () => {
+    const summary = summarizeBackupJob(
+      backupJob({
+        snapshot_id: 'abcdef0123',
+        published: true,
+        target_root_id: 'root1',
+        relative_path: 'restored',
+        files: 10,
+        directories: 2,
+        bytes: 1024,
+      }),
+    )
+    const text = summary.lines.join('\n')
+    expect(text).toContain('目录已发布到文件根 root1 下的 /restored')
+    expect(text).toContain('恢复规模：10 个文件、2 个目录，共 1024 字节')
+  })
+
+  it('清理列出删了几份、留了几份，删掉的 id 逐个具名', () => {
+    const summary = summarizeBackupJob(backupJob({ deleted_ids: ['aaa', 'bbb'], kept_ids: ['ccc'] }))
+    const text = summary.lines.join('\n')
+    expect(text).toContain('删除 2 份、保留 1 份')
+    expect(text).toContain('已删除：aaa、bbb')
+  })
+
+  it('初始化仓库把 restic 标识、版本、实际位置与主机公钥都摊出来', () => {
+    const summary = summarizeBackupJob(
+      backupJob({
+        repo_id: 'repo-uuid',
+        restic_version: '0.17.3',
+        absolute_path: '/data/root1/upanel-restic',
+        host_key: 'SHA256:abc',
+        initialized_at: '2026-10-24T03:00:00Z',
+      }),
+    )
+    const text = summary.lines.join('\n')
+    expect(text).toContain('restic 仓库标识：repo-uuid')
+    expect(text).toContain('restic 版本：0.17.3')
+    expect(text).toContain('实际位置：/data/root1/upanel-restic')
+    expect(text).toContain('远端主机公钥：SHA256:abc')
+    expect(text).toContain('初始化完成于：2026-10-24T03:00:00Z')
+  })
+
+  it('中断的任务不说成功，并提醒重跑只会再写一份快照', () => {
+    const summary = summarizeBackupJob(job({ status: 'interrupted', result: {} }))
+    expect(summary.ok).toBe(false)
+    expect(summary.headline).toContain('结果未知')
+    expect(summary.headline).toContain('不会覆盖已有快照')
+  })
+
+  it('成功但没有任何现场读数时如实说"没有可展示的读数"', () => {
+    const summary = summarizeBackupJob(job({ result: {} }))
+    expect(summary.ok).toBe(true)
+    expect(summary.headline).toContain('没有返回可展示的现场读数')
+  })
+})
+
+// 计划任务与脚本的结果翻译（P12.5）。
+describe('计划与脚本动作的结果翻译', () => {
+  it('schedule.apply 逐条报出三个观测值，不许把"定义里开了"说成"在跑"', () => {
+    const summary = summarizeScheduleJob(
+      job({
+        result: {
+          observed_state: {
+            schedule_id: 'sch_0123',
+            name: '每晚全量备份',
+            timer_ref: 'upanel-sch-0123.timer',
+            enabled: true,
+            installed: true,
+            unit_file_state: 'enabled',
+            active_state: 'inactive',
+          },
+        },
+      }),
+    )
+    const text = summary.lines.join('\n')
+    expect(text).toContain('计划：每晚全量备份（sch_0123）')
+    expect(text).toContain('单元：upanel-sch-0123.timer')
+    expect(text).toContain('定义里写的是“启用”')
+    expect(text).toContain('单元现状：enabled / inactive')
+  })
+
+  it('单元没装上时直说这条定义现在不会触发', () => {
+    const summary = summarizeScheduleJob(
+      job({ result: { observed_state: { schedule_id: 'sch_x', installed: false, enabled: true } } }),
+    )
+    expect(summary.lines.join('\n')).toContain('不会触发')
+  })
+
+  it('schedule.delete 只说删掉了什么，不再谈单元现状', () => {
+    const summary = summarizeScheduleJob(
+      job({ result: { observed_state: { schedule_id: 'sch_x', deleted: true } } }),
+    )
+    expect(summary.headline).toContain('已删除')
+    const text = summary.lines.join('\n')
+    expect(text).toContain('记录已删除')
+    expect(text).not.toContain('单元现状')
+  })
+
+  it('script.run 报退出码与规模，并且每次都说输出不落库', () => {
+    const summary = summarizeScheduleJob(
+      job({
+        result: {
+          observed_state: {
+            script_id: 'scr_0123',
+            name: '清缓存',
+            content_hash: 'sha256:abcd',
+            exit_code: 0,
+            duration_ms: 1250,
+            stdout: 12,
+            stderr: 0,
+            truncated: true,
+          },
+        },
+      }),
+    )
+    const text = summary.lines.join('\n')
+    expect(text).toContain('脚本：清缓存（scr_0123）')
+    expect(text).toContain('内容指纹：sha256:abcd')
+    expect(text).toContain('退出码 0，耗时 1250 毫秒，标准输出 12 字节，标准错误 0 字节（输出被截断）')
+    expect(text).toContain('输出不落库')
+  })
+
+  it('script.apply 报落盘位置与字节数', () => {
+    const summary = summarizeScheduleJob(
+      job({
+        result: {
+          observed_state: {
+            script_id: 'scr_x',
+            content_hash: 'sha256:e',
+            path: '/var/lib/upanel/scr_x',
+            bytes: 64,
+          },
+        },
+      }),
+    )
+    const text = summary.lines.join('\n')
+    expect(text).toContain('落盘位置：/var/lib/upanel/scr_x')
+    expect(text).toContain('正文 64 字节')
+  })
+
+  it('中断与失败都不算成功', () => {
+    expect(summarizeScheduleJob(job({ status: 'interrupted', result: {} })).ok).toBe(false)
+    const failed = summarizeScheduleJob(
+      job({ status: 'failed', result: {}, error: { message: 'SCHEDULE_TARGET_NOT_FOUND' } }),
+    )
+    expect(failed.ok).toBe(false)
+    expect(failed.lines).toEqual(['SCHEDULE_TARGET_NOT_FOUND'])
+  })
+})
+
+// 网络写动作的结果翻译（P14.2）。
+//
+// 这一组只有一个要害：**结论看 outcome，不看 status**。`rolled_back` 的任务
+// status 也是 succeeded——它跑完了，只是改动没留下。渲染成"成功"，人就以为新地址
+// 生效了；渲染成"失败"，人以为机器现在坏了。两句都不对。
+describe('网络写动作的结果翻译（P14.2）', () => {
+  it('verified：说读回了内核事实，并列出网卡/模式/地址', () => {
+    const summary = summarizeNetworkJob(
+      job({
+        result: {
+          outcome: 'verified',
+          observed_state: { interface: 'ens4', mode: 'static', address: '192.168.1.50/24' },
+          data: { rollback_token: 'nrb_abc', window_seconds: 120, config_hash_now: 'sha256:deadbeefcafe1234' },
+        },
+      }),
+    )
+    expect(summary.ok).toBe(true)
+    expect(summary.headline).toContain('读回来的现场事实')
+    const text = summary.lines.join('\n')
+    expect(text).toContain('新配置确实生效了')
+    expect(text).toContain('ens4，模式 静态地址，地址 192.168.1.50/24')
+    expect(text).toContain('回滚窗口：120 秒')
+    expect(text).toContain('回滚标识：nrb_abc')
+    // 指纹只露前面一小段：这一行是给人核对"是不是我那一版"，不是给人抄走的。
+    expect(text).toContain('sha256:deadbeefc…')
+    expect(text).not.toContain('sha256:deadbeefcafe1234')
+  })
+
+  it('rolled_back：succeeded 也不许说成功', () => {
+    const summary = summarizeNetworkJob(
+      job({
+        result: {
+          outcome: 'rolled_back',
+          observed_state: { interface: 'ens4' },
+          data: { previous: '192.168.1.10/24' },
+        },
+      }),
+    )
+    expect(summary.ok).toBe(false)
+    expect(summary.headline).toContain('改动没有留在机器上')
+    expect(summary.headline).not.toContain('失败')
+    expect(summary.lines.join('\n')).toContain('改之前的样子：192.168.1.10/24')
+  })
+
+  it('unknown：不说成功也不说失败，让人去看现场', () => {
+    const summary = summarizeNetworkJob(
+      job({ result: { outcome: 'unknown', observed_state: { verify_error: 'ip -j addr 超时' } } }),
+    )
+    expect(summary.ok).toBe(false)
+    expect(summary.headline).toContain('结果未知')
+    expect(summary.headline).toContain('看一眼现场')
+    expect(summary.lines.join('\n')).toContain('核验：ip -j addr 超时')
+  })
+
+  it('确认与回滚：按字段存在性读，记录状态各说一句', () => {
+    const confirmed = summarizeNetworkJob(
+      job({ result: { outcome: 'verified', observed_state: { state: 'confirmed' } } }),
+    )
+    expect(confirmed.lines.join('\n')).toContain('回滚 timer 已停')
+
+    const failed = summarizeNetworkJob(
+      job({ result: { outcome: 'unknown', observed_state: { state: 'failed' } } }),
+    )
+    expect(failed.lines.join('\n')).toContain('回滚没走完')
+
+    // data.state 也认：动作不同，字段落在哪一侧不一样。
+    const fromData = summarizeNetworkJob(job({ result: { outcome: 'verified', data: { state: 'rolled_back' } } }))
+    expect(fromData.lines.join('\n')).toContain('记录已标为已回滚')
+  })
+
+  it('失败路径上的原因逐条列出来，不合并成一句', () => {
+    const summary = summarizeNetworkJob(
+      job({
+        result: {
+          outcome: 'unknown',
+          observed_state: {
+            netplan_generate: '生成失败：网关不在网段内',
+            arm_error: 'systemd 拒绝',
+            restore_error: 'ENOSPC',
+          },
+        },
+      }),
+    )
+    const text = summary.lines.join('\n')
+    expect(text).toContain('netplan generate：生成失败')
+    expect(text).toContain('回滚 timer：systemd 拒绝')
+    expect(text).toContain('恢复面板文件：ENOSPC')
+  })
+
+  it('没有 outcome 时不说"新配置生效了"', () => {
+    const summary = summarizeNetworkJob(job({ result: { observed_state: { interface: 'ens4' } } }))
+    expect(summary.ok).toBe(true)
+    expect(summary.lines.join('\n')).not.toContain('新配置确实生效了')
+  })
+
+  it('中断：明说网络可能改了一半', () => {
+    const summary = summarizeNetworkJob(job({ status: 'interrupted', result: {} }))
+    expect(summary.ok).toBe(false)
+    expect(summary.headline).toContain('可能改了一半')
+  })
+
+  it('failed：带服务端的错误原文与恢复建议', () => {
+    const summary = summarizeNetworkJob(
+      job({ status: 'failed', error: { message: 'NETWORK_UNSUPPORTED', recovery_hint: '手工改 netplan' } }),
+    )
+    expect(summary.ok).toBe(false)
+    expect(summary.lines).toEqual(['NETWORK_UNSUPPORTED'])
+    expect(summary.hint).toBe('手工改 netplan')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// NFS 导出的结果翻译（P14.4）。字段照 internal/shares/writeexports.go 的实际输出拼：
+//   observed_state  exports_file / reload / service / served / startup_deps /
+//                   exported_paths / volume_offline_shares / managed_exports / notes
+//   data            export_preview / managed_exports / exports / volume_offline /
+//                   protocol=nfs
+//
+// 判“这是哪一边”不看调用方传什么，只看字段：NFS 的 exports_file 与 SMB 的 samba_config
+// 不同名，所以从载荷本身就能读出来。这一条一旦破了，一次 NFS 应用会被翻译成
+// “Samba 配置已重写”——那是在说一个根本没发生的动作。
+// ---------------------------------------------------------------------------
+describe('NFS 导出的结果翻译', () => {
+  const shareSummary = (result: unknown, status: JobStatus = 'succeeded') =>
+    summarizeShareJob({ status, result: result as never, error: {} })
+
+  it('读回都通过时把每一步说全，且一个字都不提 smbd', () => {
+    const summary = shareSummary({
+      outcome: 'verified',
+      observed_state: {
+        managed_exports: '/etc/exports.d/upanel.exports',
+        exports_hash: 'abcdef0123456789'.repeat(4),
+        exports_file: 'written',
+        reload: 'done',
+        service: 'active',
+        served: true,
+        startup_deps: 'written',
+        exported_paths: ['/srv/upanel/volumes/data/media'],
+      },
+      data: {
+        protocol: 'nfs',
+        export_preview: '/srv/upanel/volumes/data/media 10.0.2.0/24(rw,sync,root_squash,no_subtree_check) # upanel:shr_x',
+        managed_exports: '/etc/exports.d/upanel.exports',
+        startup_paths: ['/srv/upanel/volumes/data'],
+        config_hash: 'abcdef0123456789'.repeat(4),
+      },
+    })
+    expect(summary.ok).toBe(true)
+    expect(summary.lines).toContain('托管导出文件已整份重写（只含面板自己那几条）')
+    expect(summary.lines).toContain('已让 exportfs 重新读一遍导出表')
+    expect(summary.lines).toContain('nfs-server 此刻：active')
+    expect(summary.lines).toContain('开机前必须先就位：/srv/upanel/volumes/data')
+    expect(summary.lines.join('\n')).toContain('exportfs 读回的表里有它')
+    const text = summary.lines.join('\n')
+    expect(text).not.toContain('smbd')
+    expect(text).not.toContain('Samba')
+    expect(text).not.toContain('samba_config')
+  })
+
+  it('没刷表时说的是“因为 nfs-server 没在运行”，不是“已生效”', () => {
+    const summary = shareSummary({
+      outcome: 'accepted',
+      observed_state: {
+        exports_file: 'written',
+        reload: 'skipped_service_inactive',
+        service: 'inactive',
+        served: false,
+      },
+    })
+    expect(summary.lines).toContain('nfs-server 没在运行，因此没有刷表')
+    expect(summary.lines.join('\n')).toContain('没有在提供服务')
+    // outcome 是 accepted，不能翻成“读回内核事实”
+    expect(summary.lines[0]).not.toContain('读回')
+  })
+
+  it('内容没变时导出行照样给出来（不是“什么都没改”就完事）', () => {
+    const summary = shareSummary({
+      outcome: 'verified',
+      observed_state: { exports_file: 'unchanged', reload: 'skipped_unchanged', served: true },
+      data: { protocol: 'nfs', exports: ['/srv/upanel/volumes/data/media'] },
+    })
+    expect(summary.lines).toContain('导出文件内容没变，没有重写')
+    expect(summary.lines).toContain('内容没变，跳过了刷表')
+    expect(summary.lines).toContain('现在导出表里由面板写着的路径：/srv/upanel/volumes/data/media')
+  })
+
+  it('被卷掉线跳过的导出点名列出，且用的是 NFS 的字段名', () => {
+    const summary = shareSummary({
+      observed_state: {
+        exports_file: 'written',
+        volume_offline_shares: ['backup'],
+      },
+      data: { protocol: 'nfs', volume_offline: ['backup'] },
+    })
+    expect(summary.lines).toContain('因为卷没挂而被跳过、这次没有写进导出表的共享：backup')
+  })
+
+  it('停用导出：说清目录还在、NFS 没有 ACL 可收', () => {
+    const summary = shareSummary({
+      outcome: 'accepted',
+      observed_state: {
+        acl_revoked: false,
+        acl_note:
+          'NFS 共享没有 POSIX ACL：访问控制由导出里的网段与 root_squash 决定，摘掉导出行之后网段内也连不上了；目录权限保持原样',
+        served: false,
+        reload: 'done',
+      },
+      data: { protocol: 'nfs', managed_exports: '/etc/exports.d/upanel.exports' },
+    })
+    const text = summary.lines.join('\n')
+    expect(text).toContain('NFS 共享没有 POSIX ACL')
+    expect(text).not.toContain('目录 ACL 已清空')
+    expect(text).not.toContain('目录 ACL 没有变化')
+  })
+
+  it('失败时只给错误与恢复建议，不掺现场读数', () => {
+    const summary = summarizeShareJob({
+      status: 'failed',
+      result: {},
+      error: {
+        message: '刷新导出表之后读回的表里没有这条路径',
+        recovery_hint: '导出行已还原；看 /var/log/syslog 里的 rpc.mountd',
+      } as never,
+    })
+    expect(summary.ok).toBe(false)
+    expect(summary.lines).toEqual(['刷新导出表之后读回的表里没有这条路径'])
+    expect(summary.hint).toContain('rpc.mountd')
+  })
+})
+
+describe('账号动作的结果翻译（P14.5）', () => {
+  const accountSummary = (result: unknown, status: JobStatus = 'succeeded') =>
+    summarizeAccountJob({ status, result: result as never, error: {} })
+
+  // 首轮这里写的是“口令锁定 → 配了公钥也登不上”。真机把它否了（Q479）：key-only 账号能登，
+  // 拦人的是壳。所以这一条断言的是“没口令 ≠ 登不上”，防止文案再被改回去。
+  it('新建账号读到 L 时说“只能用公钥登录”，不说“登不上”', () => {
+    const summary = accountSummary({
+      outcome: 'verified',
+      observed_state: {
+        uid: 1002,
+        shell: '/bin/rbash',
+        home: '/home/bob',
+        password_state: 'L',
+        has_password: false,
+      },
+    })
+    const text = summary.lines.join('\n')
+    expect(text).toContain('只能用已配的公钥登录')
+    expect(text).not.toContain('配了公钥也登不上')
+  })
+
+  it('禁用那一刀说清是壳挡住了，不是口令', () => {
+    const summary = accountSummary({
+      outcome: 'verified',
+      observed_state: {
+        shell: '/usr/sbin/nologin',
+        shell_profile: 'restricted',
+        shell_changed: true,
+        disabled: true,
+        has_password: false,
+      },
+    })
+    const text = summary.lines.join('\n')
+    expect(text).toContain('/usr/sbin/nologin')
+    expect(text).toContain('登不上')
+    expect(text).not.toContain('配了公钥也登不上')
+  })
+})
+
+describe('部署动作的结果翻译（P15.4）', () => {
+  const deploySummary = (result: unknown, status: JobStatus = 'succeeded', error: unknown = {}) =>
+    summarizeDeploymentJob({ status, result: result as never, error: error as never })
+
+  it('没有读数就不许说“已经在跑”——容器清单没读到时明说没有独立读数', () => {
+    const summary = deploySummary({
+      outcome: 'verified',
+      observed_state: {
+        project: 'webapp',
+        unit: 'upanel-deploy-webapp.service',
+        written: true,
+        unit_active: true,
+        unit_enabled: true,
+        containers_checked: false,
+        containers_error: 'docker 没有应答',
+      },
+    })
+    const text = summary.lines.join('\n')
+    expect(summary.ok).toBe(true)
+    expect(text).toContain('upanel-deploy-webapp.service')
+    expect(text).toContain('这一次写下了新的单元文件与渲染配置')
+    expect(text).toContain('docker 没有应答')
+    expect(text).toContain('没有独立读数')
+  })
+
+  it('回切是 succeeded + rolled_back：headline 不能说“已更新”，失败原因要露出来', () => {
+    const summary = deploySummary({
+      outcome: 'rolled_back',
+      recovery_hint: '健康探测没探通：最后一次应答是 502',
+      observed_state: {
+        project: 'webapp',
+        rolled_back: true,
+        rollback_verified: true,
+        rollback_health_ok: false,
+        previous_config_digest: 'sha256:0123456789abcdef',
+        config_digest: 'sha256:0123456789abcdef',
+        image: 'nginx:1.28',
+        image_digest_known: false,
+      },
+    })
+    const text = summary.lines.join('\n')
+    expect(summary.headline).toContain('回切')
+    expect(summary.headline).not.toContain('已更新')
+    expect(summary.hint).toContain('502')
+    expect(text).toContain('上一版配置与镜像已恢复')
+    expect(text).toContain('探测仍不通')
+    // 记录里的 digest 与盘上一致：那句话说“没有变”，而不是编一个箭头。
+    expect(text).toContain('配置没有变')
+    expect(text).toContain('空着表示“不知道”')
+  })
+
+  it('partial 与删除的读数各说各的', () => {
+    const partial = deploySummary({
+      outcome: 'partial',
+      recovery_hint: '单元 active，但 compose 项目下没有容器',
+      observed_state: { project: 'webapp', containers_checked: true, containers_total: 0, containers_running: 0 },
+    })
+    expect(partial.headline).toContain('一项不对')
+    expect(partial.lines.join('\n')).toContain('读到 0 个容器')
+
+    const removed = deploySummary({
+      outcome: 'verified',
+      observed_state: {
+        project: 'webapp',
+        unit_removed: true,
+        config_removed: true,
+        data_kept: true,
+      },
+    })
+    const text = removed.lines.join('\n')
+    expect(text).toContain('包装单元文件已删除')
+    expect(text).toContain('一个字节都没有动')
+  })
+
+  it('健康探测：没探测与探测没通过是两件事', () => {
+    const notChecked = deploySummary({
+      outcome: 'verified',
+      observed_state: { health_checked: false, health_error: '定义里没有打开探测' },
+    })
+    expect(notChecked.lines.join('\n')).toContain('这次没有做健康探测')
+
+    const failed = deploySummary({
+      outcome: 'partial',
+      observed_state: {
+        health_checked: true,
+        health_ok: false,
+        health_url: 'http://127.0.0.1:8080/',
+        health_status_code: 502,
+        health_duration_ms: 12,
+        health_truncated: true,
+      },
+    })
+    const text = failed.lines.join('\n')
+    expect(text).toContain('探测没通过')
+    expect(text).toContain('状态码 502')
+    expect(text).toContain('截断不算通')
+  })
+
+  it('失败与中断不借用成功的话术', () => {
+    const failed = deploySummary(null, 'failed', {
+      code: 'unit_still_active',
+      message: '单元还在 active，没有删文件',
+      recovery_hint: '先看 journal',
+    })
+    expect(failed.ok).toBe(false)
+    expect(failed.headline).toBe('任务失败')
+    expect(failed.lines).toEqual(['单元还在 active，没有删文件'])
+    expect(failed.hint).toBe('先看 journal')
+
+    const interrupted = deploySummary(null, 'interrupted')
+    expect(interrupted.headline).toContain('结果未知')
   })
 })

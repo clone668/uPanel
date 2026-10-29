@@ -435,31 +435,6 @@ async function copyAll(): Promise<void> {
 </template>
 
 <style scoped>
-.logs {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  max-width: 1200px;
-}
-
-.logs__head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.logs__title {
-  margin: 0;
-  font-size: 20px;
-}
-
-.logs__meta {
-  font-size: 13px;
-  opacity: 0.8;
-  margin: 0;
-  line-height: 1.7;
-}
 
 .logs__line {
   margin: 0;
@@ -483,7 +458,7 @@ async function copyAll(): Promise<void> {
 }
 
 .logs__label {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   opacity: 0.8;
 }
 
@@ -492,12 +467,12 @@ async function copyAll(): Promise<void> {
 .logs__time {
   height: 34px;
   padding: 0 10px;
-  border-radius: 3px;
-  border: 1px solid rgba(128, 128, 128, 0.4);
+  border-radius: var(--r-1);
+  border: 1px solid var(--rule);
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 14px;
+  font-size: var(--fs-lg);
 }
 
 .logs__actions {
@@ -512,7 +487,7 @@ async function copyAll(): Promise<void> {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: var(--fs-md);
 }
 
 .logs__list {

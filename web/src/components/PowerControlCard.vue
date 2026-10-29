@@ -55,8 +55,8 @@ function request(operation: PowerOperation): void {
   <NCard size="small" title="重启与关机" data-testid="power-card">
     <p class="power__line">
       <strong>{{ rebootRequired ? '系统请求重启' : '没有重启请求' }}</strong>
-      —— 判据是 <code>/run/reboot-required</code> 这个文件在不在。没有它也能重启，
-      有它也可以先不重启：这个标志只说明某些更新要重启才完全生效。
+      ——没有它也能重启，有它也可以先不重启：这个标志只说明某些更新要重启才完全生效。
+      判据与读取时间见「重启标志」卡片。
     </p>
     <p class="power__line power__meta">{{ bootLine }}</p>
 
@@ -105,13 +105,13 @@ function request(operation: PowerOperation): void {
 }
 
 .power__meta {
-  font-size: 13px;
+  font-size: var(--fs-md);
   opacity: 0.8;
   word-break: break-all;
 }
 
 .power__warn {
-  color: #d03050;
+  color: var(--bad);
 }
 
 .power__actions {
@@ -124,8 +124,8 @@ function request(operation: PowerOperation): void {
 
 .power__select {
   padding: 2px 6px;
-  border: 1px solid #d0d3d9;
-  border-radius: 4px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
   background: transparent;
   font: inherit;
 }

@@ -80,6 +80,49 @@ describe('StatePanel', () => {
     const html = await render(StatePanel, { state: 'dependency_missing' })
     expect(html).toContain('该功能依赖的软件尚未安装或未启用，安装后可用。')
   })
+
+  it('空状态保留页面给的标题（不是只剩“暂无数据”）', async () => {
+    const html = await render(StatePanel, {
+      state: 'empty',
+      title: '这台机器上还没有受管部署',
+      description: '从这一页创建部署会写出包装单元与渲染后的 Compose 配置。',
+    })
+    expect(html).toContain('这台机器上还没有受管部署')
+    expect(html).toContain('从这一页创建部署会写出包装单元与渲染后的 Compose 配置。')
+  })
+})
+
+// 紧凑版是给概览右侧那种窄面板用的：不许掉文案，也不许把大插图带进去。
+describe('StatePanel 紧凑版', () => {
+  it('保留原因与错误码，但不渲染结果页插图', async () => {
+    const html = await render(StatePanel, {
+      state: 'error',
+      compact: true,
+      description: '预览夹具未覆盖该接口',
+      code: 'NOT_FOUND',
+      requestId: 'req-abc',
+    })
+    expect(html).toContain('预览夹具未覆盖该接口')
+    expect(html).toContain('NOT_FOUND')
+    expect(html).toContain('req-abc')
+    // NResult 的插图是 svg；紧凑版里不该出现。
+    expect(html).not.toContain('<svg')
+    expect(html).toContain('state-panel--compact')
+  })
+
+  it('标题与状态同词时不重复写两遍', async () => {
+    const same = await render(StatePanel, { state: 'error', compact: true })
+    expect(same).not.toContain('状态：请求失败')
+
+    // 标题与状态不同词时，两行各有信息量，都要留。
+    const differ = await render(StatePanel, {
+      state: 'partial',
+      compact: true,
+      title: '存储段不可用',
+    })
+    expect(differ).toContain('状态：部分数据可用')
+    expect(differ).toContain('存储段不可用')
+  })
 })
 
 describe('ApiErrorPanel', () => {

@@ -194,8 +194,8 @@ function onFinished(status: JobStatus): void {
   gap: 6px;
   margin-top: 16px;
   padding: 12px;
-  border: 1px solid rgba(128, 128, 128, 0.2);
-  border-radius: 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
 }
 
 .import__line {
@@ -212,14 +212,14 @@ function onFinished(status: JobStatus): void {
 
 .import__muted {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-md);
   opacity: 0.8;
   line-height: 1.7;
   word-break: break-all;
 }
 
 .import__muted--warn {
-  color: #d03050;
+  color: var(--bad);
   opacity: 1;
 }
 

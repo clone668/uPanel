@@ -48,6 +48,7 @@ import {
   type TerminalSessionsData,
 } from '@/api/terminal'
 import ApiErrorPanel from '@/components/ApiErrorPanel.vue'
+import SecondFactorField from '@/components/SecondFactorField.vue'
 import StatePanel from '@/components/StatePanel.vue'
 import { useSessionStore } from '@/stores/session'
 import { formatTimestamp } from '@/utils/format'
@@ -76,6 +77,9 @@ const reauthVisible = ref(false)
 const reauthBusy = ref(false)
 const reauthError = ref<string | null>(null)
 const password = ref('')
+// 启用二次验证的账号还要在这一步带上六位数（服务端的两步入口同样管再认证）。
+const reauthCode = ref('')
+const reauthReady = computed(() => password.value !== '' && (!session.totpEnabled || reauthCode.value !== ''))
 
 const connState = ref<ConnState>('idle')
 const connError = ref<string | null>(null)
@@ -145,6 +149,7 @@ async function startCreate(): Promise<void> {
     if (!pre.data.allowed) return
     if (pre.data.requires_reauth) {
       password.value = ''
+      reauthCode.value = ''
       reauthError.value = null
       reauthVisible.value = true
       return
@@ -181,6 +186,7 @@ async function submitPending(): Promise<void> {
     if (caught instanceof ApiError && caught.code === 'REAUTH_REQUIRED') {
       // 再认证窗口在提交时已经过期：重新要密码，再提交同一份预检（120 秒内仍有效）。
       password.value = ''
+      reauthCode.value = ''
       reauthError.value = null
       reauthVisible.value = true
       actionError.value = '再认证已过期，请重新验证密码后再提交'
@@ -226,15 +232,16 @@ function readSessionId(job: JobDTO): string | null {
 }
 
 async function confirmReauth(): Promise<void> {
-  if (password.value === '') return
+  if (!reauthReady.value) return
   reauthBusy.value = true
   reauthError.value = null
   try {
-    await reauthPassword(password.value)
+    await reauthPassword(password.value, reauthCode.value === '' ? undefined : reauthCode.value)
     // 再认证成功只改了服务端的窗口：顺带取回会话（同时轮换 CSRF 令牌），
     // 让页面上的 CSRF 与再认证状态一致。
     await session.restore()
     password.value = ''
+    reauthCode.value = ''
     reauthVisible.value = false
     await submitPending()
   } catch (caught) {
@@ -590,13 +597,21 @@ onBeforeUnmount(() => {
         placeholder="当前账号的密码"
         @keyup.enter="confirmReauth"
       />
+      <SecondFactorField
+        :show="session.totpEnabled"
+        :model-value="reauthCode"
+        :disabled="reauthBusy"
+        testid="terminal-reauth-code"
+        @update:model-value="(value: string) => (reauthCode = value)"
+        @keyup.enter="confirmReauth"
+      />
       <NAlert v-if="reauthError" type="error" :bordered="false" class="terminal__gap">
         {{ reauthError }}
       </NAlert>
       <template #footer>
         <div class="terminal__actions">
           <NButton :disabled="reauthBusy" @click="reauthVisible = false">取消</NButton>
-          <NButton type="primary" :loading="reauthBusy" :disabled="password === ''" @click="confirmReauth">
+          <NButton type="primary" :loading="reauthBusy" :disabled="!reauthReady" @click="confirmReauth">
             验证并继续
           </NButton>
         </div>
@@ -606,35 +621,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.terminal {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  max-width: 1200px;
-}
-
-.terminal__head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.terminal__title {
-  margin: 0;
-  font-size: 20px;
-}
-
-.terminal__line {
-  margin: 0 0 8px;
-  line-height: 1.7;
-}
-
-.terminal__meta {
-  margin: 0;
-  font-size: 13px;
-  opacity: 0.8;
-  word-break: break-all;
-}
 
 .terminal__gap {
   margin-top: 10px;
@@ -643,7 +629,7 @@ onBeforeUnmount(() => {
 .terminal__blockers {
   margin: 0 0 10px;
   padding-left: 18px;
-  font-size: 13px;
+  font-size: var(--fs-md);
   line-height: 1.7;
 }
 
@@ -656,9 +642,9 @@ onBeforeUnmount(() => {
 }
 
 .terminal__pane {
-  border-radius: 6px;
+  border-radius: var(--r-2);
   overflow: hidden;
-  background: #16181d;
+  background: var(--rail);
   padding: 8px;
 }
 

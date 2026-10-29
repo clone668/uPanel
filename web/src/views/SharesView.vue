@@ -21,6 +21,7 @@ import {
   getShareAccounts,
   getShareConnections,
   getShares,
+  nfsCapabilityAvailable,
   shareNoticeLabel,
   type ShareAccount,
   type ShareCapability,
@@ -28,6 +29,7 @@ import {
   type ShareRecord,
 } from '@/api/shares'
 import ApiErrorPanel from '@/components/ApiErrorPanel.vue'
+import { RouterLink } from 'vue-router'
 import ShareAccountPanel from '@/components/ShareAccountPanel.vue'
 import ShareCard from '@/components/ShareCard.vue'
 import ShareClientHelp from '@/components/ShareClientHelp.vue'
@@ -70,6 +72,9 @@ const connectionsBusy = ref<Record<string, boolean>>({})
 
 const panelState = computed(() => (error.value ? apiPanelState(error.value) : null))
 const available = computed(() => capabilityAvailable(capability.value))
+// NFS 与 Samba 是两份独立的能力：一台机器可能只装了其中一半。
+const nfsAvailable = computed(() => nfsCapabilityAvailable(capability.value))
+const canCreate = computed(() => available.value || nfsAvailable.value)
 const managedCount = computed(() => accounts.value.length)
 const enabledCount = computed(() => shares.value.filter((s) => s.definition.enabled).length)
 const servingCount = computed(() => shares.value.filter((s) => s.config_applied).length)
@@ -102,10 +107,22 @@ const createLines = computed<string[]>(() => {
   const def = pendingCreate.value
   if (!def) return []
   const volume = volumes.value.find((v) => v.id === def.volume_id)
+  const where = `卷：${volume?.display_name ?? def.volume_id}（${volume?.mount_path ?? '?'}）`
+  const dir = `目录：${def.relative_path === '' ? '卷根' : def.relative_path}`
+  if (def.protocol === 'nfs') {
+    return [
+      `共享名：${def.name}（NFS 按目录认导出，名字只是面板里的标识，同样建好之后不能改名）`,
+      where,
+      dir,
+      `${def.allowed_cidrs.length} 个允许网段：${def.allowed_cidrs.join('、')}（NFS 没有账号这一层）`,
+      `${def.read_only ? '只读' : '读写'}：导出行写 ${def.read_only ? 'ro' : 'rw'}，目录权限 ${def.read_only ? '0755' : '0777'}；root_squash + sync 固定`,
+      '会整份重写托管导出文件 /etc/exports.d/upanel.exports，再用 exportfs 重新读一遍并读回实际导出表核对',
+    ]
+  }
   return [
     `共享名：${def.name}（它会变成网络上的 \\\\<主机>\\${def.name}，建好之后不能改名）`,
-    `卷：${volume?.display_name ?? def.volume_id}（${volume?.mount_path ?? '?'}）`,
-    `目录：${def.relative_path === '' ? '卷根' : def.relative_path}`,
+    where,
+    dir,
     `${def.smb_users.length} 个授权账号${def.read_only ? '，全部只读' : ''}`,
     def.allowed_cidrs.length === 0
       ? '不限来源网段'
@@ -210,6 +227,10 @@ function noticesOf(cap: ShareCapability | null): string[] {
   return (cap?.notices ?? []).map((n) => `${shareNoticeLabel(n.code)}（${n.code}）：${n.message}`)
 }
 
+function nfsNoticesOf(cap: ShareCapability | null): string[] {
+  return (cap?.nfs?.notices ?? []).map((n) => `${shareNoticeLabel(n.code)}（${n.code}）：${n.message}`)
+}
+
 function serviceLabel(service: ShareConnections['service']): string {
   switch (service) {
     case 'active':
@@ -229,13 +250,19 @@ function serviceLabel(service: ShareConnections['service']): string {
       <NTag v-if="capability" size="small" :type="available ? 'success' : 'error'">
         Samba {{ available ? '可用' : '不可用' }}
       </NTag>
+      <NTag v-if="capability" size="small" :type="nfsAvailable ? 'success' : 'error'">
+        NFS {{ nfsAvailable ? '可用' : '不可用' }}
+      </NTag>
       <NTag v-if="capability" size="small">配置：{{ capability.config_path }}</NTag>
       <NTag v-if="capability" size="small" :type="capability.config_write === 'available' ? 'success' : 'warning'">
         写入：{{ capability.config_write }}
       </NTag>
       <NTag size="small">{{ shares.length }} 条共享</NTag>
       <NTag size="small">{{ managedCount }} 个受管理账号</NTag>
-      <NButton v-if="session.isAdmin && available" size="small" type="primary" data-testid="share-new" @click="openForm">
+      <RouterLink v-if="session.isAdmin" to="/accounts">
+        <NButton size="small" data-testid="shares-to-accounts">账号与公钥</NButton>
+      </RouterLink>
+      <NButton v-if="session.isAdmin && canCreate" size="small" type="primary" data-testid="share-new" @click="openForm">
         新建共享
       </NButton>
     </div>
@@ -262,12 +289,32 @@ function serviceLabel(service: ShareConnections['service']): string {
       <NCard v-if="capability && !available" size="small" title="Samba 能力不可用">
         <p class="shares__line">
           原因：{{ capability.reason || '代理没有给出原因' }}。下面的共享定义仍然可读，
-          但在能力恢复之前，应用动作会在预检阶段被拒（DEPENDENCY_BLOCKED）。
+          但在能力恢复之前，<b>smb</b> 共享的应用动作会在预检阶段被拒（DEPENDENCY_BLOCKED）。
+          <template v-if="nfsAvailable">
+            NFS 导出那一半不受影响：两份能力是分开探的。
+          </template>
         </p>
         <ul v-if="noticesOf(capability).length > 0" class="shares__notices">
           <li v-for="n in noticesOf(capability)" :key="n">{{ n }}</li>
         </ul>
         <p class="shares__meta">采集于 {{ formatTimestamp(capability.collected_at) }}</p>
+      </NCard>
+
+      <NCard v-if="capability && !nfsAvailable" size="small" title="NFS 导出能力不可用">
+        <p class="shares__line">
+          原因：{{ capability.nfs?.reason || '代理没有给出原因' }}。
+          <b>nfs</b> 共享会在预检阶段被拒（NFS_UNAVAILABLE）：没有 <code>exportfs</code>
+          既写不了导出文件、也读不回实际导出表——那就不能声称能管 NFS。
+          面板不自动安装软件包。
+        </p>
+        <ul v-if="nfsNoticesOf(capability).length > 0" class="shares__notices">
+          <li v-for="n in nfsNoticesOf(capability)" :key="n">{{ n }}</li>
+        </ul>
+        <p v-if="capability.nfs" class="shares__meta">
+          托管导出文件：{{ capability.nfs.exports_file }}（此刻
+          {{ capability.nfs.exports_present ? '存在' : '不存在' }}，nfs-server
+          {{ capability.nfs.service_state }}）
+        </p>
       </NCard>
 
       <NCard v-if="capability && available && capability.config_write !== 'available'" size="small" title="配置写入未启用">
@@ -396,46 +443,15 @@ function serviceLabel(service: ShareConnections['service']): string {
 </template>
 
 <style scoped>
-.shares {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  max-width: 1100px;
-}
-
-.shares__head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.shares__title {
-  margin: 0;
-  font-size: 20px;
-  margin-right: 6px;
-}
-
-.shares__line {
-  margin: 0;
-  line-height: 1.7;
-}
 
 .shares__line--warn {
-  color: #d03050;
-}
-
-.shares__meta {
-  font-size: 13px;
-  line-height: 1.7;
-  opacity: 0.8;
-  word-break: break-all;
+  color: var(--bad);
 }
 
 .shares__notices {
   margin: 8px 0 0;
   padding-left: 18px;
-  font-size: 13px;
+  font-size: var(--fs-md);
   line-height: 1.7;
 }
 
@@ -456,7 +472,7 @@ function serviceLabel(service: ShareConnections['service']): string {
 .shares__conn-list {
   margin: 0;
   padding-left: 18px;
-  font-size: 13px;
+  font-size: var(--fs-md);
   line-height: 1.7;
 }
 </style>

@@ -68,6 +68,17 @@ export const SHARE_NOTICE_LABELS: Record<string, string> = {
   SHARE_CONFIG_WRITTEN: '托管配置已写入',
   SHARE_CONFIG_UNCHANGED: '托管配置没有变化',
   SHARE_RELOAD_FAILED: '重载失败',
+  // ---- NFS（P14.4）----
+  NFS_UNAVAILABLE: '本机没有 NFS 导出能力',
+  NFS_OPTIONS_INVALID: 'NFS 选项不合法',
+  NFS_USERS_NOT_ALLOWED: 'NFS 不接受账号名单',
+  SHARE_NO_CIDRS: '没有点名允许网段',
+  NFS_OPEN_TO_WORLD: '网段覆盖全部地址',
+  EXPORT_PATH_CONFLICT: '路径已被别的导出占用',
+  EXPORTS_UNPARSABLE: '别人的导出文件读不懂',
+  EXPORTS_UNREADABLE: '读不到实际导出表',
+  EXPORTS_NOT_APPLIED: '导出尚未生效',
+  NFS_SERVICE_INACTIVE: 'NFS 服务没在运行',
 }
 
 /** 取一条条目的短标签；未知码原样返回。 */
@@ -79,6 +90,34 @@ export function shareNoticeLabel(code: string): string {
 
 export const SHARE_CAPABILITY_STATUSES = ['available', 'blocked'] as const
 export type ShareCapabilityStatus = (typeof SHARE_CAPABILITY_STATUSES)[number]
+
+/**
+ * NFS 导出的能力报告（P14.4）。
+ *
+ * 与上面那份 Samba 报告**彼此独立**：一台机器完全可能“Samba 齐全、但没装
+ * nfs-kernel-server”。所以页面不能拿 `capability.status` 去判断能不能建 NFS 共享，
+ * 那会把两个互不相干的事实混成一个。
+ */
+export interface ShareNfsCapability {
+  status: ShareCapabilityStatus
+  reason?: string
+  exportfs?: string
+  exports_dir: string
+  exports_file: string
+  exports_dir_ready: boolean
+  exports_present: boolean
+  exports_hash?: string
+  exported_paths: string[]
+  main_exports_readable: boolean
+  service_state: 'active' | 'inactive' | 'unknown'
+  config_write: 'available' | 'unsupported'
+  notices: ShareNotice[]
+}
+
+/** NFS 导出能力是否可用（判据只有一条：有没有 exportfs）。 */
+export function nfsCapabilityAvailable(cap: ShareCapability | null | undefined): boolean {
+  return cap?.nfs?.status === 'available'
+}
 
 /** 本机 Samba 的能力报告（只读探针的结论，不是“我们认为应该能怎样”）。 */
 export interface ShareCapability {
@@ -98,6 +137,8 @@ export interface ShareCapability {
   managed_config_present: boolean
   managed_config_hash: string
   managed_shares: string[]
+  /** NFS 导出的能力报告（P14.4）。与上面这一整套 Samba 判定彼此独立。 */
+  nfs: ShareNfsCapability
   notices?: ShareNotice[]
   collected_at: string
 }
@@ -111,6 +152,26 @@ export function capabilityAvailable(cap: ShareCapability | null | undefined): bo
 
 export const SHARE_PROTOCOLS = ['smb', 'nfs'] as const
 export type ShareProtocol = (typeof SHARE_PROTOCOLS)[number]
+
+/** 协议的中文说法：页面上到处要用，集中一处免得三种叫法。 */
+export const SHARE_PROTOCOL_LABELS: Record<ShareProtocol, string> = {
+  smb: 'SMB（Windows 共享）',
+  nfs: 'NFS 导出',
+}
+
+/** NFS 导出选项（P14.4）：初期闭集，两个都必须为 true。 */
+export interface ShareNfsOptions {
+  root_squash: boolean
+  sync: boolean
+}
+
+/**
+ * 面板唯一会写的那份 NFS 导出选项。
+ *
+ * 没有开关：`no_root_squash` 与 `async` 根本不在取值里，给一个只能打开的开关只是噪音。
+ * 契约原文见 CONTRACTS §7 与 PLAN §10。
+ */
+export const FIXED_NFS_OPTIONS: ShareNfsOptions = { root_squash: true, sync: true }
 
 export const SHARE_ACCESS_LEVELS = ['read', 'write'] as const
 export type ShareAccess = (typeof SHARE_ACCESS_LEVELS)[number]
@@ -136,7 +197,7 @@ export interface ShareDefinition {
   read_only: boolean
   allowed_cidrs: string[]
   smb_users: ShareUser[]
-  nfs_options?: Record<string, unknown> | null
+  nfs_options?: ShareNfsOptions | null
 }
 
 /** 运行时撤销的现场（P08.3）。为空表示没有被运行时撤销过。 */
@@ -373,7 +434,14 @@ function formatTime(value: string): string {
 
 // ---------------------------------------------------------------- 客户端连接说明
 
-export type ClientKind = 'windows' | 'macos' | 'linux-mount' | 'linux-smbclient'
+export type ClientKind =
+  | 'windows'
+  | 'macos'
+  | 'linux-mount'
+  | 'linux-smbclient'
+  | 'linux-nfs-mount'
+  | 'macos-nfs'
+  | 'windows-nfs'
 
 export interface ClientHint {
   kind: ClientKind
@@ -401,6 +469,8 @@ export interface ClientHint {
  */
 export function clientHints(share: ShareRecord, host: string): ClientHint[] {
   const def = share.definition
+  if (def.protocol === 'nfs') return nfsClientHints(share, host)
+
   const name = def.name
   const address = `\\\\${host}\\${name}`
   const url = `smb://${host}/${name}`
@@ -488,4 +558,93 @@ export function clientHintsUsable(share: ShareRecord, volume?: ShareVolumeInfo |
   if (!share.config_applied) return false
   const vs = volume?.state ?? ''
   return vs === '' || vs === 'mounted'
+}
+
+/**
+ * NFS 的客户端说明（P14.4）。
+ *
+ * 与 SMB 那三块最大的不同：**没有账号**。命令里没有用户名、没有密码、没有凭据文件——
+ * 能不能连只取决于来源网段，连上之后能做什么取决于 uid 与 root_squash。
+ *
+ * 导出目录写的是 `<卷挂载点>/<相对路径>`，而不是一个猜出来的绝对路径：面板这边知道卷的
+ * 挂载点，但这份 DTO 里没有它（ShareRecord 不带卷的现场）。与其编一个像模像样的路径，
+ * 不如给出**能问出真路径**的命令：`showmount -e` 打印的就是服务端此刻的导出表。
+ */
+function nfsClientHints(share: ShareRecord, host: string): ClientHint[] {
+  const def = share.definition
+  const name = def.name
+  const exportPath = `<卷挂载点>/${def.relative_path === '' ? '' : def.relative_path}`
+  const remote = `/mnt/${name}`
+
+  const common: string[] = []
+  if (!share.config_applied || share.runtime_revoked) {
+    common.push('这条导出此刻不在托管导出文件里（见状态标签），要等应用之后才能连。')
+  }
+  common.push(
+    `只有这些来源网段能连：${def.allowed_cidrs.join('、')}。NFS 没有账号这一层——` +
+      '网段之外连不上，网段之内不需要密码。',
+  )
+  if (def.read_only) {
+    common.push('这份导出是只读的：导出行写 ro，目录权限 0755——客户端连写都写不进去。')
+  } else {
+    common.push(
+      '这份导出是读写的：导出行写 rw，目录权限 0777。客户端以**自己的 uid** 落盘，' +
+        '所以服务端文件属主就是那个 uid。',
+    )
+  }
+  common.push(
+    'root_squash 是固定的：客户端 root 会被 squash 成 nobody（落盘属主 nobody:nogroup），' +
+      '所以用 root 往里写往往会被拒——换普通用户，或者接受产物属主是 nobody。',
+  )
+  if (def.nfs_options !== undefined && def.nfs_options !== null) {
+    common.push(
+      `导出选项固定为 root_squash=${String(def.nfs_options.root_squash)}、sync=${String(def.nfs_options.sync)}；` +
+        '没有 no_root_squash、没有 async，面板不提供这些开关。',
+    )
+  }
+
+  return [
+    {
+      kind: 'linux-nfs-mount',
+      label: 'Linux 挂载（mount.nfs）',
+      address: `${host}:${exportPath}`,
+      commands: [
+        `showmount -e ${host}`,
+        `sudo install -d -m 0755 ${remote}`,
+        `sudo mount -t nfs -o vers=3,proto=tcp ${host}:${exportPath} ${remote}`,
+        `findmnt -T ${remote}`,
+        `sudo umount ${remote}`,
+      ],
+      notes: [
+        ...common,
+        '`showmount -e` 打印的就是服务端此刻的导出表，导出目录以上面那一条为准。',
+        '挂完之后先 `findmnt` 确认真的挂上了：NFS 挂载失败时客户端可能**静默写本地目录**，' +
+          '而且 mount 的退出码仍然是 0——没确认就写，文件会落在自己机器的系统盘上。',
+        'NFSv4 如果被别处的 `fsid=0` 导出挡住，用 `vers=3,proto=tcp` 先挂上；面板不假设 v4。',
+      ],
+    },
+    {
+      kind: 'macos-nfs',
+      label: 'macOS（mount_nfs）',
+      address: `${host}:${exportPath}`,
+      commands: [
+        `showmount -e ${host}`,
+        `sudo mkdir -p ${remote}`,
+        `sudo mount -t nfs -o vers=3,proto=tcp ${host}:${exportPath} ${remote}`,
+        `sudo umount ${remote}`,
+      ],
+      notes: [...common, 'macOS 自带的 `mount_nfs` 与 Linux 的选项写法基本一致，`vers=3` 最省事。'],
+    },
+    {
+      kind: 'windows-nfs',
+      label: 'Windows（NFS 客户端，可选装）',
+      address: `\\\\${host}${exportPath.replaceAll('/', '\\')}`,
+      commands: [`mount -o anon ${host}:${exportPath} Z:`],
+      notes: [
+        ...common,
+        'Windows 的家庭版默认没有 NFS 客户端；「启用或关闭 Windows 功能」里装「NFS 服务」之后才有 `mount`。',
+        '`anon` 表示用匿名身份挂载：root_squash 之后落盘的就是 nobody，与 Linux 客户端一致。',
+      ],
+    },
+  ]
 }

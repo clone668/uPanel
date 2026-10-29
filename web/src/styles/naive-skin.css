@@ -1,0 +1,261 @@
+/* naive-ui 的“仪表化”皮肤：把 300 多个 NButton / NTag / NCard 拉进同一套语言。
+ *
+ * 为什么要有这一层，而不是把 23 个视图里的 N* 全换成 U*：
+ *   仓库里 429 个 NButton、371 个 NTag、238 个 NAlert、231 个 NCard、121 个 NInput。
+ *   逐个换等于重写 13000 行模板，改的是**标记**，不是**外观**；而外观真正的要求只有三条
+ *   ——发丝线代替阴影、方角代替圆角、一种强调色。这三条用一层 CSS 说得清。
+ *   组件的行为、键盘、焦点、可访问性全部留给 naive 自己。
+ *
+ * 两条硬规矩（第一版踩过，都是血）：
+ *
+ *   1. **不要用 !important 去改 `--n-*` 变量。** naive 把 `--n-color`、`--n-text-color`
+ *      这些变量**写在元素的 style 属性上**（按 type/preset 算好的），内联样式优先级高于
+ *      任何选择器，只有 `!important` 能盖过它。于是 `<NButton text type="primary">` 的
+ *      “透明底 + 强调色字”被我覆盖成实心蓝块——文件列表里每一行文件名都变成一块蓝色。
+ *      正确的做法：颜色交给 theme.ts 的 `themeOverrides`（它喂的就是这些内联变量），
+ *      这里只用**直接属性**（border / border-radius / padding / font-size / height）改形状。
+ *
+ *   2. **把类名写两遍（`.n-card.n-card`）抬特异性，不用 !important。** naive 在运行时把
+ *      样式注入 <head>，注入点在我们的全局样式之后；同是 0-1-0 时后写的赢。重复类名让
+ *      这条规则变成 0-2-0，顺序就不再是变量；前面再加 body（0-2-1）盖住 naive 的
+ *      `:not(...)` 组合。
+ *
+ * 圆角与颜色一律走 tokens.css 的变量：深浅两套主题在这里不用写第二遍。
+ */
+
+/* ---------------------------------------------------------------- 卡片 */
+/* 卡片 = 一张纸：发丝边、方角、没有投影。阴影只留给窗口和浮层。 */
+body .n-card.n-card {
+  border-radius: var(--r-2);
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+body .n-card.n-card > .n-card-header {
+  padding: 12px var(--sp-4) 8px;
+  border-bottom: 1px solid var(--rule);
+}
+
+body .n-card.n-card > .n-card-header .n-card-header__main {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+}
+
+body .n-card.n-card > .n-card__content {
+  padding: var(--sp-3) var(--sp-4);
+}
+
+body .n-card.n-card > .n-card__content:first-child {
+  padding-top: var(--sp-4);
+}
+
+body .n-card.n-card > .n-card__footer {
+  padding: 8px var(--sp-4) 12px;
+  border-top: 1px solid var(--rule);
+}
+
+body .n-card.n-card > .n-card-header .n-card-header__extra {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------- 按钮 */
+/* 按钮这一格是空的，故意的：身高 26/28px、内边距、2px 方角全在 theme.ts 的
+   Button 覆盖里（见那里的注释）。写在这里会和文字按钮打架——它们靠把
+   `--n-height` 设成 `initial` 来贴着行内文字走，而 CSS 里任何一条高度规则
+   都盖得过它。形状只有一个来源，别开第二个。 */
+
+/* ---------------------------------------------------------------- 标签 */
+/* 标签是“一句读数”，不是糖果：20px 高、11px 字、方角。 */
+body .n-tag.n-tag {
+  border-radius: var(--r-1);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  height: 20px;
+  padding: 0 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------- 表格 */
+/* 行高 30px、只有横线、表头字小且带字距：密度优先，像账本。 */
+body .n-data-table.n-data-table {
+  border-radius: 0;
+  font-size: var(--fs-sm);
+}
+
+body .n-data-table.n-data-table .n-data-table-th {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+  background: var(--surface-2);
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+body .n-data-table.n-data-table .n-data-table-td {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+body .n-data-table.n-data-table .n-data-table-th__title {
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- 提示块 */
+/* 底色与左边线是“哪种提示”，由 naive 的 type 决定，这里只改形状。 */
+body .n-alert.n-alert {
+  border-radius: var(--r-1);
+  border-left-width: 3px;
+  padding: 10px var(--sp-3);
+}
+
+body .n-alert.n-alert .n-alert-body__title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+body .n-alert.n-alert .n-alert-body__content {
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+
+/* ---------------------------------------------------------------- 浮层 */
+/* 弹窗/抽屉/气泡：纸面 + 发丝线 + 方角。投影只给浮层，一层就够。 */
+body .n-modal.n-modal {
+  border-radius: var(--r-3);
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+body .n-dialog.n-dialog {
+  border-radius: var(--r-3);
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+body .n-dialog.n-dialog .n-dialog__title {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+
+body .n-dialog.n-dialog .n-dialog__content {
+  font-size: var(--fs-md);
+}
+
+body .n-drawer.n-drawer {
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+body .n-popover.n-popover,
+body .n-tooltip.n-tooltip {
+  border-radius: var(--r-1);
+  border: 1px solid var(--rule);
+  font-size: var(--fs-sm);
+}
+
+/* ---------------------------------------------------------------- 页签 */
+body .n-tabs.n-tabs .n-tabs-tab {
+  font-size: var(--fs-md);
+  padding-left: 0;
+  padding-right: 0;
+  margin-right: var(--sp-4);
+}
+
+body .n-tabs.n-tabs.n-tabs--line-type .n-tabs-tab.n-tabs-tab--active {
+  font-weight: 600;
+}
+
+body .n-tabs.n-tabs.n-tabs--line-type .n-tabs-bar {
+  height: 2px;
+  background: var(--accent);
+}
+
+/* ---------------------------------------------------------------- 表单 */
+/* 标签是“字段名”，不是标题：小、次要色、和控件对齐。 */
+body .n-form-item.n-form-item .n-form-item-label {
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  padding-bottom: 2px;
+}
+
+body .n-form-item.n-form-item .n-form-item-feedback__line {
+  font-size: var(--fs-xs);
+}
+
+/* ---------------------------------------------------------------- 勾选 */
+body .n-checkbox.n-checkbox {
+  font-size: var(--fs-sm);
+}
+
+body .n-checkbox.n-checkbox .n-checkbox-box,
+body .n-checkbox.n-checkbox .n-checkbox-box__border {
+  border-radius: var(--r-1);
+}
+
+body .n-radio.n-radio {
+  font-size: var(--fs-sm);
+}
+
+/* ---------------------------------------------------------------- 空态 */
+body .n-empty.n-empty .n-empty__description {
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+body .n-empty.n-empty .n-empty__icon {
+  color: var(--rule-strong);
+  font-size: 28px;
+}
+
+/* 404 页：NResult 的插画默认半屏大，缩小成一个标记。 */
+body .n-result.n-result .n-result-icon {
+  font-size: 40px;
+}
+
+body .n-result.n-result .n-result-header__title {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+
+body .n-result.n-result .n-result-header__description,
+body .n-result.n-result .n-result-content {
+  font-size: var(--fs-sm);
+}
+
+/* ---------------------------------------------------------------- 分页 */
+body .n-pagination.n-pagination .n-pagination-item {
+  border-radius: var(--r-1);
+  font-size: var(--fs-sm);
+}
+
+/* ---------------------------------------------------------------- 消息 */
+body .n-message.n-message,
+body .n-notification.n-notification {
+  border-radius: var(--r-1);
+  border: 1px solid var(--rule);
+  box-shadow: var(--shadow-pop);
+  font-size: var(--fs-sm);
+}
+
+/* ---------------------------------------------------------------- 描述列表 */
+body .n-descriptions.n-descriptions .n-descriptions-table-header {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+
+body .n-descriptions.n-descriptions .n-descriptions-table-content {
+  font-size: var(--fs-sm);
+}
+
+/* ---------------------------------------------------------------- 进度条 */
+body .n-progress.n-progress .n-progress-graph-line-rail,
+body .n-progress.n-progress .n-progress-graph-line-fill {
+  border-radius: 0;
+}

@@ -345,6 +345,7 @@ describe('受管理账号面板', () => {
 describe('表单校验（与 internal/shares/definition.go 同一套规则）', () => {
   const base: ShareFormState = {
     name: 'data',
+    protocol: 'smb',
     volume_id: 'vol_0123456789abcdef0123456789abcdef',
     relative_path: 'team/docs',
     read_only: false,
@@ -393,6 +394,7 @@ describe('表单校验（与 internal/shares/definition.go 同一套规则）', 
   it('多个问题一次说完，不是只报第一个', () => {
     const errors = validateShareForm({
       name: '',
+      protocol: 'smb',
       volume_id: '',
       relative_path: '/x',
       read_only: false,
@@ -414,5 +416,130 @@ describe('表单校验（与 internal/shares/definition.go 同一套规则）', 
       allowed_cidrs: ['192.168.1.0/24', '10.0.0.0/8'],
       smb_users: [{ account_id: 'acc_write', access: 'write' }],
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// NFS 导出（P14.4）。
+//
+// 这一层只盯“说错话会让人做错事”的地方：
+//   1. NFS 不点名网段就是向全世界导出——表单必须先挡住，不能等预检；
+//   2. `/0` 在 SMB 上只是“不限来源”，在 NFS 上是“向全世界导出”，两条不能合并；
+//   3. 切到 NFS 之后，SMB 那半边的字段（账号名单、ACL、Samba 配置）不能再出现在页面上，
+//      也不能被悄悄塞进提交的定义里。
+// ---------------------------------------------------------------------------
+
+/** NFS 的表单初始状态：只多一条 protocol，其余字段与 SMB 共用同一份表单结构。 */
+function nfsForm(overrides: Partial<ShareFormState> = {}): ShareFormState {
+  return {
+    name: 'media',
+    protocol: 'nfs',
+    volume_id: 'vol_0123456789abcdef0123456789abcdef',
+    relative_path: 'team/docs',
+    read_only: false,
+    allowed_cidrs: '10.0.2.0/24',
+    access: {},
+    ...overrides,
+  }
+}
+
+describe('NFS 表单校验（与 internal/shares/nfs.go 同一套规则）', () => {
+  it('合法输入没有错误，且不需要任何账号', () => {
+    expect(validateShareForm(nfsForm())).toEqual([])
+  })
+
+  it('不点名网段是硬拒绝（不填等于向全世界导出）', () => {
+    expect(validateShareForm(nfsForm({ allowed_cidrs: '' })).join()).toContain('SHARE_NO_CIDRS')
+    expect(validateShareForm(nfsForm({ allowed_cidrs: '   ' })).join()).toContain('SHARE_NO_CIDRS')
+  })
+
+  it('/0 在 NFS 上被拒，在 SMB 上不是错误（两条规则不能合并）', () => {
+    expect(validateShareForm(nfsForm({ allowed_cidrs: '0.0.0.0/0' })).join()).toContain('NFS_OPEN_TO_WORLD')
+    expect(validateShareForm(nfsForm({ allowed_cidrs: '10.0.2.0/24 0.0.0.0/0' })).join()).toContain('NFS_OPEN_TO_WORLD')
+    expect(
+      validateShareForm({
+        name: 'data',
+        protocol: 'smb',
+        volume_id: 'vol_0123456789abcdef0123456789abcdef',
+        relative_path: '',
+        read_only: false,
+        allowed_cidrs: '0.0.0.0/0',
+        access: { acc_write: 'write' },
+      }),
+    ).toEqual([])
+  })
+
+  it('构造出的 NFS 定义里没有账号名单，选项是固定的两个 true', () => {
+    const def = buildShareDefinition(nfsForm({ access: { acc_write: 'write' } }))
+    expect(def.protocol).toBe('nfs')
+    expect(def.smb_users).toEqual([])
+    expect(def.nfs_options).toEqual({ root_squash: true, sync: true })
+    expect(def.allowed_cidrs).toEqual(['10.0.2.0/24'])
+  })
+
+  it('SMB 定义里不出现 nfs_options（出现即被判决层拒）', () => {
+    const def = buildShareDefinition({
+      name: 'data',
+      protocol: 'smb',
+      volume_id: 'vol_0123456789abcdef0123456789abcdef',
+      relative_path: '',
+      read_only: false,
+      allowed_cidrs: '',
+      access: { acc_write: 'read' },
+    })
+    expect(def).not.toHaveProperty('nfs_options')
+    expect(def.smb_users).toEqual([{ account_id: 'acc_write', access: 'read' }])
+  })
+})
+
+describe('NFS 表单在页面上说了什么', () => {
+  const volumes = [
+    {
+      id: 'vol_0123456789abcdef0123456789abcdef',
+      version: '1',
+      display_name: '数据卷',
+      slug: 'data',
+      device_id: 'sdb1',
+      filesystem_uuid: '6f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8',
+      filesystem_type: 'ext4',
+      mount_path: '/srv/upanel/volumes/data',
+      automount: true,
+      read_only: false,
+      nodev: false,
+      nosuid: false,
+      desired_state: 'mounted' as const,
+      observed_state: 'mounted' as const,
+      capacity: null,
+      dependencies: [],
+      updated_at: '2026-10-22T08:00:00Z',
+    },
+  ]
+
+  it('NFS 分支里没有账号块，也没有 Samba 的说法', async () => {
+    const html = await render(ShareForm, {
+      accounts: [account()],
+      volumes,
+      busy: false,
+      initialProtocol: 'nfs',
+    })
+    expect(html).toContain('data-testid="share-protocol"')
+    expect(html).toContain('NFS 导出：访问控制是')
+    expect(html).toContain('/etc/exports.d/upanel.exports')
+    expect(html).toContain('导出选项')
+    expect(html).toContain('root_squash')
+    // 账号那一块是 v-if 掉的：连它的错误说法都不该出现
+    expect(html).not.toContain('授权账号')
+    expect(html).not.toContain('SHARE_NO_USERS')
+    // 目录权限的两种说法跟着 read_only 走
+    expect(html).toContain('0755')
+    expect(html).toContain('0777')
+  })
+
+  it('SMB 分支默认就是原来那套，不会冒出 NFS 的选项', async () => {
+    const html = await render(ShareForm, { accounts: [account()], volumes, busy: false })
+    expect(html).toContain('授权账号')
+    expect(html).toContain('SHARE_NO_USERS')
+    expect(html).not.toContain('导出选项')
+    expect(html).not.toContain('upanel.exports')
   })
 })

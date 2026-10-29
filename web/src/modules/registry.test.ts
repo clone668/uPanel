@@ -33,7 +33,7 @@ describe('模块清单', () => {
     expect(new Set(MODULES.map((m) => m.path)).size).toBe(MODULES.length)
   })
 
-  it('导航只包含已实现的模块（当前：概览、应用、存储、共享、服务与进程、文件、终端、日志、更新、任务中心）', () => {
+  it('导航只包含已实现的模块（当前：概览、应用、存储、共享、服务与进程、文件、终端、日志、备份、计划任务、网络、更新、任务中心、设置）', () => {
     const visible = visibleModules()
     // 这份清单每实现一个模块就多一项：它是“界面上现在有什么”的唯一凭证。
     expect(visible.map((m) => m.key)).toEqual([
@@ -45,8 +45,13 @@ describe('模块清单', () => {
       'files',
       'terminal',
       'logs',
+      'backup',
+      'schedules',
+      'network',
       'updates',
+      'alerts',
       'jobs',
+      'settings',
     ])
     expect(visible.every((m) => m.implementedIn !== null)).toBe(true)
   })
@@ -61,8 +66,13 @@ describe('模块清单', () => {
       'files',
       'terminal',
       'logs',
+      'backup',
+      'schedules',
+      'network',
       'updates',
+      'alerts',
       'jobs',
+      'settings',
     ])
     for (const module of MODULES) {
       if (implemented.has(module.key)) {

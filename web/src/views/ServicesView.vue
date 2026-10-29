@@ -179,35 +179,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.services {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  max-width: 1200px;
-}
-
-.services__head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.services__title {
-  margin: 0;
-  font-size: 20px;
-}
-
-.services__line {
-  margin: 0;
-  line-height: 1.7;
-}
-
-.services__meta {
-  font-size: 13px;
-  opacity: 0.8;
-  word-break: break-all;
-}
 
 .services__grid {
   display: grid;

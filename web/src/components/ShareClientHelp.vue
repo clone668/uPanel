@@ -12,7 +12,13 @@
 import { computed, ref, watch } from 'vue'
 import { NAlert, NButton, NModal, NTag } from 'naive-ui'
 
-import { capabilityAvailable, clientHints, type ShareCapability, type ShareRecord } from '@/api/shares'
+import {
+  capabilityAvailable,
+  clientHints,
+  nfsCapabilityAvailable,
+  type ShareCapability,
+  type ShareRecord,
+} from '@/api/shares'
 
 const props = defineProps<{
   show: boolean
@@ -28,7 +34,16 @@ const copied = ref<string>('')
 const copyError = ref<string | null>(null)
 
 const hints = computed(() => clientHints(props.share, props.host))
-const available = computed(() => capabilityAvailable(props.capability))
+// 两种协议看各自那份能力：拿 Samba 的状态去解释 NFS 的可用性，说的就是另一台机器的事。
+const isNFS = computed(() => props.share.definition.protocol === 'nfs')
+const available = computed(() =>
+  isNFS.value ? nfsCapabilityAvailable(props.capability) : capabilityAvailable(props.capability),
+)
+const unavailableReason = computed(() =>
+  isNFS.value
+    ? (props.capability?.nfs?.reason ?? '未报告原因')
+    : (props.capability?.reason ?? '未报告原因'),
+)
 
 watch(
   () => props.show,
@@ -63,11 +78,12 @@ async function copy(text: string, key: string): Promise<void> {
   >
     <div class="help__body">
       <NAlert v-if="!available" type="warning" :bordered="false">
-        Samba 能力此刻不可用（{{ capability?.reason || '未报告原因' }}）：下面的地址与命令仍然是对的，
-        但在这台机器能把 Samba 跑起来之前连不上。
+        {{ isNFS ? 'NFS 导出能力' : 'Samba 能力' }}此刻不可用（{{ unavailableReason }}）：
+        下面的地址与命令仍然是对的，但在这台机器能把{{ isNFS ? ' NFS 服务' : ' Samba' }}跑起来之前连不上。
       </NAlert>
       <NAlert v-if="!share.config_applied || share.runtime_revoked" type="warning" :bordered="false">
-        这条共享此刻没有写在 Samba 配置里。地址先收着，等配置应用之后再连。
+        {{ isNFS ? '这条导出此刻不在托管导出文件里' : '这条共享此刻没有写在 Samba 配置里' }}。
+        地址先收着，等配置应用之后再连。
       </NAlert>
 
       <p class="help__muted">
@@ -102,9 +118,16 @@ async function copy(text: string, key: string): Promise<void> {
       <NAlert v-if="copyError" type="warning" :bordered="false" :title="copyError" />
 
       <div class="help__safety">
-        <NTag size="small">命令里不含密码</NTag>
-        <NTag size="small">凭据文件 0600</NTag>
-        <NTag size="small">名单管不住本机 127.0.0.1</NTag>
+        <template v-if="isNFS">
+          <NTag size="small">没有账号与密码：只有网段</NTag>
+          <NTag size="small">root_squash 固定</NTag>
+          <NTag size="small">挂完先 findmnt</NTag>
+        </template>
+        <template v-else>
+          <NTag size="small">命令里不含密码</NTag>
+          <NTag size="small">凭据文件 0600</NTag>
+          <NTag size="small">名单管不住本机 127.0.0.1</NTag>
+        </template>
       </div>
     </div>
   </NModal>
@@ -121,7 +144,7 @@ async function copy(text: string, key: string): Promise<void> {
 
 .help__muted {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-md);
   line-height: 1.7;
   opacity: 0.8;
 }
@@ -131,12 +154,12 @@ async function copy(text: string, key: string): Promise<void> {
   flex-direction: column;
   gap: 8px;
   padding-bottom: 12px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+  border-bottom: 1px solid var(--rule);
 }
 
 .help__title {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--fs-lg);
   font-weight: 600;
 }
 
@@ -162,11 +185,11 @@ async function copy(text: string, key: string): Promise<void> {
 
 .help__code {
   flex: 1;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   line-height: 1.6;
   padding: 6px 8px;
-  border-radius: 4px;
-  background: rgba(128, 128, 128, 0.12);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
   word-break: break-all;
   white-space: pre-wrap;
 }
@@ -174,7 +197,7 @@ async function copy(text: string, key: string): Promise<void> {
 .help__notes {
   margin: 0;
   padding-left: 18px;
-  font-size: 13px;
+  font-size: var(--fs-md);
   line-height: 1.7;
   opacity: 0.85;
 }

@@ -275,7 +275,7 @@ const confidenceLabel = computed(() => IDENTITY_CONFIDENCE_LABELS[props.device.i
 
 .detail__sample {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-md);
   opacity: 0.8;
 }
 
@@ -290,12 +290,12 @@ const confidenceLabel = computed(() => IDENTITY_CONFIDENCE_LABELS[props.device.i
 
 .detail__label {
   min-width: 88px;
-  font-size: 13px;
+  font-size: var(--fs-md);
   opacity: 0.7;
 }
 
 .detail__muted {
-  font-size: 13px;
+  font-size: var(--fs-md);
   opacity: 0.75;
 }
 
@@ -313,13 +313,13 @@ const confidenceLabel = computed(() => IDENTITY_CONFIDENCE_LABELS[props.device.i
   flex-direction: column;
   gap: 6px;
   padding: 10px 12px;
-  border: 1px solid rgba(128, 128, 128, 0.2);
-  border-radius: 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
 }
 
 .detail__subhead {
   margin: 12px 0 4px;
-  font-size: 13px;
+  font-size: var(--fs-md);
   font-weight: 600;
 }
 
@@ -331,18 +331,23 @@ const confidenceLabel = computed(() => IDENTITY_CONFIDENCE_LABELS[props.device.i
   gap: 4px;
 }
 
+/* 分区名和后面的读数之间要有间隔："sda1第 1 号" 会读成一个词。 */
+.detail__item > :first-child {
+  margin-right: 6px;
+}
+
 .detail__item {
   line-height: 1.7;
 }
 
 .detail__warning {
   margin: 6px 0 0;
-  color: #d08b00;
-  font-size: 13px;
+  color: var(--warn);
+  font-size: var(--fs-md);
 }
 
 .detail__code {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   word-break: break-all;
 }
 

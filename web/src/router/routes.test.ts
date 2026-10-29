@@ -39,6 +39,14 @@ describe('路由表', () => {
     expect(route?.meta?.moduleKey).toBe('services')
   })
 
+  it('受管部署页挂在应用模块下，且不去顶“容器”那一格', () => {
+    const route = appRoutes.find((entry) => entry.name === 'deployments')
+    expect(route?.path).toBe('/apps/deployments')
+    expect(route?.meta?.moduleKey).toBe('apps')
+    // “容器”模块仍未被实现：导航里那一格不能因为部署页而点亮。
+    expect(MODULES.find((module) => module.key === 'containers')?.implementedIn).toBeNull()
+  })
+
   it('moduleTitle 只翻译已知模块键', () => {
     expect(moduleTitle('overview')).toBe('概览')
     expect(moduleTitle('settings')).toBe('设置')

@@ -3,12 +3,15 @@
 // 不会因为某个页面偷懒而丢掉。
 //
 // 不显示堆栈、不显示请求体、不显示 Authorization/Cookie（CONTRACTS.md 第 1 节）。
+//
+// 版式：一条带左侧粗边的告警条（--bad 色），不是一张圆角彩色卡片。
+// 一屏里可能同时有三处失败，告警条能并排堆着看；卡片会各自占一大块。
 
 import { computed } from 'vue'
-import { NAlert, NButton } from 'naive-ui'
 
 import type { ApiError } from '@/api/client'
 import { describeApiError } from '@/api/errors'
+import UButton from '@/ui/UButton.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -32,16 +35,17 @@ const canRetry = computed(() => props.allowRetry && view.value.canRetry)
 
 <template>
   <div class="error-panel" role="alert" data-testid="api-error">
-    <NAlert type="error" :title="heading">
+    <div class="error-panel__box">
+      <p class="error-panel__title">{{ heading }}</p>
       <p class="error-panel__message">{{ error.message }}</p>
       <p class="error-panel__hint">{{ view.hint }}</p>
-      <p class="error-panel__meta">错误码：<code>{{ error.code }}</code></p>
+      <p class="error-panel__meta">错误码：<code class="u-mono">{{ error.code }}</code></p>
       <p v-if="error.requestId" class="error-panel__meta">
-        request_id：<code>{{ error.requestId }}</code>
+        request_id：<code class="u-mono">{{ error.requestId }}</code>
       </p>
       <p v-if="view.needsLogin" class="error-panel__meta">重新登录功能在 P02 提供。</p>
-    </NAlert>
-    <NButton v-if="canRetry" secondary type="primary" @click="emit('retry')">重试</NButton>
+    </div>
+    <UButton v-if="canRetry" size="sm" variant="secondary" @click="emit('retry')">重试</UButton>
   </div>
 </template>
 
@@ -50,18 +54,42 @@ const canRetry = computed(() => props.allowRetry && view.value.canRetry)
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 12px;
+  gap: var(--sp-2);
+}
+
+.error-panel__box {
+  width: 100%;
+  padding: 9px 12px 10px;
+  background: var(--bad-soft);
+  border: 1px solid var(--bad);
+  /* 左侧粗边：一排失败条并排时，靠这一条边就能扫出"哪里出事了" */
+  border-left-width: 3px;
+  border-radius: var(--r-2);
+}
+
+.error-panel__title {
+  margin: 0 0 3px;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--bad);
 }
 
 .error-panel__message {
-  margin: 0 0 8px;
-  font-weight: 600;
+  margin: 0;
+  font-size: var(--fs-md);
+  color: var(--ink);
+  word-break: break-word;
 }
 
 .error-panel__hint,
 .error-panel__meta {
-  margin: 0;
-  font-size: 13px;
+  margin: 3px 0 0;
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
   word-break: break-all;
+}
+
+.error-panel__meta code {
+  font-family: var(--font-mono);
 }
 </style>

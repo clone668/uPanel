@@ -152,6 +152,6 @@ const tooLargeForText = computed(() => {
 
 .row__dim {
   opacity: 0.7;
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 </style>

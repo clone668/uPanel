@@ -52,7 +52,7 @@ const emptyCapabilityReason = computed<string | null>(() => {
     <div class="unit-panel">
       <p class="unit-panel__line">
         <strong>{{ unit.unit }}</strong>
-        <span class="unit-panel__muted">{{ unit.description || '（没有描述）' }}</span>
+        <span class="unit-panel__muted unit-panel__desc">{{ unit.description || '（没有描述）' }}</span>
       </p>
 
       <p class="unit-panel__line">
@@ -135,8 +135,13 @@ const emptyCapabilityReason = computed<string | null>(() => {
 }
 
 .unit-panel__muted {
-  font-size: 13px;
-  opacity: 0.78;
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+/* 单元名和描述贴在一起会读成 "ssh.serviceOpenBSD…"，中间必须有间隔。 */
+.unit-panel__desc {
+  margin-left: 6px;
 }
 
 .unit-panel__protection {
@@ -144,8 +149,8 @@ const emptyCapabilityReason = computed<string | null>(() => {
   flex-direction: column;
   gap: 4px;
   padding: 8px 10px;
-  border-radius: 8px;
-  background: rgba(127, 127, 127, 0.06);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
 }
 
 .unit-panel__reasons {

@@ -1,0 +1,172 @@
+/* 设计令牌（token）。
+ *
+ * 为什么要有这一层：全站颜色/字号/间距现在散落在 20 多个 SFC 的 scoped 样式里，
+ * 深浅色靠 naive-ui 的主题变量和我自己写的 rgba(128,128,128,.25) 混着来，
+ * 结果是“同一件事两种灰”。这里把它们收成唯一来源，组件只允许引用变量。
+ *
+ * 两套主题的开关（与原型一致，二选一，不叠加）：
+ *   1. 系统偏好：prefers-color-scheme；
+ *   2. 显式覆盖：<html data-theme="light|dark">（用户在面板里点的）。
+ *
+ * 字体只用系统栈：面板常常装在没有外网的机器上，不引入任何 Web Font，
+ * 也就不会出现“字体没下下来，整页掉到 Times”。等宽 + tabular-nums 用于一切数字。
+ */
+
+:root {
+  color-scheme: light;
+
+  /* ---- 材料：桌面（外壳）与纸面（窗口/内容）是两种材质 ---- */
+  --desk: #e9e6dd;
+  --desk-top: #f0eee7;
+  --desk-dot: rgba(28, 26, 20, 0.055);
+  --surface: #fbfaf6;
+  --surface-2: #f4f2ec;
+  --surface-3: #efece4;
+
+  /* ---- 墨色：正文 / 次要 / 辅助 ---- */
+  --ink: #16181b;
+  --ink-2: #4a4f57;
+  --ink-3: #83888f;
+
+  /* ---- 分隔线：发丝线代替到处加阴影 ---- */
+  --rule: #e0dbcf;
+  --rule-strong: #c3bcab;
+
+  /* ---- 强调色：只有一种，和状态色分开，免得“蓝=正常” ---- */
+  --accent: #1f47c9;
+  --accent-ink: #ffffff;
+  --accent-soft: #e6eaf9;
+
+  /* ---- 状态色：好 / 警告 / 危险 / 未知（未知不是灰掉，它有话说） ---- */
+  --good: #16724a;
+  --good-soft: #e2efe7;
+  --warn: #a55a00;
+  --warn-soft: #f6ead9;
+  --bad: #a8261f;
+  --bad-soft: #f7e3e1;
+  --unknown: #6b6f76;
+  --unknown-soft: #ececec;
+
+  /* ---- 外壳专用：顶部面板条半透明、窗口投影 ---- */
+  --bar: rgba(251, 250, 246, 0.9);
+  --rail: #14161a;
+  --rail-ink: #e8e5dc;
+  --rail-muted: #8b8d92;
+  --shadow-win: 0 28px 54px -30px rgba(26, 23, 16, 0.5), 0 2px 8px rgba(26, 23, 16, 0.07);
+  --shadow-pop: 0 18px 40px -22px rgba(26, 23, 16, 0.55);
+
+  /* ---- 字体 ---- */
+  --font-sans:
+    system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei',
+    sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+
+  /* ---- 字号：11 / 12 / 13 / 15 / 20 / 28 ---- */
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 20px;
+  --fs-2xl: 28px;
+  --lh-tight: 1.2;
+  --lh-body: 1.5;
+
+  /* ---- 间距：4 的倍数，够用就好，不发明 10px 这种半格 ---- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  /* ---- 圆角：细，靠近工业仪表，不做大圆角卡片 ---- */
+  --r-1: 2px;
+  --r-2: 4px;
+  --r-3: 9px;
+
+  /* ---- 层级：窗口 < 应用坞 < 遮罩 < 命令面板 ---- */
+  --z-window: 10;
+  --z-dock: 25;
+  --z-bar: 30;
+  --z-scrim: 40;
+  --z-palette: 41;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --desk: #0a0c0f;
+    --desk-top: #12161c;
+    --desk-dot: rgba(255, 255, 255, 0.05);
+    --surface: #16191d;
+    --surface-2: #1c2026;
+    --surface-3: #22272e;
+
+    --ink: #ecebe4;
+    --ink-2: #a6a9ad;
+    --ink-3: #74787d;
+
+    --rule: #2a2f36;
+    --rule-strong: #3d434b;
+
+    --accent: #829bff;
+    --accent-ink: #0b0f1f;
+    --accent-soft: #1b2240;
+
+    --good: #4fbf8f;
+    --good-soft: #12261e;
+    --warn: #e0a03c;
+    --warn-soft: #2a2113;
+    --bad: #ff7b70;
+    --bad-soft: #2b1514;
+    --unknown: #8b8f94;
+    --unknown-soft: #20242a;
+
+    --bar: rgba(16, 19, 23, 0.92);
+    --rail: #08090b;
+    --rail-ink: #e8e5dc;
+    --rail-muted: #7d8085;
+    --shadow-win: 0 30px 58px -26px rgba(0, 0, 0, 0.85), 0 2px 10px rgba(0, 0, 0, 0.45);
+    --shadow-pop: 0 20px 44px -24px rgba(0, 0, 0, 0.85);
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --desk: #0a0c0f;
+  --desk-top: #12161c;
+  --desk-dot: rgba(255, 255, 255, 0.05);
+  --surface: #16191d;
+  --surface-2: #1c2026;
+  --surface-3: #22272e;
+
+  --ink: #ecebe4;
+  --ink-2: #a6a9ad;
+  --ink-3: #74787d;
+
+  --rule: #2a2f36;
+  --rule-strong: #3d434b;
+
+  --accent: #829bff;
+  --accent-ink: #0b0f1f;
+  --accent-soft: #1b2240;
+
+  --good: #4fbf8f;
+  --good-soft: #12261e;
+  --warn: #e0a03c;
+  --warn-soft: #2a2113;
+  --bad: #ff7b70;
+  --bad-soft: #2b1514;
+  --unknown: #8b8f94;
+  --unknown-soft: #20242a;
+
+  --bar: rgba(16, 19, 23, 0.92);
+  --rail: #08090b;
+  --rail-ink: #e8e5dc;
+  --rail-muted: #7d8085;
+  --shadow-win: 0 30px 58px -26px rgba(0, 0, 0, 0.85), 0 2px 10px rgba(0, 0, 0, 0.45);
+  --shadow-pop: 0 20px 44px -24px rgba(0, 0, 0, 0.85);
+}

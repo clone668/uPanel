@@ -500,58 +500,35 @@ onBeforeUnmount(() => {
   max-width: 1200px;
 }
 
-.procs__head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.procs__title {
-  margin: 0;
-  font-size: 20px;
-}
-
 .procs__link {
   margin-left: auto;
-  font-size: 13px;
-}
-
-.procs__line {
-  margin: 0;
-  line-height: 1.7;
-}
-
-.procs__meta {
-  font-size: 13px;
-  opacity: 0.8;
-  word-break: break-all;
+  font-size: var(--fs-md);
 }
 
 .procs__table-wrap {
   overflow-x: auto;
-  border: 1px solid rgba(128, 128, 128, 0.25);
-  border-radius: 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
 }
 
 .procs__table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--fs-md);
 }
 
 .procs__table th,
 .procs__table td {
   padding: 6px 10px;
   text-align: left;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.16);
+  border-bottom: 1px solid var(--rule);
   vertical-align: top;
 }
 
 .procs__table th {
   position: sticky;
   top: 0;
-  background: rgba(128, 128, 128, 0.1);
+  background: var(--surface-2);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -562,9 +539,9 @@ onBeforeUnmount(() => {
 }
 
 .procs__sub {
-  display: block;
-  font-size: 11px;
-  opacity: 0.65;
+  margin-left: 6px;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
 }
 
 .procs__cmd {
@@ -575,7 +552,7 @@ onBeforeUnmount(() => {
 .procs__unit {
   max-width: 200px;
   word-break: break-all;
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 .procs__actions {

@@ -292,7 +292,7 @@ function onFinished(): void {
 <style scoped>
 .acct__muted {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-md);
   line-height: 1.7;
   opacity: 0.8;
 }
@@ -309,20 +309,20 @@ function onFinished(): void {
   gap: 8px;
   padding: 10px;
   margin-bottom: 12px;
-  border: 1px solid rgba(128, 128, 128, 0.25);
-  border-radius: 6px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
 }
 
 .acct__label {
   margin: 0;
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--fs-md);
 }
 
 .acct__errors {
-  font-size: 13px;
+  font-size: var(--fs-md);
   line-height: 1.6;
-  color: #d03050;
+  color: var(--bad);
 }
 
 .acct__errors p {
@@ -345,7 +345,7 @@ function onFinished(): void {
 
 .acct__row {
   padding: 8px 0;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+  border-bottom: 1px solid var(--rule);
 }
 
 .acct__row-main {
@@ -361,7 +361,7 @@ function onFinished(): void {
 
 .acct__meta {
   margin: 4px 0 0;
-  font-size: 13px;
+  font-size: var(--fs-md);
   opacity: 0.8;
   word-break: break-all;
 }

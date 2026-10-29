@@ -92,8 +92,8 @@ const failureText = computed(() => props.error ?? '本次没有读到容量，�
 }
 
 .capacity__line--muted {
-  font-size: 13px;
-  opacity: 0.8;
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
 }
 
 .capacity__line--unknown {

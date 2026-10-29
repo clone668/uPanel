@@ -364,31 +364,13 @@ onBeforeUnmount(() => {
 .unit {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  max-width: 1000px;
-}
-
-.unit__head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.unit__title {
-  margin: 0;
-  font-size: 20px;
-  word-break: break-all;
-}
-
-.unit__line {
-  margin: 0;
-  line-height: 1.7;
+  gap: var(--sp-3);
+  /* 不锁宽度：右侧留一大片空白看起来像没渲染完。长句子由 __line 的 78ch 限宽管住。 */
 }
 
 .unit__muted {
-  font-size: 13px;
-  opacity: 0.8;
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
 }
 
 .unit__buttons {

@@ -4,13 +4,17 @@
 // 数据全部来自服务端，页面只做两件事：按服务端给的 interval_ms 轮询、把结果画出来。
 //   1) /health/live：匿名存活检查，只证明“面板服务能应答”；
 //   2) /system/summary：主机、CPU、内存、负载、网络；
-//   3) /storage/devices：磁盘数量与健康提醒（详情在存储页）。
+//   3) /storage/devices：磁盘数量与健康提醒（详情在存储页）；
+//   4) /apps：常用入口与入口探测异常。
 //
-// 三份数据各自有加载/失败状态：一份挂了不影响另外两份显示，
+// 四份数据各自有加载/失败状态：一份挂了不影响另外三份显示，
 // 但页头会明确写出“哪一块没取到”，不做“看起来一切正常”的默认。
+//
+// 版式：顶部四格指标（一屏能扫完的数），左侧一块系统概况（细节），右侧一组窄面板
+// （面板服务、存储、常用入口、尚未接入）。指标格与面板取的是同一个快照对象，
+// 所以两处数字不会互相打架；没有读数的格子写 —，不写 0。
 
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { NButton, NCard, NTag } from 'naive-ui'
 import { RouterLink } from 'vue-router'
 
 import { ApiError, get } from '@/api/client'
@@ -21,7 +25,18 @@ import ApiErrorPanel from '@/components/ApiErrorPanel.vue'
 import StatePanel from '@/components/StatePanel.vue'
 import SystemOverviewPanel from '@/components/SystemOverviewPanel.vue'
 import { useModeStore } from '@/stores/mode'
-import { formatBytes, formatTimestamp } from '@/utils/format'
+import UBar from '@/ui/UBar.vue'
+import UButton from '@/ui/UButton.vue'
+import UKpi from '@/ui/UKpi.vue'
+import UPanel from '@/ui/UPanel.vue'
+import UTag from '@/ui/UTag.vue'
+import {
+  UNKNOWN_TEXT,
+  formatBytes,
+  formatPercent,
+  formatTimestamp,
+  percentOf,
+} from '@/utils/format'
 import { createPoller, type Poller } from '@/utils/polling'
 import { apiPanelState, retryablePanelState } from '@/utils/viewstate'
 
@@ -88,6 +103,46 @@ const totalDiskBytes = computed<string | null>(() => {
     }
   }
   return total.toString()
+})
+
+// ---- 顶部四格指标 ----
+//
+// 每一格都只管一个数，并且**只在对应采集段 ok 时才画数**：
+// 段不可用时写 —，不让“读不到”看起来像 0（CONTRACTS 第 6.1 节）。
+
+const cpuPercent = computed(() => {
+  const section = summary.value?.cpu
+  if (!section || section.status !== 'ok') return null
+  return section.usage_percent
+})
+
+const memoryPercent = computed(() => {
+  const section = summary.value?.memory
+  if (!section || section.status !== 'ok') return null
+  return percentOf(section.used_bytes, section.total_bytes)
+})
+
+const memoryFoot = computed(() => {
+  const section = summary.value?.memory
+  if (!section || section.status !== 'ok') return '内存段不可用'
+  return `已用 ${formatBytes(section.used_bytes)} / 共 ${formatBytes(section.total_bytes)}`
+})
+
+const cpuFoot = computed(() => {
+  const section = summary.value?.cpu
+  if (!section || section.status !== 'ok') return 'CPU 段不可用'
+  if (section.usage_percent === null) return '没有可比较的前一次样本'
+  return `逻辑核 ${section.logical_cores} · 窗口 ${section.sample_window_ms ?? UNKNOWN_TEXT} 毫秒`
+})
+
+const diskFoot = computed(() => {
+  if (storage.value === null) return '磁盘段不可用'
+  return `整盘 ${diskCount.value} 块`
+})
+
+const attentionFoot = computed(() => {
+  if (storage.value === null) return '磁盘段不可用'
+  return needsAttention.value > 0 ? '详情见存储页' : '没有需要处理的盘'
 })
 
 async function loadHealth(): Promise<void> {
@@ -158,7 +213,7 @@ async function loadApps(): Promise<void> {
   }
 }
 
-/** 两份快照并行取，互不阻塞；各自的失败各自显示。 */
+/** 几份快照并行取，互不阻塞；各自的失败各自显示。 */
 async function refreshAll(): Promise<void> {
   await Promise.all([loadSummary(), loadStorage(), loadApps()])
 }
@@ -178,212 +233,318 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="overview">
-    <div class="overview__head">
-      <h1 class="overview__title">概览</h1>
-      <NTag size="small" :type="modeStore.isMock ? 'warning' : 'success'">
+  <section class="ov">
+    <header class="ov__head">
+      <h1 class="ov__title">概览</h1>
+      <UTag :tone="modeStore.isMock ? 'warn' : 'good'" :mono="false">
         模式：{{ modeStore.isMock ? 'mock（演示数据）' : 'production' }}
-      </NTag>
-      <NButton size="small" secondary @click="poller.trigger()">刷新</NButton>
-      <p v-if="summary" class="overview__meta">
+      </UTag>
+      <UButton size="sm" variant="secondary" @click="poller.trigger()">刷新</UButton>
+      <p v-if="summary" class="ov__meta">
         采集时间：{{ formatTimestamp(summary.collected_at) }}（每 {{ summary.interval_ms }} 毫秒刷新）
       </p>
+    </header>
+
+    <!-- 四格指标：一屏最常看的四个数 -->
+    <div class="ov__kpis">
+      <UKpi label="CPU 使用率" :value="formatPercent(cpuPercent, 1)">
+        <template #foot>{{ cpuFoot }}</template>
+        <template #extra>
+          <span class="ov__gauge"><UBar :percent="cpuPercent" label="CPU 使用率" /></span>
+        </template>
+      </UKpi>
+      <UKpi label="内存使用率" :value="formatPercent(memoryPercent, 1)">
+        <template #foot>{{ memoryFoot }}</template>
+        <template #extra>
+          <span class="ov__gauge"><UBar :percent="memoryPercent" label="内存使用率" /></span>
+        </template>
+      </UKpi>
+      <UKpi label="整盘容量" :value="formatBytes(totalDiskBytes)">
+        <template #foot>{{ diskFoot }}</template>
+      </UKpi>
+      <UKpi
+        label="健康需要处理"
+        :value="storage === null ? UNKNOWN_TEXT : String(needsAttention)"
+        :tone="needsAttention > 0 ? 'warn' : 'default'"
+      >
+        <template #foot>{{ attentionFoot }}</template>
+      </UKpi>
     </div>
 
-    <NCard title="面板服务" size="small">
-      <StatePanel v-if="healthPhase === 'loading'" state="loading" title="正在检查面板服务" />
-      <ApiErrorPanel v-else-if="healthPhase === 'error' && healthError" :error="healthError" @retry="loadHealth" />
-      <div v-else-if="health" class="overview__health">
-        <p class="overview__line">
-          存活检查：<strong>{{ health.status === 'ok' ? '服务可响应' : '状态未知' }}</strong>
-        </p>
-        <p class="overview__meta">检查时间：{{ healthCheckedAt }}</p>
-        <p class="overview__meta">request_id：<code>{{ healthRequestId }}</code></p>
-        <p class="overview__meta">
-          这一项只说明面板服务能处理请求，不代表采集或写操作可用。
-        </p>
+    <div class="ov__cols">
+      <div class="ov__main">
+        <UPanel title="系统概况">
+          <template #actions>
+            <UTag v-if="summary?.degraded" tone="warn" :mono="false">部分数据不可用</UTag>
+          </template>
+
+          <StatePanel v-if="summaryPhase === 'loading'" state="loading" title="正在读取系统快照" />
+          <StatePanel
+            v-else-if="summaryError && summaryPanelState && summaryPanelState !== 'error'"
+            :state="summaryPanelState"
+            :description="summaryError.message"
+            :code="summaryError.code"
+            :request-id="summaryError.requestId"
+            :retryable="retryablePanelState(summaryPanelState)"
+            @retry="loadSummary"
+          />
+          <ApiErrorPanel v-else-if="summaryError" :error="summaryError" @retry="loadSummary" />
+          <SystemOverviewPanel v-else-if="summary" :summary="summary" />
+        </UPanel>
       </div>
-    </NCard>
 
-    <NCard title="系统概况" size="small">
-      <template #header-extra>
-        <NTag v-if="summary?.degraded" size="small" type="warning">部分数据不可用</NTag>
-      </template>
+      <aside class="ov__side">
+        <UPanel title="面板服务">
+          <StatePanel v-if="healthPhase === 'loading'" compact state="loading" title="正在检查面板服务" />
+          <ApiErrorPanel
+            v-else-if="healthPhase === 'error' && healthError"
+            :error="healthError"
+            @retry="loadHealth"
+          />
+          <div v-else-if="health" class="ov__stack">
+            <p class="ov__line">
+              存活检查：<strong>{{ health.status === 'ok' ? '服务可响应' : '状态未知' }}</strong>
+            </p>
+            <p class="ov__meta">检查时间：{{ healthCheckedAt }}</p>
+            <p class="ov__meta">request_id：<code class="u-mono">{{ healthRequestId }}</code></p>
+            <p class="ov__meta">这一项只说明面板服务能处理请求，不代表采集或写操作可用。</p>
+          </div>
+        </UPanel>
 
-      <StatePanel v-if="summaryPhase === 'loading'" state="loading" title="正在读取系统快照" />
-      <StatePanel
-        v-else-if="summaryError && summaryPanelState && summaryPanelState !== 'error'"
-        :state="summaryPanelState"
-        :description="summaryError.message"
-        :code="summaryError.code"
-        :request-id="summaryError.requestId"
-        :retryable="retryablePanelState(summaryPanelState)"
-        @retry="loadSummary"
-      />
-      <ApiErrorPanel v-else-if="summaryError" :error="summaryError" @retry="loadSummary" />
-      <SystemOverviewPanel v-else-if="summary" :summary="summary" />
-    </NCard>
+        <UPanel title="存储">
+          <template #actions>
+            <RouterLink class="ov__link" to="/storage">磁盘列表 →</RouterLink>
+          </template>
 
-    <NCard title="存储" size="small">
-      <template #header-extra>
-        <RouterLink to="/storage">查看磁盘列表</RouterLink>
-      </template>
+          <StatePanel v-if="storagePhase === 'loading'" compact state="loading" title="正在读取磁盘快照" />
+          <StatePanel
+            v-else-if="storagePanelState && storageError"
+            compact
+            :state="storagePanelState"
+            :description="storageError.message"
+            :code="storageError.code"
+            :request-id="storageError.requestId"
+            :retryable="retryablePanelState(storagePanelState)"
+            @retry="loadStorage"
+          />
+          <div v-else-if="storage" class="ov__stack">
+            <p class="ov__line">
+              整盘 <strong class="u-num">{{ diskCount }}</strong> 块，共
+              <strong class="u-num">{{ formatBytes(totalDiskBytes) }}</strong>
+            </p>
+            <p class="ov__line">
+              健康需要处理：<strong class="u-num">{{ needsAttention }}</strong> 块
+              <span v-if="needsAttention > 0" class="ov__meta">（详情见存储页）</span>
+            </p>
+            <p v-if="storage.status === 'error'" class="ov__meta">
+              注意：最近一次扫描失败（{{ storage.error ?? '未给出原因' }}），
+              下面显示的是上一次成功的快照。
+            </p>
+            <p class="ov__meta">
+              快照版本：<code class="u-mono">{{ storage.snapshot_version.slice(0, 19) }}…</code>
+            </p>
+          </div>
+        </UPanel>
 
-      <StatePanel v-if="storagePhase === 'loading'" state="loading" title="正在读取磁盘快照" />
-      <StatePanel
-        v-else-if="storagePanelState && storageError"
-        :state="storagePanelState"
-        :description="storageError.message"
-        :code="storageError.code"
-        :request-id="storageError.requestId"
-        :retryable="retryablePanelState(storagePanelState)"
-        @retry="loadStorage"
-      />
-      <div v-else-if="storage" class="overview__storage">
-        <p class="overview__line">
-          整盘 <strong>{{ diskCount }}</strong> 块，共
-          <strong>{{ formatBytes(totalDiskBytes) }}</strong>
-        </p>
-        <p class="overview__line">
-          健康需要处理：<strong>{{ needsAttention }}</strong> 块
-          <span v-if="needsAttention > 0" class="overview__meta">（详情见存储页）</span>
-        </p>
-        <p v-if="storage.status === 'error'" class="overview__meta">
-          注意：最近一次扫描失败（{{ storage.error ?? '未给出原因' }}），
-          下面显示的是上一次成功的快照。
-        </p>
-        <p class="overview__meta">
-          快照版本：<code>{{ storage.snapshot_version.slice(0, 19) }}…</code>
-        </p>
-      </div>
-    </NCard>
+        <UPanel title="常用入口">
+          <template #actions>
+            <RouterLink class="ov__link" to="/apps">全部应用 →</RouterLink>
+          </template>
 
-    <NCard title="常用入口" size="small">
-      <template #header-extra>
-        <RouterLink to="/apps">全部应用 →</RouterLink>
-      </template>
+          <StatePanel v-if="appsPhase === 'loading'" compact state="loading" title="正在读取应用列表" />
+          <StatePanel
+            v-else-if="appsPanelState && appsError"
+            compact
+            :state="appsPanelState"
+            :description="appsError.message"
+            :code="appsError.code"
+            :request-id="appsError.requestId"
+            :retryable="retryablePanelState(appsPanelState)"
+            @retry="loadApps"
+          />
+          <div v-else class="ov__stack">
+            <p class="ov__line">
+              共 <strong class="u-num">{{ apps.length }}</strong> 个应用，其中
+              <strong class="u-num">{{ entries.length }}</strong> 个能一键打开。
+              <span v-if="httpErrors > 0" class="ov__meta">
+                （{{ httpErrors }} 个入口探测异常，详情见应用页）
+              </span>
+            </p>
 
-      <StatePanel v-if="appsPhase === 'loading'" state="loading" title="正在读取应用列表" />
-      <StatePanel
-        v-else-if="appsPanelState && appsError"
-        :state="appsPanelState"
-        :description="appsError.message"
-        :code="appsError.code"
-        :request-id="appsError.requestId"
-        :retryable="retryablePanelState(appsPanelState)"
-        @retry="loadApps"
-      />
-      <div v-else class="overview__apps">
-        <p class="overview__line">
-          共 <strong>{{ apps.length }}</strong> 个应用，其中
-          <strong>{{ entries.length }}</strong> 个能一键打开。
-          <span v-if="httpErrors > 0" class="overview__meta">
-            （{{ httpErrors }} 个入口探测异常，详情见应用页）
-          </span>
-        </p>
+            <StatePanel
+              v-if="entries.length === 0"
+              compact
+              state="empty"
+              title="还没有能打开的入口"
+              description="应用页可以把本机发现到的服务确认成应用，或者手动登记一条带入口地址的应用。"
+            />
+            <div v-else class="ov__entries" data-testid="overview-app-entries">
+              <a
+                v-for="app in entries"
+                :key="app.id"
+                class="ov__entry"
+                :href="openTarget(app).href"
+                target="_blank"
+                rel="noopener noreferrer"
+                :data-app="app.id"
+              >
+                <span class="ov__entry-name">{{ app.name }}</span>
+                <span class="ov__entry-url u-mono">{{ app.public_url }}</span>
+              </a>
+            </div>
 
-        <StatePanel
-          v-if="entries.length === 0"
-          state="empty"
-          title="还没有能打开的入口"
-          description="应用页可以把本机发现到的服务确认成应用，或者手动登记一条带入口地址的应用。"
-        />
-        <div v-else class="overview__entries" data-testid="overview-app-entries">
-          <a
-            v-for="app in entries"
-            :key="app.id"
-            class="overview__entry"
-            :href="openTarget(app).href"
-            target="_blank"
-            rel="noopener noreferrer"
-            :data-app="app.id"
-          >
-            <span class="overview__entry-name">{{ app.name }}</span>
-            <span class="overview__entry-url">{{ app.public_url }}</span>
-          </a>
-        </div>
+            <p class="ov__meta">
+              收藏过的应用排在前面；入口地址是登记时的 public_url，可能与面板本身不在同一个域名。
+            </p>
+          </div>
+        </UPanel>
 
-        <p class="overview__meta">
-          收藏过的应用排在前面；入口地址是登记时的 public_url，可能与面板本身不在同一个域名。
-        </p>
-      </div>
-    </NCard>
-
-    <NCard title="尚未接入" size="small">
-      <p class="overview__line">
-        异常服务汇总、待更新与最近任务在后续阶段接入；没有接入之前，它们不出现在导航里，
-        这里也不显示任何示例数字。
-      </p>
-    </NCard>
+        <UPanel title="尚未接入">
+          <p class="ov__line">
+            异常服务汇总、待更新与最近任务在后续阶段接入；没有接入之前，它们不出现在导航里，
+            这里也不显示任何示例数字。
+          </p>
+        </UPanel>
+      </aside>
+    </div>
   </section>
 </template>
 
 <style scoped>
-.overview {
+.ov {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  max-width: 1100px;
+  gap: var(--sp-3);
 }
 
-.overview__head {
+.ov__head {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: var(--sp-2) var(--sp-3);
 }
 
-.overview__title {
+.ov__title {
   margin: 0;
-  font-size: 20px;
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
-.overview__health,
-.overview__storage,
-.overview__apps {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.overview__entries {
+.ov__kpis {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 8px;
-  margin: 6px 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  overflow: hidden;
 }
 
-.overview__entry {
+.ov__cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1.75fr) minmax(300px, 1fr);
+  gap: var(--sp-3);
+  align-items: start;
+}
+
+.ov__main,
+.ov__side {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px;
-  border: 1px solid rgba(128, 128, 128, 0.28);
-  border-radius: 9px;
-  text-decoration: none;
-  color: inherit;
+  gap: var(--sp-3);
+  min-width: 0;
 }
 
-.overview__entry-name {
+.ov__stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+/* 指标格里的容量条：铺满格宽、4px 高，是一条刻度轨，不是脚注旁的小配饰。 */
+.ov__gauge {
+  display: block;
+}
+
+.ov__entries {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 6px;
+  margin: 2px 0 var(--sp-1);
+}
+
+.ov__entry {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 9px;
+  color: inherit;
+  text-decoration: none;
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: var(--r-2);
+}
+
+.ov__entry:hover {
+  border-color: var(--rule-strong);
+  background: var(--surface-3);
+}
+
+.ov__entry-name {
+  font-size: var(--fs-md);
   font-weight: 600;
   word-break: break-all;
 }
 
-.overview__entry-url {
-  font-size: 12px;
-  opacity: 0.75;
+.ov__entry-url {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
   word-break: break-all;
 }
 
-.overview__line {
-  margin: 0;
-  line-height: 1.7;
+.ov__link {
+  font-size: var(--fs-xs);
+  color: var(--accent);
+  text-decoration: none;
 }
 
-.overview__meta {
+.ov__link:hover {
+  text-decoration: underline;
+}
+
+.ov__line {
   margin: 0;
-  font-size: 13px;
-  opacity: 0.8;
+  font-size: var(--fs-md);
+  line-height: 1.6;
+}
+
+.ov__meta {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
   word-break: break-all;
+}
+
+@media (max-width: 1100px) {
+  .ov__cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .ov__kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* 两列时第 3 格开始是新的一行：去掉那条会把两行接起来的左发丝线。 */
+  .ov__kpis > :nth-child(3) {
+    border-left: 0;
+  }
+
+  /* 窄屏的指标格里，口径那行会折成两三行，再塞一根 84px 的条就挤了——
+     条本身是"看一眼大概"用的，手机上不如把那两行字读顺。 */
+  .ov__gauge {
+    display: none;
+  }
 }
 </style>

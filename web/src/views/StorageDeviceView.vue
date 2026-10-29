@@ -161,29 +161,11 @@ onBeforeUnmount(() => {
 .device {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  max-width: 1100px;
-}
-
-.device__head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.device__title {
-  margin: 0;
-  font-size: 20px;
-}
-
-.device__line {
-  margin: 0;
-  line-height: 1.7;
+  gap: var(--sp-3);
 }
 
 .device__muted {
-  font-size: 13px;
-  opacity: 0.75;
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
 }
 </style>

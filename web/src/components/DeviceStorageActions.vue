@@ -398,7 +398,7 @@ function onFinished(): void {
 <style scoped>
 .actions__muted {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-md);
   opacity: 0.8;
   line-height: 1.7;
 }
@@ -408,7 +408,7 @@ function onFinished(): void {
   flex-direction: column;
   gap: 8px;
   padding: 12px 0;
-  border-top: 1px solid rgba(128, 128, 128, 0.15);
+  border-top: 1px solid var(--surface-2);
 }
 
 .actions__section:first-of-type {
@@ -429,8 +429,8 @@ function onFinished(): void {
 
 .actions__warn {
   margin: 0;
-  font-size: 13px;
-  color: #d03050;
+  font-size: var(--fs-md);
+  color: var(--bad);
   line-height: 1.7;
 }
 

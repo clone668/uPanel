@@ -85,12 +85,12 @@ const details = computed(() => props.health.details ?? '')
 }
 
 .health-badge__label {
-  font-size: 13px;
+  font-size: var(--fs-md);
   opacity: 0.8;
 }
 
 .health-badge__flag {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 600;
 }
 
@@ -100,13 +100,13 @@ const details = computed(() => props.health.details ?? '')
 }
 
 .health-badge__line--muted {
-  font-size: 13px;
+  font-size: var(--fs-md);
   opacity: 0.8;
 }
 
 .health-badge__details {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-md);
   word-break: break-word;
 }
 </style>

@@ -7,6 +7,9 @@
 //      直接打真正在跑的 upanel-web，登录后逐页检查渲染。
 //      账号也可以从环境变量读：UPANEL_SMOKE_USER / UPANEL_SMOKE_PASS。
 //   3) mock 构建 + 真二进制：npm run smoke:mock（无账号时只验证登录闸门与品牌）。
+//   4) 真实安装的面板（自签证书）：--base https://127.0.0.1:9443 --login-user …；
+//      https 时只对自签证书放开校验（见下面的 INSECURE），连接仍走真 TLS。
+//      面板只监听 127.0.0.1，所以跨机器要先用 ssh -L 9443:127.0.0.1:9443 打通。
 //
 // 运行：
 //   npm --prefix web run build && npm --prefix web run smoke
@@ -22,6 +25,8 @@
 // 这时设备相关断言记为 SKIP，而不是当成通过。
 
 import { spawn } from 'node:child_process'
+import http from 'node:http'
+import https from 'node:https'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -51,6 +56,22 @@ const BASE = EXTERNAL_BASE ? BASE_OVERRIDE.replace(/\/$/, '') : `http://${HOST}:
 const OUT_DIR = MOCK ? 'dist-mock' : 'dist'
 const SPAWN_PREVIEW = !EXTERNAL_BASE
 
+// 等待时间可以按倍数放大（UPANEL_SMOKE_TIMEOUT_SCALE），**断言本身不放宽**。
+//
+// 为什么需要：登录要做 argon2id（m=128MiB、t=3、p=2），开发宿主上约 128ms；同一份二进制在
+// 单线程 TCG 的 Ubuntu 24.04 客户机里实测一次登录烧 9.5s CPU、墙钟 10—20s（放大 ~74 倍，
+// 内存硬哈希在模拟器上是重灾区）。20 秒的等待会在"登录还没回来"处超时，看起来像登录坏了。
+// 放大只影响等多久，等到了之后该出现什么还是必须出现——慢环境里不会因此变成通过。
+const TIMEOUT_SCALE = Number(process.env.UPANEL_SMOKE_TIMEOUT_SCALE ?? '1') || 1
+const T = (ms) => Math.round(ms * TIMEOUT_SCALE)
+
+// 真实安装的面板默认只监听 127.0.0.1:9443，证书是自己签的那张（P16.1 装进
+// /etc/upanel/tls）。拿 --base https://… 打它时，必须忽略证书错误才能连上：
+// 这里放开的只是"这张自签证书是不是受信"，连接仍然是真 TLS，不去降级成 http。
+// 换来的代价是：冒烟证明不了证书链可信——那件事由安装验收里"端口上服务的正是
+// 装进去的那张证书"的指纹比对负责，两件事不混在一起说。
+const INSECURE = BASE.startsWith('https:')
+
 const results = []
 
 function check(name, ok, detail = '') {
@@ -71,7 +92,7 @@ function skip(name, reason) {
  * 直接读 innerText 会读到骨架，断言就会变成“测到加载中的样子”。
  * 超时也照样返回当时的文字 —— 后面的断言会把真实状态说出来，而不是掩盖。
  */
-async function settle(page, timeoutMs = 20_000) {
+async function settle(page, timeoutMs = T(20_000)) {
   const deadline = Date.now() + timeoutMs
   let text = await page.locator('body').innerText()
   while (Date.now() < deadline && text.includes('状态：加载中')) {
@@ -95,15 +116,27 @@ function runVite(args, env = process.env) {
   })
 }
 
-async function waitForServer(timeoutMs = 30_000) {
+async function waitForServer(timeoutMs = T(30_000)) {
+  // 为什么不用 fetch：Node 的 fetch 在自签证书下直接抛错，探活会永远失败，
+  // 看起来像"目标 30 秒没起来"。这里按协议选模块，https 时只对本次探活放开证书校验。
+  const target = new URL(`${BASE}/`)
+  const mod = target.protocol === 'https:' ? https : http
+  const probe = () =>
+    new Promise((resolve) => {
+      const req = mod.get(target, { rejectUnauthorized: false, timeout: 5_000 }, (res) => {
+        res.resume()
+        resolve(res.statusCode === 200)
+      })
+      req.on('error', () => resolve(false))
+      req.on('timeout', () => {
+        req.destroy()
+        resolve(false)
+      })
+    })
+
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    try {
-      const response = await fetch(`${BASE}/`, { redirect: 'manual' })
-      if (response.status === 200) return true
-    } catch {
-      // 服务还没起来，继续等。
-    }
+    if (await probe()) return true
     await new Promise((resolve) => setTimeout(resolve, 250))
   }
   return false
@@ -146,7 +179,7 @@ try {
   }
 
   browser = await chromium.launch({ headless: true })
-  const page = await browser.newPage()
+  const page = await browser.newPage({ ignoreHTTPSErrors: INSECURE })
 
   const pageErrors = []
   page.on('pageerror', (error) => pageErrors.push(String(error)))
@@ -183,7 +216,7 @@ try {
 
   // 未登录时必须落在登录页：直接深链接同样要被挡住（不泄漏任何页面骨架以外的内容）。
   const loginShown = async () => {
-    await page.waitForURL(/\/login/, { timeout: 15_000 }).catch(() => {})
+    await page.waitForURL(/\/login/, { timeout: T(15_000) }).catch(() => {})
     const text = await page.locator('body').innerText()
     return text.includes('登录 uPanel')
   }
@@ -202,7 +235,7 @@ try {
     await page.fill('[data-testid="login-username"] input', LOGIN_USER)
     await page.fill('[data-testid="login-password"] input', LOGIN_PASS)
     await page.click('[data-testid="login-submit"]')
-    await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 20_000 })
+    await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: T(20_000) })
     check(
       '登录后回到被拦截的地址（/storage）',
       new URL(page.url()).pathname === '/storage',
@@ -210,16 +243,17 @@ try {
     )
 
     const menuText = (await page.locator('.n-menu').innerText()).replace(/\s+/g, ' ').trim()
+    // 这条断言在 P16.2 之前一直是"导航里有概览、存储、任务中心，且没有终端、设置"——
+    // 那是 P04 的完成度。P06.3 起终端、P14.6 起设置都已经实现，再沿用旧断言只会
+    // 得到一条假失败。现在按模块清单（web/src/modules/registry.ts）说事实：
+    // 已实现的必须出现，唯一还没实现的容器必须被隐藏（规则：未实现不摆可点入口）。
+    const implementedNav = ['概览', '应用', '存储', '共享', '服务与进程', '文件', '终端', '日志']
     check(
-      '登录后导航包含已实现模块（概览、存储、任务中心）',
-      menuText.includes('概览') && menuText.includes('存储') && menuText.includes('任务中心'),
+      '导航包含已实现模块（概览、存储、服务、文件、终端、日志、任务中心）',
+      implementedNav.every((label) => menuText.includes(label)) && menuText.includes('任务中心'),
       menuText,
     )
-    check(
-      '导航不包含未实现模块（终端、设置）',
-      !menuText.includes('终端') && !menuText.includes('设置'),
-      menuText,
-    )
+    check('导航隐藏未实现模块（容器）', !menuText.includes('容器'), menuText)
 
     // -------------------------------------------------------------- 概览页
     await page.goto(`${BASE}/`, { waitUntil: 'networkidle' })
@@ -288,7 +322,7 @@ try {
       if (deviceCount > 0) {
         const firstId = await page.locator('[data-device-id]').first().getAttribute('data-device-id')
         await page.locator('[data-device-id] a').first().click()
-        await page.waitForURL(/\/storage\/devices\//, { timeout: 15_000 })
+        await page.waitForURL(/\/storage\/devices\//, { timeout: T(15_000) })
         const detailText = await settle(page)
         check(
           '设备详情页渲染身份与容量',
@@ -301,7 +335,7 @@ try {
         check('设备详情页显示设备名', detailText.includes(firstId ?? ''), firstId ?? '')
 
         await page.click('text=返回磁盘列表')
-        await page.waitForURL(/\/storage$/, { timeout: 15_000 })
+        await page.waitForURL(/\/storage$/, { timeout: T(15_000) })
         check('可以从详情页返回磁盘列表', true)
       } else {
         skip('设备卡片与详情页跳转', '代理可用但没有识别到块设备')

@@ -84,15 +84,30 @@ export const MODULES: readonly ModuleDef[] = [
     summary:
       '按数据源、单元、级别与时间窗口查询 journald（单页 ≤1000 行 / 1 MiB，窗口 ≤24 小时），并实时订阅；原始日志仅管理员可读。',
   },
-  { key: 'backup', label: '备份', path: '/backup', implementedIn: null, summary: 'restic 备份与恢复' },
+  {
+    key: 'backup',
+    label: '备份',
+    path: '/backup',
+    implementedIn: 'P12.5',
+    summary:
+      'restic 仓库定义与策略、快照浏览与详情、备份/恢复/验证/清理；全部经预检与任务，备份成功不等于恢复已验证。',
+  },
   {
     key: 'schedules',
     label: '计划任务',
     path: '/schedules',
-    implementedIn: null,
-    summary: '定时任务',
+    implementedIn: 'P12.5',
+    summary:
+      'systemd timer 计划与受管理脚本：定义只读、改动走预检与任务；定义的意图、单元是否装上、是否 enable、timer 是否在跑分开显示。',
   },
-  { key: 'network', label: '网络', path: '/network', implementedIn: null, summary: '网卡、地址与连通性' },
+  {
+    key: 'network',
+    label: '网络',
+    path: '/network',
+    implementedIn: 'P14.1',
+    summary:
+      '网卡与地址、路由与默认网关、监听端口与占用进程、防火墙规则；全部只读，改地址与改规则自 P14.2 起开放，且会先给出"能不能改"的判定与原因。',
+  },
   {
     key: 'updates',
     label: '更新',
@@ -105,8 +120,9 @@ export const MODULES: readonly ModuleDef[] = [
     key: 'alerts',
     label: '监控告警',
     path: '/alerts',
-    implementedIn: null,
-    summary: '历史监控与告警',
+    implementedIn: 'P13.4',
+    summary:
+      '历史曲线（按粒度保留，缺失画成断开而不是 0）、告警规则与事件、确认已知，以及通知投递账：哪一次告警到底发没发出去。',
   },
   {
     key: 'jobs',
@@ -115,7 +131,14 @@ export const MODULES: readonly ModuleDef[] = [
     implementedIn: 'P03.3',
     summary: '任务列表、状态机、事件流与脱敏日志',
   },
-  { key: 'settings', label: '设置', path: '/settings', implementedIn: null, summary: '面板设置' },
+  {
+    key: 'settings',
+    label: '设置',
+    path: '/settings',
+    implementedIn: 'P14.6',
+    summary:
+      '本机账号安全：二次验证（TOTP）的启用确认、一次性恢复码展示与关闭；系统级设置随各自阶段接入。',
+  },
 ] as const
 
 /** 导航可见项：只包含已实现的模块。 */

@@ -22,6 +22,7 @@ import {
   NInput,
   NTag,
 } from 'naive-ui'
+import { RouterLink } from 'vue-router'
 
 import {
   APP_CONTROL_LABELS,
@@ -403,6 +404,12 @@ async function removeGroup(group: AppGroup): Promise<void> {
         新建应用
       </NButton>
       <NButton size="small" secondary @click="poller.trigger()">刷新</NButton>
+      <!-- 受管部署（P15.4）不是“应用”：这一页是面板里的入口与绑定记录，
+           部署页是面板自己部署出去的那几份东西（单元 + 渲染配置 + 版本）。
+           两个列表按 deployment_id 能连起来，但读的不是同一张表。 -->
+      <RouterLink to="/apps/deployments" class="apps__deploy-link">
+        <NButton size="small" secondary data-testid="apps-deployments-link">受管部署</NButton>
+      </RouterLink>
     </div>
 
     <NInput
@@ -575,42 +582,16 @@ async function removeGroup(group: AppGroup): Promise<void> {
 </template>
 
 <style scoped>
-.apps {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  max-width: 1200px;
-}
 
-.apps__head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.apps__title {
-  margin: 0;
-  font-size: 20px;
-  margin-right: 6px;
-}
-
-.apps__line {
-  margin: 0 0 6px;
-  line-height: 1.7;
-}
-
-.apps__meta {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.7;
-  opacity: 0.78;
+/* 链接只用来包住按钮：RouterLink 默认的下划线在工具栏里很吵。 */
+.apps__deploy-link {
+  text-decoration: none;
 }
 
 .apps__warn {
   margin: 4px 0 0;
   line-height: 1.7;
-  color: #d03050;
+  color: var(--bad);
 }
 
 .apps__actions {

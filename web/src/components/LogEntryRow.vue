@@ -83,18 +83,18 @@ const plainText = computed(() => entryPlainText(props.entry))
   gap: 4px;
   padding: 8px 10px;
   border-left: 3px solid transparent;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.18);
+  border-bottom: 1px solid var(--rule);
 }
 
 .log-entry[data-level='emergency'],
 .log-entry[data-level='alert'],
 .log-entry[data-level='critical'],
 .log-entry[data-level='error'] {
-  border-left-color: #d03050;
+  border-left-color: var(--bad);
 }
 
 .log-entry[data-level='warning'] {
-  border-left-color: #f0a020;
+  border-left-color: var(--warn);
 }
 
 .log-entry__meta {
@@ -102,7 +102,7 @@ const plainText = computed(() => entryPlainText(props.entry))
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   opacity: 0.9;
 }
 
@@ -119,7 +119,7 @@ const plainText = computed(() => entryPlainText(props.entry))
 .log-entry__message {
   margin: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13px;
+  font-size: var(--fs-md);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;

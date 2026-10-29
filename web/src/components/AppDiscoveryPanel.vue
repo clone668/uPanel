@@ -195,16 +195,16 @@ function listenersText(candidate: AppDiscoveryCandidate): string {
 
 .discovery__muted {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-md);
   line-height: 1.7;
   opacity: 0.82;
 }
 
 .discovery__warn {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-md);
   line-height: 1.7;
-  color: #d03050;
+  color: var(--bad);
 }
 
 .discovery__sources {
@@ -228,8 +228,8 @@ function listenersText(candidate: AppDiscoveryCandidate): string {
   flex-direction: column;
   gap: 4px;
   padding: 10px 12px;
-  border: 1px solid rgba(128, 128, 128, 0.22);
-  border-radius: 9px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
 }
 
 .discovery__row-head {
@@ -252,12 +252,12 @@ function listenersText(candidate: AppDiscoveryCandidate): string {
 
 .discovery__button {
   padding: 3px 10px;
-  border: 1px solid rgba(128, 128, 128, 0.45);
-  border-radius: 7px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
   background: transparent;
   cursor: pointer;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fs-md);
 }
 
 .discovery__button:disabled {
@@ -270,8 +270,8 @@ function listenersText(candidate: AppDiscoveryCandidate): string {
   flex-direction: column;
   gap: 6px;
   padding: 10px 12px;
-  border: 1px solid rgba(208, 48, 80, 0.35);
-  border-radius: 9px;
+  border: 1px solid var(--bad);
+  border-radius: var(--r-2);
 }
 
 .discovery__label {

@@ -76,7 +76,7 @@ const windowMs = computed(() => rate.value?.interval_ms ?? null)
 }
 
 .io__line--muted {
-  font-size: 13px;
+  font-size: var(--fs-md);
   opacity: 0.8;
 }
 

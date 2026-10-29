@@ -15,12 +15,15 @@ import {
   zhCN,
 } from 'naive-ui'
 
-import AppShell from '@/components/AppShell.vue'
+import AppShell from '@/shell/AppShell.vue'
 import MockBanner from '@/components/MockBanner.vue'
 import StatePanel from '@/components/StatePanel.vue'
 import { useModeStore } from '@/stores/mode'
+import { useTheme } from '@/ui/theme'
 
 const modeStore = useModeStore()
+// 主题：令牌在 styles/tokens.css，naive-ui 要实色才能算派生色，两者由 ui/theme.ts 对齐。
+const { naiveTheme, overrides } = useTheme()
 const route = useRoute()
 const crashed = ref(false)
 
@@ -35,7 +38,12 @@ onErrorCaptured((error) => {
 </script>
 
 <template>
-  <NConfigProvider :locale="zhCN" :date-locale="dateZhCN">
+  <NConfigProvider
+    :locale="zhCN"
+    :date-locale="dateZhCN"
+    :theme="naiveTheme"
+    :theme-overrides="overrides"
+  >
     <NMessageProvider>
       <NDialogProvider>
         <MockBanner :mode="modeStore.mode" />
@@ -46,9 +54,9 @@ onErrorCaptured((error) => {
           description="请刷新页面；若持续出现，请把浏览器控制台的错误信息反馈给管理员。"
         />
         <RouterView v-else-if="isPublic" />
-        <AppShell v-else>
-          <RouterView />
-        </AppShell>
+        <!-- 外壳自己渲染 <RouterView>：窗口是外壳的一部分，页面长在窗口里。
+             这里不再往外壳里塞一个 RouterView——那会变成两个出口，其中一个没人用。 -->
+        <AppShell v-else />
       </NDialogProvider>
     </NMessageProvider>
   </NConfigProvider>

@@ -273,7 +273,7 @@ watch(
 
 .app-logs__muted {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   line-height: 1.6;
   opacity: 0.78;
 }
@@ -281,8 +281,8 @@ watch(
 .app-logs__list {
   display: flex;
   flex-direction: column;
-  border: 1px solid rgba(128, 128, 128, 0.2);
-  border-radius: 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
   overflow: hidden;
 }
 
@@ -291,14 +291,14 @@ watch(
   flex-direction: column;
   gap: 4px;
   padding: 8px 10px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.18);
+  border-bottom: 1px solid var(--rule);
 }
 
 .app-logs__container-meta {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 .app-logs__time {
@@ -308,7 +308,7 @@ watch(
 .app-logs__message {
   margin: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13px;
+  font-size: var(--fs-md);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;

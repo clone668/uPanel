@@ -359,19 +359,19 @@ const needsReauthFor = (action: string): boolean =>
 
 .volume__label {
   min-width: 72px;
-  font-size: 13px;
+  font-size: var(--fs-md);
   opacity: 0.7;
 }
 
 .volume__meta {
-  font-size: 13px;
+  font-size: var(--fs-md);
   opacity: 0.8;
   word-break: break-all;
 }
 
 .volume__hint {
   margin: 8px 0 0;
-  font-size: 13px;
+  font-size: var(--fs-md);
   line-height: 1.7;
 }
 
@@ -396,14 +396,14 @@ const needsReauthFor = (action: string): boolean =>
   gap: 6px;
   margin-top: 10px;
   padding: 10px 12px;
-  border: 1px solid rgba(128, 128, 128, 0.2);
-  border-radius: 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
 }
 
 .volume__list {
   margin: 0;
   padding-left: 18px;
   line-height: 1.7;
-  font-size: 13px;
+  font-size: var(--fs-md);
 }
 </style>

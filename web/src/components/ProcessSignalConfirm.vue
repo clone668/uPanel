@@ -169,8 +169,8 @@ const needsReauth = computed(() => props.preflight?.requires_reauth ?? signalNee
   flex-direction: column;
   gap: 8px;
   padding: 12px 14px;
-  border: 1px solid rgba(128, 128, 128, 0.3);
-  border-radius: 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
 }
 
 .signal__line {
@@ -179,12 +179,12 @@ const needsReauth = computed(() => props.preflight?.requires_reauth ?? signalNee
 }
 
 .signal__muted {
-  font-size: 13px;
+  font-size: var(--fs-md);
   opacity: 0.78;
 }
 
 .signal__warn {
-  color: #d03050;
+  color: var(--bad);
 }
 
 .signal__block {

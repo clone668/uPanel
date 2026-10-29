@@ -1,16 +1,20 @@
 <script setup lang="ts">
-// 新建共享的表单（P08.4）。
+// 新建共享的表单（P08.4；P14.4 起 smb / nfs 两种协议）。
 //
 // 校验的规矩：**这里只挡“一眼就不对”的输入**，判决权仍在服务端的预检。
 // 规则本身放在 ./shares.ts 的 validateShareForm 里——纯函数，能在没有 DOM 的地方测，
-// 也能保证表单与预检用的是同一套说法（名字字符集、相对路径形状、空账号名单的唯一权威
-// 在 internal/shares/definition.go；那边仍然是否决者）。
+// 也能保证表单与预检用的是同一套说法（名字字符集、相对路径形状、空账号名单、
+// NFS 必须点名网段这四条的唯一权威在 internal/shares；那边仍然是否决者）。
+//
+// 两个协议的字段不是“多几个少几个”，而是**语义不同**：SMB 的访问控制是账号 + ACL，
+// NFS 的是网段 + root_squash。所以这里按协议切换整块，而不是把四五个字段灰掉——
+// 灰掉的字段会让人以为“填了也许有用”，而它其实根本不会被写下去。
 
 import { computed, reactive, ref } from 'vue'
 import { NAlert, NButton, NCard, NInput, NSelect, NSwitch, NTag } from 'naive-ui'
 
-import type { ShareAccess, ShareAccount, ShareDefinition } from '@/api/shares'
-import { SHARE_ACCESS_LABELS, SHARE_ACCESS_LEVELS } from '@/api/shares'
+import type { ShareAccess, ShareAccount, ShareDefinition, ShareProtocol } from '@/api/shares'
+import { SHARE_ACCESS_LABELS, SHARE_ACCESS_LEVELS, SHARE_PROTOCOL_LABELS } from '@/api/shares'
 import type { Volume } from '@/api/volumes'
 import {
   buildShareDefinition,
@@ -25,11 +29,19 @@ const props = defineProps<{
   accounts: readonly ShareAccount[]
   volumes: readonly Volume[]
   busy?: boolean
+  /**
+   * 表单打开时的协议，默认 smb。
+   *
+   * 留这个口是因为“新建共享”与“新建 NFS 导出”在体验上本就该是两个入口——面板现在只有
+   * 一个按钮，所以调用方暂时都不传；但协议必须是**初始状态**而不是内部常量，否则 NFS 那一半
+   * 界面就没有任何一条路径能渲染出来，也就没人能测到它到底说了什么。
+   */
+  initialProtocol?: ShareProtocol
 }>()
 
 const emit = defineEmits<{ submit: [ShareDefinition]; cancel: [] }>()
 
-const form = reactive<ShareFormState>(emptyShareForm())
+const form = reactive<ShareFormState>({ ...emptyShareForm(), protocol: props.initialProtocol ?? 'smb' })
 
 const touched = ref(false)
 
@@ -50,6 +62,17 @@ const accountOptions = computed(() =>
 )
 
 const selectedVolume = computed(() => props.volumes.find((v) => v.id === form.volume_id) ?? null)
+
+const isNFS = computed(() => form.protocol === 'nfs')
+
+const protocolOptions = (['smb', 'nfs'] as const).map((p) => ({
+  label: SHARE_PROTOCOL_LABELS[p],
+  value: p,
+}))
+
+function selectProtocol(value: string): void {
+  form.protocol = value === 'nfs' ? 'nfs' : 'smb'
+}
 
 const smbUsers = computed(() => selectedUsers(form))
 const cidrs = computed(() => parseCidrs(form.allowed_cidrs))
@@ -82,6 +105,25 @@ const accessOptions = [
     </p>
 
     <div class="form__field">
+      <span class="form__label">协议</span>
+      <NSelect
+        :value="form.protocol"
+        :options="protocolOptions"
+        data-testid="share-protocol"
+        @update:value="selectProtocol"
+      />
+      <p class="form__muted">
+        <template v-if="isNFS">
+          NFS 导出：访问控制是<b>网段 + root_squash</b>，没有账号这一层。
+          面板只维护 <code>/etc/exports.d/upanel.exports</code> 一份文件。
+        </template>
+        <template v-else>
+          SMB 共享：访问控制是<b>受管理账号 + POSIX ACL</b>，走 Samba 的托管配置。
+        </template>
+      </p>
+    </div>
+
+    <div class="form__field">
       <label class="form__label" for="share-name">共享名</label>
       <NInput
         id="share-name"
@@ -90,8 +132,13 @@ const accessOptions = [
         data-testid="share-name"
       />
       <p class="form__muted">
-        字母、数字、下划线、连字符，以字母或数字开头，最长 64 字节。它会变成网络上的
-        <code>\\服务器\名字</code>，所以<b>建好之后不能改名</b>：客户端记的就是这个名字。
+        字母、数字、下划线、连字符，以字母或数字开头，最长 64 字节。
+        <template v-if="isNFS">
+          它只是面板里的名字（导出按<b>目录</b>认，不按名字），但<b>建好之后同样不能改名</b>。
+        </template>
+        <template v-else>
+          它会变成网络上的 <code>\\服务器\名字</code>，所以<b>建好之后不能改名</b>：客户端记的就是这个名字。
+        </template>
       </p>
     </div>
 
@@ -123,20 +170,33 @@ const accessOptions = [
         data-testid="share-path"
       />
       <p class="form__muted">
-        相对卷的挂载点。留空就是卷根——单卷单共享时最常见的用法。目录不存在会创建（0700）。
+        相对卷的挂载点。留空就是卷根——单卷单共享时最常见的用法。
+        <template v-if="isNFS">
+          目录不存在会创建，并按只读/读写设成 <code>0755</code> / <code>0777</code>。
+        </template>
+        <template v-else>目录不存在会创建（0700）。</template>
       </p>
     </div>
 
     <div class="form__field">
       <span class="form__label">只读</span>
       <NSwitch v-model:value="form.read_only" data-testid="share-read-only" />
-      <p class="form__muted">
+      <p v-if="isNFS" class="form__muted">
+        打开时导出行写 <code>ro</code>、目录权限落到 <code>0755</code>——两道保证都在，
+        客户端连写都写不进去，不必去猜 ro 有没有生效。
+        <template v-if="!form.read_only">
+          关掉时导出行写 <code>rw</code>、目录是 <code>0777</code>：NFS 走 sec=sys，
+          客户端以<b>自己的 uid</b> 落盘，服务端事先不知道是谁连上来，所以读写权限只能
+          交给网段管。
+        </template>
+      </p>
+      <p v-else class="form__muted">
         打开时所有账号的 ACL 上限都是 <code>r-x</code>，共享段也写 <code>read only = yes</code>。
         它比账号级授权更宽：任一处只读就是只读。
       </p>
     </div>
 
-    <div class="form__field">
+    <div v-if="!isNFS" class="form__field">
       <span class="form__label">授权账号</span>
       <p v-if="accountOptions.length === 0" class="form__muted">
         还没有可用的共享账号。先到下面的“受管理账号”里建一个（它会同时建 POSIX 用户和 SMB 密码）。
@@ -160,6 +220,20 @@ const accessOptions = [
       </p>
     </div>
 
+    <div v-if="isNFS" class="form__field">
+      <span class="form__label">导出选项</span>
+      <div class="form__tags">
+        <NTag size="small" type="success">root_squash</NTag>
+        <NTag size="small" type="success">sync</NTag>
+        <NTag size="small">no_subtree_check</NTag>
+      </div>
+      <p class="form__muted">
+        这几项是固定的，面板不提供开关：没有 <code>no_root_squash</code>、没有
+        <code>async</code>、没有 <code>insecure</code>——它们根本不在取值里（PLAN §10）。
+        客户端 root 会被 squash 成 <code>nobody</code>。
+      </p>
+    </div>
+
     <div class="form__field">
       <label class="form__label" for="share-cidrs">来源网段</label>
       <NInput
@@ -167,10 +241,14 @@ const accessOptions = [
         v-model:value="form.allowed_cidrs"
         type="textarea"
         :autosize="{ minRows: 2, maxRows: 4 }"
-        placeholder="留空不限制，例如 192.168.1.0/24 10.0.0.0/8"
+        :placeholder="isNFS ? '必须填，例如 10.0.2.0/24' : '留空不限制，例如 192.168.1.0/24 10.0.0.0/8'"
         data-testid="share-cidrs"
       />
-      <p class="form__muted">
+      <p v-if="isNFS" class="form__muted">
+        逗号或空格分隔。<b>NFS 至少要有一条</b>，而且不能用 <code>0.0.0.0/0</code>：
+        网段是 NFS 唯一的访问控制，不点名等于向全世界导出。
+      </p>
+      <p v-else class="form__muted">
         逗号或空格分隔。<b>名单管不住本机</b>：Samba 对 127.0.0.1 永远放行，
         所以面板自己的连通性检查才能做。
       </p>
@@ -183,9 +261,10 @@ const accessOptions = [
     </NAlert>
 
     <div class="form__tags">
-      <NTag size="small">protocol: smb</NTag>
-      <NTag size="small">{{ smbUsers.length }} 个账号</NTag>
-      <NTag v-if="cidrs.length === 0" size="small" type="warning">不限来源</NTag>
+      <NTag size="small">protocol: {{ form.protocol }}</NTag>
+      <NTag v-if="isNFS" size="small">{{ cidrs.length }} 个网段</NTag>
+      <NTag v-else size="small">{{ smbUsers.length }} 个账号</NTag>
+      <NTag v-if="cidrs.length === 0 && !isNFS" size="small" type="warning">不限来源</NTag>
     </div>
 
     <div class="form__actions">
@@ -217,12 +296,12 @@ const accessOptions = [
 
 .form__label {
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--fs-md);
 }
 
 .form__muted {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-md);
   line-height: 1.7;
   opacity: 0.8;
 }
@@ -241,7 +320,7 @@ const accessOptions = [
 
 .form__account-name {
   flex: 1;
-  font-size: 13px;
+  font-size: var(--fs-md);
   word-break: break-all;
 }
 

@@ -81,7 +81,7 @@ const bootNow = computed(() =>
 
 .powercheck__meta {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   opacity: 0.75;
   word-break: break-all;
 }

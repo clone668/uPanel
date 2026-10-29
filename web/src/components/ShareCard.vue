@@ -240,29 +240,29 @@ function onFinished(): void {
 
 .share__label {
   min-width: 72px;
-  font-size: 13px;
+  font-size: var(--fs-md);
   opacity: 0.7;
 }
 
 .share__meta {
-  font-size: 13px;
+  font-size: var(--fs-md);
   opacity: 0.8;
   word-break: break-all;
 }
 
 .share__hint {
   margin: 8px 0 0;
-  font-size: 13px;
+  font-size: var(--fs-md);
   line-height: 1.7;
 }
 
 .share__revoked {
   margin: 8px 0 0;
   padding: 8px 10px;
-  font-size: 13px;
+  font-size: var(--fs-md);
   line-height: 1.7;
-  border-left: 3px solid rgba(240, 160, 32, 0.7);
-  background: rgba(240, 160, 32, 0.08);
+  border-left: 3px solid var(--warn);
+  background: var(--warn-soft);
 }
 
 .share__actions {

@@ -142,8 +142,8 @@ const interruptive = computed(() => interruptsService(props.operation))
   flex-direction: column;
   gap: 8px;
   padding: 12px 14px;
-  border: 1px solid rgba(128, 128, 128, 0.3);
-  border-radius: 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
 }
 
 .action__line {
@@ -152,12 +152,12 @@ const interruptive = computed(() => interruptsService(props.operation))
 }
 
 .action__muted {
-  font-size: 13px;
+  font-size: var(--fs-md);
   opacity: 0.78;
 }
 
 .action__warn {
-  color: #d03050;
+  color: var(--bad);
 }
 
 .action__block {

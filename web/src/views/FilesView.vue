@@ -1555,31 +1555,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.files {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  max-width: 1200px;
-}
-
-.files__head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.files__title {
-  margin: 0;
-  font-size: 20px;
-}
-
-.files__meta {
-  font-size: 13px;
-  opacity: 0.8;
-  margin: 0;
-  line-height: 1.7;
-}
 
 .files__line {
   margin: 0;
@@ -1611,7 +1586,7 @@ onBeforeUnmount(() => {
 }
 
 .files__label {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   opacity: 0.8;
 }
 
@@ -1619,7 +1594,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 13px;
+  font-size: var(--fs-md);
 }
 
 .files__bar {
@@ -1644,12 +1619,12 @@ onBeforeUnmount(() => {
 .files__table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--fs-md);
 }
 
 .files__caption {
   text-align: left;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   opacity: 0.75;
   padding-bottom: 6px;
 }
@@ -1658,13 +1633,13 @@ onBeforeUnmount(() => {
 .files__table td {
   text-align: left;
   padding: 6px 8px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+  border-bottom: 1px solid var(--rule);
   vertical-align: top;
 }
 
 .files__table th {
   font-weight: 600;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   opacity: 0.85;
 }
 
@@ -1688,10 +1663,10 @@ onBeforeUnmount(() => {
   overflow: auto;
   margin: 10px 0 0;
   padding: 12px;
-  border-radius: 4px;
-  background: rgba(128, 128, 128, 0.12);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   line-height: 1.6;
   white-space: pre;
 }

@@ -29,9 +29,54 @@ export const PREFLIGHT_TIMEOUT_MS = 20_000
  */
 export const PACKAGE_PREFLIGHT_TIMEOUT_MS = 95_000
 
-/** 该动作的预检超时。只有 apt 写事务需要放宽。 */
+/**
+ * 备份动作预检的专用超时（P12.5）。
+ *
+ * 备份的三个动作在预检阶段就要碰现场：读策略定义、解仓库口令、必要时拨号到远端
+ * 仓库（SFTP 的 host key 核对与 restic 的仓库解锁都在这一步），代理给这一段的上限
+ * 是 90 秒（备份恢复类动作的 PlanBudget）。20 秒会把一次正常的预检在前端自己掐断，
+ * 显示成"请求超时"，而服务端其实正在回答。
+ */
+export const BACKUP_PREFLIGHT_TIMEOUT_MS = 95_000
+
+/**
+ * 备份动作提交的专用超时。
+ *
+ * 提交不是转发：代理要在这一刻**再核一次**目标（快照还在不在、仓库定义有没有变），
+ * 那条路的预算同样是 90 秒。用 20 秒会让人看到"请求超时"，而任务其实已经建好并在跑。
+ */
+export const BACKUP_SUBMIT_TIMEOUT_MS = 95_000
+
+/**
+ * 网络写动作预检的专用超时（P14.2）。
+ *
+ * 代理侧给这几个动作的预检预算就是 20 秒（`networkApplyPlanBudget`）：预检要读
+ * `/etc/netplan`、跑几次 `ip`、读 `/run` 里的渲染产物，正常几十毫秒，20 秒是为了
+ * 让"网络栈卡住"变成一条明确的超时结论，而不是挂到 HTTP 超时为止。
+ *
+ * 前端因此必须**比它宽**：相等的话，代理正在写那句超时结论时前端就先掐断了，
+ * 用户看到的是自己的"请求超时"，而不是代理那句"预检超时"。30 秒 = 20 秒加往返与余量。
+ */
+export const NETWORK_PREFLIGHT_TIMEOUT_MS = 30_000
+
+/**
+ * 防火墙写动作预检的专用超时（P14.3）。
+ *
+ * 代理侧的预算是 20 秒（`firewallPlanBudget`），但这里要留得比网络那边更宽一点：
+ * 预检要跑两次 `ufw`（`status verbose numbered` 与 `show added`），而 **ufw 自己会
+ * 抢 `/run/ufw/lock`** —— 管理员此刻正在另一个终端里敲 ufw 命令时，我们的命令会排在
+ * 那把锁上等。等锁不是故障，可它会把"预检"变成一次长达十几秒的静默。
+ * 前端必须比代理宽，否则用户看到的是自己的"请求超时"，而不是代理那句"预检超时"。
+ */
+export const FIREWALL_PREFLIGHT_TIMEOUT_MS = 30_000
+
+/** 该动作的预检超时。只有 apt 写事务、备份、网络写与防火墙写要放宽。 */
 export function preflightTimeoutFor(action: string): number {
-  return action.startsWith('package.') ? PACKAGE_PREFLIGHT_TIMEOUT_MS : PREFLIGHT_TIMEOUT_MS
+  if (action.startsWith('package.')) return PACKAGE_PREFLIGHT_TIMEOUT_MS
+  if (action.startsWith('backup.')) return BACKUP_PREFLIGHT_TIMEOUT_MS
+  if (action.startsWith('network.')) return NETWORK_PREFLIGHT_TIMEOUT_MS
+  if (action.startsWith('firewall.')) return FIREWALL_PREFLIGHT_TIMEOUT_MS
+  return PREFLIGHT_TIMEOUT_MS
 }
 
 /**
@@ -52,9 +97,34 @@ export const SUBMIT_TIMEOUT_MS = 20_000
  */
 export const PACKAGE_SUBMIT_TIMEOUT_MS = 95_000
 
+/**
+ * 网络写动作提交的专用超时（P14.2）。
+ *
+ * 提交时代理会**再跑一遍预检**（现场可能变了），上限同样是 20 秒。但这里还要留出
+ * 一种更糟的情形：`network.confirm` 的提交发生在"浏览器刚从新地址连上来"的时刻，
+ * 链路本身可能正抖。20 秒的默认值会让这次确认在前端自己超时，而服务端其实已经
+ * 把 timer 停了——用户会以为没确认成功，再点一次，然后得到"没有待确认的改动"。
+ */
+export const NETWORK_SUBMIT_TIMEOUT_MS = 30_000
+
+/**
+ * 防火墙写动作提交的专用超时（P14.3）。
+ *
+ * 与网络那边同一个数字，理由却不同：防火墙改动**不会**掐断浏览器自己那条连接
+ * （预检里 `FIREWALL_MANAGEMENT_PATH` 保证了管理通路还在），所以这里不需要为链路
+ * 抖动留出余量。要留的是 ufw 的那把锁——提交时代理会**再跑一遍预检**，同样排两次
+ * `ufw`。用它自己的 20 秒默认值，一次"管理员正开着 ufw 终端"的提交就会被前端判成
+ * 超时，而任务其实已经建好并在跑。
+ */
+export const FIREWALL_SUBMIT_TIMEOUT_MS = 30_000
+
 /** 该动作的提交超时。 */
 export function submitTimeoutFor(action: string): number {
-  return action.startsWith('package.') ? PACKAGE_SUBMIT_TIMEOUT_MS : SUBMIT_TIMEOUT_MS
+  if (action.startsWith('package.')) return PACKAGE_SUBMIT_TIMEOUT_MS
+  if (action.startsWith('backup.')) return BACKUP_SUBMIT_TIMEOUT_MS
+  if (action.startsWith('network.')) return NETWORK_SUBMIT_TIMEOUT_MS
+  if (action.startsWith('firewall.')) return FIREWALL_SUBMIT_TIMEOUT_MS
+  return SUBMIT_TIMEOUT_MS
 }
 
 export interface PreflightNotice {

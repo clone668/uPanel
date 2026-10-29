@@ -1,8 +1,10 @@
 <script setup lang="ts">
-// 一个“指标 + 数值 + 说明”的小卡片。
+// 一个“指标 + 数值 + 说明”的小格子。
 //
 // 数值一律由调用方格式化后再传进来（utils/format 里已经处理了 null → —）。
 // 这样组件不持有“怎么算”的逻辑，也就不会偷偷把 null 变成 0。
+//
+// 样式来自令牌：发丝边框、无阴影、数值用 tabular-nums（5 秒轮询刷新时列宽不跳）。
 
 withDefaults(
   defineProps<{
@@ -29,38 +31,44 @@ withDefaults(
 .stat-tile {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 10px 12px;
-  border: 1px solid rgba(128, 128, 128, 0.25);
-  border-radius: 8px;
-  min-width: 140px;
+  gap: 1px;
+  min-width: 132px;
+  padding: 8px 12px 9px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
 }
 
 .stat-tile__label {
   margin: 0;
-  font-size: 13px;
-  opacity: 0.75;
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
 }
 
 .stat-tile__value {
   margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 1.3;
+  font-size: var(--fs-xl);
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  /* 等宽数字但不换成等宽字体：值是“Ubuntu 24.04.5 LTS”“未启用”这类中英混排，
+     整体换成 mono 会让中文掉到等宽回退字体，比不长不齐更难看。 */
+  font-variant-numeric: tabular-nums;
   word-break: break-word;
 }
 
 .stat-tile__hint {
   margin: 0;
-  font-size: 12px;
-  opacity: 0.75;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
 }
 
 .stat-tile[data-tone='warning'] .stat-tile__value {
-  color: #d08b00;
+  color: var(--warn);
 }
 
 .stat-tile[data-tone='error'] .stat-tile__value {
-  color: #d03050;
+  color: var(--bad);
 }
 </style>
