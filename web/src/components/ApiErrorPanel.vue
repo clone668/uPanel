@@ -31,6 +31,14 @@ const view = computed(() => describeApiError(props.error))
 // 人想知道的是**这次想做什么失败了**，而不是错误码的通用说法。
 const heading = computed(() => (props.title === '' ? view.value.title : props.title))
 const canRetry = computed(() => props.allowRetry && view.value.canRetry)
+// 用整页导航清空内存里的会话与 CSRF，并保留当前页面作为登录后的回跳目标。
+// 登录页自己的 401（例如密码错误）不再给一个无意义的“重新登录”按钮。
+const loginHref = computed(() => {
+  if (typeof window === 'undefined') return '/login'
+  if (window.location.pathname === '/login') return ''
+  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`
+  return `/login?redirect=${encodeURIComponent(current)}`
+})
 </script>
 
 <template>
@@ -43,8 +51,10 @@ const canRetry = computed(() => props.allowRetry && view.value.canRetry)
       <p v-if="error.requestId" class="error-panel__meta">
         request_id：<code class="u-mono">{{ error.requestId }}</code>
       </p>
-      <p v-if="view.needsLogin" class="error-panel__meta">重新登录功能在 P02 提供。</p>
     </div>
+    <UButton v-if="view.needsLogin && loginHref !== ''" :href="loginHref" size="sm" variant="secondary">
+      重新登录
+    </UButton>
     <UButton v-if="canRetry" size="sm" variant="secondary" @click="emit('retry')">重试</UButton>
   </div>
 </template>

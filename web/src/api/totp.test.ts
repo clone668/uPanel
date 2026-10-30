@@ -10,6 +10,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { AUTH_TIMEOUT_MS } from './auth'
 import type { ApiError } from './client'
 import { setCsrfTokenProvider } from './client'
 import {
@@ -54,6 +55,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
   setCsrfTokenProvider(() => null)
 })
 
@@ -99,8 +101,10 @@ describe('三条请求的形状', () => {
     const mock = stubFetch(() =>
       Promise.resolve(dataResponse({ enabled: false, revoked_sessions: 1 })),
     )
+    const timeout = vi.spyOn(AbortSignal, 'timeout')
 
     const withCode = await totpDisable({ password: 'pw', totp: '123456' })
+    expect(timeout).toHaveBeenCalledWith(AUTH_TIMEOUT_MS)
     expect(callOf(mock, 0)[1].method).toBe('DELETE')
     expect(JSON.parse(String(callOf(mock, 0)[1].body))).toEqual({ password: 'pw', totp: '123456' })
     expect(withCode.data.revoked_sessions).toBe(1)

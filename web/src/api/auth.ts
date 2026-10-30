@@ -5,6 +5,10 @@
 
 import { get, request, type ApiResult } from './client'
 
+// 服务端给认证预留 120 秒（慢单核上的 Argon2id 实测可达 22—30 秒）；
+// 客户端多留 5 秒传输余量，不能先用默认 15 秒把一次正常校验断掉。
+export const AUTH_TIMEOUT_MS = 125_000
+
 export type Role = 'admin' | 'viewer'
 
 /** 与 Go 侧 userDTO 同名字段（snake_case，不做驼峰转换）。 */
@@ -44,7 +48,7 @@ export function login(
 ): Promise<ApiResult<LoginData>> {
   const body: { username: string; password: string; totp?: string } = { username, password }
   if (totp !== undefined && totp !== '') body.totp = totp
-  return request<LoginData>('/auth/login', { method: 'POST', body })
+  return request<LoginData>('/auth/login', { method: 'POST', body, timeoutMs: AUTH_TIMEOUT_MS })
 }
 
 /** GET /auth/session。未登录时返回 401 UNAUTHENTICATED。 */
@@ -78,6 +82,6 @@ export function reauthPassword(password: string, totp?: string): Promise<ApiResu
   return request<ReauthData>('/auth/reauth', {
     method: 'POST',
     body,
-    timeoutMs: 15_000,
+    timeoutMs: AUTH_TIMEOUT_MS,
   })
 }

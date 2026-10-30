@@ -73,6 +73,9 @@ const invalidFrames = ref(0)
 
 let stream: JobStreamHandle | null = null
 let listTimer: ReturnType<typeof setInterval> | null = null
+let listRequest = 0
+let detailRequest = 0
+let logRequest = 0
 
 const selectedJob = computed<JobDTO | null>(() => detail.value)
 const showCancel = computed(() =>
@@ -141,14 +144,17 @@ const columns: DataTableColumns<JobDTO> = [
 
 /** 拉列表。失败必须显式进入错误态：静默保留旧列表会让人以为服务还在。 */
 async function loadJobs(options: { quiet?: boolean } = {}): Promise<void> {
+  const request = ++listRequest
   if (!options.quiet) phase.value = 'loading'
   try {
     const result = await listJobs(200)
+    if (request !== listRequest) return
     jobs.value = result.data.jobs
     phase.value = 'ready'
     listError.value = null
   } catch (caught) {
     if (caught instanceof ApiError) {
+      if (request !== listRequest) return
       listError.value = caught
       phase.value = 'error'
       return
@@ -159,10 +165,11 @@ async function loadJobs(options: { quiet?: boolean } = {}): Promise<void> {
 
 /** 拉详情：事件流的每一轮“该刷新了”都落到这里。 */
 async function loadDetail(jobId: string, options: { quiet?: boolean } = {}): Promise<void> {
+  const request = ++detailRequest
   if (!options.quiet) detailPhase.value = 'loading'
   try {
     const result = await getJob(jobId)
-    if (selectedId.value !== jobId) return
+    if (request !== detailRequest || selectedId.value !== jobId) return
     detail.value = result.data
     detailPhase.value = 'ready'
     detailError.value = null
@@ -171,6 +178,7 @@ async function loadDetail(jobId: string, options: { quiet?: boolean } = {}): Pro
     if (index >= 0) jobs.value.splice(index, 1, result.data)
   } catch (caught) {
     if (caught instanceof ApiError) {
+      if (request !== detailRequest || selectedId.value !== jobId) return
       detailError.value = caught
       detailPhase.value = 'error'
       return
@@ -180,11 +188,12 @@ async function loadDetail(jobId: string, options: { quiet?: boolean } = {}): Pro
 }
 
 async function loadLogs(jobId: string, options: { cursor?: string | null; append?: boolean } = {}) {
+  const request = ++logRequest
   loadingLogs.value = true
   if (!options.append) logPhase.value = 'loading'
   try {
     const result = await fetchJobLogs(jobId, { cursor: options.cursor ?? null, limit: 100 })
-    if (selectedId.value !== jobId) return
+    if (request !== logRequest || selectedId.value !== jobId) return
     logs.value = trimLogs(
       options.append ? mergeLogs(logs.value, result.data.logs) : result.data.logs,
     )
@@ -193,13 +202,14 @@ async function loadLogs(jobId: string, options: { cursor?: string | null; append
     logError.value = null
   } catch (caught) {
     if (caught instanceof ApiError) {
+      if (request !== logRequest || selectedId.value !== jobId) return
       logError.value = caught
       logPhase.value = 'error'
       return
     }
     throw caught
   } finally {
-    loadingLogs.value = false
+    if (request === logRequest) loadingLogs.value = false
   }
 }
 
@@ -217,12 +227,13 @@ function startStream(jobId: string): void {
   if (!session.isAdmin) return
   stream = openJobStream(jobId, {
     onState: (state) => {
-      streamState.value = state
+      if (selectedId.value === jobId) streamState.value = state
     },
     onInvalidFrame: () => {
-      invalidFrames.value += 1
+      if (selectedId.value === jobId) invalidFrames.value += 1
     },
     onEvent: (event) => {
+      if (selectedId.value !== jobId) return
       lastEventSeq.value = Math.max(lastEventSeq.value, event.seq)
       if (event.kind === 'gap') {
         // 历史已被清理：断点补发已经不可能，重新拉一遍状态与第一页日志。
@@ -242,10 +253,8 @@ function startStream(jobId: string): void {
         void loadDetail(jobId, { quiet: true })
         return
       }
-      // progress：本地不推算百分比，等下一轮详情把服务端的值带回来。
-      if (detail.value && detail.value.status !== 'running') {
-        void loadDetail(jobId, { quiet: true })
-      }
+      // progress：本地不推算百分比，运行中的每一步都重新读取权威详情。
+      void loadDetail(jobId, { quiet: true })
     },
   })
 }
@@ -271,6 +280,7 @@ async function requestCancel(): Promise<void> {
   actionMessage.value = ''
   try {
     const result = await cancelJob(job.job_id)
+    if (selectedId.value !== job.job_id) return
     detail.value = result.data
     actionMessage.value =
       result.data.status === 'canceled'
@@ -278,6 +288,7 @@ async function requestCancel(): Promise<void> {
         : '已请求取消：代理会在安全检查点停止，结果以下一次刷新为准。'
   } catch (caught) {
     if (caught instanceof ApiError) {
+      if (selectedId.value !== job.job_id) return
       cancelError.value = caught
       return
     }

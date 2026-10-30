@@ -31,6 +31,7 @@ const code = ref('')
 /** 服务端已经明确要验证码：此时才显示第二步的那一行。 */
 const needsCode = ref(false)
 const submitting = ref(false)
+const restoring = ref(false)
 const error = ref<ApiError | null>(null)
 
 function submit(): Promise<void> {
@@ -38,7 +39,7 @@ function submit(): Promise<void> {
 }
 
 async function run(): Promise<void> {
-  if (submitting.value) return
+  if (submitting.value || restoring.value) return
   const submitCode = needsCode.value
   if (username.value.trim() === '' || password.value === '') {
     error.value = null
@@ -86,6 +87,22 @@ function backToPassword(): void {
 function onCodeInput(next: string): void {
   code.value = sanitizeCode(next)
 }
+
+/** 初始会话恢复失败时，登录页给出真实错误和一条独立的重试路径。 */
+async function retryRestore(): Promise<void> {
+  if (restoring.value || submitting.value) return
+  restoring.value = true
+  try {
+    await session.restore()
+    if (session.isAuthenticated) {
+      await router.replace(safeRedirect(route.query.redirect))
+    }
+  } catch {
+    // restore 已把原始 ApiError 留在 store，模板会把它显示出来。
+  } finally {
+    restoring.value = false
+  }
+}
 </script>
 
 <template>
@@ -101,7 +118,7 @@ function onCodeInput(next: string): void {
             v-model:value="username"
             placeholder="管理员用户名"
             autocomplete="username"
-            :disabled="submitting || needsCode"
+            :disabled="submitting || restoring || needsCode"
             data-testid="login-username"
           />
         </NFormItem>
@@ -112,7 +129,7 @@ function onCodeInput(next: string): void {
             show-password-on="click"
             placeholder="密码"
             autocomplete="current-password"
-            :disabled="submitting || needsCode"
+            :disabled="submitting || restoring || needsCode"
             @keyup.enter="needsCode ? undefined : submit()"
             data-testid="login-password"
           />
@@ -121,12 +138,19 @@ function onCodeInput(next: string): void {
         <SecondFactorField
           v-if="needsCode"
           :model-value="code"
-          :disabled="submitting"
+          :disabled="submitting || restoring"
           label="二次验证码"
           testid="login-totp"
           @update:model-value="onCodeInput"
         />
 
+        <ApiErrorPanel
+          v-if="session.restoreError"
+          :error="session.restoreError"
+          title="无法确认面板会话"
+          :allow-retry="!restoring && !submitting"
+          @retry="retryRestore"
+        />
         <ApiErrorPanel v-if="error" :error="error" @retry="submit" />
 
         <NButton
@@ -134,7 +158,10 @@ function onCodeInput(next: string): void {
           type="primary"
           :loading="submitting"
           :disabled="
-            username.trim() === '' || password === '' || (needsCode && !isCodeComplete(code))
+            restoring ||
+            username.trim() === '' ||
+            password === '' ||
+            (needsCode && !isCodeComplete(code))
           "
           attr-type="submit"
           data-testid="login-submit"
@@ -147,7 +174,7 @@ function onCodeInput(next: string): void {
           class="login__back"
           quaternary
           size="small"
-          :disabled="submitting"
+          :disabled="submitting || restoring"
           data-testid="login-back"
           @click="backToPassword"
         >

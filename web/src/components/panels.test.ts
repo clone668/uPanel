@@ -144,11 +144,13 @@ describe('ApiErrorPanel', () => {
     expect(html).toContain('>重试<')
   })
 
-  it('401 说明需要重新登录，且不提供重试', async () => {
+  it('401 提供真实的重新登录入口，且不提供原请求重试', async () => {
     const html = await render(ApiErrorPanel, {
       error: serverError('UNAUTHENTICATED', 401, '会话已失效'),
     })
-    expect(html).toContain('重新登录功能在 P02 提供。')
+    expect(html).toContain('href="/login"')
+    expect(html).toContain('重新登录')
+    expect(html).not.toContain('重新登录功能在 P02 提供')
     expect(html).not.toContain('重试</button>')
   })
 

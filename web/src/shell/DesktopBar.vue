@@ -9,6 +9,7 @@
 
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useMessage } from 'naive-ui'
 
 import ModuleIcon from '@/ui/ModuleIcon.vue'
 import { useTheme } from '@/ui/theme'
@@ -28,6 +29,7 @@ const emit = defineEmits<{ launcher: [] }>()
 const router = useRouter()
 const session = useSessionStore()
 const theme = useTheme()
+const message = useMessage()
 
 const now = ref(new Date())
 let timer: ReturnType<typeof setInterval> | undefined
@@ -67,8 +69,20 @@ const roleLabel = computed(() =>
 
 const userName = computed(() => session.user?.display_name || session.user?.username || '')
 
+const signingOut = ref(false)
+
 async function signOut(): Promise<void> {
-  await session.signOut()
+  if (signingOut.value) return
+  signingOut.value = true
+  try {
+    await session.signOut()
+  } catch {
+    // 服务端可能仍持有有效 Cookie；不能把本地清场当成已经退出。
+    message.error('退出请求失败，服务端会话可能仍有效。请检查连接后重试。')
+    return
+  } finally {
+    signingOut.value = false
+  }
   await router.replace('/login')
 }
 </script>
@@ -109,7 +123,9 @@ async function signOut(): Promise<void> {
       <span class="bar__user">{{ userName }}</span>
       <span v-if="roleLabel" class="bar__role">{{ roleLabel }}</span>
 
-      <button class="bar__btn" type="button" @click="signOut">退出</button>
+      <button class="bar__btn" type="button" :disabled="signingOut" @click="signOut">
+        {{ signingOut ? '退出中…' : '退出' }}
+      </button>
     </div>
   </header>
 </template>

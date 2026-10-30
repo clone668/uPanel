@@ -27,6 +27,8 @@ export const useSessionStore = defineStore('session', () => {
   const expiresAt = ref<string | null>(null)
   const reauthExpiresAt = ref<string | null>(null)
   const status = ref<SessionStatus>('unknown')
+  /** 首次/重新恢复会话的真实失败原因；登录页据此区分“未登录”与“服务不可用”。 */
+  const restoreError = ref<ApiError | null>(null)
   /**
    * 当前账号是否启用了二次验证（P14.6）。只用于界面：决定再认证表单里要不要
    * 多一个验证码输入框。判定永远在服务端——这里为 false 时不带码，被
@@ -50,6 +52,7 @@ export const useSessionStore = defineStore('session', () => {
     expiresAt.value = data.expires_at
     reauthExpiresAt.value = data.reauth_expires_at ?? null
     totpEnabled.value = data.totp_enabled === true
+    restoreError.value = null
     status.value = 'authenticated'
   }
 
@@ -59,6 +62,7 @@ export const useSessionStore = defineStore('session', () => {
     expiresAt.value = null
     reauthExpiresAt.value = null
     totpEnabled.value = false
+    restoreError.value = null
     status.value = 'anonymous'
   }
 
@@ -69,6 +73,7 @@ export const useSessionStore = defineStore('session', () => {
    * 避免把“服务连不上”显示成“请登录”而让人反复输密码。
    */
   async function restore(): Promise<void> {
+    restoreError.value = null
     try {
       const result = await fetchSession()
       applySession(result.data)
@@ -78,6 +83,16 @@ export const useSessionStore = defineStore('session', () => {
         return
       }
       status.value = 'anonymous'
+      restoreError.value =
+        caught instanceof ApiError
+          ? caught
+          : new ApiError({
+              code: 'NETWORK_ERROR',
+              message: `无法恢复面板会话：${caught instanceof Error ? caught.message : String(caught)}`,
+              status: 0,
+              requestId: '',
+              source: 'client',
+            })
       throw caught
     }
   }
@@ -93,13 +108,18 @@ export const useSessionStore = defineStore('session', () => {
     applySession(result.data)
   }
 
-  /** 退出。即使服务端调用失败也清空本地状态：不能让人“以为已经退出”。 */
+  /** 服务端确认销毁（或会话已失效）后才清空本地状态；传输失败时保留界面以便重试。 */
   async function signOut(): Promise<void> {
     try {
       await logoutRequest()
-    } finally {
-      clear()
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.code === 'UNAUTHENTICATED') {
+        clear()
+        return
+      }
+      throw caught
     }
+    clear()
   }
 
   // 统一 API 客户端从这里取 CSRF 令牌（不落 localStorage）。
@@ -111,6 +131,7 @@ export const useSessionStore = defineStore('session', () => {
     expiresAt,
     reauthExpiresAt,
     status,
+    restoreError,
     totpEnabled,
     isAuthenticated,
     role,

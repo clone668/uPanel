@@ -6,6 +6,7 @@
 //
 // 三条都要 admin + 再认证 + CSRF，所以调用方必须先完成 reauth（第二次因子也要带上）。
 
+import { AUTH_TIMEOUT_MS } from './auth'
 import { request, type ApiResult } from './client'
 
 /** POST /auth/totp/setup 的返回。enrollment_id 是引用，otpauth_uri 里带着种子。 */
@@ -67,6 +68,8 @@ export function totpDisable(input: TotpDisableInput): Promise<ApiResult<TotpDisa
   return request<TotpDisableData>('/auth/totp', {
     method: 'DELETE',
     body: input,
+    // 这里会再次做 Argon2id 口令校验，与登录/再认证共用慢机器预算。
+    timeoutMs: AUTH_TIMEOUT_MS,
   })
 }
 
