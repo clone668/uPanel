@@ -586,13 +586,13 @@ func (o *Ops) ExecuteIssue(ctx context.Context, req proxies.WriteRequest, action
 			"attempted_at":   now.UTC().Format(time.RFC3339),
 		}
 		return proxies.WriteReport{
-				Outcome:      OutcomeUnknown,
-				Observed:     observed,
-				RecoveryHint: "Certbot 没有成功。上面 stderr_tail 是它自己的最后一段输出；常见原因：域名没有解析到本机、80 端口不通、速率限额、邮箱无效。",
-			}, certbotFailure{
-				err:    fmt.Errorf("%w: %v", ErrCertbotFailed, err),
-				reason: oneLine(err.Error(), 300),
-			}
+			Outcome:      OutcomeUnknown,
+			Observed:     observed,
+			RecoveryHint: "Certbot 没有成功。上面 stderr_tail 是它自己的最后一段输出；常见原因：域名没有解析到本机、80 端口不通、速率限额、邮箱无效。",
+		}, certbotFailure{
+			err:    fmt.Errorf("%w: %v", ErrCertbotFailed, err),
+			reason: oneLine(err.Error(), 300),
+		}
 	}
 
 	raw, err := o.opts.FS.ReadFile(certPath)

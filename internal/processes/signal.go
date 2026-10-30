@@ -199,22 +199,22 @@ func (c *Collector) Assess(ctx context.Context, params SignalParams) (Assessment
 func signalConsequences(signal string, process Process) ([]Reason, []Impact) {
 	if signal == SignalKILL {
 		return []Reason{{
-				Code: WarningForceKill,
-				Message: "SIGKILL 无法被捕获或忽略：" + process.Command +
-					" 不会执行任何清理逻辑，也不会写回缓冲区",
-			}}, []Impact{
-				{Kind: ImpactTermination, Description: "进程立即终止；它负责的工作会中断"},
-				{Kind: ImpactDataLoss, Description: "未落盘的数据、未提交的事务、未清理的临时文件可能留下不一致状态"},
-			}
+			Code: WarningForceKill,
+			Message: "SIGKILL 无法被捕获或忽略：" + process.Command +
+				" 不会执行任何清理逻辑，也不会写回缓冲区",
+		}}, []Impact{
+			{Kind: ImpactTermination, Description: "进程立即终止；它负责的工作会中断"},
+			{Kind: ImpactDataLoss, Description: "未落盘的数据、未提交的事务、未清理的临时文件可能留下不一致状态"},
+		}
 	}
 	return []Reason{{
-			Code: WarningTerminate,
-			Message: "SIGTERM 只是请求退出：" + process.Command +
-				" 可以捕获它先清理再退出，也可以忽略它",
-		}}, []Impact{
-			{Kind: ImpactTermination, Description: "进程会退出；它正在处理的请求会中断"},
-			{Kind: ImpactNone, Description: "如果进程忽略 SIGTERM，需要单独发起强制结束（SIGKILL，需再认证与确认短语）"},
-		}
+		Code: WarningTerminate,
+		Message: "SIGTERM 只是请求退出：" + process.Command +
+			" 可以捕获它先清理再退出，也可以忽略它",
+	}}, []Impact{
+		{Kind: ImpactTermination, Description: "进程会退出；它正在处理的请求会中断"},
+		{Kind: ImpactNone, Description: "如果进程忽略 SIGTERM，需要单独发起强制结束（SIGKILL，需再认证与确认短语）"},
+	}
 }
 
 // ExecuteSignal 执行一次信号发送并**读回验证**。

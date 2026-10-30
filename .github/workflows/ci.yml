@@ -43,4 +43,9 @@ jobs:
 
       - name: Go race detector（并发修复涉及的包）
         # 全量 -race 会把 CI 拖到超时；这里覆盖本次审核修过并发语义的包。
-        run: go test -race -count=1 ./internal/auth ./internal/operations ./internal/files ./internal/notifications ./internal/metrics ./internal/agentstore ./internal/terminal ./internal/monitoring ./internal/accounts
+        # 与 check.sh 的 go-test 同理：internal/files 的测试要求保留目录属主为 root，
+        # runner 是普通用户，需要 sudo 提权跑。
+        run: |
+          TEST_GOCACHE=$(mktemp -d)
+          sudo env "GOCACHE=$TEST_GOCACHE" "PATH=$PATH" go test -race -count=1 ./internal/auth ./internal/operations ./internal/files ./internal/notifications ./internal/metrics ./internal/agentstore ./internal/terminal ./internal/monitoring ./internal/accounts
+          sudo rm -rf "$TEST_GOCACHE"

@@ -174,13 +174,25 @@ else
   else
     run "go-build" go build ./...
     run "go-vet" go vet ./...
-    run "go-test" go test ./...
+    # files 等包在 Linux 上校验“保留目录属主必须为 root”，非 root 跑会直接全挂；
+    # 在 Linux 非 root 且有免密 sudo 的环境（如 GitHub Actions runner）提权跑测试。
+    if [ "$(uname -s)" = "Linux" ] && [ "$(id -u)" != "0" ] && command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+      TEST_GOCACHE=$(mktemp -d)
+      # 模块缓存已在 go-build 时由普通用户下载完毕，root 只需读（默认权限即可）。
+      run "go-test" sudo env "GOCACHE=$TEST_GOCACHE" "PATH=$PATH" go test ./...
+      sudo rm -rf "$TEST_GOCACHE"
+    else
+      run "go-test" go test ./...
+    fi
     # Linux 目标交叉编译：确保带 //go:build linux 的实现与本机实现都能编译。
     # 开发宿主不是 Linux，这一项是“Linux 实现可编译”的最低证据，不等于 Linux 运行验收。
     run "go-build-linux" env GOOS=linux GOARCH=amd64 go build ./...
     run "go-vet-linux" env GOOS=linux GOARCH=amd64 go vet ./...
-    if [ -n "$(gofmt -l cmd internal 2>/dev/null)" ]; then
-      printf '\n==> gofmt\n未格式化的文件：\n%s\n' "$(gofmt -l cmd internal)"
+    # 必须用当前工具链自带的 gofmt：PATH 里可能存在旧版 Go 的 gofmt，
+    # 新旧版本对部分换行缩进的判定不同，会导致本机 PASS、CI FAIL（或反过来）。
+    GOFMT="$(go env GOROOT)/bin/gofmt"
+    if [ -n "$("$GOFMT" -l cmd internal 2>/dev/null)" ]; then
+      printf '\n==> gofmt\n未格式化的文件：\n%s\n' "$("$GOFMT" -l cmd internal)"
       FAILED=$((FAILED + 1))
       label "gofmt:FAIL"
     else
