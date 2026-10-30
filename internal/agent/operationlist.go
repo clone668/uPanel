@@ -65,7 +65,7 @@ type scheduledOperationListResponse struct {
 	Operations []scheduledOperationView `json:"operations"`
 }
 
-// handleListScheduledOperations 处理 GET /internal/v1/operations?actor=scheduler&since=&limit=。
+// handleListScheduledOperations 处理 GET /internal/v1/operations?actor=scheduler&since=&since_id=&limit=。
 func (s *Server) handleListScheduledOperations(w http.ResponseWriter, r *http.Request) {
 	actor := strings.TrimSpace(r.URL.Query().Get("actor"))
 	if actor != "scheduler" {
@@ -83,6 +83,12 @@ func (s *Server) handleListScheduledOperations(w http.ResponseWriter, r *http.Re
 		}
 		since = t.UTC()
 	}
+	sinceID := strings.TrimSpace(r.URL.Query().Get("since_id"))
+	if sinceID != "" && (since.IsZero() || !agentstore.ValidOperationID(sinceID)) {
+		httpx.WriteError(w, r, http.StatusBadRequest, httpx.CodeValidationError,
+			"since_id 必须配合 since 使用，且是 op_ 加 32 位小写十六进制")
+		return
+	}
 	limit := scheduledOperationDefaultLimit
 	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
 		n, err := strconv.Atoi(raw)
@@ -97,7 +103,7 @@ func (s *Server) handleListScheduledOperations(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	ops, err := s.opts.Operations.ListByActor(r.Context(), SchedulerUserID, since, limit)
+	ops, err := s.opts.Operations.ListByActor(r.Context(), SchedulerUserID, since, sinceID, limit)
 	if err != nil {
 		s.internalError(w, r, "读取定时操作失败", err)
 		return

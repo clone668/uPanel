@@ -235,9 +235,10 @@ func TestCollectCPUPercentFromDeltas(t *testing.T) {
 	}
 
 	// 第二次：sleep 多用 10 个滴答（5→15），整机多用 100 个滴答，2 核。
+	// guest/guest_nice 的增长已经含在 user/nice 中，不得再进入分母。
 	// 相对单核的百分比 = 100 × 10 × 2 ÷ 100 = 20.0。
 	fs.set("/proc/39515/stat", makeStat(39515, "sleep", 'S', 39443, 15, 0, 277319))
-	fs.setStatFile("cpu  1100 0 0 0 0 0 0 0 0 0\ncpu0  550 0 0 0 0 0 0 0 0 0\ncpu1  550 0 0 0 0 0 0 0 0 0\n")
+	fs.setStatFile("cpu  1100 0 0 0 0 0 0 0 1000 2000\ncpu0  550 0 0 0 0 0 0 0 0 0\ncpu1  550 0 0 0 0 0 0 0 0 0\n")
 
 	second := c.Collect(t.Context())
 	sleep := findProcess(t, second, 39515)

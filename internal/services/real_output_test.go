@@ -357,6 +357,13 @@ func TestShowMatchesAliasByName(t *testing.T) {
 	if !ok || u.Unit != "ModemManager.service" || u.ActiveState != ActiveActive {
 		t.Errorf("别名块构造出的单元不对: ok=%v unit=%+v", ok, u)
 	}
+	one, found, err := ctl.ShowOne(context.Background(), "dbus-org.freedesktop.ModemManager1.service")
+	if err != nil || !found {
+		t.Fatalf("按别名单独读取必须找到规范单元: found=%v err=%v", found, err)
+	}
+	if one.Get("Id") != "ModemManager.service" {
+		t.Fatalf("别名读取丢了规范身份: %+v", one)
+	}
 }
 
 // TestListUnitNamesExcludesAliases 别名单元不进枚举，规范名进。

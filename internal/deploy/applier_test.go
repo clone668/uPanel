@@ -355,6 +355,47 @@ func TestApplyFailsWhenUnitNotActive(t *testing.T) {
 	}
 }
 
+func TestApplyFailsWhenUnitReadBackDisabled(t *testing.T) {
+	fake := &fakeSystemctl{enabled: "enabled", active: "inactive"}
+	a, _, configDir := newTestApplier(t, fake)
+	a.run = func(ctx context.Context, spec syscmd.Spec, limits syscmd.Limits) (syscmd.Result, error) {
+		res, err := fake.Run(ctx, spec, limits)
+		if len(spec.Args) > 0 && spec.Args[0] == "enable" {
+			// 模拟并发 disable（或 enable 持久化失败）：命令本身返回 0，读回才是事实。
+			fake.enabled = "disabled"
+		}
+		return res, err
+	}
+
+	report, err := a.Apply(context.Background(), applyRequest(t, configDir))
+	if err == nil {
+		t.Fatal("单元读回 disabled 时 apply 不能报成功")
+	}
+	if report.Enabled {
+		t.Fatal("失败报告不能保留 enabled=true")
+	}
+	if !strings.Contains(err.Error(), "未启用") {
+		t.Fatalf("错误应说明读回未启用：%v", err)
+	}
+}
+
+func TestAtomicWriteReportsDirectorySyncFailure(t *testing.T) {
+	original := syncDir
+	syncDir = func(string) error { return errors.New("injected fsync failure") }
+	t.Cleanup(func() { syncDir = original })
+
+	path := filepath.Join(t.TempDir(), "webapp.compose.yaml")
+	err := writeFileAtomic(path, []byte("new config"), configFileMode)
+	if err == nil || !strings.Contains(err.Error(), "同步目录") {
+		t.Fatalf("目录 fsync 失败必须上抛，实际 %v", err)
+	}
+	// rename 已经发生，不能假装整个写入没有生效；错误消息也必须暴露这个部分成功状态。
+	got, readErr := os.ReadFile(path)
+	if readErr != nil || string(got) != "new config" {
+		t.Fatalf("复现前置状态不成立：内容 %q，错误 %v", got, readErr)
+	}
+}
+
 // TestApplyRepairsDriftedUnit 确认被人改过的单元会被改回我们生成的那一份。
 func TestApplyRepairsDriftedUnit(t *testing.T) {
 	fake := &fakeSystemctl{enabled: "enabled", active: "inactive"}

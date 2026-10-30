@@ -288,7 +288,7 @@ func (s *Service) SubmitJob(ctx context.Context, in SubmitInput) (Job, error) {
 			map[string]any{"status": "queued"}, now)
 	})
 	if errors.Is(err, errConcurrentIdempotency) {
-		job, rerr := s.lookupByIdempotencyKey(ctx, in.UserID, in.IdempotencyKey)
+		job, rerr := s.lookupIdempotencyReplay(ctx, in.UserID, in.IdempotencyKey, bodyHash)
 		if rerr != nil {
 			return Job{}, rerr
 		}
@@ -513,17 +513,21 @@ func getJobTx(ctx context.Context, tx *sql.Tx, jobID string) (Job, error) {
 	return scanJob(tx.QueryRowContext(ctx, `SELECT `+jobColumns+` FROM jobs WHERE id = ?`, jobID))
 }
 
-// lookupByIdempotencyKey 按幂等键读回任务（并发重放路径）。
-func (s *Service) lookupByIdempotencyKey(ctx context.Context, userID int64, key string) (Job, error) {
-	var jobID string
+// lookupIdempotencyReplay 在并发唯一键冲突后读回原任务，并再次核对请求体。
+// 抢先落库的可能是同键不同请求；不能把它的任务当作本次请求的成功重放。
+func (s *Service) lookupIdempotencyReplay(ctx context.Context, userID int64, key, bodyHash string) (Job, error) {
+	var jobID, existingHash string
 	err := s.db.SQL().QueryRowContext(ctx,
-		`SELECT job_id FROM idempotency_keys WHERE user_id = ? AND route = ? AND key = ?`,
-		userID, jobRouteSubmit, key).Scan(&jobID)
+		`SELECT job_id, body_hash FROM idempotency_keys WHERE user_id = ? AND route = ? AND key = ?`,
+		userID, jobRouteSubmit, key).Scan(&jobID, &existingHash)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Job{}, ErrJobNotFound
 		}
 		return Job{}, fmt.Errorf("operations: 读取幂等记录失败: %w", err)
+	}
+	if existingHash != bodyHash {
+		return Job{}, ErrIdempotencyConflict
 	}
 	return s.getJobByID(ctx, jobID, userID)
 }

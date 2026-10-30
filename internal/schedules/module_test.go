@@ -407,6 +407,22 @@ func TestApplyRejectsWhenUnitNotEnabled(t *testing.T) {
 	}
 }
 
+func TestApplyRejectsEnabledButInactiveTimer(t *testing.T) {
+	mod, store, _, _ := newHarness(t)
+	mod.units = &fakeUnits{status: Status{Present: true, UnitFileState: "enabled", ActiveState: "inactive"}}
+	rec, err := mod.Apply(context.Background(), ApplyRequest{Definition: testDef()})
+	if err == nil || !strings.Contains(err.Error(), "ActiveState=inactive") {
+		t.Fatalf("已启用但未运行的 timer 必须报错，实际 %v", err)
+	}
+	stored, found, getErr := store.Get(context.Background(), rec.ID)
+	if getErr != nil || !found {
+		t.Fatalf("读取已保存定义 = %v, %v", getErr, found)
+	}
+	if stored.TimerRef != "" {
+		t.Fatalf("未运行的 timer 不应记录安装成功引用：%q", stored.TimerRef)
+	}
+}
+
 // TestApplyAcceptsCertificateRenewal：证书续期计划要真的能保存下来、真的装上单元。
 //
 // P12.4 的 Apply 里有一道"该动作尚未接线"的闸，预检却放行——于是界面上是"预检通过、
@@ -452,6 +468,26 @@ func TestApplyRejectsCertificateRenewalWithoutParams(t *testing.T) {
 	}
 	if len(units.ensured) != 0 {
 		t.Fatal("被拒绝的计划不该装单元")
+	}
+}
+
+func TestDeleteRejectsStaleVersionBeforeRemovingUnits(t *testing.T) {
+	mod, store, units, _ := newHarness(t)
+	rec, err := mod.Apply(context.Background(), ApplyRequest{Definition: testDef()})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	before := len(units.removed)
+
+	err = mod.Delete(context.Background(), rec.ID, rec.Version-1)
+	if err == nil || !strings.Contains(err.Error(), "版本冲突") {
+		t.Fatalf("过期版本必须返回冲突，实际 %v", err)
+	}
+	if got := len(units.removed); got != before {
+		t.Fatalf("过期删除不应触碰 live 单元，Remove 调用从 %d 变成 %d", before, got)
+	}
+	if _, found, _ := store.Get(context.Background(), rec.ID); !found {
+		t.Fatal("过期删除不应移除记录")
 	}
 }
 

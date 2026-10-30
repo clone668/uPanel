@@ -439,8 +439,17 @@ func (e *Engine) createAccount(ctx context.Context, t ToolPaths, p AccountApplyP
 		return WriteReport{}, commandFailed("创建系统账号 %s 失败：%v", p.Name, err)
 	}
 	rollback := func(reason string) (WriteReport, error) {
-		_, _ = e.run(ctx, specSambaDelete(t, p.Name), commandTimeout)
-		_, _ = e.run(ctx, specUserdel(p.Name), commandTimeout)
+		var cleanupErrs []error
+		if _, err := e.run(ctx, specSambaDelete(t, p.Name), commandTimeout); err != nil {
+			cleanupErrs = append(cleanupErrs, fmt.Errorf("删除 Samba 账号失败: %w", err))
+		}
+		if _, err := e.run(ctx, specUserdel(p.Name), commandTimeout); err != nil {
+			cleanupErrs = append(cleanupErrs, fmt.Errorf("删除系统账号失败: %w", err))
+		}
+		if len(cleanupErrs) > 0 {
+			return WriteReport{}, commandFailed("%s；回滚失败，需要人工清理刚创建的账号 %s：%v",
+				reason, p.Name, errors.Join(cleanupErrs...))
+		}
 		return WriteReport{}, commandFailed("%s；已回滚（删掉刚创建的系统账号 %s）", reason, p.Name)
 	}
 

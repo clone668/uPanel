@@ -194,7 +194,9 @@ func (s *Service) HealthTargets(ctx context.Context) ([]HealthTarget, error) {
 		SELECT id, name, description, icon_key, group_id, type, binding_json,
 		       public_url, health_json, version, created_at, updated_at,
 		       0
-		FROM apps ORDER BY name, id LIMIT ?`, MaxHealthTargets)
+		FROM apps
+	WHERE json_extract(health_json, '$.enabled') = 1
+	ORDER BY name, id LIMIT ?`, MaxHealthTargets)
 	if err != nil {
 		return nil, fmt.Errorf("apps: 查询健康检查目标失败: %w", err)
 	}

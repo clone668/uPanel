@@ -737,25 +737,30 @@ func (e *FirewallEngine) progress(req FirewallWriteRequest, step string, fields 
 
 // apply 是核心：写记录 → 武装 timer → 改规则 → 核验，失败立刻退回。
 func (e *FirewallEngine) apply(ctx context.Context, params FirewallApplyParams, req FirewallWriteRequest) (FirewallWriteReport, error) {
-	def, err := ValidateFirewallDefinition(params.Definition)
-	if err != nil {
-		return FirewallWriteReport{}, err
-	}
 	if e.tools.ufw == "" {
 		return FirewallWriteReport{}, errors.New("找不到 ufw：无法改防火墙")
 	}
-	// 预检与执行之间现场可能已经变了：指纹与身份都要再核一次，不接受"差不多"。
+	// 执行前必须重跑完整预检，而不只是比较摘要。管理端口、独占管理器与未确认记录
+	// 都不是配置摘要的一部分；少查任何一项，预检到执行之间的变化就会被直接写进 UFW。
+	assessment, err := e.Assess(ctx, params)
+	if err != nil {
+		return FirewallWriteReport{}, err
+	}
+	if !assessment.Allowed {
+		return FirewallWriteReport{}, fmt.Errorf("%w: %v", ErrPreflightChanged, assessment.Blockers)
+	}
+	if req.ExpectedIdentity != "" && req.ExpectedIdentity != assessment.IdentityFingerprint {
+		return FirewallWriteReport{}, fmt.Errorf("%w: 防火墙身份已变", ErrPreflightChanged)
+	}
+	if req.ExpectedStateVersion != "" && req.ExpectedStateVersion != assessment.StateVersion {
+		return FirewallWriteReport{}, ErrPreflightChanged
+	}
+	normalized, ok := assessment.Normalized.(FirewallApplyParams)
+	if !ok {
+		return FirewallWriteReport{}, errors.New("防火墙预检参数类型不一致")
+	}
+	def := normalized.Definition
 	snap := e.readSnapshot(ctx)
-	current := firewallConfigHash(snap.state, snap.managed)
-	if params.ExpectedConfigHash != "" && params.ExpectedConfigHash != current {
-		return FirewallWriteReport{}, ErrPreflightChanged
-	}
-	if req.ExpectedStateVersion != "" && req.ExpectedStateVersion != current {
-		return FirewallWriteReport{}, ErrPreflightChanged
-	}
-	if len(snap.unknown) > 0 {
-		return FirewallWriteReport{}, fmt.Errorf("%w: 现场有认不出来的面板规则", ErrPreflightChanged)
-	}
 
 	rec, err := e.newRecord(snap, *def, req.OperationID)
 	if err != nil {

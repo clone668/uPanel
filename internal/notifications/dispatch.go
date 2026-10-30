@@ -98,7 +98,11 @@ func (s *Service) DispatchOnce(ctx context.Context) (DispatchReport, error) {
 	for _, d := range due {
 		ch, err := s.GetChannel(ctx, d.ChannelID)
 		if err != nil {
-			// 通道被删掉了。投递账留着，状态说清楚为什么没发。
+			if !errors.Is(err, ErrNotFound) {
+				// 读取故障不等于通道被删除。保留 pending，下一轮重读；
+				// 否则一次数据库抖动就会把尚可投递的通知永久判死。
+				return report, err
+			}
 			if markErr := s.abandonDelivery(ctx, d.ID, "通道已被删除，未发送"); markErr != nil {
 				return report, markErr
 			}

@@ -163,6 +163,8 @@ func TestListScheduledOperationsParamShape(t *testing.T) {
 
 	for _, query := range []string{
 		"?actor=scheduler&since=昨天",
+		"?actor=scheduler&since_id=op_0123456789abcdef0123456789abcdef",
+		"?actor=scheduler&since=2026-10-20T03%3A00%3A00Z&since_id=bad",
 		"?actor=scheduler&limit=0",
 		"?actor=scheduler&limit=-3",
 		"?actor=scheduler&limit=many",

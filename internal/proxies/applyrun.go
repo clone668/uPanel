@@ -311,7 +311,9 @@ func (a *Applier) ExecuteApply(ctx context.Context, req WriteRequest) (WriteRepo
 					})
 				}
 			}
-			rollback.record(authPath, oldAuth, authExisted)
+			// 还原时要用账号文件自己的权限与属主，不能用托管配置的 0644 root:root：
+			// 那样回滚"成功"了，nginx worker 却读不到它，站点全部 401。
+			rollback.recordWithOwner(authPath, oldAuth, authExisted, mode, uid, gid)
 			authMode = "written"
 		} else {
 			authMode = "unchanged"
@@ -323,7 +325,13 @@ func (a *Applier) ExecuteApply(ctx context.Context, req WriteRequest) (WriteRepo
 	} else {
 		// 不是 basic_auth（或已停用）：账号文件不该留着。
 		if old, err := readMaybe(fs, authPath); err == nil {
-			rollback.record(authPath, old, true)
+			// 还原时按原权限写回：这份文件可能是 0640 + worker 属组，
+			// 默认的 0644 会把它变成"回滚成功、worker 读不到"。
+			mode := managedFileMode
+			if fi, serr := fs.Stat(authPath); serr == nil {
+				mode = fi.Mode().Perm()
+			}
+			rollback.recordWithOwner(authPath, old, true, mode, -1, -1)
 			if err := fs.Remove(authPath); err != nil && !os.IsNotExist(err) {
 				return WriteReport{}, commandFailed("删除遗留的账号文件 %s 失败：%v", authPath, err)
 			}
@@ -332,6 +340,13 @@ func (a *Applier) ExecuteApply(ctx context.Context, req WriteRequest) (WriteRepo
 		if authMode != "" {
 			observed["auth_file"] = authPath
 			observed["auth_file_state"] = authMode
+		}
+	}
+	// 账号文件的写与删也要 fsync 它所在的目录：目录项是否持久取决于这一次
+	// fsync——掉电丢了目录项，配置里引用的账号文件就凭空消失，而所有请求 401。
+	if authMode == "written" || authMode == "removed" {
+		if err := fs.FsyncDir(paths.AuthDir()); err != nil {
+			return WriteReport{}, commandFailed("账号文件已变更，但目录 fsync 失败（掉电后可能回退）：%v", err)
 		}
 	}
 
@@ -399,13 +414,17 @@ func (a *Applier) ExecuteApply(ctx context.Context, req WriteRequest) (WriteRepo
 			}
 			fileState = FileStateWritten
 		}
+		reporter("proxy_config_file", map[string]any{"path": confPath, "state": fileState})
+	} else if desired == "" {
+		fileState = FileStateAbsent
+	}
+	// 目录 fsync 覆盖的不只是托管文件本身：清理改名遗留的旧文件也动了这个目录，
+	// 配置字节没变不等于目录项没变。
+	if changed || len(stale) > 0 {
 		if err := fs.FsyncDir(paths.ConfDir()); err != nil {
 			return WriteReport{}, commandFailed("%s 已变更，但目录 fsync 失败（掉电后可能回退）：%v",
 				paths.ConfDir(), err)
 		}
-		reporter("proxy_config_file", map[string]any{"path": confPath, "state": fileState})
-	} else if desired == "" {
-		fileState = FileStateAbsent
 	}
 	observed["file_state"] = fileState
 	observed["config_hash"] = desiredHash
@@ -960,13 +979,30 @@ type rollbackEntry struct {
 	path    string
 	content []byte
 	existed bool
+	// mode/uid/gid 是还原时要用的权限与属主。默认是托管配置的 0644 且不 chown；
+	// 账号文件必须带自己的 0640 + worker 属组进来，否则回滚"成功"之后
+	// nginx worker 读不到它——站点全部 401，而报告说旧配置仍可用。
+	mode os.FileMode
+	uid  int
+	gid  int
 }
 
 func newRollback(fs ConfigFS) *rollbackList { return &rollbackList{fs: fs} }
 
 // record 记下一个文件的旧内容。existed=false 表示这次是“新建”，回滚就是删掉它。
 func (r *rollbackList) record(path string, content []byte, existed bool) {
-	r.entries = append(r.entries, rollbackEntry{path: path, content: content, existed: existed})
+	r.entries = append(r.entries, rollbackEntry{
+		path: path, content: content, existed: existed,
+		mode: managedFileMode, uid: -1, gid: -1,
+	})
+}
+
+// recordWithOwner 与 record 相同，但还原时用指定的权限与属主（uid<0 表示不 chown）。
+func (r *rollbackList) recordWithOwner(path string, content []byte, existed bool, mode os.FileMode, uid, gid int) {
+	r.entries = append(r.entries, rollbackEntry{
+		path: path, content: content, existed: existed,
+		mode: mode, uid: uid, gid: gid,
+	})
 }
 
 // apply 逐个还原。返回第一个错误，但**继续**还原其余的：能救一个是一个。
@@ -976,7 +1012,12 @@ func (r *rollbackList) apply() error {
 		e := r.entries[i]
 		var err error
 		if e.existed {
-			err = r.fs.WriteFileSync(e.path, e.content, managedFileMode)
+			err = r.fs.WriteFileSync(e.path, e.content, e.mode)
+			if err == nil && e.uid >= 0 && r.fs.Chown != nil {
+				// chown 失败不掩盖还原本身：内容已经回去了，把属主问题记成
+				// 第一个错误报出去，而不是假装这份文件完全复原了。
+				err = r.fs.Chown(e.path, e.uid, e.gid)
+			}
 		} else {
 			err = r.fs.Remove(e.path)
 			if os.IsNotExist(err) {

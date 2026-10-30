@@ -151,15 +151,19 @@ type scheduledOperationListEnvelope struct {
 	Operations []ScheduledOperation `json:"operations"`
 }
 
-// ListScheduledOperations 问代理：从 since 起定时触发跑了哪些操作（按创建时间升序）。
+// ListScheduledOperations 问代理：复合游标之后定时触发跑了哪些操作（按创建时间与 ID 升序）。
 //
 // actor 固定为 scheduler：代理不接受别的值（它只回答这一个问题，不提供列全部操作的
-// 通道）。since 为零值时从最早一条开始；limit 由代理封顶。
-func (c *Client) ListScheduledOperations(ctx context.Context, since time.Time, limit int) ([]ScheduledOperation, error) {
+// 通道）。since 为零值时从最早一条开始；sinceID 为空表示包含 since 当时的第一条。
+// limit 由代理封顶。
+func (c *Client) ListScheduledOperations(ctx context.Context, since time.Time, sinceID string, limit int) ([]ScheduledOperation, error) {
 	q := url.Values{}
 	q.Set("actor", "scheduler")
 	if !since.IsZero() {
 		q.Set("since", since.UTC().Format(time.RFC3339))
+		if sinceID != "" {
+			q.Set("since_id", sinceID)
+		}
 	}
 	if limit > 0 {
 		q.Set("limit", strconv.Itoa(limit))

@@ -212,7 +212,11 @@ func (s *Service) Renew(ctx context.Context, in RenewInput) (Certificate, error)
 	if err != nil {
 		return Certificate{}, fmt.Errorf("certificates: 更新证书失败: %w", err)
 	}
-	if affected, err := res.RowsAffected(); err == nil && affected == 0 {
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return Certificate{}, fmt.Errorf("certificates: 读取证书更新结果失败: %w", err)
+	}
+	if affected == 0 {
 		return Certificate{}, ErrNotFound
 	}
 	return s.Get(ctx, in.ID)
@@ -239,7 +243,11 @@ func (s *Service) RecordAttempt(ctx context.Context, id string, at time.Time, fa
 	if err != nil {
 		return fmt.Errorf("certificates: 记录尝试失败: %w", err)
 	}
-	if affected, err := res.RowsAffected(); err == nil && affected == 0 {
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("certificates: 读取尝试记录结果失败: %w", err)
+	}
+	if affected == 0 {
 		return ErrNotFound
 	}
 	return nil

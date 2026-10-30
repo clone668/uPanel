@@ -203,6 +203,29 @@ func TestIdleTimeoutAndSlidingTouch(t *testing.T) {
 	}
 }
 
+func TestAuthenticateRejectsSessionAtExpirationBoundary(t *testing.T) {
+	clock := newFakeClock()
+	svc := testService(t, Options{Now: clock.Now})
+	ctx := context.Background()
+	mustCreateAdmin(t, svc, "admin")
+
+	issued, err := svc.Login(ctx, LoginInput{Username: "admin", Password: testPassword})
+	if err != nil {
+		t.Fatalf("登录失败: %v", err)
+	}
+	clock.Advance(DefaultIdleTimeout)
+	if _, err := svc.Authenticate(ctx, issued.Token); !errors.Is(err, ErrSessionInvalid) {
+		t.Fatalf("到达 expires_at 时会话必须失效，实际错误 = %v", err)
+	}
+}
+
+func TestTouchFailsWhenSessionDisappeared(t *testing.T) {
+	svc := testService(t, Options{})
+	if err := svc.touch(context.Background(), 12345, time.Now().UTC(), time.Now().UTC().Add(time.Minute)); !errors.Is(err, ErrSessionInvalid) {
+		t.Fatalf("已消失的会话不能因 no-op UPDATE 被判有效，实际 %v", err)
+	}
+}
+
 func TestTouchIsThrottledToOncePerMinute(t *testing.T) {
 	clock := newFakeClock()
 	svc := testService(t, Options{Now: clock.Now})

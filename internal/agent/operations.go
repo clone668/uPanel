@@ -112,9 +112,9 @@ type OperationStore interface {
 	AppendEvent(ctx context.Context, id, kind string, payload map[string]any, now time.Time) error
 	Events(ctx context.Context, id string) ([]agentstore.OperationEvent, error)
 	ListUnfinished(ctx context.Context) ([]agentstore.Operation, error)
-	// ListByActor 返回某个操作者从 since 起（含）创建的操作，按创建时间升序。
+	// ListByActor 返回某个操作者位于 (since, sinceID) 之后的操作，按创建时间与 ID 升序。
 	// 定时触发的操作是代理自己产生的，Web 只能反过来问"这段时间你替我跑了什么"。
-	ListByActor(ctx context.Context, userID int64, since time.Time, limit int) ([]agentstore.Operation, error)
+	ListByActor(ctx context.Context, userID int64, since time.Time, sinceID string, limit int) ([]agentstore.Operation, error)
 }
 
 // handleOperations 处理 POST /internal/v1/operations：接受一次操作。

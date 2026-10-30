@@ -500,10 +500,16 @@ func (o *Ops) AssessIssue(ctx context.Context, in IssueParams, action string) (p
 		assess.Allowed = false
 		return assess, nil
 	} else if status != 200 {
-		assess.Warnings = append(assess.Warnings, proxies.Blocker{
-			Code:    CodeACMEReachability,
-			Message: fmt.Sprintf("校验路径返回 %d（不是 200）：certbot 多半会失败，但先让它试一次", status),
+		// 与 ExecuteIssue 同一个判据：执行路径对非 200 是拒绝（探测失败必须发生在
+		// certbot 之前，见 certbot.go 文件头），预检就不能只给告警——否则用户看到的
+		// 是"预检通过、带着一条警告"，点执行却必定被拒。
+		assess.Blockers = append(assess.Blockers, proxies.Blocker{
+			Code: CodeACMEReachability,
+			Message: fmt.Sprintf("校验路径返回 %d（不是 200）：80 端口上回答的很可能是别的东西，"+
+				"现在执行 certbot 只会白消耗一次请求", status),
 		})
+		assess.Allowed = false
+		return assess, nil
 	}
 
 	where := "测试环境（staging）"

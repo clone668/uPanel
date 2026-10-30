@@ -9,6 +9,7 @@ package agentstore
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -82,7 +83,7 @@ func TestListByActorFiltersAndOrders(t *testing.T) {
 	second := mk("list-b", "list-b", 99, base.Add(2*time.Hour))
 	mk("list-x", "list-x", 7, base.Add(time.Hour))
 
-	got, err := ops.ListByActor(ctx, 99, time.Time{}, 10)
+	got, err := ops.ListByActor(ctx, 99, time.Time{}, "", 10)
 	if err != nil {
 		t.Fatalf("查询失败: %v", err)
 	}
@@ -97,7 +98,7 @@ func TestListByActorFiltersAndOrders(t *testing.T) {
 	}
 
 	// since 是"含"：正好等于第二条的时间，就该从第二条开始。
-	got, err = ops.ListByActor(ctx, 99, base.Add(2*time.Hour), 10)
+	got, err = ops.ListByActor(ctx, 99, base.Add(2*time.Hour), "", 10)
 	if err != nil {
 		t.Fatalf("查询失败: %v", err)
 	}
@@ -106,7 +107,7 @@ func TestListByActorFiltersAndOrders(t *testing.T) {
 	}
 
 	// limit 按升序截前面的，不是"最新的几条"：调用方靠它往前推水位。
-	got, err = ops.ListByActor(ctx, 99, time.Time{}, 2)
+	got, err = ops.ListByActor(ctx, 99, time.Time{}, "", 2)
 	if err != nil {
 		t.Fatalf("查询失败: %v", err)
 	}
@@ -115,19 +116,51 @@ func TestListByActorFiltersAndOrders(t *testing.T) {
 	}
 }
 
+func TestListByActorCompoundCursorDoesNotRepeatSameTimestampPage(t *testing.T) {
+	ops, plans, _ := newTestOperations(t)
+	ctx := context.Background()
+	at := time.Date(2026, 10, 20, 3, 0, 0, 0, time.UTC)
+	for _, id := range []string{
+		"op_" + "00000000000000000000000000000003",
+		"op_" + "00000000000000000000000000000001",
+		"op_" + "00000000000000000000000000000002",
+	} {
+		plan := insertPlanFor(t, plans, "cursor-"+id[len(id)-2:], 99, at)
+		op := sampleOperationAt(t, plan, id, id, at)
+		if _, _, err := ops.Accept(ctx, op); err != nil {
+			t.Fatalf("接受操作失败: %v", err)
+		}
+	}
+
+	first, err := ops.ListByActor(ctx, 99, at, "", 2)
+	if err != nil {
+		t.Fatalf("读取第一页失败: %v", err)
+	}
+	if len(first) != 2 || !strings.HasSuffix(first[0].ID, "01") || !strings.HasSuffix(first[1].ID, "02") {
+		t.Fatalf("第一页顺序不对: %+v", first)
+	}
+	second, err := ops.ListByActor(ctx, 99, at, first[1].ID, 2)
+	if err != nil {
+		t.Fatalf("读取第二页失败: %v", err)
+	}
+	if len(second) != 1 || !strings.HasSuffix(second[0].ID, "03") {
+		t.Fatalf("复合游标漏掉同时间戳的下一页: %+v", second)
+	}
+}
+
 func TestListByActorRejectsBadParams(t *testing.T) {
 	ops, _, _ := newTestOperations(t)
 	ctx := context.Background()
 
-	if _, err := ops.ListByActor(ctx, 0, time.Time{}, 10); !errors.Is(err, ErrOperationInvalid) {
+	if _, err := ops.ListByActor(ctx, 0, time.Time{}, "", 10); !errors.Is(err, ErrOperationInvalid) {
 		t.Fatalf("user_id=0 错误 = %v，期望 ErrOperationInvalid", err)
 	}
-	if _, err := ops.ListByActor(ctx, 99, time.Time{}, 0); !errors.Is(err, ErrOperationInvalid) {
+	if _, err := ops.ListByActor(ctx, 99, time.Time{}, "", 0); !errors.Is(err, ErrOperationInvalid) {
 		t.Fatalf("limit=0 错误 = %v，期望 ErrOperationInvalid", err)
 	}
 
 	// 超过上限是 clamp，不是错误——但要真的不超过上限。
-	got, err := ops.ListByActor(ctx, 99, time.Time{}, MaxActorsBatch+50)
+	got, err := ops.ListByActor(ctx, 99, time.Time{}, "", MaxActorsBatch+50)
 	if err != nil {
 		t.Fatalf("查询失败: %v", err)
 	}

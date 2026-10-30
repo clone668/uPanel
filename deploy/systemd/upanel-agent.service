@@ -52,8 +52,9 @@ RuntimeDirectoryMode=0755
 StateDirectory=upanel-agent
 StateDirectoryMode=0700
 
-; 不声明 ConfigurationDirectory：/etc/upanel 归 Web 单元管理（P01.4，属主 upanel-web）。
-; 两个单元都声明同一个目录会互相改属主/权限，代理这边只需要以 root 只读配置即可。
+; 不声明 ConfigurationDirectory：/etc/upanel 由安装器建成 root:root 0755，
+; 配置与证书私钥是 root:upanel-web 0640。两个单元都声明同一个目录会互相改属主/权限，
+; 代理只需要以 root 只读配置，Web 则只读、不能替换自己的权限边界。
 
 ; 只暴露必要的东西，新建文件默认不给其他用户读。
 UMask=0077

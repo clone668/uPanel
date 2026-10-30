@@ -85,11 +85,11 @@ func (s *Service) ImportScheduled(ctx context.Context, limit int) (ImportStats, 
 		limit = scheduledImportBatch
 	}
 
-	since, err := s.scheduledWatermark(ctx)
+	since, sinceID, err := s.scheduledWatermark(ctx)
 	if err != nil {
 		return stats, err
 	}
-	ops, err := s.agent.ListScheduledOperations(ctx, since, limit)
+	ops, err := s.agent.ListScheduledOperations(ctx, since, sinceID, limit)
 	if err != nil {
 		// 代理不可用是常态（重启、升级、磁盘忙），不在这里报错。
 		stats.Deferred = true
@@ -101,10 +101,10 @@ func (s *Service) ImportScheduled(ctx context.Context, limit int) (ImportStats, 
 	for _, op := range ops {
 		imported, err := s.importOneScheduled(ctx, op)
 		if err != nil {
-			// 单条失败不中止整轮：一条坏记录不该让其余几十条永远进不了任务中心。
-			// 但要说清是哪一条——这正是"不能只存在于 journal"要防的那种沉默。
+			// 不能越过失败项继续推进水位：较新的记录一旦成功，旧实现就会让这条失败
+			// 记录永远落在游标之前。停止本批，下一轮从同一个复合游标重试。
 			s.logger.Error("导入定时操作失败", "operation_id", op.OperationID, "error", err)
-			continue
+			break
 		}
 		if imported {
 			stats.Imported++
@@ -152,29 +152,28 @@ func (s *Service) notifyImportedTerminal(ctx context.Context, op agentclient.Sch
 	s.notifyFinished(ctx, job)
 }
 
-// scheduledWatermark 返回"已经导入到哪儿"。
+// scheduledWatermark 返回"已经导入到哪儿"的 (created_at, operation_id) 复合游标。
 //
-// 水位从任务表本身推出来（定时操作的任务 created_at 就是代理那条操作的创建时间），
-// 不另立一张状态表：多一份状态就多一处会与事实不符的地方。
-//
-// 用 >= 而不是 >：同一毫秒可能有多条，靠 operation_id 的 UNIQUE 去重，
-// 重复读一条是便宜的，漏掉一条是永久的。
-func (s *Service) scheduledWatermark(ctx context.Context) (time.Time, error) {
-	var raw string
+// 游标从任务表本身推出来（定时操作的任务 created_at 就是代理那条操作的创建时间），
+// 不另立一张状态表：多一份状态就多一处会与事实不符的地方。ID 是同一时间戳内的
+// 第二排序键；没有它，同秒超过一个批次时会永远重复第一页。
+func (s *Service) scheduledWatermark(ctx context.Context) (time.Time, string, error) {
+	var raw, operationID string
 	err := s.db.SQL().QueryRowContext(ctx,
-		`SELECT COALESCE(MAX(created_at), '') FROM jobs WHERE user_id = ?`,
-		schedules.SystemUserID).Scan(&raw)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("operations: 读取定时任务水位失败: %w", err)
+		`SELECT created_at, operation_id FROM jobs WHERE user_id = ?
+		 ORDER BY created_at DESC, operation_id DESC LIMIT 1`,
+		schedules.SystemUserID).Scan(&raw, &operationID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, "", nil
 	}
-	if raw == "" {
-		return time.Time{}, nil
+	if err != nil {
+		return time.Time{}, "", fmt.Errorf("operations: 读取定时任务水位失败: %w", err)
 	}
 	t, err := time.Parse(time.RFC3339, raw)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("operations: 定时任务水位的格式不对（%q）: %w", raw, err)
+		return time.Time{}, "", fmt.Errorf("operations: 定时任务水位的格式不对（%q）: %w", raw, err)
 	}
-	return t, nil
+	return t, operationID, nil
 }
 
 // importOneScheduled 把一条定时操作落成"预检 + 任务"，返回是否新导入。

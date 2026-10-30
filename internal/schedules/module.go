@@ -306,8 +306,8 @@ func (m *Module) Apply(ctx context.Context, req ApplyRequest) (Record, error) {
 	if err != nil {
 		return rec, fmt.Errorf("定义已保存，但定时单元没装上：%w", err)
 	}
-	if !status.Present || !status.Enabled() {
-		return rec, fmt.Errorf("定义已保存，但单元没有真正启用（UnitFileState=%s）", status.UnitFileState)
+	if !status.Present || !status.Enabled() || !status.Active() {
+		return rec, fmt.Errorf("定义已保存，但单元没有真正启用并运行（UnitFileState=%s，ActiveState=%s）", status.UnitFileState, status.ActiveState)
 	}
 	return m.store.SetTimerRef(ctx, rec.ID, TimerName(rec.ID), now)
 }
@@ -352,10 +352,13 @@ func (m *Module) Delete(ctx context.Context, id string, version int64) error {
 	if !found {
 		return nil
 	}
+	if rec.Version != version {
+		return fmt.Errorf("版本冲突：计划已被改动过（当前版本 %d，请求基于 %d）", rec.Version, version)
+	}
 	if err := m.units.Remove(ctx, id); err != nil {
 		return fmt.Errorf("停不掉定时单元，计划保持不变：%w", err)
 	}
-	return m.store.Delete(ctx, id, rec.Version)
+	return m.store.Delete(ctx, id, version)
 }
 
 // TriggerDecision 是一次定时触发的判决。

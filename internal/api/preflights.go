@@ -107,7 +107,7 @@ func (s *Server) handleCreatePreflight(c *gin.Context) {
 	pre, err := s.opts.Operations.CreatePreflight(c.Request.Context(), operations.CreateInput{
 		UserID:      sess.User.ID,
 		SessionHash: sess.BindingHash(),
-		ReauthAt:    reauthAtFor(sess),
+		ReauthAt:    reauthAtFor(s.opts.Auth, sess),
 		RequestID:   c.GetString(ctxKeyRequestID),
 		Action:      req.Action,
 		Params:      params,
@@ -200,8 +200,8 @@ func (s *Server) writePreflightError(c *gin.Context, sess *auth.Session, action,
 }
 
 // reauthAtFor 返回会话最近一次再认证时间；不在窗口内时返回零值。
-func reauthAtFor(sess auth.Session) time.Time {
-	if sess.ReauthUntil.IsZero() || !time.Now().Before(sess.ReauthUntil) {
+func reauthAtFor(authSvc *auth.Service, sess auth.Session) time.Time {
+	if !authSvc.ReauthValid(sess) {
 		return time.Time{}
 	}
 	return sess.ReauthUntil.UTC().Add(-auth.ReauthWindow)

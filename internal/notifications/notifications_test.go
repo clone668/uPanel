@@ -525,6 +525,71 @@ func TestDispatchWithoutSenderLeavesPending(t *testing.T) {
 	}
 }
 
+func TestAttemptDeliveryPersistsAcceptedResultAfterCallerCancellation(t *testing.T) {
+	svc, db, _ := newTestService(t)
+	ctx := context.Background()
+	ch, err := svc.CreateChannel(ctx, ChannelInput{
+		Name: "运维 webhook", Type: TypeWebhook, Enabled: true,
+		Settings: Settings{URL: "https://hooks.example.com/alert"},
+	})
+	if err != nil {
+		t.Fatalf("建通道失败: %v", err)
+	}
+	ev := insertEventRow(t, db, false)
+	if err := svc.AlertFired(ctx, ev); err != nil {
+		t.Fatalf("入队失败: %v", err)
+	}
+	var id int64
+	if err := db.SQL().QueryRowContext(ctx,
+		`SELECT id FROM notification_deliveries WHERE channel_id = ?`, ch.ID).Scan(&id); err != nil {
+		t.Fatalf("读投递 id 失败: %v", err)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	d, err := svc.attemptDelivery(canceled, &fakeSender{result: DeliverResult{Accepted: true, Status: 204}},
+		ch, id, ch.Type, ch.Settings, ch.SecretRef, "标题", "正文", svc.nowUTC(), 1, 3)
+	if err != nil {
+		t.Fatalf("对端已接受后，调用方取消不应丢掉本地回执: %v", err)
+	}
+	if d.State != DeliverySent || d.Attempts != 1 {
+		t.Fatalf("应持久化 sent/attempts=1，实际 %s/%d", d.State, d.Attempts)
+	}
+}
+
+func TestDispatchChannelReadFailureLeavesDeliveryPending(t *testing.T) {
+	svc, db, _ := newTestService(t)
+	ctx := context.Background()
+	ch, err := svc.CreateChannel(ctx, ChannelInput{
+		Name: "运维 webhook", Type: TypeWebhook, Enabled: true,
+		Settings: Settings{URL: "https://hooks.example.com/alert"},
+	})
+	if err != nil {
+		t.Fatalf("建通道失败: %v", err)
+	}
+	ev := insertEventRow(t, db, false)
+	if err := svc.AlertFired(ctx, ev); err != nil {
+		t.Fatalf("入队失败: %v", err)
+	}
+	if _, err := db.SQL().ExecContext(ctx,
+		`UPDATE notification_channels SET settings = '{"unknown":true}' WHERE id = ?`, ch.ID); err != nil {
+		t.Fatalf("制造通道读取故障失败: %v", err)
+	}
+	svc.SetSender(&fakeSender{result: DeliverResult{Accepted: true, Status: 204}})
+	if _, err := svc.DispatchOnce(ctx); err == nil {
+		t.Fatal("通道读取故障应返回错误，不能把投递当成通道已删除")
+	}
+	var state string
+	var attempts int
+	if err := db.SQL().QueryRowContext(ctx,
+		`SELECT state, attempts FROM notification_deliveries WHERE channel_id = ?`, ch.ID).
+		Scan(&state, &attempts); err != nil {
+		t.Fatalf("读投递失败: %v", err)
+	}
+	if state != DeliveryPending || attempts != 0 {
+		t.Fatalf("读取故障后应保留 pending/attempts=0，实际 %s/%d", state, attempts)
+	}
+}
+
 // TestDisabledChannelIsAbandoned：通道停用之后到点的投递判死，并说清原因。
 func TestDisabledChannelIsAbandoned(t *testing.T) {
 	svc, db, _ := newTestService(t)
@@ -654,7 +719,7 @@ func TestDecodeSettingsRejectsUnknownKeys(t *testing.T) {
 // TestEncodeSettingsRoundTrip：编码解码往返不丢字段。
 func TestEncodeSettingsRoundTrip(t *testing.T) {
 	in := Settings{Host: "h", Port: 587, TLS: TLSStartTLS, From: "a@b.c",
-		To: []string{"d@e.f"}, Username: "u"}
+		To: []string{"d@e.f"}, Username: "u", URL: "https://hooks.example.com/x", AllowPrivate: true}
 	raw, err := encodeSettings(in)
 	if err != nil {
 		t.Fatalf("编码失败: %v", err)
@@ -664,7 +729,8 @@ func TestEncodeSettingsRoundTrip(t *testing.T) {
 		t.Fatalf("解码失败: %v", err)
 	}
 	if back.Host != in.Host || back.Port != in.Port || back.TLS != in.TLS ||
-		back.From != in.From || back.Username != in.Username || len(back.To) != 1 {
+		back.From != in.From || back.Username != in.Username || len(back.To) != 1 ||
+		back.URL != in.URL || back.AllowPrivate != in.AllowPrivate {
 		t.Fatalf("往返丢了字段: %+v", back)
 	}
 }
@@ -698,8 +764,8 @@ func TestNormalizeClearsIrrelevantSettings(t *testing.T) {
 
 	hook, err := svc.CreateChannel(ctx, ChannelInput{
 		Name: "回调", Type: TypeWebhook, Enabled: true, MaxAttempts: DefaultMaxAttempts,
-		Settings: Settings{URL: "https://hooks.example.com/x", Host: "should-go-away", Port: 25,
-			To: []string{"x@y.z"}},
+		Settings: Settings{URL: "https://hooks.example.com/x", AllowPrivate: true,
+			Host: "should-go-away", Port: 25, To: []string{"x@y.z"}},
 	})
 	if err != nil {
 		t.Fatalf("建通道失败: %v", err)
@@ -707,8 +773,8 @@ func TestNormalizeClearsIrrelevantSettings(t *testing.T) {
 	if hook.Settings.Host != "" || hook.Settings.Port != 0 || len(hook.Settings.To) != 0 {
 		t.Fatalf("webhook 通道不该留下 smtp 字段: %+v", hook.Settings)
 	}
-	if hook.Settings.URL != "https://hooks.example.com/x" {
-		t.Fatalf("webhook 的 url 丢了: %+v", hook.Settings)
+	if hook.Settings.URL != "https://hooks.example.com/x" || !hook.Settings.AllowPrivate {
+		t.Fatalf("webhook 的 url 或内网授权丢了: %+v", hook.Settings)
 	}
 }
 
@@ -755,6 +821,18 @@ func TestAgentSenderMapsSettings(t *testing.T) {
 	}
 	if client.in.SecretRef != "sec_0123456789abcdef0123456789abcdef" {
 		t.Fatalf("secret_ref 应原样转过去，实际 %q", client.in.SecretRef)
+	}
+
+	if _, err := sender.Deliver(context.Background(), DeliverInput{
+		Type:     TypeWebhook,
+		Settings: Settings{URL: "https://hooks.internal/x", AllowPrivate: true},
+		Title:    "t",
+		Body:     "b",
+	}); err != nil {
+		t.Fatalf("webhook 投递失败: %v", err)
+	}
+	if client.in.Settings.URL != "https://hooks.internal/x" || !client.in.Settings.AllowPrivate {
+		t.Fatalf("webhook 设置没有原样转给代理: %+v", client.in.Settings)
 	}
 }
 

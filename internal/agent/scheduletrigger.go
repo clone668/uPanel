@@ -155,6 +155,41 @@ func (s *Server) handleScheduleTrigger(w http.ResponseWriter, r *http.Request, s
 		return
 	}
 
+	// 初次判决与 Accept 之间必须和 schedule.update/delete 共用计划锁，否则管理员
+	// 完成停用/删除后，这个已经通过旧判决的请求仍能再执行一次。锁内重新判决；
+	// operation_id 是同一时间槽的稳定持有者，并发重试仍会由 Accept 幂等收敛。
+	release, lockErr := s.runner.locks.acquire(
+		r.Context(), decision.OperationID, scheduleLocks(scheduleID), LockQueueTimeout)
+	if lockErr != nil {
+		if errors.Is(lockErr, ErrResourceBusy) {
+			httpx.WriteError(w, r, httpx.StatusForCode(httpx.CodeResourceBusy), httpx.CodeResourceBusy,
+				"计划正在变更，触发排队超时")
+			return
+		}
+		s.internalError(w, r, "取得计划触发锁失败", lockErr)
+		return
+	}
+	defer release()
+	decision, err = svc.DecideTrigger(r.Context(), scheduleID, triggerID)
+	if err != nil {
+		s.opts.Logger.Warn("计划锁内复核定时触发失败",
+			"schedule_id", scheduleID, "trigger_id", triggerID,
+			"error", err, "request_id", httpx.RequestID(r))
+		httpx.WriteError(w, r, http.StatusBadRequest, httpx.CodeValidationError, err.Error())
+		return
+	}
+	if decision.Blocked() {
+		code := decision.Blockers[0].Code
+		reason := decision.Blockers[0].Message
+		if _, _, cerr := svc.ClaimTrigger(r.Context(), decision, schedules.TriggerOutcomeBlocked, code+": "+reason); cerr != nil {
+			s.opts.Logger.Error("写入触发记录失败", "schedule_id", scheduleID,
+				"trigger_id", triggerID, "error", cerr)
+		}
+		httpx.WriteError(w, r, httpx.StatusForCode(httpx.CodeValidationError), httpx.CodeValidationError,
+			reason)
+		return
+	}
+
 	plan, planErr := s.buildTriggerPlan(r.Context(), decision, now)
 	if planErr != nil {
 		var rej *rejection

@@ -26,16 +26,18 @@ type DeliverInput struct {
 
 // DeliverSettings 是受约束的投递参数。
 //
-// 三个协议各用其中一部分：smtp 用 Host/Port/TLS/From/To/Username，webhook 用 URL。
+// 三个协议各用其中一部分：smtp 用 Host/Port/TLS/From/To/Username，webhook 用 URL
+// 与 AllowPrivate。AllowPrivate 缺省为 false，显式开启才允许内网目标。
 // 面板侧已经按类型清空过无关字段，这里不重复判断——代理自己也会再校验一次。
 type DeliverSettings struct {
-	Host     string   `json:"host,omitempty"`
-	Port     int      `json:"port,omitempty"`
-	TLS      string   `json:"tls,omitempty"`
-	From     string   `json:"from,omitempty"`
-	To       []string `json:"to,omitempty"`
-	Username string   `json:"username,omitempty"`
-	URL      string   `json:"url,omitempty"`
+	Host         string   `json:"host,omitempty"`
+	Port         int      `json:"port,omitempty"`
+	TLS          string   `json:"tls,omitempty"`
+	From         string   `json:"from,omitempty"`
+	To           []string `json:"to,omitempty"`
+	Username     string   `json:"username,omitempty"`
+	URL          string   `json:"url,omitempty"`
+	AllowPrivate bool     `json:"allow_private,omitempty"`
 }
 
 // DeliverResult 是投递的事实回执。

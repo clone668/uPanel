@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -335,7 +336,7 @@ func (s *Systemctl) ShowOne(ctx context.Context, name string) (RawUnit, bool, er
 		return RawUnit{}, false, err
 	}
 	for _, u := range units {
-		if u.Get("Id") == name || u.Get("Id") == "" {
+		if u.Get("Id") == name || u.Get("Id") == "" || slices.Contains(u.Names(), name) {
 			if u.Get("LoadState") == LoadNotFound {
 				return u, false, nil
 			}

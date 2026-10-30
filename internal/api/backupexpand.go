@@ -113,7 +113,7 @@ func (s *Server) expandBackupRun(c *gin.Context, params json.RawMessage) (json.R
 		return nil, false
 	}
 
-	expanded, ok := s.resolveBackupApps(c, pol)
+	expanded, ok := s.resolveBackupApps(c, pol, req.Version)
 	if !ok {
 		return nil, false
 	}
@@ -129,13 +129,13 @@ func (s *Server) expandBackupRun(c *gin.Context, params json.RawMessage) (json.R
 //
 // files_only 策略返回空数组（不是缺字段）：它没有要停的应用，而"没有"要说出来。
 //
-// 版本用的是**镜像里那一版**：策略里只有 app_ids 会被用到，而这一版就是面板此刻
-// 看到的那一版。调用方拿了旧版时，代理的预检会以 BACKUP_POLICY_VERSION_STALE
+// 版本保留**调用方提交的那一版**：应用对象按当前镜像展开，但不能因此把旧预检
+// 升级成新版本。调用方拿了旧版时，代理的预检会以 BACKUP_POLICY_VERSION_STALE
 // 挡住——那一处判决用的是代理自己那份定义，比这里的镜像更权威。
-func (s *Server) resolveBackupApps(c *gin.Context, pol agentclient.BackupPolicy) (backupRunExpandedParams, bool) {
+func (s *Server) resolveBackupApps(c *gin.Context, pol agentclient.BackupPolicy, requestedVersion int64) (backupRunExpandedParams, bool) {
 	out := backupRunExpandedParams{
 		PolicyID: pol.ID,
-		Version:  pol.Version,
+		Version:  requestedVersion,
 		Apps:     []backupRunAppParam{},
 	}
 	if len(pol.AppIDs) == 0 {

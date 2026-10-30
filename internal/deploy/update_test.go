@@ -457,6 +457,30 @@ func TestExecuteUpdateHealthFailureRollsBack(t *testing.T) {
 	}
 }
 
+func TestExecuteUpdateHealthFailureReportsUnhealthyRollback(t *testing.T) {
+	svc, applier, _, oldConfig := newUpdateFixture(t)
+	svc.prober = &fakeHealthProber{results: []HealthProbe{
+		{Checked: true, Healthy: false, Attempts: 4, LastError: "新版连不上"},
+		{Checked: true, Healthy: false, Attempts: 4, LastError: "旧版也连不上"},
+	}}
+
+	out, err := svc.ExecuteUpdate(context.Background(), updateParams(), "", "op-update-1", nil)
+	var svcErr *ServiceError
+	if !errors.As(err, &svcErr) || svcErr.Code != "health_failed_rollback_failed" {
+		t.Fatalf("旧版仍不健康时必须报回滚失败，实际 %v", err)
+	}
+	if out.Report.RolledBack || out.Report.RollbackVerified {
+		t.Fatalf("不能把未通过健康检查的回切报成已验证: %+v", out.Report)
+	}
+	current, _, _, readErr := applier.ReadConfig("webapp")
+	if readErr != nil {
+		t.Fatalf("读配置失败：%v", readErr)
+	}
+	if string(current) != string(oldConfig) {
+		t.Fatalf("健康检查失败不应阻止恢复旧字节: %s", current)
+	}
+}
+
 // TestExecuteUpdateStaleBetweenAssessAndExecute：盘上被改过就不动手。
 func TestExecuteUpdateStaleBetweenAssessAndExecute(t *testing.T) {
 	svc, applier, _, _ := newUpdateFixture(t)

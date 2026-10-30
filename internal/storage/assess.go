@@ -653,6 +653,19 @@ func assessDelete(a *Assessment, target *Device, index topologyIndex, in assessm
 		}
 	}
 
+	// 删除与格式化一样会让共享指向的内容不可访问；查询失败时必须拒绝。
+	if env.Dependents == nil {
+		a.block(NoticeVolumeDependenciesUnknown,
+			"无法确认 "+target.ID+" 上还有没有面板对象依赖它（本机没有配置面板依赖查询）。不能靠“大概没人用”删除分区")
+	} else if deps, err := env.Dependents(ctx, DependencyQuery{DeviceID: target.ID, Purpose: PurposeFormat}); err != nil {
+		a.block(NoticeVolumeDependenciesUnknown,
+			fmt.Sprintf("无法确认 %s 上还有没有面板对象依赖它（%v）。不能靠“大概没人用”删除分区", target.ID, err))
+	} else if len(deps) > 0 {
+		a.block(NoticeVolumeInUseByShare,
+			"分区 %s 上还有共享依赖它（%s）。先删掉这些共享再删除分区",
+			target.ID, describeDependencies(deps))
+	}
+
 	// 签名同样要看：分区上有 LUKS/LVM/RAID 头时，它属于别的层，不能当普通分区删。
 	if sig, ok := probeSignature(ctx, a, target, env); ok {
 		switch {

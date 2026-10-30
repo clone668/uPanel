@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -211,8 +212,66 @@ func TestImportScheduledUsesWatermark(t *testing.T) {
 		t.Fatalf("第二次导入失败: %v", err)
 	}
 	want := time.Date(2026, 10, 23, 19, 30, 0, 0, time.UTC)
-	if !agent.scheduledSince.Equal(want) {
-		t.Fatalf("水位 = %s，期望 %s", agent.scheduledSince, want)
+	if !agent.scheduledSince.Equal(want) || agent.scheduledSinceID != importOpID {
+		t.Fatalf("复合水位 = %s / %s，期望 %s / %s", agent.scheduledSince, agent.scheduledSinceID, want, importOpID)
+	}
+}
+
+// TestImportScheduledSameTimestampPagination：同秒超过一批时，第二页从 ID 之后继续。
+func TestImportScheduledSameTimestampPagination(t *testing.T) {
+	scheduled := make([]agentclient.ScheduledOperation, 0, 101)
+	for i := 1; i <= 101; i++ {
+		op := sampleScheduledOperation()
+		op.OperationID = fmt.Sprintf("op_%032x", i)
+		op.PreflightRef = fmt.Sprintf("pf_%032x", i)
+		scheduled = append(scheduled, op)
+	}
+	agent := &fakeAgent{scheduled: scheduled, scheduledPaged: true}
+	svc, db := newTestService(t, agent, nil)
+
+	first, err := svc.ImportScheduled(context.Background(), 100)
+	if err != nil || first.Imported != 100 {
+		t.Fatalf("第一批导入不对：%+v / %v", first, err)
+	}
+	second, err := svc.ImportScheduled(context.Background(), 100)
+	if err != nil || second.Imported != 1 {
+		t.Fatalf("同时间戳的第二批被漏掉：%+v / %v", second, err)
+	}
+	assertCount(t, db, `SELECT COUNT(*) FROM jobs WHERE user_id = ?`, 101, schedules.SystemUserID)
+	if agent.scheduledSinceID != fmt.Sprintf("op_%032x", 100) {
+		t.Fatalf("第二页游标 ID = %q，期望第 100 条", agent.scheduledSinceID)
+	}
+}
+
+// TestImportScheduledFailureDoesNotAdvancePastRecord：失败项之后的记录不能抢跑水位。
+func TestImportScheduledFailureDoesNotAdvancePastRecord(t *testing.T) {
+	first := sampleScheduledOperation()
+	second := sampleScheduledOperation()
+	second.OperationID = "op_1123456789abcdef0123456789abcdef"
+	second.PreflightRef = "pf_1123456789abcdef0123456789abcdef"
+	second.CreatedAt = second.CreatedAt.Add(time.Second)
+	second.Stage = "暂时无法识别"
+	third := sampleScheduledOperation()
+	third.OperationID = "op_2123456789abcdef0123456789abcdef"
+	third.PreflightRef = "pf_2123456789abcdef0123456789abcdef"
+	third.CreatedAt = third.CreatedAt.Add(2 * time.Second)
+	agent := &fakeAgent{scheduled: []agentclient.ScheduledOperation{first, second, third}, scheduledPaged: true}
+	svc, db := newTestService(t, agent, nil)
+
+	stats, err := svc.ImportScheduled(context.Background(), 100)
+	if err != nil || stats.Imported != 1 {
+		t.Fatalf("失败项之前的一条应导入，之后的一条必须停下：%+v / %v", stats, err)
+	}
+	assertCount(t, db, `SELECT COUNT(*) FROM jobs`, 1)
+
+	agent.scheduled[1].Stage = "succeeded"
+	stats, err = svc.ImportScheduled(context.Background(), 100)
+	if err != nil || stats.Imported != 2 {
+		t.Fatalf("恢复后应重试失败项并继续：%+v / %v", stats, err)
+	}
+	assertCount(t, db, `SELECT COUNT(*) FROM jobs`, 3)
+	if agent.scheduledSinceID != first.OperationID {
+		t.Fatalf("重试游标 = %q，期望停在最后成功的 %q", agent.scheduledSinceID, first.OperationID)
 	}
 }
 

@@ -101,6 +101,11 @@ func (e *Engine) executeAccountApply(ctx context.Context, p AccountApplyParams, 
 func (e *Engine) createRegularAccount(ctx context.Context, def Definition, req shares.WriteRequest) (shares.WriteReport, error) {
 	var secret []byte
 	if def.PasswordSecretRef != "" {
+		// 与 updateRegularAccount 同一道门：秘密通道没接上时不能空指针崩在
+		// useradd 之前——那是“没动手却报成了执行失败”的现场。
+		if e.opts.Secrets == nil {
+			return shares.WriteReport{}, dependencyBlocked("秘密通道不可用（没有接秘密存储）")
+		}
 		resolved, err := e.opts.Secrets.Resolve(ctx, def.PasswordSecretRef)
 		if err != nil {
 			return shares.WriteReport{}, validationError(
@@ -339,25 +344,32 @@ func (e *Engine) updateRegularAccount(ctx context.Context, accountID string, def
 	if err := e.opts.Store.SaveAccount(ctx, rec); err != nil {
 		return shares.WriteReport{}, err
 	}
+	// 引用失败不影响系统状态：口令已经生效，只是那条临时秘密会过期。
+	// 但失败必须在结果里说清楚——新建那条路径就是这么报的，更新不该静默。
+	observed := map[string]any{
+		"account_id":       rec.ID,
+		"name":             rec.Name,
+		"version":          rec.Version,
+		"shell":            rec.Shell,
+		"shell_profile":    rec.ShellProfile,
+		"disabled":         rec.Disabled,
+		"shell_changed":    shellChanged,
+		"password_changed": passwordChanged,
+		"has_password":     rec.HasPassword,
+	}
 	if def.PasswordSecretRef != "" && e.opts.Secrets != nil {
-		// 引用失败不影响系统状态：口令已经生效，只是那条临时秘密会过期。
-		_ = e.opts.Secrets.Reference(ctx, def.PasswordSecretRef, "account:"+rec.ID)
+		pinned := true
+		if err := e.opts.Secrets.Reference(ctx, def.PasswordSecretRef, "account:"+rec.ID); err != nil {
+			pinned = false
+			observed["secret_note"] = err.Error()
+		}
+		observed["secret_persisted"] = pinned
 	}
 
 	return shares.WriteReport{
-		Outcome: shares.OutcomeVerified,
-		Observed: map[string]any{
-			"account_id":       rec.ID,
-			"name":             rec.Name,
-			"version":          rec.Version,
-			"shell":            rec.Shell,
-			"shell_profile":    rec.ShellProfile,
-			"disabled":         rec.Disabled,
-			"shell_changed":    shellChanged,
-			"password_changed": passwordChanged,
-			"has_password":     rec.HasPassword,
-		},
-		Data: map[string]any{"account_id": rec.ID, "version": rec.Version},
+		Outcome:  shares.OutcomeVerified,
+		Observed: observed,
+		Data:     map[string]any{"account_id": rec.ID, "version": rec.Version},
 	}, nil
 }
 
@@ -385,7 +397,15 @@ func (e *Engine) executeAccountDelete(ctx context.Context, p AccountRefParams, r
 		return shares.WriteReport{}, err
 	} else if hasRule {
 		sudoersPath := SudoersPath(e.opts.Paths.SudoersDir, rec.Name)
-		if current, err := e.opts.FS.ReadFile(sudoersPath); err == nil {
+		current, readErr := e.opts.FS.ReadFile(sudoersPath)
+		// 读失败（不存在之外的原因）不能当成“没有文件”继续往下走：那样记录会被
+		// 删掉、文件却留在 sudoers.d 里，等账号删掉之后它就成了一条指向不存在
+		// 账号的悬空规则——而且没有任何一页能让人看见它。
+		if readErr != nil && !os.IsNotExist(readErr) {
+			return shares.WriteReport{}, commandFailed(
+				"读取 %s 失败：%v；未做任何修改，规则文件与记录都保持原样", sudoersPath, readErr)
+		}
+		if readErr == nil {
 			if _, _, perr := ParseSudoers(current); perr != nil {
 				return shares.WriteReport{}, dependencyBlocked("%v", perr)
 			}
@@ -502,8 +522,10 @@ func (e *Engine) executeSSHKeyApply(ctx context.Context, p SSHKeyApplyParams, re
 	// 目标托管区：替换时保持原位，新增时排在最后。
 	desired := make([]PublicKey, 0, len(keys)+1)
 	placed := false
+	var existing SSHKeyRecord
 	for _, k := range keys {
 		if k.ID == replacing {
+			existing = k
 			desired = append(desired, key)
 			placed = true
 			continue
@@ -513,6 +535,13 @@ func (e *Engine) executeSSHKeyApply(ctx context.Context, p SSHKeyApplyParams, re
 			return shares.WriteReport{}, commandFailed("%v", err)
 		}
 		desired = append(desired, pk)
+	}
+	// 替换目标在动笔之前就必须确认存在：预检之后它仍可能被删掉，等写完文件再
+	// 发现会把一把登记表里没人认识的公钥留在 authorized_keys 里（文件已改、
+	// 记录未改，且没有回滚）。
+	if replacing != "" && !placed {
+		return shares.WriteReport{}, notFound(
+			"账号 %s 上没有这把公钥（%s）；未改动任何文件", rec.Name, replacing)
 	}
 	if !placed {
 		desired = append(desired, key)
@@ -533,13 +562,7 @@ func (e *Engine) executeSSHKeyApply(ctx context.Context, p SSHKeyApplyParams, re
 		CreatedAt:   now,
 	}
 	if replacing != "" {
-		existing, found, err := e.opts.Store.GetSSHKey(ctx, rec.ID, replacing)
-		if err != nil {
-			return shares.WriteReport{}, err
-		}
-		if !found {
-			return shares.WriteReport{}, notFound("认证通过之后那条公钥记录却不见了（%s）", replacing)
-		}
+		// 存在性已经在动笔之前核过（见上面的 placed 检查），这里只取标识与创建时间。
 		recKey.ID = existing.ID
 		recKey.CreatedAt = existing.CreatedAt
 	} else {
@@ -742,15 +765,32 @@ func (e *Engine) restoreKeys(target keyTarget, before []byte) error {
 	if err := e.opts.FS.WriteFileSync(tmp, before, 0o600); err != nil {
 		return err
 	}
-	entry, ok, _, err := e.systemUser(context.Background(), target.name, lookupBudget{lookupExecTimeout})
-	if err == nil && ok {
-		_ = e.opts.FS.Chown(tmp, entry.UID, entry.GID)
+	// 回滚出来的文件必须属于账号本人：sshd 的 StrictModes 会拒绝使用
+	// root 拥有的 authorized_keys，"内容回滚成功但属主是 root"等于没回滚。
+	// 属主失败不能静默——否则落库失败这条路上留下的是一把谁也用不了的锁。
+	entry, ok, _, lookupErr := e.systemUser(context.Background(), target.name, lookupBudget{lookupExecTimeout})
+	var chownErr error
+	switch {
+	case lookupErr != nil:
+		chownErr = fmt.Errorf("查不到账号 %s 的属主: %v", target.name, lookupErr)
+	case !ok:
+		chownErr = fmt.Errorf("账号 %s 已不存在，回滚文件属主将是 root", target.name)
+	default:
+		if err := e.opts.FS.Chown(tmp, entry.UID, entry.GID); err != nil {
+			chownErr = fmt.Errorf("恢复文件属主失败: %w", err)
+		}
 	}
 	if err := e.opts.FS.Rename(tmp, target.keyPath); err != nil {
 		_ = e.opts.FS.Remove(tmp)
 		return err
 	}
-	return e.opts.FS.FsyncDir(path.Dir(target.keyPath))
+	if err := e.opts.FS.FsyncDir(path.Dir(target.keyPath)); err != nil {
+		return err
+	}
+	if chownErr != nil {
+		return fmt.Errorf("内容已回滚，但属主未恢复（sshd StrictModes 会拒用 root 拥有的 authorized_keys）: %v", chownErr)
+	}
+	return nil
 }
 
 // sameKeySet 比较两组公钥（按指纹，顺序无关）。

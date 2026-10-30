@@ -40,8 +40,8 @@ type PruneResult struct {
 
 func (o *Ops) AssessPrune(ctx context.Context, req PruneRequest) (PruneAssessment, error) {
 	a := PruneAssessment{Allowed: true, Locks: []string{LockName(req.Repository.ID), PolicyLockName(req.PolicyID)}}
-	snapshots, err := o.ListSnapshots(ctx, SnapshotRequest{RepositoryID: req.Repository.ID,
-		Definition: req.Repository.Definition, PolicyID: req.PolicyID})
+	snapshots, err := o.listSnapshots(ctx, SnapshotRequest{RepositoryID: req.Repository.ID,
+		Definition: req.Repository.Definition, PolicyID: req.PolicyID}, 0)
 	if err != nil {
 		return a, err
 	}
@@ -89,7 +89,7 @@ func pruneTarget(policyID string, policy Policy, repo Repository, deletion []Sna
 func (o *Ops) Prune(ctx context.Context, req PruneRequest) (PruneResult, error) {
 	out := PruneResult{PolicyID: req.PolicyID, RepositoryID: req.Repository.ID}
 	listReq := SnapshotRequest{RepositoryID: req.Repository.ID, Definition: req.Repository.Definition, PolicyID: req.PolicyID}
-	snapshots, err := o.ListSnapshots(ctx, listReq)
+	snapshots, err := o.listSnapshots(ctx, listReq, 0)
 	if err != nil {
 		return out, err
 	}
@@ -117,7 +117,7 @@ func (o *Ops) Prune(ctx context.Context, req PruneRequest) (PruneResult, error) 
 		defer cleanup()
 	}
 	forgetErr := o.opts.Restic.ForgetPrune(ctx, inv, actual)
-	remaining, readErr := o.ListSnapshots(ctx, listReq)
+	remaining, readErr := o.listSnapshots(ctx, listReq, 0)
 	if readErr != nil {
 		out.DeletedIDs = append([]string(nil), actual...)
 		return out, errors.Join(forgetErr, fmt.Errorf("backup: 清理后无法读回快照列表: %w", readErr))

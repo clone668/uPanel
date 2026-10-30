@@ -80,13 +80,14 @@ type notifyRequest struct {
 
 // notifySettings 是受约束的投递参数。
 type notifySettings struct {
-	Host     string   `json:"host,omitempty"`
-	Port     int      `json:"port,omitempty"`
-	TLS      string   `json:"tls,omitempty"`
-	From     string   `json:"from,omitempty"`
-	To       []string `json:"to,omitempty"`
-	Username string   `json:"username,omitempty"`
-	URL      string   `json:"url,omitempty"`
+	Host         string   `json:"host,omitempty"`
+	Port         int      `json:"port,omitempty"`
+	TLS          string   `json:"tls,omitempty"`
+	From         string   `json:"from,omitempty"`
+	To           []string `json:"to,omitempty"`
+	Username     string   `json:"username,omitempty"`
+	URL          string   `json:"url,omitempty"`
+	AllowPrivate bool     `json:"allow_private,omitempty"`
 }
 
 // notifyResponse 是投递结果。
@@ -414,6 +415,11 @@ func isTLSError(err error) bool {
 
 // sendWebhook 投递一个 HTTPS 回调。
 func sendWebhook(ctx context.Context, req notifyRequest, token string) notifyResponse {
+	return sendWebhookWithDial(ctx, req, token, nil)
+}
+
+// sendWebhookWithDial 允许 TLS 测试使用本地拨号器；生产路径执行通道的目标策略。
+func sendWebhookWithDial(ctx context.Context, req notifyRequest, token string, dialOverride webhookDialFunc) notifyResponse {
 	payload, err := json.Marshal(map[string]string{
 		"title":  req.Title,
 		"text":   req.Body,
@@ -432,10 +438,20 @@ func sendWebhook(ctx context.Context, req notifyRequest, token string) notifyRes
 	if token != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+token)
 	}
+	dialer := &net.Dialer{Timeout: notifyConnectTimeout}
+	dialContext := func(ctx context.Context, _, address string) (net.Conn, error) {
+		return dialWebhookContext(
+			ctx, address, req.Settings.AllowPrivate, net.DefaultResolver.LookupNetIP, dialer.DialContext)
+	}
+	if dialOverride != nil {
+		dialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+			return dialOverride(ctx, network, address)
+		}
+	}
 	client := &http.Client{
 		Timeout: notifyTotalTimeout,
 		Transport: &http.Transport{
-			DialContext:           (&net.Dialer{Timeout: notifyConnectTimeout}).DialContext,
+			DialContext:           dialContext,
 			TLSHandshakeTimeout:   notifyConnectTimeout,
 			ResponseHeaderTimeout: notifyTotalTimeout,
 			// 不读环境里的代理变量：从面板发出去的告警应该走服务器自己的出口，
@@ -482,7 +498,7 @@ func classifyWebhookResponse(status int, location string, body []byte) notifyRes
 
 // classifyWebhookError 判定一次 HTTP 失败值不值得重试。
 func classifyWebhookError(err error) notifyResponse {
-	if isTLSError(err) || strings.Contains(err.Error(), "unsupported protocol scheme") {
+	if errors.Is(err, errWebhookTargetDenied) || isTLSError(err) || strings.Contains(err.Error(), "unsupported protocol scheme") {
 		return notifyResponse{Detail: truncateDetail("请求失败：" + err.Error())}
 	}
 	return notifyResponse{Detail: truncateDetail("请求失败：" + err.Error()), Retryable: true}

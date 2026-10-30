@@ -650,3 +650,48 @@ func TestBackupPruneKeepsTen(t *testing.T) {
 		t.Fatalf("最新一份备份的内容不对: %q", got)
 	}
 }
+
+// TestCrossRootCopyReleasesReservation 跨根复制/移动结束后，容量预留必须归零。
+//
+// 盯的是一个具体错误：跨根分支曾经 reserveSpace 之后立刻 releaseSpace，
+// 预留没有活到落位——那不仅意味着复制期间并发上传可以挤进来，如果哪次重构把释放
+// 整个漏掉，预留会越堆越高，最终所有上传都被“可用空间不足”挡住。
+func TestCrossRootCopyReleasesReservation(t *testing.T) {
+	srcDir := t.TempDir()
+	dstDir := t.TempDir()
+	writeFile(t, filepath.Join(srcDir, "a.conf"), "a=1\n")
+	m, err := New([]Root{
+		{ID: "src", Name: "源", Path: srcDir, Writable: true},
+		{ID: "dst", Name: "目标", Path: dstDir, Writable: true},
+	}, Options{})
+	if err != nil {
+		t.Fatalf("New 失败: %v", err)
+	}
+	ctx := context.Background()
+
+	if _, err := m.Copy(ctx, CopyParams{
+		SourceRootID: "src", SourcePath: "a.conf",
+		TargetRootID: "dst", TargetPath: "b.conf",
+	}); err != nil {
+		t.Fatalf("跨根复制失败: %v", err)
+	}
+	if got := m.ReservedBytes("dst"); got != 0 {
+		t.Fatalf("跨根复制结束后预留应当归零，还有 %d 字节", got)
+	}
+
+	if _, err := m.Move(ctx, CopyParams{
+		SourceRootID: "src", SourcePath: "a.conf",
+		TargetRootID: "dst", TargetPath: "c.conf",
+	}); err != nil {
+		t.Fatalf("跨根移动失败: %v", err)
+	}
+	if got := m.ReservedBytes("dst"); got != 0 {
+		t.Fatalf("跨根移动结束后预留应当归零，还有 %d 字节", got)
+	}
+	if got := mustFileContent(t, filepath.Join(dstDir, "c.conf")); got != "a=1\n" {
+		t.Fatalf("跨根移动后内容不对: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(srcDir, "a.conf")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("跨根移动之后源文件还在")
+	}
+}

@@ -262,7 +262,7 @@ func (s *Service) Authenticate(ctx context.Context, token string) (Session, erro
 
 	now := s.nowUTC()
 	absoluteDeadline := sess.CreatedAt.Add(s.absolute)
-	if now.After(sess.ExpiresAt) || now.After(absoluteDeadline) {
+	if !now.Before(sess.ExpiresAt) || !now.Before(absoluteDeadline) {
 		// 过期会话立即删除，不留在库里。
 		_ = s.deleteByHash(ctx, HashToken(token))
 		return Session{}, ErrSessionInvalid
@@ -359,7 +359,7 @@ func (s *Service) RevokeAllForUser(ctx context.Context, userID int64) (int64, er
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return 0, nil
+		return 0, fmt.Errorf("auth: 读取账号会话作废结果失败: %w", err)
 	}
 	return n, nil
 }
@@ -377,7 +377,7 @@ func (s *Service) PurgeExpired(ctx context.Context) (int64, error) {
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return 0, nil
+		return 0, fmt.Errorf("auth: 读取过期会话清理结果失败: %w", err)
 	}
 	return n, nil
 }
@@ -390,11 +390,19 @@ func (s *Service) deleteByHash(ctx context.Context, hash string) error {
 }
 
 func (s *Service) touch(ctx context.Context, sessionID int64, seen time.Time, expires time.Time) error {
-	_, err := s.db.SQL().ExecContext(ctx,
+	res, err := s.db.SQL().ExecContext(ctx,
 		`UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE id = ?`,
 		formatTime(seen), formatTime(expires), sessionID)
 	if err != nil {
 		return fmt.Errorf("auth: 更新会话活跃时间失败: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("auth: 读取会话活跃更新结果失败: %w", err)
+	}
+	if n == 0 {
+		// 会话可能在读取后被禁用/退出。不能把那次 UPDATE 的 no-op 当成仍有效。
+		return ErrSessionInvalid
 	}
 	return nil
 }

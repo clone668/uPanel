@@ -62,8 +62,10 @@ func ParseStat(data []byte) (cpuTimes, []cpuTimes, error) {
 		if !isAgg && !isCPUIndex(name) {
 			break
 		}
-		if len(fields) < 8 {
-			return cpuTimes{}, nil, fmt.Errorf("/proc/stat 的 %s 行只有 %d 个字段（至少 8 个）", name, len(fields)-1)
+		// 名字之外还要 8 个值：len(fields) < 9。判 < 8 会在“恰好 7 个值”的畸形行上
+		// 让下面 fields[i+1] 越界——一个解析器不该靠 panic 拒绝坏输入。
+		if len(fields) < 9 {
+			return cpuTimes{}, nil, fmt.Errorf("/proc/stat 的 %s 行只有 %d 个值（至少 8 个）", name, len(fields)-1)
 		}
 		var vals [8]uint64
 		for i := 0; i < 8; i++ {

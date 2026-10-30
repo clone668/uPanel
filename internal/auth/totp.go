@@ -131,7 +131,11 @@ func (s *Service) DisableTotp(ctx context.Context, userID int64) error {
 	if err != nil {
 		return fmt.Errorf("auth: 关闭二次验证失败: %w", err)
 	}
-	if n, err := res.RowsAffected(); err == nil && n == 0 {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("auth: 读取二次验证删除结果失败: %w", err)
+	}
+	if n == 0 {
 		return ErrTotpNotEnrolled
 	}
 	s.db.Logger().Info("已关闭二次验证", "user_id", userID)

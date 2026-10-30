@@ -333,6 +333,10 @@ func (a *Applier) Apply(ctx context.Context, req ApplyRequest) (ApplyReport, err
 	if err != nil {
 		return report, err
 	}
+	if !report.Enabled {
+		return report, fmt.Errorf("deploy: 单元 %s 在 enable 之后读回为未启用（active=%t）",
+			unitName, report.Active)
+	}
 	if !report.Active {
 		return report, fmt.Errorf(
 			"deploy: 单元 %s 启动后不是 active（enabled=%t）。compose up 的那次调用返回了 0，"+
@@ -673,12 +677,13 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 	if err := os.Rename(tmpName, path); err != nil {
 		return fmt.Errorf("deploy: 发布 %s 失败: %w", path, err)
 	}
-	if d, err := os.Open(dir); err == nil {
-		_ = d.Sync()
-		_ = d.Close()
+	if err := syncDir(dir); err != nil {
+		return fmt.Errorf("deploy: 同步目录 %s 失败（%s 已改名，但持久化未确认）: %w", dir, path, err)
 	}
 	return nil
 }
+
+var syncDir = syncDirectory
 
 // firstLine 取错误输出的第一行（systemctl 的报错第一行通常就是结论）。
 func firstLine(s string) string {

@@ -324,9 +324,8 @@ func (c *Collector) readTotal() (uint64, int) {
 		if name != "cpu" {
 			continue
 		}
-		// 汇总行的数值列：user nice system idle iowait irq softirq steal …
-		// 全部相加就是“这段时间里所有 CPU 消耗的总滴答数”。
-		for _, field := range fields[1:] {
+		// guest 已含在 user，guest_nice 已含在 nice；再相加会虚增分母。
+		for _, field := range fields[1:min(len(fields), 9)] {
 			total += parseUint(field)
 		}
 	}

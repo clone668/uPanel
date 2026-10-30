@@ -419,10 +419,14 @@ func (m *Module) Run(ctx context.Context, req RunRequest) (RunOutcome, error) {
 	if err := m.prepareDir(ident); err != nil {
 		return RunOutcome{}, fmt.Errorf("脚本目录不可用，拒绝运行：%w", err)
 	}
-	timeout := time.Duration(req.MaxRuntimeSeconds) * time.Second
-	if timeout <= 0 {
-		timeout = time.Minute
+	// 时长上限在这里重判一次：RunParams.Validate 与 AssessRun 都在上游，而 Run 是
+	// 最后还能拒绝的一道。<=0 不能悄悄当成一分钟——那是“批准的边界被换成了另一个
+	// 边界”，调用方不会知道自己提交的是什么。
+	if req.MaxRuntimeSeconds < 1 || req.MaxRuntimeSeconds > MaxRuntimeSecondsLimit {
+		return RunOutcome{}, fmt.Errorf("max_runtime_seconds 必须在 1—%d 之间（收到 %d），拒绝运行",
+			MaxRuntimeSecondsLimit, req.MaxRuntimeSeconds)
 	}
+	timeout := time.Duration(req.MaxRuntimeSeconds) * time.Second
 
 	res, runErr := m.run(ctx, syscmd.Spec{
 		Program:    Interpreter,
@@ -624,9 +628,14 @@ func (m *Module) renameInto(tmp, final string) error {
 		return fmt.Errorf("发布脚本文件失败: %w", err)
 	}
 	// 目录项也要落盘：机器在改名后立刻掉电时，"文件在、目录里没有"同样是事故。
+	// Linux 上 fsync 失败必须上抛（rename 已发生但持久化未确认）；其他宿主见
+	// fsync_other.go——那里的 Sync 对目录句柄必败，而真实部署只在 Linux 上发生。
 	if d, err := os.Open(m.dir); err == nil {
-		_ = d.Sync()
+		syncErr := syncDirStrict(d)
 		_ = d.Close()
+		if syncErr != nil {
+			return fmt.Errorf("脚本目录落盘失败（rename 已发生，持久化未确认）: %w", syncErr)
+		}
 	}
 	return nil
 }

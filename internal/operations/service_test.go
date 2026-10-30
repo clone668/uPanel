@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -48,11 +49,13 @@ type fakeAgent struct {
 	opHook func()
 
 	// P12.4：定时操作的导入。scheduled 是代理"自己跑过"的那些操作。
-	scheduled      []agentclient.ScheduledOperation
-	scheduledErr   error
-	scheduledCalls int
-	scheduledSince time.Time
-	scheduledLimit int
+	scheduled        []agentclient.ScheduledOperation
+	scheduledErr     error
+	scheduledCalls   int
+	scheduledSince   time.Time
+	scheduledSinceID string
+	scheduledLimit   int
+	scheduledPaged   bool
 
 	opCalls     []agentclient.OperationInput
 	getCalls    []string
@@ -96,14 +99,39 @@ func (f *fakeAgent) CancelOperation(_ context.Context, operationID string) (agen
 }
 
 // ListScheduledOperations 回放 P12.4 的定时操作列表（导入用例用它摆数据）。
-func (f *fakeAgent) ListScheduledOperations(_ context.Context, since time.Time, limit int) ([]agentclient.ScheduledOperation, error) {
+func (f *fakeAgent) ListScheduledOperations(_ context.Context, since time.Time, sinceID string, limit int) ([]agentclient.ScheduledOperation, error) {
 	f.scheduledSince = since
+	f.scheduledSinceID = sinceID
 	f.scheduledLimit = limit
 	f.scheduledCalls++
 	if f.scheduledErr != nil {
 		return nil, f.scheduledErr
 	}
-	return f.scheduled, nil
+	if !f.scheduledPaged {
+		return f.scheduled, nil
+	}
+	out := make([]agentclient.ScheduledOperation, 0, len(f.scheduled))
+	for _, op := range f.scheduled {
+		if !since.IsZero() {
+			if op.CreatedAt.Before(since) {
+				continue
+			}
+			if sinceID != "" && op.CreatedAt.Equal(since) && op.OperationID <= sinceID {
+				continue
+			}
+		}
+		out = append(out, op)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].OperationID < out[j].OperationID
+		}
+		return out[i].CreatedAt.Before(out[j].CreatedAt)
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }
 
 func (f *fakeAgent) OperationEvents(_ context.Context, operationID string) ([]agentclient.OperationEvent, error) {

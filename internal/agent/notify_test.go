@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"mime"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/textproto"
@@ -385,12 +386,11 @@ func TestDeliverRejectsWrongPeer(t *testing.T) {
 	}
 }
 
-// TestWebhookSelfSignedCertIsRejected：自签证书必须导致投递失败，而且**不重试**。
-//
-// 这条测试的价值在于它证明了 TLS 校验没有被关掉：如果哪天有人为了“让它跑通”
-// 加了 InsecureSkipVerify，这里会变成 accepted。
-func TestWebhookSelfSignedCertIsRejected(t *testing.T) {
+// TestWebhookLoopbackIsRejectedBeforeConnecting：回环目标在 TLS 与 HTTP 之前就被拒绝。
+func TestWebhookLoopbackIsRejectedBeforeConnecting(t *testing.T) {
+	requests := 0
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ts.Close()
@@ -400,6 +400,53 @@ func TestWebhookSelfSignedCertIsRejected(t *testing.T) {
 		Settings: notifySettings{URL: ts.URL},
 		Title:    "t", Body: "b",
 	}, "")
+	if res.Accepted || res.Retryable {
+		t.Fatalf("回环目标应被永久拒绝，实际 %+v", res)
+	}
+	if !strings.Contains(res.Detail, "公网地址") {
+		t.Fatalf("失败原因应指向目标策略，实际 %q", res.Detail)
+	}
+	if requests != 0 {
+		t.Fatalf("被拒绝的回环目标收到了 %d 个请求", requests)
+	}
+}
+
+// TestWebhookAllowPrivateStillVerifiesTLS：内网例外只放宽目标地址，不关闭证书校验。
+func TestWebhookAllowPrivateStillVerifiesTLS(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	res := sendWebhook(reqContext(t), notifyRequest{
+		Type:     "webhook",
+		Settings: notifySettings{URL: ts.URL, AllowPrivate: true},
+		Title:    "t", Body: "b",
+	}, "")
+	if res.Accepted || res.Retryable {
+		t.Fatalf("显式允许内网不应接受自签证书，实际 %+v", res)
+	}
+	if strings.Contains(res.Detail, "公网地址") {
+		t.Fatalf("显式允许内网后仍在地址层被拒绝: %q", res.Detail)
+	}
+	if !strings.Contains(strings.ToLower(res.Detail), "certificate") &&
+		!strings.Contains(res.Detail, "x509") {
+		t.Fatalf("失败原因应指向证书，实际 %q", res.Detail)
+	}
+}
+
+// TestWebhookSelfSignedCertIsRejected：本地拨号只隔离网络，TLS 验证仍走真实生产配置。
+func TestWebhookSelfSignedCertIsRejected(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+	dialer := &net.Dialer{Timeout: notifyConnectTimeout}
+	res := sendWebhookWithDial(reqContext(t), notifyRequest{
+		Type:     "webhook",
+		Settings: notifySettings{URL: ts.URL},
+		Title:    "t", Body: "b",
+	}, "", dialer.DialContext)
 	if res.Accepted {
 		t.Fatal("自签证书被接受了：TLS 校验被关掉了")
 	}

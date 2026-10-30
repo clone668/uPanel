@@ -92,12 +92,12 @@ type Agent interface {
 	GetOperation(ctx context.Context, operationID string) (agentclient.Operation, error)
 	// CancelOperation 请求安全取消；动作是否可取消由代理的策略决定。
 	CancelOperation(ctx context.Context, operationID string) (agentclient.Operation, error)
-	// ListScheduledOperations 问代理"从 since 起定时触发跑了哪些操作"（P12.4）。
+	// ListScheduledOperations 问代理复合游标之后的定时操作（P12.4）。
 	//
 	// 定时触发那条路径 Web 没有参与（systemd → upanelctl → 代理的专用 trigger 路由），
 	// 所以这些操作只能反向问代理要。它只回答这一个问题：代理不接受 actor=scheduler
 	// 以外的值。
-	ListScheduledOperations(ctx context.Context, since time.Time, limit int) ([]agentclient.ScheduledOperation, error)
+	ListScheduledOperations(ctx context.Context, since time.Time, sinceID string, limit int) ([]agentclient.ScheduledOperation, error)
 	// OperationEvents 读回代理侧事件流水（P03.3），用于镜像进 job_events。
 	//
 	// 它和 GetOperation 一样会把“连不上代理”与“代理说没有这条操作”分成两类错误：

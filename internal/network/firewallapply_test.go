@@ -13,6 +13,7 @@ package network
 
 import (
 	"context"
+	"errors"
 	"path"
 	"strings"
 	"testing"
@@ -384,6 +385,29 @@ func TestFirewallApplyArmsTimerBeforeTouchingRules(t *testing.T) {
 }
 
 // ---- 预检 ----
+
+func TestFirewallExecuteRejectsPendingRollbackAfterPreflight(t *testing.T) {
+	f := newFwFixture(t)
+	def := &FirewallDefinition{Enabled: false, Rules: []ManagedRule{
+		{ID: "ssh", Action: RuleAllow, Port: 22, Proto: ProtoTCP},
+	}}
+	f.apply(t, def)
+	before := len(f.ufw.calls)
+
+	// 上一笔仍在回滚窗口内。执行必须自己挡住，不能依赖调用方刚好又做了一次预检。
+	params := FirewallApplyParams{Definition: def}
+	_, err := f.eng.ExecuteWrite(context.Background(), FirewallWriteRequest{
+		Action: FirewallActionApply, Params: params, OperationID: "op-2",
+	})
+	if !errors.Is(err, ErrPreflightChanged) {
+		t.Fatalf("未确认记录必须挡住执行: %v", err)
+	}
+	for _, call := range f.ufw.calls[before:] {
+		if !strings.HasPrefix(call, "ufw status") && !strings.HasPrefix(call, "ufw show added") {
+			t.Fatalf("被拒绝后仍执行了写命令: %v", f.ufw.calls[before:])
+		}
+	}
+}
 
 func TestFirewallApplyRejectsStaleConfigHash(t *testing.T) {
 	f := newFwFixture(t)

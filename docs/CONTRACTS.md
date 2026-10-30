@@ -3124,9 +3124,10 @@ timer 没装）。装完 `daemon-reload`，再读回 `is-enabled`、`is-active`�
 
 **（7）内置动作复用任务框架，不新开旁路。** 触发产生的操作照旧经过预检、任务、幂等、
 资源锁、结果验证与审计，操作 id 由 `OperationID(trigger)` 稳定派生，请求指纹
-`scheduledOperationRequestHash` 不含预检引用（否则重试会算出不同指纹）。管理员保存计划时
-的显式授权替代交互确认；这条替代不能扩展到格式化、网络变更等动作——
-`SCHEDULE_KIND_UNSUPPORTED` 之外的越界动作在预检阶段就被挡住。
+`scheduledOperationRequestHash` 不含预检引用（否则重试会算出不同指纹）。触发与计划
+`schedule.update/delete` 共用 `schedule:<id>` 锁，取得锁后必须重新判决触发条件；初次判决后
+被停用或删除的计划不得再接受操作。管理员保存计划时的显式授权替代交互确认；这条替代不能
+扩展到格式化、网络变更等动作——`SCHEDULE_KIND_UNSUPPORTED` 之外的越界动作在预检阶段就被挡住。
 
 **（8）系统操作者在库里有一行，但它不能登录。** 触发以保留用户 `SchedulerUserID = 1 << 62`
 提交。面板在处理这类操作时惰性创建 `scheduler` 行（`role='viewer'`、`disabled=1`、
@@ -3135,13 +3136,15 @@ timer 没装）。装完 `daemon-reload`，再读回 `is-enabled`、`is-active`�
 任务在 P12.4 只能从库里读——`/jobs` 页面按用户隔离，读不到系统操作者名下的任务。
 
 **（9）代理产生的定时操作会被对账导入。** 代理提供
-`GET /internal/v1/operations?actor=scheduler&since=&limit=`（只认 `actor=scheduler`），
+`GET /internal/v1/operations?actor=scheduler&since=&since_id=&limit=`（只认 `actor=scheduler`），
 Web 的对账循环每 30 秒一轮，在锁内先 `ImportScheduled` 再 `SweepPending`。导入三行如实
 抄写：`users`（上面那行 `scheduler`）、`preflights`（代理给的预检引用与结论）、`jobs`
 （状态、时间、结果）。导入行的 `cancellable=0`（取消要通过代理的取消路由，面板上的取消
 按钮对定时任务不成立）、`needs_sync=1`（下轮继续从代理读回状态）。水位取
-`jobs` 表里该用户最大的 `created_at`，因为代理的 `since` 是"这条操作创建时间"，
-用导入时间做水位会漏掉创建早于上次同步、完成晚于它的操作。
+`jobs` 表里该用户按 `(created_at, operation_id)` 排序的最后一条，因为代理按这个复合游标
+严格向后分页；只用创建时间会在同一毫秒有多条操作时整批漏记录，用导入时间做水位则会漏掉
+创建早于上次同步、完成晚于它的操作。单条导入失败后停止处理本批后续记录，水位只推进到
+最后一条成功记录，失败项及其后记录下一轮重试。
 
 `needs_sync` 的语义只有一句话：**Web 有没有成功把这条操作的状态抄回来过**。它与
 "能不能改这条任务的状态"是两件事——`jobs` 的终态不可回退，所以对账的条件更新会跳过
@@ -3477,9 +3480,10 @@ P13.2 只把列准备好。
 | `POST /notification-channels/:id/test` | **显式**测试发送，只发一次、不重试；回投递行 |
 
 `type` 是闭集 `in_app` / `smtp` / `webhook`。`settings` 按类型解释：smtp 用
-`host`/`port`/`tls`/`from`/`to`/`username`；webhook 用 `url`。类型用不上的字段一律清空
-（`normalizeChannel` 做这件事，库里不存垃圾）。`target` 是只读的人读形式
-（smtp 是收件人列表、webhook 是 URL），由服务端算，不接受提交。
+`host`/`port`/`tls`/`from`/`to`/`username`；webhook 用 `url` 与 `allow_private`。
+`allow_private` 缺省为 `false`，只有管理员对单条通道显式设为 `true` 才允许连接非公网目标。
+类型用不上的字段一律清空（`normalizeChannel` 做这件事，库里不存垃圾）。`target` 是只读的
+人读形式（smtp 是收件人列表、webhook 是 URL），由服务端算，不接受提交。
 
 **秘密从哪里来、到哪里去。** SMTP 口令与 webhook 令牌**不入面板库**：调用方先按
 P02.4 的通道把口令上传成用途 `notification_password` 的秘密，再把返回的 `secret_ref`
@@ -3493,7 +3497,9 @@ P02.4 的通道把口令上传成用途 `notification_password` 的秘密，再�
 
 - 只允许 `smtp` 与 `webhook`，没有第三种协议，也没有"自定义命令"；
 - webhook 只接受 `https`，**拒绝 URL 里的用户名口令与 `#片段`，不跟随重定向**，
-  响应只读 4 KiB；
+  响应只读 4 KiB；缺省只允许公网目标，并在每次实际 Dial 前逐个检查 DNS 答案，防止保存后
+  解析变化或 DNS 重绑定绕过检查。单通道 `allow_private=true` 是管理员的显式内网例外，
+  只放宽目标网段，不放宽 HTTPS、证书校验或重定向禁令；
 - SMTP 只接受 `starttls` 或 `implicit`，**没有明文模式**；AUTH 只走 PLAIN，且必须在
   TLS 上（`smtp.PlainAuth` 自己也会拒绝非 TLS 连接）；
 - 单次投递总时长上限 **8 秒**（小于面板侧 10 秒的调用上限，免得面板先把代理掐掉）；
@@ -4301,7 +4307,7 @@ SO_PEERCRED 规则只认 `upanel-web`，所以以 root 运行会拿到 `forbidde
 | GET /internal/v1/operations/:id | 实际状态和结果；可用于超时后对账 |
 | GET /internal/v1/operations/:id/events | 代理日志/状态流 |
 | POST /internal/v1/operations/:id/cancel | 仅安全取消 |
-| GET /internal/v1/operations?actor=scheduler&since=&limit= | P12.4 起：只列系统操作者提交的定时操作，供 Web 对账导入；`actor` 只认 `scheduler`，`since` 为创建时间水位，`limit` 有上限 |
+| GET /internal/v1/operations?actor=scheduler&since=&since_id=&limit= | P12.4 起：只列系统操作者提交的定时操作，供 Web 对账导入；`actor` 只认 `scheduler`，`(since, since_id)` 为创建时间与操作 ID 的复合游标，`limit` 有上限 |
 | POST /internal/v1/secrets | 用途与秘密；返回引用，无读取明文路由 |
 | POST /internal/v1/schedules/:id/trigger | 仅 SO_PEERCRED UID=0 的本机 CLI 可调用；从代理已批准配置取动作，输入只允许触发 ID，不接受 action/params；答复带 `max_runtime_seconds` |
 | GET /internal/v1/schedules/:id/trigger-runs/:operation_id | 同样是 UID=0 专用；只返回**这条计划自己触发的那个操作**，其它一律 404。`--wait` 的状态来源 |
@@ -4346,7 +4352,7 @@ query 枚举按模块登记，例如 system.summary、storage.topology、service
 
 内置定时任务只可执行已登记且启用的 backup.run、certificate.renew 和 script.run。systemd 调用 root 所有的固定 upanelctl schedule-trigger 命令，代理只在专用 trigger 路由接受 UID=0；普通路由仍只接受 upanel-web。系统身份来自 root 持有的任务配置与本地凭据，不允许公开 /jobs 请求自称 scheduler 来跳过再认证。定时触发须重新预检资源与锁，创建稳定触发 ID 并审计；交互确认由管理员保存计划时的显式授权替代，不能扩展到格式化或网络变更。代理产生的定时 operation 会被 Web 对账导入任务表，不能只存在于 journal。
 
-导入用的正是 `GET /internal/v1/operations?actor=scheduler`（P12.4）：`actor` 不是身份断言，参数只筛出代理库里 `user_id` 等于保留系统操作者的那些操作；谁能调这条路由仍由 socket 对端凭据决定（只接受 `upanel-web`）。导入按创建时间水位增量拉取，`jobs` 行的来历因此可追：`preflight_id` 抄代理给的引用，`cancellable=0`、`needs_sync=1`（见 §12.4 第 9 条）。
+导入用的正是 `GET /internal/v1/operations?actor=scheduler`（P12.4）：`actor` 不是身份断言，参数只筛出代理库里 `user_id` 等于保留系统操作者的那些操作；谁能调这条路由仍由 socket 对端凭据决定（只接受 `upanel-web`）。导入按 `(created_at, operation_id)` 复合游标增量拉取，`jobs` 行的来历因此可追：`preflight_id` 抄代理给的引用，`cancellable=0`、`needs_sync=1`（见 §12.4 第 9 条）。
 
 actor_context 供审计关联，包括 user_id、session_id_hash、request_id、reauth_at。代理信任 Web 完成用户登录认证，但仍独立实施系统安全边界；不能把该设计描述为可抵御已完全控制 Web 进程的管理员身份伪造。
 

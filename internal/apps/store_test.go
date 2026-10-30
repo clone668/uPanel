@@ -3,6 +3,7 @@ package apps
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -139,6 +140,53 @@ func TestCreateGetAndList(t *testing.T) {
 	}
 	if _, err := svc.Get(ctx, 0, "not-an-id"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("形状不对的标识应返回 ErrNotFound，实际 %v", err)
+	}
+}
+
+func TestHealthTargetsFilterBeforeLimit(t *testing.T) {
+	svc, db := newTestService(t, Options{})
+	ctx := context.Background()
+	disabled, err := healthJSON(HealthCheck{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	enabled, err := healthJSON(HealthCheck{Enabled: true, TargetID: "local_test", Port: 8080})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.SQL().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO apps (id, name, description, icon_key, group_id, type, binding_json,
+		                  public_url, health_json, version, created_at, updated_at)
+		VALUES (?, ?, '', '', NULL, 'link', '{}', '', ?, 1, ?, ?)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := formatTime(fixedNow())
+	for i := 0; i < MaxHealthTargets; i++ {
+		if _, err := stmt.ExecContext(ctx, fmt.Sprintf("app_%032x", i+1), fmt.Sprintf("a-%04d", i), disabled, ts, ts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := stmt.ExecContext(ctx, "app_ffffffffffffffffffffffffffffffff", "z-enabled", enabled, ts, ts); err != nil {
+		t.Fatal(err)
+	}
+	if err := stmt.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	targets, err := svc.HealthTargets(ctx)
+	if err != nil {
+		t.Fatalf("查询健康检查目标失败: %v", err)
+	}
+	if len(targets) != 1 || targets[0].App.Name != "z-enabled" {
+		t.Fatalf("禁用应用不得挤掉限流之外的启用目标: %+v", targets)
 	}
 }
 

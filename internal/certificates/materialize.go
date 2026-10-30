@@ -260,6 +260,13 @@ func backupExisting(fs MaterialFS, paths MaterialPaths, files []string, now time
 		}
 		olds = append(olds, old{path: p, data: data})
 	}
+	// 备份里可能夹着旧私钥的明文（这份副本是这里 ReadFile 出来的，调用方的
+	// zero(keyPEM) 清不到它）：写完备份即清零，与"私钥用完即弃"同一条纪律。
+	defer func() {
+		for _, o := range olds {
+			zero(o.data)
+		}
+	}()
 	if len(olds) == 0 {
 		return "", nil
 	}

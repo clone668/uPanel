@@ -162,7 +162,7 @@ func (m *memoEnv) ScanMount(_ context.Context, mountPoint string) ([]BusyProcess
 
 // asEnv 把记忆层包成判决用的 Env。
 func (m *memoEnv) asEnv() Env {
-	return Env{Signatures: m, Busy: m}
+	return Env{Signatures: m, Busy: m, Dependents: m.env.Dependents}
 }
 
 // cachedCapability 是一台设备的能力缓存。

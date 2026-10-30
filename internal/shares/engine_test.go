@@ -459,13 +459,14 @@ type harness struct {
 // 判决与执行都在同一个环境里跑，靠固定返回值是模拟不出来的——预检时账号必须
 // 不存在（否则会被判成“接管别人的账号”），执行后必须存在（否则读回对不上）。
 type fakeSystem struct {
-	mu        sync.Mutex
-	users     map[string]int          // 用户名 → uid
-	samba     map[string]SambaAccount // passdb 里的账号
-	noPass    bool                    // 设过密码也不显示 Password last set（模拟失败）
-	useradd   int
-	userdel   int
-	smbDelete int
+	mu         sync.Mutex
+	users      map[string]int          // 用户名 → uid
+	samba      map[string]SambaAccount // passdb 里的账号
+	noPass     bool                    // 设过密码也不显示 Password last set（模拟失败）
+	userdelErr error                   // 回滚时 userdel 失败，验证错误不会被伪装成已清理
+	useradd    int
+	userdel    int
+	smbDelete  int
 }
 
 func newFakeSystem() *fakeSystem {
@@ -523,6 +524,11 @@ func (s *fakeSystem) install(r *fakeRunner) {
 		name := spec.Args[len(spec.Args)-1]
 		s.mu.Lock()
 		s.userdel++
+		if s.userdelErr != nil {
+			err := s.userdelErr
+			s.mu.Unlock()
+			return syscmd.Result{}, err
+		}
 		delete(s.users, name)
 		s.mu.Unlock()
 		return resOK("")
@@ -1855,6 +1861,32 @@ func TestExecuteAccountCreateRollsBackWhenPasswordMissing(t *testing.T) {
 	}
 	if h.store.saves != 0 {
 		t.Fatal("失败却写了登记表")
+	}
+}
+
+func TestExecuteAccountCreateReportsRollbackFailure(t *testing.T) {
+	h := newHarness(t)
+	h.sec.values[testSecret] = []byte("cw-S3cret-Pass")
+	h.sys.noPass = true
+	h.sys.userdelErr = errors.New("userdel: account is busy")
+
+	p := AccountApplyParams{Name: "alice", SecretRef: testSecret}
+	a, err := h.engine.Assess(context.Background(), ActionAccountApply, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = h.engine.ExecuteWrite(context.Background(), WriteRequest{
+		Action: ActionAccountApply, Params: a.NormalizedParams,
+		ExpectedIdentity: a.IdentityFingerprint, ExpectedStateVersion: a.StateVersion,
+	})
+	if err == nil || !strings.Contains(err.Error(), "回滚失败") || !strings.Contains(err.Error(), "account is busy") {
+		t.Fatalf("failed cleanup must be reported explicitly: %v", err)
+	}
+	if strings.Contains(err.Error(), "已回滚") {
+		t.Fatalf("failed cleanup must not claim rollback succeeded: %v", err)
+	}
+	if !h.sys.exists("alice") {
+		t.Fatal("fixture must preserve the account when userdel fails")
 	}
 }
 

@@ -123,6 +123,11 @@ var (
 	// ErrExpired 表示证书已经过期。绑一张过期证书能得到的最多是浏览器警告，
 	// 所以它在绑定路径上是拒绝理由，不是提示。
 	ErrExpired = errors.New("certificates: 证书已过期")
+	// ErrStateUnknown 表示记录缺关键事实（not_after 或指纹），算不出有效期状态。
+	// 它在绑定路径上也是拒绝理由：放过去的话，这张证书要到代理渲染参数时才被
+	// TLSMaterial.Validate 以一句"参数不合法"挡下，管理员看到的失败与真实原因
+	// 对不上。
+	ErrStateUnknown = errors.New("certificates: 证书记录缺少到期时间或指纹")
 )
 
 // ValidationError 是字段级不合法（400 VALIDATION_ERROR），与 proxies 同形。

@@ -164,6 +164,9 @@ func parseGPT(raw []byte) (partitionTableResult, error) {
 	}
 
 	entryOff := int(entryLBA) * sectorSize
+	if entryLBA > uint64(^uint(0)>>1)/sectorSize || entryOff < 0 || entryOff > len(raw) {
+		return partitionTableResult{}, fmt.Errorf("GPT 条目表起始位置异常（LBA %d）", entryLBA)
+	}
 	// used 是“已被分区占用”的扇区区间，end 为开区间（与 GPT 的 inclusive last LBA 分开记，
 	// 免得每处都 +1）。
 	type span struct{ start, end uint64 }
@@ -172,8 +175,8 @@ func parseGPT(raw []byte) (partitionTableResult, error) {
 	count := 0
 	for i := uint32(0); i < entryCount; i++ {
 		off := entryOff + int(i)*int(entrySize)
-		if off+int(entrySize) > len(raw) {
-			break // 头部没读全：已解析的部分仍然有效
+		if off < entryOff || off+int(entrySize) < off || off+int(entrySize) > len(raw) {
+			return partitionTableResult{}, fmt.Errorf("GPT 条目表不完整：第 %d/%d 项超出读取范围", i+1, entryCount)
 		}
 		entry := raw[off : off+int(entrySize)]
 		if allZero(entry[0:16]) {

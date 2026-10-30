@@ -235,7 +235,7 @@ func TestListScheduledOperationsQuery(t *testing.T) {
 	}))
 
 	since := time.Date(2026, 10, 22, 0, 0, 0, 0, time.UTC)
-	list, err := c.ListScheduledOperations(context.Background(), since, 25)
+	list, err := c.ListScheduledOperations(context.Background(), since, "op_0123456789abcdef0123456789abcdef", 25)
 	if err != nil {
 		t.Fatalf("调用失败: %v", err)
 	}
@@ -244,6 +244,9 @@ func TestListScheduledOperationsQuery(t *testing.T) {
 	}
 	if !strings.Contains(gotQuery, "since=2026-10-22T00%3A00%3A00Z") {
 		t.Fatalf("since 没传对：%s", gotQuery)
+	}
+	if !strings.Contains(gotQuery, "since_id=op_0123456789abcdef0123456789abcdef") {
+		t.Fatalf("复合游标 ID 没传对：%s", gotQuery)
 	}
 	if !strings.Contains(gotQuery, "limit=25") {
 		t.Fatalf("limit 没传对：%s", gotQuery)
@@ -267,7 +270,7 @@ func TestListScheduledOperationsOmitsZeroSince(t *testing.T) {
 		gotQuery = r.URL.RawQuery
 		io.WriteString(w, `{"data":{"operations":[]},"request_id":"rid"}`)
 	}))
-	if _, err := c.ListScheduledOperations(context.Background(), time.Time{}, 0); err != nil {
+	if _, err := c.ListScheduledOperations(context.Background(), time.Time{}, "", 0); err != nil {
 		t.Fatalf("调用失败: %v", err)
 	}
 	if strings.Contains(gotQuery, "since=") || strings.Contains(gotQuery, "limit=") {

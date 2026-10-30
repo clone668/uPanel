@@ -262,6 +262,9 @@ func (s *Service) attemptDelivery(ctx context.Context, sender Sender, ch Channel
 		Title:     title,
 		Body:      body,
 	})
+	// 对端一旦已经给出结果，就不能随调用方断开而丢掉本地回执。
+	// 否则 accepted 的通知仍停在 pending，下一轮会把同一消息再发一次。
+	writeCtx := context.WithoutCancel(ctx)
 	if sendErr != nil {
 		result = DeliverResult{
 			Accepted:  false,
@@ -270,7 +273,7 @@ func (s *Service) attemptDelivery(ctx context.Context, sender Sender, ch Channel
 		}
 	}
 	if result.Accepted {
-		if _, err := s.exec(ctx, `
+		if _, err := s.exec(writeCtx, `
 			UPDATE notification_deliveries
 			   SET state = 'sent', attempts = ?, sent_at = ?, last_status = ?, last_error = '',
 			       next_attempt_at = 0
@@ -278,7 +281,7 @@ func (s *Service) attemptDelivery(ctx context.Context, sender Sender, ch Channel
 			attempt, formatTime(now), result.Status, id); err != nil {
 			return Delivery{}, fmt.Errorf("notifications: 写回投递结果失败: %w", err)
 		}
-		return s.getDelivery(ctx, id)
+		return s.getDelivery(writeCtx, id)
 	}
 
 	detail := truncate(strings.TrimSpace(result.Detail), MaxErrorLen)
@@ -289,14 +292,14 @@ func (s *Service) attemptDelivery(ctx context.Context, sender Sender, ch Channel
 		state = DeliveryPending
 		next = now.Add(retryDelay(attempt)).Unix()
 	}
-	if _, err := s.exec(ctx, `
+	if _, err := s.exec(writeCtx, `
 		UPDATE notification_deliveries
 		   SET state = ?, attempts = ?, last_status = ?, last_error = ?, next_attempt_at = ?
 		 WHERE id = ?`,
 		state, attempt, result.Status, detail, next, id); err != nil {
 		return Delivery{}, fmt.Errorf("notifications: 写回投递结果失败: %w", err)
 	}
-	return s.getDelivery(ctx, id)
+	return s.getDelivery(writeCtx, id)
 }
 
 // retryDelay 返回第 attempt 次失败之后要等多久。

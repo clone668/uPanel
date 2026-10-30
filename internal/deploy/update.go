@@ -671,6 +671,9 @@ func (s *Service) rollback(ctx context.Context, deadline time.Time, plan UnitPla
 		// 更新只换镜像：健康检查的 kind/路径/端口都属于定义里没动的部分，所以上一版
 		// 与这一版探的是同一个地址。
 		probe = s.probeHealth(ctx, deadline, assessment.Definition)
+		if probe.Checked && !probe.Healthy {
+			return probe, fmt.Errorf("回滚后的健康检查失败: %s", probe.LastError)
+		}
 	}
 	return probe, nil
 }

@@ -214,6 +214,18 @@ func TestSameKeyDifferentBodyConflicts(t *testing.T) {
 	}
 }
 
+func TestConcurrentIdempotencyFallbackChecksBodyHash(t *testing.T) {
+	f := newJobFixture(t, nil)
+	pf := f.preflight(7)
+	f.mustSubmit(f.submitInput(pf.ID, "key-1", "PING AAAA"))
+
+	differentBodyHash := hashHex([]byte(canonicalPair(pf.ID, "PING BBBB")))
+	_, err := f.svc.lookupIdempotencyReplay(context.Background(), 7, "key-1", differentBodyHash)
+	if !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("并发回退错误 = %v，期望 ErrIdempotencyConflict", err)
+	}
+}
+
 // TestDifferentKeySamePreflightIsUsed 预检是一次性凭据：换幂等键也不行。
 func TestDifferentKeySamePreflightIsUsed(t *testing.T) {
 	f := newJobFixture(t, nil)

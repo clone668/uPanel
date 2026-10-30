@@ -414,7 +414,7 @@ func SFTPCommand(sshPath, knownHostsPath, keyPath string, host string, port int,
 // 为什么在 /run 里：私钥是秘密材料，落盘就意味着它可能被留在磁盘快照、
 // 被某次备份带走。/run 是 tmpfs，进程结束后随内存消失；再加上调用方读后立即清零
 // 并删除，暴露窗口被压到一次调用的长度。
-func (r *Restic) WritePrivateKey(name string, key []byte) (string, error) {
+func (r *Restic) WritePrivateKey(_ string, key []byte) (string, error) {
 	if len(key) == 0 {
 		return "", errors.New("backup: SFTP 私钥为空")
 	}
@@ -422,14 +422,11 @@ func (r *Restic) WritePrivateKey(name string, key []byte) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("backup: 创建临时目录失败: %w", err)
 	}
-	sum := sha256.Sum256([]byte(name))
-	path := filepath.Join(dir, hex.EncodeToString(sum[:8])+".key")
-	// 先删再建：同名残留（上次崩溃留下的）不允许被复用。
-	_ = os.Remove(path)
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	f, err := os.CreateTemp(dir, "*.key")
 	if err != nil {
 		return "", fmt.Errorf("backup: 创建私钥临时文件失败: %w", err)
 	}
+	path := f.Name()
 	if _, err := f.Write(key); err != nil {
 		_ = f.Close()
 		_ = os.Remove(path)

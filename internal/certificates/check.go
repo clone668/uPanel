@@ -29,9 +29,14 @@ func (s *Service) CheckCertificate(ctx context.Context, certID, domain string) e
 	if !cert.CoversDomain(want) {
 		return fmt.Errorf("%w：%s 覆盖的是 %s", ErrNotCovered, want, strings.Join(cert.Domains, "、"))
 	}
-	if cert.State(s.nowUTC()) == RenewalExpired {
+	switch cert.State(s.nowUTC()) {
+	case RenewalExpired:
 		return fmt.Errorf("%w（到期时间 %s）：绑上去只会得到一个浏览器警告",
 			ErrExpired, cert.NotAfter.UTC().Format(time.RFC3339))
+	case RenewalUnknown:
+		// 事实不完整（not_after 零值或指纹缺失，只在数据被手工改坏时出现）。
+		// 这种记录不能绑：判不了有效期，"不知道"不能当"有效"用。
+		return fmt.Errorf("%w：重新导入或续期一次让记录恢复完整，再绑定", ErrStateUnknown)
 	}
 	return nil
 }

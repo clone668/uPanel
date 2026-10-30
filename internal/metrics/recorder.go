@@ -259,13 +259,12 @@ func (r *Recorder) recordSummary(ctx context.Context) {
 		// 更重要的是别把 lastSampleAt 更新成“刚刚”。
 		return
 	}
-	r.lastSummaryAt = sum.CollectedAt
-
 	samples := DeriveHost(sum)
 	samples = append(samples, DeriveNetwork(sum)...)
 	if len(samples) == 0 {
 		// 整份快照都是失败段：没有可写的值。这不是错误，但要让状态接口说得清
 		// “采集在跑、只是这一份没有可用数据”。
+		r.lastSummaryAt = sum.CollectedAt
 		return
 	}
 	inserted, err := r.opts.Store.InsertMetricSamples(ctx, samples)
@@ -273,6 +272,8 @@ func (r *Recorder) recordSummary(ctx context.Context) {
 		r.noteError("insert", err)
 		return
 	}
+	// 只有落库成功才算消费。写入失败时保留旧水位，让下一轮能重试同一份快照。
+	r.lastSummaryAt = sum.CollectedAt
 	if inserted > 0 {
 		r.lastInserted += int64(inserted)
 		r.lastSampleAt = sum.CollectedAt

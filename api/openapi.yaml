@@ -8280,6 +8280,10 @@ components:
           type: string
           maxLength: 1024
           description: webhook 地址，只接受 https，不接受 URL 里的用户名口令与 #片段。
+        allow_private:
+          type: boolean
+          default: false
+          description: 仅 webhook；显式允许连接回环、私网、链路本地等非公网目标。缺省为 false，不改变 HTTPS 与证书校验。
 
     NotificationChannel:
       type: object

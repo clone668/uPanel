@@ -102,6 +102,11 @@ type SnapshotRequest struct {
 
 // ListSnapshots 列出仓库里的快照（按时间倒序）。
 func (o *Ops) ListSnapshots(ctx context.Context, req SnapshotRequest) ([]Snapshot, error) {
+	return o.listSnapshots(ctx, req, SnapshotListLimit)
+}
+
+// listSnapshots 的 limit 为 0 时返回完整集合；保留策略不能使用展示页截断的数据。
+func (o *Ops) listSnapshots(ctx context.Context, req SnapshotRequest, limit int) ([]Snapshot, error) {
 	def, err := req.Definition.Normalize()
 	if err != nil {
 		return nil, err
@@ -139,8 +144,8 @@ func (o *Ops) ListSnapshots(ctx context.Context, req SnapshotRequest) ([]Snapsho
 		}
 		return out[i].Time.After(out[j].Time)
 	})
-	if len(out) > SnapshotListLimit {
-		out = out[:SnapshotListLimit]
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
 	}
 	for i := range out {
 		if err := o.mergeRestoreVerification(ctx, req.RepositoryID, &out[i]); err != nil {
@@ -711,6 +716,9 @@ func (o *Ops) Run(ctx context.Context, req RunRequest) (out RunResult, err error
 		// 拉回来。把 defer 写在停机成功之后，会让"停了一半"成为唯一没有收尾的路径。
 		defer func() {
 			restoreAppsAfterRun(context.WithoutCancel(ctx), req, stopped, &out, &warnings, progress)
+			if err == nil && out.Verified && !out.AppsRestored {
+				err = errors.New("backup: 快照已建立并核验，但至少一个应用未能恢复原运行状态")
+			}
 		}()
 		if err := stopAppsForRun(ctx, req, &out, &warnings, progress, &stopped); err != nil {
 			return out, err
@@ -923,13 +931,20 @@ func stopAppsForRun(ctx context.Context, req RunRequest, out *RunResult, warning
 	out.AppsRestored = false
 	// 先回填再判失败：控制器会"尽量都停一遍"，成功停掉的那几个必须被收尾拉起。
 	*stopped = stoppedFrom(running, actions)
+	verified := make(map[string]bool, len(actions))
 	for _, act := range actions {
+		verified[act.Target.Kind+"|"+act.Target.Object] = act.Verified
 		if !act.Verified {
 			note := act.Note
 			if note == "" {
 				note = "没有读回确认"
 			}
 			return fmt.Errorf("backup: 停止应用 %s 没有确认成功：%s", act.Target.Label, note)
+		}
+	}
+	for _, rt := range running {
+		if !verified[rt.Target.Kind+"|"+rt.Target.Object] {
+			return fmt.Errorf("backup: 停止应用 %s 没有返回执行结果，不能开始一致性备份", rt.Target.Label)
 		}
 	}
 	if stopErr != nil {
@@ -976,7 +991,9 @@ func restoreAppsAfterRun(ctx context.Context, req RunRequest, stopped []AppRunti
 		*warnings = append(*warnings, "拉起应用失败："+err.Error())
 	}
 	restored := true
+	verified := make(map[string]bool, len(actions))
 	for _, act := range actions {
+		verified[act.Target.Kind+"|"+act.Target.Object] = act.Verified
 		if !act.Verified {
 			restored = false
 			note := act.Note
@@ -984,6 +1001,12 @@ func restoreAppsAfterRun(ctx context.Context, req RunRequest, stopped []AppRunti
 				note = "没有读回确认"
 			}
 			*warnings = append(*warnings, fmt.Sprintf("应用 %s 没有确认拉起：%s", act.Target.Label, note))
+		}
+	}
+	for _, rt := range stopped {
+		if !verified[rt.Target.Kind+"|"+rt.Target.Object] {
+			restored = false
+			*warnings = append(*warnings, fmt.Sprintf("应用 %s 没有返回拉起结果", rt.Target.Label))
 		}
 	}
 	out.AppsRestored = restored && err == nil

@@ -1050,7 +1050,9 @@ func (m *Manager) copyOrMove(ctx context.Context, params CopyParams, move bool) 
 		if err := m.reserveSpace(ctx, dstHandle.entry, int64(source.SizeBytes)); err != nil {
 			return WriteResult{}, err
 		}
-		m.releaseSpace(params.TargetRootID, int64(source.SizeBytes))
+		// 预留要覆盖到落位之后：与同根分支一样用 defer，提前释放会让“并发的另一个上传”
+		// 在这次复制还在写暂存时就以为空间够用，预检因此形同虚设。
+		defer m.releaseSpace(params.TargetRootID, int64(source.SizeBytes))
 	}
 	result, err := m.copyEntry(ctx, srcHandle, dstHandle, params.SourcePath, params.TargetPath, source)
 	if err != nil {

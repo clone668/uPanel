@@ -161,7 +161,8 @@ type Settings struct {
 	To       []string `json:"to,omitempty"`
 	Username string   `json:"username,omitempty"`
 	// ── webhook ──
-	URL string `json:"url,omitempty"`
+	URL          string `json:"url,omitempty"`
+	AllowPrivate bool   `json:"allow_private,omitempty"`
 }
 
 // Channel 是一条通知通道。

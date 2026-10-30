@@ -112,7 +112,10 @@ func normalizeChannel(in ChannelInput) (ChannelInput, error) {
 		if _, err := validateURL(strings.TrimSpace(in.Settings.URL)); err != nil {
 			return ChannelInput{}, err
 		}
-		out.Settings = Settings{URL: strings.TrimSpace(in.Settings.URL)}
+		out.Settings = Settings{
+			URL:          strings.TrimSpace(in.Settings.URL),
+			AllowPrivate: in.Settings.AllowPrivate,
+		}
 		// 令牌是可选的：有些 webhook 靠 URL 里的路径做鉴权（那不是秘密，只是不好猜）。
 		// 但只要给了 secret_ref，投递时就一定带 Authorization: Bearer。
 		return out, nil

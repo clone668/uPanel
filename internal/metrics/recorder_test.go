@@ -218,6 +218,49 @@ func newRecorder(t *testing.T, db *store.DB, sum *fakeSummary, top *fakeTopology
 	return r
 }
 
+type failFirstInsertStore struct {
+	*store.DB
+	calls int
+}
+
+func (s *failFirstInsertStore) InsertMetricSamples(ctx context.Context, samples []store.MetricSample) (int, error) {
+	s.calls++
+	if s.calls == 1 {
+		return 0, errors.New("transient insert failure")
+	}
+	return s.DB.InsertMetricSamples(ctx, samples)
+}
+
+func TestRecorderRetriesSameSnapshotAfterInsertFailure(t *testing.T) {
+	db := testDB(t)
+	failing := &failFirstInsertStore{DB: db}
+	ctx := context.Background()
+	c := &clock{t: at(0)}
+	sum := &fakeSummary{sum: healthySummary(at(0), 10, 0.5, 20)}
+	r, err := NewRecorder(Options{Store: failing, Summary: sum, Logger: quietLogger(), Now: c.now})
+	if err != nil {
+		t.Fatalf("构造 Recorder 失败: %v", err)
+	}
+
+	r.recordSummary(ctx)
+	r.recordSummary(ctx)
+	if got := failing.calls; got != 2 {
+		t.Fatalf("写入调用 = %d，期望失败后重试同一份快照", got)
+	}
+	counts, err := db.MetricSampleCounts(ctx)
+	if err != nil {
+		t.Fatalf("统计行数失败: %v", err)
+	}
+	if counts["total"] != 3 {
+		t.Fatalf("总行数 = %d，期望重试写入 3 行", counts["total"])
+	}
+
+	r.recordSummary(ctx)
+	if got := failing.calls; got != 2 {
+		t.Fatalf("成功后重复快照仍被写入，调用 = %d", got)
+	}
+}
+
 func TestRecorderDoesNotWriteSameSnapshotTwice(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()

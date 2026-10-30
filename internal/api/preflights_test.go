@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"upanel/internal/agentclient"
+	"upanel/internal/auth"
 	"upanel/internal/certificates"
 	"upanel/internal/config"
 	"upanel/internal/operations"
@@ -76,7 +77,7 @@ func (s *stubAgent) CancelOperation(_ context.Context, operationID string) (agen
 }
 
 // ListScheduledOperations 默认回空：这些用例不涉及定时触发（P12.4 的导入有自己的用例）。
-func (s *stubAgent) ListScheduledOperations(_ context.Context, _ time.Time, _ int) ([]agentclient.ScheduledOperation, error) {
+func (s *stubAgent) ListScheduledOperations(_ context.Context, _ time.Time, _ string, _ int) ([]agentclient.ScheduledOperation, error) {
 	return nil, nil
 }
 
@@ -171,6 +172,22 @@ type preflightResult struct {
 	ConfirmationPhrase *string  `json:"confirmation_phrase"`
 	Cancellable        bool     `json:"cancellable"`
 	Locks              []string `json:"locks"`
+}
+
+func TestReauthAtForUsesAuthServiceClock(t *testing.T) {
+	_, db := newTestAuthWithDB(t)
+	now := time.Date(2035, 1, 2, 3, 4, 5, 0, time.UTC)
+	authSvc, err := auth.NewService(db, auth.Options{Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatalf("构造认证服务失败: %v", err)
+	}
+
+	sess := auth.Session{ReauthUntil: now.Add(time.Minute)}
+	got := reauthAtFor(authSvc, sess)
+	want := now.Add(time.Minute - auth.ReauthWindow)
+	if !got.Equal(want) {
+		t.Fatalf("再认证时间 = %s，期望 %s", got, want)
+	}
 }
 
 func TestPreflightReturnsPlanToAdmin(t *testing.T) {

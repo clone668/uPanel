@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -43,9 +44,11 @@ type claimCall struct {
 type fakeScheduleService struct {
 	*fakeSchedules
 
-	decision  schedules.TriggerDecision
-	decideErr error
-	decided   []string
+	mu         sync.Mutex
+	decision   schedules.TriggerDecision
+	decideErr  error
+	decideHook func(call int)
+	decided    []string
 
 	claims []claimCall
 	// claimDuplicate 为 true 时模拟"这个槽此前被认领过"。
@@ -71,16 +74,26 @@ func (f *fakeScheduleService) Triggers(_ context.Context, _ string, _ int) ([]sc
 }
 
 func (f *fakeScheduleService) DecideTrigger(_ context.Context, scheduleID, triggerID string) (schedules.TriggerDecision, error) {
+	f.mu.Lock()
 	f.decided = append(f.decided, scheduleID+"|"+triggerID)
-	if f.decideErr != nil {
-		return schedules.TriggerDecision{}, f.decideErr
-	}
+	call := len(f.decided)
 	d := f.decision
+	err := f.decideErr
+	hook := f.decideHook
+	f.mu.Unlock()
+	if hook != nil {
+		hook(call)
+	}
+	if err != nil {
+		return schedules.TriggerDecision{}, err
+	}
 	d.TriggerID = triggerID
 	return d, nil
 }
 
 func (f *fakeScheduleService) ClaimTrigger(_ context.Context, d schedules.TriggerDecision, outcome, reason string) (string, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.claims = append(f.claims, claimCall{TriggerID: d.TriggerID, Outcome: outcome, Reason: reason})
 	return d.OperationID, f.claimDuplicate, nil
 }
@@ -294,6 +307,59 @@ func TestTriggerBlockedIsRecorded(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "已停用") {
 		t.Fatalf("响应没说清原因: %s", rec.Body.String())
+	}
+}
+
+// TestTriggerRechecksAfterScheduleMutation：停用完成后，旧判决不能继续受理。
+func TestTriggerRechecksAfterScheduleMutation(t *testing.T) {
+	svc := newFakeScheduleService()
+	firstDecided := make(chan struct{})
+	svc.decideHook = func(call int) {
+		if call == 1 {
+			close(firstDecided)
+		}
+	}
+	srv, ops := newTriggerServer(t, svc, nil)
+	release, err := srv.runner.locks.acquire(
+		context.Background(), "schedule-mutation", scheduleLocks(testScheduleID), time.Second)
+	if err != nil {
+		t.Fatalf("模拟计划变更持锁失败: %v", err)
+	}
+	defer release()
+
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		done <- postTrigger(t, srv, 0, testScheduleID, triggerBody(testTriggerID))
+	}()
+	select {
+	case <-firstDecided:
+	case <-time.After(2 * time.Second):
+		t.Fatal("触发没有走到初次判决")
+	}
+
+	// 模拟停用操作在锁内完成；触发随后只能拿到新判决，不能使用第一次的旧快照。
+	svc.mu.Lock()
+	svc.decision.Blockers = []schedules.Notice{{Code: "SCHEDULE_DISABLED", Message: "计划任务已停用"}}
+	svc.mu.Unlock()
+	release()
+
+	var rec *httptest.ResponseRecorder
+	select {
+	case rec = <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("释放计划锁后触发仍未结束")
+	}
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "已停用") {
+		t.Fatalf("锁内复核没有拦住旧触发：%d %s", rec.Code, rec.Body.String())
+	}
+	if _, err := ops.Get(context.Background(), svc.decision.OperationID); !errors.Is(err, agentstore.ErrOperationNotFound) {
+		t.Fatalf("停用后仍接受了操作：%v", err)
+	}
+	svc.mu.Lock()
+	decisions := len(svc.decided)
+	svc.mu.Unlock()
+	if decisions != 2 {
+		t.Fatalf("DecideTrigger 调用 %d 次，期望初次判决 + 锁内复核", decisions)
 	}
 }
 

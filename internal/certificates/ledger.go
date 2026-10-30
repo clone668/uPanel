@@ -94,7 +94,10 @@ func (a *JobApplier) applyImport(ctx context.Context, job JobFact, params json.R
 		return fmt.Errorf("certificates: 导入任务 %s 的参数不合法: %w", job.ID, err)
 	}
 
-	outcome, observed, result := decodeResult(job)
+	outcome, observed, result, err := decodeResult(job)
+	if err != nil {
+		return fmt.Errorf("certificates: 导入任务 %s 的报告无法解析: %w", job.ID, err)
+	}
 	if job.Status == "succeeded" && outcome == OutcomeVerified {
 		info, err := infoFromObserved(observed)
 		if err != nil {
@@ -140,7 +143,10 @@ func (a *JobApplier) applyIssue(ctx context.Context, job JobFact, params json.Ra
 			"job_id", job.ID, "certificate_id", rec.ID, "domain", normalized.Domain)
 	}
 
-	outcome, observed, result := decodeResult(job)
+	outcome, observed, result, err := decodeResult(job)
+	if err != nil {
+		return fmt.Errorf("certificates: 签发任务 %s 的报告无法解析: %w", job.ID, err)
+	}
 	if job.Status == "succeeded" && outcome == OutcomeVerified {
 		info, err := infoFromObserved(observed)
 		if err != nil {
@@ -243,18 +249,22 @@ func decodeParams(raw json.RawMessage, out any) error {
 	return json.Unmarshal(raw, out)
 }
 
-// decodeResult 解析代理报告。三段都拿不到时返回零值——失败的任务可能没有任何报告。
-func decodeResult(job JobFact) (string, map[string]any, jobResult) {
+// decodeResult 解析代理报告。报告为空时返回零值——失败的任务可能没有任何报告。
+//
+// 报告**存在却解析不了**必须报错，不能静默当成"没有报告"：那会让一个 succeeded 的
+// 任务落进失败分支，recordFailure 在一张其实签成了的证书上写下 last_error——账本上
+// 同时出现"任务成功"与"证书最后一次尝试失败"两个互相矛盾的事实。
+func decodeResult(job JobFact) (string, map[string]any, jobResult, error) {
 	var res jobResult
 	if len(strings.TrimSpace(string(job.Result))) > 0 {
 		if err := json.Unmarshal(job.Result, &res); err != nil {
-			res = jobResult{}
+			return "", nil, jobResult{}, fmt.Errorf("代理报告不是合法 JSON: %w", err)
 		}
 	}
 	if res.ObservedState == nil {
 		res.ObservedState = map[string]any{}
 	}
-	return res.Outcome, res.ObservedState, res
+	return res.Outcome, res.ObservedState, res, nil
 }
 
 // infoFromObserved 从代理报告的 observed_state 里拼出一份证书事实。

@@ -99,7 +99,7 @@ func (s *Server) handleCreateJob(c *gin.Context) {
 	job, err := s.opts.Operations.SubmitJob(c.Request.Context(), operations.SubmitInput{
 		UserID:         sess.User.ID,
 		SessionHash:    sess.BindingHash(),
-		ReauthAt:       reauthAtFor(sess),
+		ReauthAt:       reauthAtFor(s.opts.Auth, sess),
 		RequestID:      c.GetString(ctxKeyRequestID),
 		IdempotencyKey: key,
 		PreflightID:    req.PreflightID,

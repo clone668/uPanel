@@ -233,7 +233,7 @@ func (o *Operations) FindByPreflight(ctx context.Context, ref string) (Operation
 	return scanOperation(o.db.store().SQL().QueryRowContext(ctx, operationSelect+` WHERE preflight_ref = ?`, ref))
 }
 
-// ListByActor 返回某个操作者从 since 起（含）创建的操作，按创建时间升序。
+// ListByActor 返回某个操作者位于复合游标 (since, sinceID) 之后的操作，按创建时间与 ID 升序。
 //
 // 存在的理由只有一个：定时触发的操作是**代理自己**产生的，Web 没有参与那条提交路径，
 // 所以 Web 只能反过来问代理"这段时间你替我跑了什么"。CONTRACTS §15 要求这类操作
@@ -242,10 +242,10 @@ func (o *Operations) FindByPreflight(ctx context.Context, ref string) (Operation
 // 几个刻意的边界：
 //   - 只按 user_id 过滤，不提供"列出全部操作"的通道——那会把代理的执行历史变成
 //     一张可以随便翻的流水账，而不是回答一个具体问题。
-//   - 升序 + limit：调用方用"上次导到哪儿"的游标往前推；同一毫秒的多条靠 operation_id
-//     的去重（job 表 UNIQUE）兜住，所以 since 用 >= 而不是 >。
+//   - 时间与 operation_id 共同构成游标：同一时间戳超过一个批次时，单靠时间会永远
+//     重复第一页。sinceID 为空保留"从 since 起（含）"的旧语义，用于首次读取该时间点。
 //   - limit 有上限，且没有负数/零通融：调用方要自己给出合理的批量。
-func (o *Operations) ListByActor(ctx context.Context, userID int64, since time.Time, limit int) ([]Operation, error) {
+func (o *Operations) ListByActor(ctx context.Context, userID int64, since time.Time, sinceID string, limit int) ([]Operation, error) {
 	if userID <= 0 {
 		return nil, fmt.Errorf("%w: user_id 必须为正数", ErrOperationInvalid)
 	}
@@ -258,8 +258,13 @@ func (o *Operations) ListByActor(ctx context.Context, userID int64, since time.T
 	args := []any{userID}
 	query := operationSelect + ` WHERE user_id = ?`
 	if !since.IsZero() {
-		query += ` AND created_at >= ?`
-		args = append(args, millis(since))
+		if sinceID == "" {
+			query += ` AND created_at >= ?`
+			args = append(args, millis(since))
+		} else {
+			query += ` AND (created_at > ? OR (created_at = ? AND operation_id > ?))`
+			args = append(args, millis(since), millis(since), sinceID)
+		}
 	}
 	query += ` ORDER BY created_at ASC, operation_id ASC LIMIT ?`
 	args = append(args, limit)
