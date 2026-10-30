@@ -54,6 +54,14 @@ VERSION                         本次发布的版本号
 
 ## 3. 先校验，再解包
 
+发布包在 GitHub Releases 上（每个 tag 由 release 工作流构建并附带），真机下载示例：
+
+```sh
+# 把 1.0.0 换成要装的版本；amd64 换成 arm64 即 ARM 机器
+curl -fLO https://github.com/clone668/uPanel/releases/download/v1.0.0/upanel-1.0.0-linux-amd64.tar.gz
+curl -fLO https://github.com/clone668/uPanel/releases/download/v1.0.0/SHA256SUMS
+```
+
 ```sh
 # 1) 校验发布包本身（SHA256SUMS 与 tar.gz 必须放在同一个目录）
 sha256sum -c SHA256SUMS

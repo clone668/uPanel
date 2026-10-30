@@ -1,7 +1,8 @@
 name: ci
 
 # uPanel 持续集成：只运行仓库中真实存在的检查。
-# 说明：本工作流由 P00 建立，尚未在远端执行过；PROGRESS.md 中标记为 NOT RUN。
+# 在 Ubuntu 24.04 runner 上跑 scripts/check.sh 全部门禁（Linux 专属测试因此
+# 真正被执行，而不是只交叉编译）。
 # 版本全部与 docs/DEPENDENCIES.md 一致，禁止在此处随手升级。
 
 on:
@@ -39,3 +40,7 @@ jobs:
 
       - name: Run unified checks
         run: sh scripts/check.sh
+
+      - name: Go race detector（并发修复涉及的包）
+        # 全量 -race 会把 CI 拖到超时；这里覆盖本次审核修过并发语义的包。
+        run: go test -race -count=1 ./internal/auth ./internal/operations ./internal/files ./internal/notifications ./internal/metrics ./internal/agentstore ./internal/terminal ./internal/monitoring ./internal/accounts

@@ -1,0 +1,64 @@
+name: release
+
+# uPanel 发布流：打 tag（v*）时在干净的 Ubuntu 24.04 runner 上构建两个架构的
+# 发布包，连同 SHA256SUMS 一起挂到对应的 GitHub Release 上。
+#
+# 真机部署因此只需要三件事：下载 tar.gz → sha256sum -c 校验 → install.sh。
+# 真机不需要 Go、不需要 Node，构建环境与版本全部钉死在这里。
+#
+# 用法：
+#   git tag v1.0.0 && git push origin v1.0.0
+# 工作流会创建名为 "1.0.0" 的 Release（去掉 v 前缀，与 scripts/release.sh 的
+# VERSION 一致），包名形如 upanel-1.0.0-linux-amd64.tar.gz。
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: build + publish packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.27.3'
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies from lockfile
+        run: npm --prefix web ci --ignore-scripts --no-audit --no-fund
+
+      - name: Build frontend and host binaries
+        # release.sh 要求前端产物先在 internal/webui/dist（go:embed 编译期读取），
+        # 顺序不能换：先 build.sh 再 release.sh。
+        run: sh scripts/build.sh
+
+      - name: Build release packages
+        # tag 去掉 v 前缀作为版本号：v1.0.0 → upanel-1.0.0-linux-amd64.tar.gz。
+        run: VERSION="${GITHUB_REF_NAME#v}" sh scripts/release.sh
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          version="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$version" \
+            --notes "校验：sha256sum -c SHA256SUMS；安装：tar xzf 后见包内 deploy/scripts/install.sh（说明见 docs/INSTALL.md）。" \
+            dist/*.tar.gz dist/SHA256SUMS
